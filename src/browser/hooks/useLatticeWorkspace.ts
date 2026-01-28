@@ -1,6 +1,6 @@
 /**
  * Hook for managing Lattice workspace async data in the creation flow.
- * Fetches Coder CLI info, templates, presets, and existing workspaces.
+ * Fetches Lattice CLI info, templates, presets, and existing workspaces.
  *
  * The `latticeConfig` state is owned by the parent (via selectedRuntime.lattice) and passed in.
  * This hook only manages async-fetched data and derived state.
@@ -39,31 +39,31 @@ export function buildAutoSelectedTemplateConfig(
 }
 
 interface UseLatticeWorkspaceOptions {
-  /** Current Coder config (null = disabled, owned by parent via selectedRuntime.lattice) */
+  /** Current Lattice config (null = disabled, owned by parent via selectedRuntime.lattice) */
   latticeConfig: LatticeWorkspaceConfig | null;
-  /** Callback to update Coder config (updates selectedRuntime.lattice) */
-  onCoderConfigChange: (config: LatticeWorkspaceConfig | null) => void;
+  /** Callback to update Lattice config (updates selectedRuntime.lattice) */
+  onLatticeConfigChange: (config: LatticeWorkspaceConfig | null) => void;
 }
 
 interface UseLatticeWorkspaceReturn {
-  /** Whether Coder is enabled (derived: latticeConfig != null AND latticeInfo available) */
+  /** Whether Lattice is enabled (derived: latticeConfig != null AND latticeInfo available) */
   enabled: boolean;
-  /** Toggle Coder on/off (calls onCoderConfigChange with config or null) */
+  /** Toggle Lattice on/off (calls onLatticeConfigChange with config or null) */
   setEnabled: (enabled: boolean) => void;
 
-  /** Coder CLI availability info */
+  /** Lattice CLI availability info */
   latticeInfo: LatticeInfo | null;
 
-  /** Current Coder configuration (passed through from props) */
+  /** Current Lattice configuration (passed through from props) */
   latticeConfig: LatticeWorkspaceConfig | null;
-  /** Update Coder config (passed through from props) */
-  setCoderConfig: (config: LatticeWorkspaceConfig | null) => void;
+  /** Update Lattice config (passed through from props) */
+  setLatticeConfig: (config: LatticeWorkspaceConfig | null) => void;
 
   /** Available templates */
   templates: LatticeTemplate[];
   /** Presets for the currently selected template */
   presets: LatticePreset[];
-  /** Running Lattice workspaces */
+  /** Running Lattice agents */
   existingWorkspaces: LatticeWorkspace[];
 
   /** Loading states */
@@ -73,20 +73,20 @@ interface UseLatticeWorkspaceReturn {
 }
 
 /**
- * Manages Lattice workspace async data for the creation flow.
+ * Manages Lattice agent async data for the creation flow.
  *
  * Fetches data lazily:
- * - Coder info is fetched on mount
- * - Templates are fetched when Coder is enabled
+ * - Lattice info is fetched on mount
+ * - Templates are fetched when Lattice is enabled
  * - Presets are fetched when a template is selected
- * - Workspaces are fetched when Coder is enabled
+ * - Agents are fetched when Lattice is enabled
  *
  * State ownership: latticeConfig is owned by parent (selectedRuntime.lattice).
  * This hook derives `enabled` from latticeConfig and manages only async data.
  */
 export function useLatticeWorkspace({
   latticeConfig,
-  onCoderConfigChange,
+  onLatticeConfigChange,
 }: UseLatticeWorkspaceOptions): UseLatticeWorkspaceReturn {
   const { api } = useAPI();
 
@@ -99,9 +99,9 @@ export function useLatticeWorkspace({
 
   // Refs to access current values in async callbacks (avoids stale closures)
   const latticeConfigRef = useRef(latticeConfig);
-  const onCoderConfigChangeRef = useRef(onCoderConfigChange);
+  const onLatticeConfigChangeRef = useRef(onLatticeConfigChange);
   latticeConfigRef.current = latticeConfig;
-  onCoderConfigChangeRef.current = onCoderConfigChange;
+  onLatticeConfigChangeRef.current = onLatticeConfigChange;
   const [templates, setTemplates] = useState<LatticeTemplate[]>([]);
   const [presets, setPresets] = useState<LatticePreset[]>([]);
   const [existingWorkspaces, setExistingWorkspaces] = useState<LatticeWorkspace[]>([]);
@@ -111,7 +111,7 @@ export function useLatticeWorkspace({
   const [loadingPresets, setLoadingPresets] = useState(false);
   const [loadingWorkspaces, setLoadingWorkspaces] = useState(false);
 
-  // Fetch Coder info on mount
+  // Fetch Lattice info on mount
   useEffect(() => {
     if (!api) return;
 
@@ -122,9 +122,9 @@ export function useLatticeWorkspace({
       .then((info) => {
         if (mounted) {
           setLatticeInfo(info);
-          // Clear Coder config when CLI is not available (outdated or unavailable)
+          // Clear Lattice config when CLI is not available (outdated or unavailable)
           if (info.state !== "available" && latticeConfigRef.current != null) {
-            onCoderConfigChangeRef.current(null);
+            onLatticeConfigChangeRef.current(null);
           }
         }
       })
@@ -134,9 +134,9 @@ export function useLatticeWorkspace({
             state: "unavailable",
             reason: { kind: "error", message: "Failed to fetch" },
           });
-          // Clear Coder config on fetch failure
+          // Clear Lattice config on fetch failure
           if (latticeConfigRef.current != null) {
-            onCoderConfigChangeRef.current(null);
+            onLatticeConfigChangeRef.current(null);
           }
         }
       });
@@ -146,7 +146,7 @@ export function useLatticeWorkspace({
     };
   }, [api]);
 
-  // Fetch templates when Coder is enabled
+  // Fetch templates when Lattice is enabled
   useEffect(() => {
     if (!api || !enabled || latticeInfo?.state !== "available") {
       setTemplates([]);
@@ -165,7 +165,7 @@ export function useLatticeWorkspace({
           // Auto-select first template if none selected
           const autoConfig = buildAutoSelectedTemplateConfig(latticeConfigRef.current, result);
           if (autoConfig) {
-            onCoderConfigChange(autoConfig);
+            onLatticeConfigChange(autoConfig);
           }
         }
       })
@@ -186,7 +186,7 @@ export function useLatticeWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally only re-fetch on enable/state changes, not on latticeConfig changes
   }, [api, enabled, latticeInfo?.state]);
 
-  // Fetch existing workspaces when Coder is enabled
+  // Fetch existing agents when Lattice is enabled
   useEffect(() => {
     if (!api || !enabled || latticeInfo?.state !== "available") {
       setExistingWorkspaces([]);
@@ -263,7 +263,7 @@ export function useLatticeWorkspace({
           if (result.length === 1) {
             const onlyPreset = result[0];
             if (onlyPreset && currentConfig.preset !== onlyPreset.name) {
-              onCoderConfigChange({ ...currentConfig, preset: onlyPreset.name });
+              onLatticeConfigChange({ ...currentConfig, preset: onlyPreset.name });
             }
           } else if (result.length >= 2 && !currentConfig.preset) {
             // Auto-select default preset if available, otherwise first preset
@@ -271,10 +271,10 @@ export function useLatticeWorkspace({
             const defaultPreset = result.find((p) => p.isDefault);
             const presetToSelect = defaultPreset ?? result[0];
             if (presetToSelect) {
-              onCoderConfigChange({ ...currentConfig, preset: presetToSelect.name });
+              onLatticeConfigChange({ ...currentConfig, preset: presetToSelect.name });
             }
           } else if (result.length === 0 && currentConfig.preset) {
-            onCoderConfigChange({ ...currentConfig, preset: undefined });
+            onLatticeConfigChange({ ...currentConfig, preset: undefined });
           }
         }
       })
@@ -319,16 +319,16 @@ export function useLatticeWorkspace({
                 t.organizationName !== firstTemplate.organizationName
             )
           : false;
-        onCoderConfigChange({
+        onLatticeConfigChange({
           existingWorkspace: false,
           template: firstTemplate?.name,
           templateOrg: firstIsDuplicate ? firstTemplate?.organizationName : undefined,
         });
       } else {
-        onCoderConfigChange(null);
+        onLatticeConfigChange(null);
       }
     },
-    [templates, onCoderConfigChange]
+    [templates, onLatticeConfigChange]
   );
 
   return {
@@ -336,7 +336,7 @@ export function useLatticeWorkspace({
     setEnabled: handleSetEnabled,
     latticeInfo,
     latticeConfig,
-    setCoderConfig: onCoderConfigChange,
+    setLatticeConfig: onLatticeConfigChange,
     templates,
     presets,
     existingWorkspaces,

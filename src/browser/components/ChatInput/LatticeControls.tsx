@@ -1,6 +1,6 @@
 /**
  * Lattice workspace controls for SSH runtime.
- * Enables creating or connecting to Coder cloud workspaces.
+ * Enables creating or connecting to Lattice cloud workspaces.
  */
 import React from "react";
 import type {
@@ -20,12 +20,12 @@ export interface LatticeControlsProps {
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
 
-  /** Coder CLI availability info (null while checking) */
+  /** Lattice CLI availability info (null while checking) */
   latticeInfo: LatticeInfo | null;
 
-  /** Current Coder configuration */
+  /** Current Lattice configuration */
   latticeConfig: LatticeWorkspaceConfig | null;
-  onCoderConfigChange: (config: LatticeWorkspaceConfig | null) => void;
+  onLatticeConfigChange: (config: LatticeWorkspaceConfig | null) => void;
 
   /** Data for dropdowns (loaded async) */
   templates: LatticeTemplate[];
@@ -44,14 +44,14 @@ export interface LatticeControlsProps {
   hasError?: boolean;
 }
 
-type CoderMode = "new" | "existing";
+type LatticeMode = "new" | "existing";
 
 /**
  * Lattice workspace controls component.
- * Shows checkbox to enable Coder, then New/Existing toggle with appropriate dropdowns.
+ * Shows checkbox to enable Lattice, then New/Existing toggle with appropriate dropdowns.
  */
 /** Checkbox row with optional status indicator and tooltip for disabled state */
-function CoderCheckbox(props: {
+function LatticeCheckbox(props: {
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
   disabled: boolean;
@@ -72,10 +72,10 @@ function CoderCheckbox(props: {
         onChange={(e) => props.onEnabledChange(e.target.checked)}
         disabled={props.disabled || Boolean(props.disabledReason)}
         className={cn("accent-accent", props.disabledReason && "cursor-not-allowed opacity-50")}
-        data-testid="coder-checkbox"
+        data-testid="lattice-checkbox"
       />
       <span className={cn("text-muted", props.disabledReason && "opacity-50")}>
-        Use Coder Workspace
+        Use Lattice Workspace
       </span>
       {props.status}
     </label>
@@ -104,7 +104,7 @@ export function LatticeControls(props: LatticeControlsProps) {
     onEnabledChange,
     latticeInfo,
     latticeConfig,
-    onCoderConfigChange,
+    onLatticeConfigChange,
     templates,
     presets,
     existingWorkspaces,
@@ -118,8 +118,8 @@ export function LatticeControls(props: LatticeControlsProps) {
   // Coder CLI status: loading (null), unavailable, outdated, or available
   if (latticeInfo === null) {
     return (
-      <div className="flex flex-col gap-1.5" data-testid="coder-controls">
-        <CoderCheckbox
+      <div className="flex flex-col gap-1.5" data-testid="lattice-controls">
+        <LatticeCheckbox
           enabled={enabled}
           onEnabledChange={onEnabledChange}
           disabled={disabled}
@@ -136,10 +136,10 @@ export function LatticeControls(props: LatticeControlsProps) {
 
   // CLI outdated: show checkbox disabled with tooltip explaining version mismatch
   if (latticeInfo.state === "outdated") {
-    const reason = `Coder CLI v${latticeInfo.version} is below the minimum required v${latticeInfo.minVersion}. Update the CLI to enable.`;
+    const reason = `Lattice CLI v${latticeInfo.version} is below the minimum required v${latticeInfo.minVersion}. Update the CLI to enable.`;
     return (
-      <div className="flex flex-col gap-1.5" data-testid="coder-controls">
-        <CoderCheckbox
+      <div className="flex flex-col gap-1.5" data-testid="lattice-controls">
+        <LatticeCheckbox
           enabled={false}
           onEnabledChange={onEnabledChange}
           disabled={disabled}
@@ -154,12 +154,12 @@ export function LatticeControls(props: LatticeControlsProps) {
     return null;
   }
 
-  const mode: CoderMode = latticeConfig?.existingWorkspace ? "existing" : "new";
+  const mode: LatticeMode = latticeConfig?.existingWorkspace ? "existing" : "new";
 
-  const handleModeChange = (newMode: CoderMode) => {
+  const handleModeChange = (newMode: LatticeMode) => {
     if (newMode === "existing") {
       // Switch to existing workspace mode (workspaceName starts empty, user selects)
-      onCoderConfigChange({
+      onLatticeConfigChange({
         workspaceName: undefined,
         existingWorkspace: true,
       });
@@ -172,7 +172,7 @@ export function LatticeControls(props: LatticeControlsProps) {
               t.name === firstTemplate.name && t.organizationName !== firstTemplate.organizationName
           )
         : false;
-      onCoderConfigChange({
+      onLatticeConfigChange({
         existingWorkspace: false,
         template: firstTemplate?.name,
         templateOrg: firstIsDuplicate ? firstTemplate?.organizationName : undefined,
@@ -188,7 +188,7 @@ export function LatticeControls(props: LatticeControlsProps) {
     const templateName = maybeName ?? orgOrName;
     const templateOrg = maybeName ? orgOrName : undefined;
 
-    onCoderConfigChange({
+    onLatticeConfigChange({
       ...latticeConfig,
       template: templateName,
       templateOrg,
@@ -200,14 +200,14 @@ export function LatticeControls(props: LatticeControlsProps) {
   const handlePresetChange = (presetName: string) => {
     if (!latticeConfig) return;
 
-    onCoderConfigChange({
+    onLatticeConfigChange({
       ...latticeConfig,
       preset: presetName || undefined,
     });
   };
 
   const handleExistingWorkspaceChange = (workspaceName: string) => {
-    onCoderConfigChange({
+    onLatticeConfigChange({
       workspaceName,
       existingWorkspace: true,
     });
@@ -224,24 +224,24 @@ export function LatticeControls(props: LatticeControlsProps) {
         : (latticeConfig?.preset ?? defaultPresetName ?? presets[0]?.name);
 
   return (
-    <div className="flex flex-col gap-1.5" data-testid="coder-controls">
-      <CoderCheckbox enabled={enabled} onEnabledChange={onEnabledChange} disabled={disabled} />
+    <div className="flex flex-col gap-1.5" data-testid="lattice-controls">
+      <LatticeCheckbox enabled={enabled} onEnabledChange={onEnabledChange} disabled={disabled} />
 
-      {/* Coder controls - only shown when enabled */}
+      {/* Lattice controls - only shown when enabled */}
       {enabled && (
         <div
           className={cn(
             "flex w-fit rounded-md border",
             hasError ? "border-red-500" : "border-border-medium"
           )}
-          data-testid="coder-controls-inner"
+          data-testid="lattice-controls-inner"
         >
           {/* Left column: New/Existing toggle buttons */}
           <div
             className="border-border-medium flex flex-col gap-1 border-r p-2 pr-3"
             role="group"
-            aria-label="Lattice workspace mode"
-            data-testid="coder-mode-toggle"
+            aria-label="Lattice agent mode"
+            data-testid="lattice-mode-toggle"
           >
             <Tooltip>
               <TooltipTrigger asChild>
@@ -260,7 +260,7 @@ export function LatticeControls(props: LatticeControlsProps) {
                   New
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Create a new Lattice workspace from a template</TooltipContent>
+              <TooltipContent>Create a new Lattice agent from a template</TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -279,12 +279,12 @@ export function LatticeControls(props: LatticeControlsProps) {
                   Existing
                 </button>
               </TooltipTrigger>
-              <TooltipContent>Connect to an existing Lattice workspace</TooltipContent>
+              <TooltipContent>Connect to an existing Lattice agent</TooltipContent>
             </Tooltip>
           </div>
 
           {/* Right column: Mode-specific controls */}
-          {/* New workspace controls - template/preset stacked vertically */}
+          {/* New agent controls - template/preset stacked vertically */}
           {mode === "new" && (
             <div className="flex flex-col gap-1 p-2 pl-3">
               <div className="flex h-7 items-center gap-2">
@@ -319,7 +319,7 @@ export function LatticeControls(props: LatticeControlsProps) {
                   >
                     <SelectTrigger
                       className="h-7 w-[180px] text-xs"
-                      data-testid="coder-template-select"
+                      data-testid="lattice-template-select"
                     >
                       <SelectValue placeholder="No templates" />
                     </SelectTrigger>
@@ -357,7 +357,7 @@ export function LatticeControls(props: LatticeControlsProps) {
                   >
                     <SelectTrigger
                       className="h-7 w-[180px] text-xs"
-                      data-testid="coder-preset-select"
+                      data-testid="lattice-preset-select"
                     >
                       <SelectValue placeholder="No presets" />
                     </SelectTrigger>
@@ -374,10 +374,10 @@ export function LatticeControls(props: LatticeControlsProps) {
             </div>
           )}
 
-          {/* Existing workspace controls - min-h matches New mode (2×h-7 + gap-1 + p-2) */}
+          {/* Existing agent controls - min-h matches New mode (2×h-7 + gap-1 + p-2) */}
           {mode === "existing" && (
             <div className="flex min-h-[4.75rem] min-w-[16rem] items-center gap-2 p-2 pl-3">
-              <label className="text-muted-foreground text-xs">Workspace</label>
+              <label className="text-muted-foreground text-xs">Agent</label>
               {loadingWorkspaces ? (
                 <Loader2 className="text-muted h-4 w-4 animate-spin" />
               ) : (
@@ -388,13 +388,13 @@ export function LatticeControls(props: LatticeControlsProps) {
                 >
                   <SelectTrigger
                     className="h-7 w-[180px] text-xs"
-                    data-testid="coder-workspace-select"
+                    data-testid="lattice-agent-select"
                   >
                     <SelectValue
                       placeholder={
                         existingWorkspaces.length === 0
-                          ? "No workspaces found"
-                          : "Select workspace..."
+                          ? "No agents found"
+                          : "Select agent..."
                       }
                     />
                   </SelectTrigger>

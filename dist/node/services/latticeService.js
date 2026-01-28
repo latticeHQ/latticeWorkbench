@@ -55,7 +55,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.latticeService = exports.LatticeService = void 0;
 exports.compareVersions = compareVersions;
 /**
- * Service for interacting with the Coder CLI.
+ * Service for interacting with the Lattice CLI.
  * Used to create/manage Lattice workspaces as SSH targets for Unix workspaces.
  */
 const streamUtils_1 = require("../../node/runtime/streamUtils");
@@ -64,7 +64,7 @@ const log_1 = require("../../node/services/log");
 const child_process_1 = require("child_process");
 const lattice_1 = require("../../common/orpc/schemas/lattice");
 /**
- * Serialize a Coder parameter default_value to string.
+ * Serialize a Lattice parameter default_value to string.
  * Preserves numeric/boolean/array values instead of coercing to "".
  */
 function serializeParameterDefault(value) {
@@ -77,8 +77,8 @@ function serializeParameterDefault(value) {
     // Arrays/objects (e.g., list(string) type) → JSON
     return JSON.stringify(value);
 }
-// Minimum supported Coder CLI version
-const MIN_LATTICE_VERSION = "2.25.0";
+// Minimum supported Lattice CLI version
+const MIN_LATTICE_VERSION = "0.7.0";
 /**
  * Normalize a version string for comparison.
  * Strips leading "v", dev suffixes like "-devel+hash", and build metadata.
@@ -145,21 +145,21 @@ function createGracefulTerminator(child, options) {
     return { terminate, cleanup };
 }
 /**
- * Stream output from a coder CLI command line by line.
+ * Stream output from a lattice CLI command line by line.
  * Yields lines as they arrive from stdout/stderr.
  * Throws on non-zero exit with stderr content in the error message.
  *
  * @param args Command arguments (e.g., ["start", "-y", "my-ws"])
- * @param errorPrefix Prefix for error messages (e.g., "coder start failed")
+ * @param errorPrefix Prefix for error messages (e.g., "lattice start failed")
  * @param abortSignal Optional signal to cancel the command
  * @param abortMessage Message to throw when aborted
  */
-async function* streamCoderCommand(args, errorPrefix, abortSignal, abortMessage = "Coder command aborted") {
+async function* streamLatticeCommand(args, errorPrefix, abortSignal, abortMessage = "Lattice command aborted") {
     if (abortSignal?.aborted) {
         throw new Error(abortMessage);
     }
     // Yield the command we're about to run so it's visible in UI
-    yield `$ coder ${args.join(" ")}`;
+    yield `$ lattice ${args.join(" ")}`;
     const child = (0, child_process_1.spawn)("lattice", args, {
         stdio: ["ignore", "pipe", "pipe"],
     });
@@ -252,7 +252,7 @@ async function* streamCoderCommand(args, errorPrefix, abortSignal, abortMessage 
         abortSignal?.removeEventListener("abort", abortHandler);
     }
 }
-function interpretCoderResult(result) {
+function interpretLatticeResult(result) {
     const combined = `${result.stderr}\n${result.stdout}`.trim();
     if (result.error) {
         return { ok: false, error: result.error, combined };
@@ -269,7 +269,7 @@ function interpretCoderResult(result) {
 class LatticeService {
     cachedInfo = null;
     /**
-     * Get Coder CLI info. Caches result for the session.
+     * Get Lattice CLI info. Caches result for the session.
      * Returns discriminated union: available | outdated | unavailable.
      */
     async getLatticeInfo() {
@@ -279,7 +279,7 @@ class LatticeService {
         try {
             const env_1 = { stack: [], error: void 0, hasError: false };
             try {
-                const proc = __addDisposableResource(env_1, (0, disposableExec_1.execAsync)("coder version --output=json"), false);
+                const proc = __addDisposableResource(env_1, (0, disposableExec_1.execAsync)("lattice version --output=json"), false);
                 const { stdout } = await proc.result;
                 // Parse JSON output
                 const data = JSON.parse(stdout);
@@ -293,7 +293,7 @@ class LatticeService {
                 }
                 // Check minimum version
                 if (compareVersions(version, MIN_LATTICE_VERSION) < 0) {
-                    log_1.log.debug(`Coder CLI version ${version} is below minimum ${MIN_LATTICE_VERSION}`);
+                    log_1.log.debug(`Lattice CLI version ${version} is below minimum ${MIN_LATTICE_VERSION}`);
                     this.cachedInfo = { state: "outdated", version, minVersion: MIN_LATTICE_VERSION };
                     return this.cachedInfo;
                 }
@@ -309,15 +309,15 @@ class LatticeService {
             }
         }
         catch (error) {
-            log_1.log.debug("Coder CLI not available", { error });
-            this.cachedInfo = this.classifyCoderError(error);
+            log_1.log.debug("Lattice CLI not available", { error });
+            this.cachedInfo = this.classifyLatticeError(error);
             return this.cachedInfo;
         }
     }
     /**
-     * Classify an error from the Coder CLI as missing or error with message.
+     * Classify an error from the Lattice CLI as missing or error with message.
      */
-    classifyCoderError(error) {
+    classifyLatticeError(error) {
         // ENOENT or "command not found" = CLI not installed
         if (error instanceof Error) {
             const code = error.code;
@@ -337,23 +337,23 @@ class LatticeService {
         return { state: "unavailable", reason: { kind: "error", message: "Unknown error" } };
     }
     /**
-     * Clear cached Coder info. Used for testing.
+     * Clear cached Lattice info. Used for testing.
      */
     clearCache() {
         this.cachedInfo = null;
     }
     /**
-     * Get the Coder deployment URL via `coder whoami`.
-     * Throws if Coder CLI is not configured/logged in.
+     * Get the Lattice deployment URL via `lattice whoami`.
+     * Throws if Lattice CLI is not configured/logged in.
      */
     async getDeploymentUrl() {
         const env_2 = { stack: [], error: void 0, hasError: false };
         try {
-            const proc = __addDisposableResource(env_2, (0, disposableExec_1.execAsync)("coder whoami --output json"), false);
+            const proc = __addDisposableResource(env_2, (0, disposableExec_1.execAsync)("lattice whoami --output json"), false);
             const { stdout } = await proc.result;
             const data = JSON.parse(stdout);
             if (!data[0]?.url) {
-                throw new Error("Could not determine Coder deployment URL from `coder whoami`");
+                throw new Error("Could not determine Lattice deployment URL from `lattice whoami`");
             }
             return data[0].url;
         }
@@ -372,8 +372,8 @@ class LatticeService {
     async getActiveTemplateVersionId(templateName, org) {
         const env_3 = { stack: [], error: void 0, hasError: false };
         try {
-            // Note: `coder templates list` doesn't support --org flag, so we filter client-side
-            const proc = __addDisposableResource(env_3, (0, disposableExec_1.execAsync)("coder templates list --output=json"), false);
+            // Note: `lattice templates list` doesn't support --org flag, so we filter client-side
+            const proc = __addDisposableResource(env_3, (0, disposableExec_1.execAsync)("lattice templates list --output=json"), false);
             const { stdout } = await proc.result;
             if (!stdout.trim()) {
                 throw new Error(`Template "${templateName}" not found (no templates exist)`);
@@ -404,7 +404,7 @@ class LatticeService {
             const env_4 = { stack: [], error: void 0, hasError: false };
             try {
                 const orgFlag = org ? ` --org ${streamUtils_1.shescape.quote(org)}` : "";
-                const proc = __addDisposableResource(env_4, (0, disposableExec_1.execAsync)(`coder templates presets list ${streamUtils_1.shescape.quote(templateName)}${orgFlag} --output=json`), false);
+                const proc = __addDisposableResource(env_4, (0, disposableExec_1.execAsync)(`lattice templates presets list ${streamUtils_1.shescape.quote(templateName)}${orgFlag} --output=json`), false);
                 const { stdout } = await proc.result;
                 if (!stdout.trim()) {
                     return new Set();
@@ -430,7 +430,7 @@ class LatticeService {
         }
     }
     /**
-     * Parse rich parameter data from the Coder API.
+     * Parse rich parameter data from the Lattice API.
      * Filters out entries with missing/invalid names to avoid generating invalid --parameter flags.
      */
     parseRichParameters(data) {
@@ -453,7 +453,7 @@ class LatticeService {
         }));
     }
     /**
-     * Fetch template rich parameters from Coder API.
+     * Fetch template rich parameters from Lattice API.
      * Creates a short-lived token, fetches params, then cleans up the token.
      */
     async getTemplateRichParameters(deploymentUrl, versionId, workspaceName) {
@@ -461,13 +461,13 @@ class LatticeService {
         try {
             // Create short-lived token named after workspace (avoids keychain read issues)
             const tokenName = `unix-${workspaceName}`;
-            const tokenProc = __addDisposableResource(env_5, (0, disposableExec_1.execAsync)(`coder tokens create --lifetime 5m --name ${streamUtils_1.shescape.quote(tokenName)}`), false);
+            const tokenProc = __addDisposableResource(env_5, (0, disposableExec_1.execAsync)(`lattice tokens create --lifetime 5m --name ${streamUtils_1.shescape.quote(tokenName)}`), false);
             const { stdout: token } = await tokenProc.result;
             try {
                 const url = new URL(`/api/v2/templateversions/${versionId}/rich-parameters`, deploymentUrl).toString();
                 const response = await fetch(url, {
                     headers: {
-                        "Coder-Session-Token": token.trim(),
+                        "Lattice-Session-Token": token.trim(),
                     },
                 });
                 if (!response.ok) {
@@ -481,7 +481,7 @@ class LatticeService {
                 try {
                     const env_6 = { stack: [], error: void 0, hasError: false };
                     try {
-                        const deleteProc = __addDisposableResource(env_6, (0, disposableExec_1.execAsync)(`coder tokens delete ${streamUtils_1.shescape.quote(tokenName)}`), false);
+                        const deleteProc = __addDisposableResource(env_6, (0, disposableExec_1.execAsync)(`lattice tokens delete ${streamUtils_1.shescape.quote(tokenName)}`), false);
                         await deleteProc.result;
                     }
                     catch (e_5) {
@@ -507,7 +507,7 @@ class LatticeService {
         }
     }
     /**
-     * Encode a parameter string for the Coder CLI's --parameter flag.
+     * Encode a parameter string for the Lattice CLI's --parameter flag.
      * The CLI uses CSV parsing, so values containing quotes or commas need escaping:
      * - Wrap the entire string in double quotes
      * - Escape internal double quotes as ""
@@ -558,13 +558,13 @@ class LatticeService {
         }
     }
     /**
-     * List available Coder templates.
+     * List available Lattice templates.
      */
     async listTemplates() {
         try {
             const env_7 = { stack: [], error: void 0, hasError: false };
             try {
-                const proc = __addDisposableResource(env_7, (0, disposableExec_1.execAsync)("coder templates list --output=json"), false);
+                const proc = __addDisposableResource(env_7, (0, disposableExec_1.execAsync)("lattice templates list --output=json"), false);
                 const { stdout } = await proc.result;
                 // Handle empty output (no templates)
                 if (!stdout.trim()) {
@@ -587,9 +587,9 @@ class LatticeService {
             }
         }
         catch (error) {
-            // Common user state: Coder CLI installed but not configured/logged in.
+            // Common user state: Lattice CLI installed but not configured/logged in.
             // Don't spam error logs for UI list calls.
-            log_1.log.debug("Failed to list Coder templates", { error });
+            log_1.log.debug("Failed to list Lattice templates", { error });
             return [];
         }
     }
@@ -603,7 +603,7 @@ class LatticeService {
             const env_8 = { stack: [], error: void 0, hasError: false };
             try {
                 const orgFlag = org ? ` --org ${streamUtils_1.shescape.quote(org)}` : "";
-                const proc = __addDisposableResource(env_8, (0, disposableExec_1.execAsync)(`coder templates presets list ${streamUtils_1.shescape.quote(templateName)}${orgFlag} --output=json`), false);
+                const proc = __addDisposableResource(env_8, (0, disposableExec_1.execAsync)(`lattice templates presets list ${streamUtils_1.shescape.quote(templateName)}${orgFlag} --output=json`), false);
                 const { stdout } = await proc.result;
                 // Handle empty output (no presets)
                 if (!stdout.trim()) {
@@ -627,7 +627,7 @@ class LatticeService {
             }
         }
         catch (error) {
-            log_1.log.debug("Failed to list Coder presets (may not exist for template)", {
+            log_1.log.debug("Failed to list Lattice presets (may not exist for template)", {
                 templateName,
                 error,
             });
@@ -637,14 +637,14 @@ class LatticeService {
     /**
      * Check if a Lattice workspace exists by name.
      *
-     * Uses `coder list --search name:<workspace>` so we don't have to fetch all workspaces.
-     * Note: Coder's `--search` is prefix-based server-side, so we must exact-match locally.
+     * Uses `lattice list --search name:<workspace>` so we don't have to fetch all workspaces.
+     * Note: Lattice's `--search` is prefix-based server-side, so we must exact-match locally.
      */
     async workspaceExists(workspaceName) {
         try {
             const env_9 = { stack: [], error: void 0, hasError: false };
             try {
-                const proc = __addDisposableResource(env_9, (0, disposableExec_1.execAsync)(`coder list --search ${streamUtils_1.shescape.quote(`name:${workspaceName}`)} --output=json`), false);
+                const proc = __addDisposableResource(env_9, (0, disposableExec_1.execAsync)(`lattice list --search ${streamUtils_1.shescape.quote(`name:${workspaceName}`)} --output=json`), false);
                 const { stdout } = await proc.result;
                 if (!stdout.trim()) {
                     return false;
@@ -661,7 +661,7 @@ class LatticeService {
             }
         }
         catch (error) {
-            // Best-effort: if Coder isn't configured/logged in, treat as "doesn't exist" so we
+            // Best-effort: if Lattice isn't configured/logged in, treat as "doesn't exist" so we
             // don't block creation (later steps will fail with a more actionable error).
             log_1.log.debug("Failed to check if Lattice workspace exists", { workspaceName, error });
             return false;
@@ -676,7 +676,7 @@ class LatticeService {
         try {
             const env_10 = { stack: [], error: void 0, hasError: false };
             try {
-                const proc = __addDisposableResource(env_10, (0, disposableExec_1.execAsync)("coder list --output=json"), false);
+                const proc = __addDisposableResource(env_10, (0, disposableExec_1.execAsync)("lattice list --output=json"), false);
                 const { stdout } = await proc.result;
                 // Handle empty output (no workspaces)
                 if (!stdout.trim()) {
@@ -702,19 +702,19 @@ class LatticeService {
             }
         }
         catch (error) {
-            // Common user state: Coder CLI installed but not configured/logged in.
+            // Common user state: Lattice CLI installed but not configured/logged in.
             // Don't spam error logs for UI list calls.
             log_1.log.debug("Failed to list Lattice workspaces", { error });
             return [];
         }
     }
     /**
-     * Run a `coder` CLI command with timeout + optional cancellation.
+     * Run a `lattice` CLI command with timeout + optional cancellation.
      *
      * We use spawn (not execAsync) so ensureReady() can't hang forever on a stuck
-     * Coder CLI invocation.
+     * Lattice CLI invocation.
      */
-    runCoderCommand(args, options) {
+    runLatticeCommand(args, options) {
         return new Promise((resolve) => {
             if (options.timeoutMs <= 0) {
                 resolve({ exitCode: null, stdout: "", stderr: "", error: "timeout" });
@@ -785,14 +785,14 @@ class LatticeService {
     /**
      * Get workspace status using control-plane query.
      *
-     * Note: `coder list --search 'name:X'` is prefix-based on the server,
+     * Note: `lattice list --search 'name:X'` is prefix-based on the server,
      * so we must exact-match the workspace name client-side.
      */
     async getWorkspaceStatus(workspaceName, options) {
         const timeoutMs = options?.timeoutMs ?? 10_000;
         try {
-            const result = await this.runCoderCommand(["list", "--search", `name:${workspaceName}`, "--output", "json"], { timeoutMs, signal: options?.signal });
-            const interpreted = interpretCoderResult(result);
+            const result = await this.runLatticeCommand(["list", "--search", `name:${workspaceName}`, "--output", "json"], { timeoutMs, signal: options?.signal });
+            const interpreted = interpretLatticeResult(result);
             if (!interpreted.ok) {
                 return { kind: "error", error: interpreted.error };
             }
@@ -821,12 +821,37 @@ class LatticeService {
         }
     }
     /**
-     * Wait for Lattice workspace startup scripts to complete.
-     * Runs `coder ssh <workspace> --wait=yes -- true` and streams output.
+     * Wait for Lattice agent to be ready.
+     * Unlike Coder CLI, Lattice CLI doesn't support `ssh agent -- command` syntax.
+     * Instead, we poll the agent status until it's "running" and healthy.
      */
     async *waitForStartupScripts(workspaceName, abortSignal) {
-        log_1.log.debug("Waiting for Coder startup scripts", { workspaceName });
-        yield* streamCoderCommand(["ssh", workspaceName, "--wait=yes", "--", "true"], "coder ssh --wait failed", abortSignal, "Coder startup script wait aborted");
+        log_1.log.debug("Waiting for Lattice agent to be ready", { workspaceName });
+        yield `Waiting for agent "${workspaceName}" to be ready...`;
+        const maxAttempts = 60; // 5 minutes with 5s interval
+        const pollInterval = 5000;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            if (abortSignal?.aborted) {
+                throw new Error("Lattice agent wait aborted");
+            }
+            const status = await this.getWorkspaceStatus(workspaceName, {
+                timeoutMs: 10_000,
+                signal: abortSignal,
+            });
+            if (status.kind === "ok" && status.status === "running") {
+                yield `Agent "${workspaceName}" is running and ready.`;
+                return;
+            }
+            if (status.kind === "not_found") {
+                throw new Error(`Agent "${workspaceName}" not found`);
+            }
+            if (status.kind === "ok") {
+                yield `Agent status: ${status.status} (waiting for "running"...)`;
+            }
+            // Wait before next poll
+            await new Promise((resolve) => setTimeout(resolve, pollInterval));
+        }
+        throw new Error(`Timeout waiting for agent "${workspaceName}" to be ready`);
     }
     /**
      * Create a new Lattice workspace. Yields build log lines as they arrive.
@@ -859,7 +884,7 @@ class LatticeService {
         this.validateRequiredParams(allParams, coveredByPreset);
         // 6. Compute extra --parameter flags for non-ephemeral params not in preset
         const extraParams = this.computeExtraParams(allParams, coveredByPreset);
-        log_1.log.debug("Computed extra params for coder create", {
+        log_1.log.debug("Computed extra params for lattice create", {
             name,
             template,
             preset,
@@ -867,7 +892,7 @@ class LatticeService {
             extraParamCount: extraParams.length,
             extraParamNames: extraParams.map((p) => p.name),
         });
-        // 7. Build and run single coder create command
+        // 7. Build and run single lattice create command
         const args = ["create", name, "-t", template, "--yes"];
         if (org) {
             args.push("--org", org);
@@ -878,13 +903,13 @@ class LatticeService {
         for (const p of extraParams) {
             args.push("--parameter", p.encoded);
         }
-        yield* streamCoderCommand(args, "coder create failed", abortSignal, "Lattice workspace creation aborted");
+        yield* streamLatticeCommand(args, "lattice create failed", abortSignal, "Lattice workspace creation aborted");
     }
     /**
      * Delete a Lattice workspace.
      *
      * Safety: Only deletes workspaces with "unix-" prefix to prevent accidentally
-     * deleting user workspaces that weren't created byunix.
+     * deleting user workspaces that weren't created by unix.
      */
     async deleteWorkspace(name) {
         const env_11 = { stack: [], error: void 0, hasError: false };
@@ -894,7 +919,7 @@ class LatticeService {
                 return;
             }
             log_1.log.debug("Deleting Lattice workspace", { name });
-            const proc = __addDisposableResource(env_11, (0, disposableExec_1.execAsync)(`coder delete ${streamUtils_1.shescape.quote(name)} --yes`), false);
+            const proc = __addDisposableResource(env_11, (0, disposableExec_1.execAsync)(`lattice delete ${streamUtils_1.shescape.quote(name)} --yes`), false);
             await proc.result;
         }
         catch (e_11) {
@@ -913,7 +938,7 @@ class LatticeService {
         const env_12 = { stack: [], error: void 0, hasError: false };
         try {
             log_1.log.debug("Ensuring Lattice SSH config");
-            const proc = __addDisposableResource(env_12, (0, disposableExec_1.execAsync)("coder config-ssh --yes"), false);
+            const proc = __addDisposableResource(env_12, (0, disposableExec_1.execAsync)("lattice config-ssh --yes"), false);
             await proc.result;
         }
         catch (e_12) {

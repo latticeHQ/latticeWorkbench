@@ -1,12 +1,12 @@
 /**
- * LatticeSSHRuntime - SSH runtime wrapper for Lattice workspaces.
+ * LatticeSSHRuntime - SSH runtime wrapper for Lattice agents.
  *
- * Extends SSHRuntime to add Coder-specific provisioning via postCreateSetup():
- * - Creates Lattice workspace (if not connecting to existing)
- * - Runs `coder config-ssh --yes` to set up SSH proxy
+ * Extends SSHRuntime to add Lattice-specific provisioning via postCreateSetup():
+ * - Creates Lattice agent (if not connecting to existing)
+ * - Runs `lattice config-ssh --yes` to set up SSH proxy
  *
  * This ensures unix workspace metadata is persisted before the long-running
- * Coder build starts, allowing build logs to stream to init logs (like Docker).
+ * Lattice build starts, allowing build logs to stream to init logs (like Docker).
  */
 
 import type {
@@ -33,7 +33,7 @@ import { expandTildeForSSH } from "./tildeExpansion";
 import * as path from "path";
 
 export interface LatticeSSHRuntimeConfig extends SSHRuntimeConfig {
-  /** Coder-specific configuration */
+  /** Lattice-specific configuration */
   lattice: LatticeWorkspaceConfig;
 }
 
@@ -46,7 +46,7 @@ export interface LatticeSSHRuntimeConfig extends SSHRuntimeConfig {
 const LATTICE_NAME_REGEX = /^[a-zA-Z0-9]+(?:-[a-zA-Z0-9]+)*$/;
 
 /**
- * Transform a unix workspace name to be Coder-compatible.
+ * Transform a unix workspace name to be Lattice-compatible.
  * - Replace underscores with hyphens
  * - Remove leading/trailing hyphens
  * - Collapse multiple consecutive hyphens
@@ -75,15 +75,15 @@ export class LatticeSSHRuntime extends SSHRuntime {
 
   /**
    * Timestamp of last time we (a) successfully used the runtime or (b) decided not
-   * to block the user (unknown Coder CLI error).
+   * to block the user (unknown Lattice CLI error).
    * Used to avoid running expensive status checks on every message while still
-   * catching auto-stopped workspaces after long inactivity.
+   * catching auto-stopped agents after long inactivity.
    */
   private lastActivityAtMs = 0;
 
   /**
    * Flags for WorkspaceService to customize create flow:
-   * - deferredRuntimeAccess: skip srcBaseDir resolution (Coder host doesn't exist yet)
+   * - deferredRuntimeAccess: skip srcBaseDir resolution (Lattice host doesn't exist yet)
    * - configLevelCollisionDetection: use config-based collision check (can't reach host)
    */
   readonly createFlags: RuntimeCreateFlags = {
@@ -409,7 +409,7 @@ export class LatticeSSHRuntime extends SSHRuntime {
     return Promise.resolve(
       Ok({
         ...config,
-        host: `${workspaceName}.lattice`,
+        host: `lattice.${workspaceName}`,
         lattice: { ...latticeConf, workspaceName },
       })
     );
@@ -441,8 +441,8 @@ export class LatticeSSHRuntime extends SSHRuntime {
 
     if (exists) {
       return Err(
-        `A Lattice workspace named "${workspaceName}" already exists. ` +
-          `Either switch to "Existing" mode to use it, delete/rename it in Coder, ` +
+        `A Lattice agent named "${workspaceName}" already exists. ` +
+          `Either switch to "Existing" mode to use it, delete/rename it in Lattice, ` +
           `or choose a different unix workspace name.`
       );
     }
@@ -458,7 +458,7 @@ export class LatticeSSHRuntime extends SSHRuntime {
   override createWorkspace(params: WorkspaceCreationParams): Promise<WorkspaceCreationResult> {
     const workspacePath = this.getWorkspacePath(params.projectPath, params.directoryName);
 
-    params.initLogger.logStep("Workspace path computed (Coder provisioning will follow)");
+    params.initLogger.logStep("Workspace path computed (Lattice provisioning will follow)");
 
     return Promise.resolve({
       success: true,
@@ -543,7 +543,7 @@ export class LatticeSSHRuntime extends SSHRuntime {
 
       return {
         success: false,
-        error: `SSH delete failed: ${sshResult.error}; Coder delete also failed: ${message}`,
+        error: `SSH delete failed: ${sshResult.error}; Lattice delete also failed: ${message}`,
       };
     }
 
@@ -562,15 +562,15 @@ export class LatticeSSHRuntime extends SSHRuntime {
     const result = await super.forkWorkspace(params);
     if (!result.success) return result;
 
-    // Both workspaces now share the Lattice workspace - mark as existing so
-    // deleting either unix workspace won't destroy the underlying Lattice workspace
-    const sharedCoderConfig = { ...this.latticeConfig, existingWorkspace: true };
+    // Both workspaces now share the Lattice agent - mark as existing so
+    // deleting either unix workspace won't destroy the underlying Lattice agent
+    const sharedLatticeConfig = { ...this.latticeConfig, existingWorkspace: true };
 
-    // Update this instance's config so postCreateSetup() skips coder create
-    this.latticeConfig = sharedCoderConfig;
+    // Update this instance's config so postCreateSetup() skips lattice create
+    this.latticeConfig = sharedLatticeConfig;
 
     const sshConfig = this.getConfig();
-    const sharedRuntimeConfig = { type: "ssh" as const, ...sshConfig, lattice: sharedCoderConfig };
+    const sharedRuntimeConfig = { type: "ssh" as const, ...sshConfig, lattice: sharedLatticeConfig };
 
     return {
       ...result,
@@ -594,7 +594,7 @@ export class LatticeSSHRuntime extends SSHRuntime {
         throw new Error("Lattice workspace name is required (should be set by finalizeConfig)");
       }
       if (!this.latticeConfig.template) {
-        throw new Error("Coder template is required for new workspaces");
+        throw new Error("Lattice template is required for new agents");
       }
 
       initLogger.logStep(`Creating Lattice workspace "${latticeWorkspaceName}"...`);
@@ -670,14 +670,14 @@ export class LatticeSSHRuntime extends SSHRuntime {
     }
 
     // Ensure SSH config is set up for Lattice workspaces
-    initLogger.logStep("Configuring SSH for Coder...");
+    initLogger.logStep("Configuring SSH for Lattice...");
     try {
       await this.latticeService.ensureSSHConfig();
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error("Failed to configure SSH for Coder", { error });
+      log.error("Failed to configure SSH for Lattice", { error });
       initLogger.logStderr(`Failed to configure SSH: ${errorMsg}`);
-      throw new Error(`Failed to configure SSH for Coder: ${errorMsg}`);
+      throw new Error(`Failed to configure SSH for Lattice: ${errorMsg}`);
     }
 
     // Create parent directory for workspace (git clone won't create it)

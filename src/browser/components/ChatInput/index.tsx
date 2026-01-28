@@ -556,14 +556,15 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
   // Lattice workspace state - config is owned by selectedRuntime.lattice, this hook manages async data
   const currentRuntime = creationState.selectedRuntime;
-  const coderState = useLatticeWorkspace({
+  const latticeState = useLatticeWorkspace({
     latticeConfig: currentRuntime.mode === "ssh" ? (currentRuntime.lattice ?? null) : null,
-    onCoderConfigChange: (config) => {
+    onLatticeConfigChange: (config) => {
       if (currentRuntime.mode !== "ssh") return;
       // Compute host from workspace name for "existing" mode.
       // For "new" mode, workspaceName is omitted/undefined and backend derives it later.
+      // Host format: lattice.${workspaceName} (matches SSH config from `lattice config-ssh`)
       const computedHost = config?.workspaceName
-        ? `${config.workspaceName}.lattice`
+        ? `lattice.${config.workspaceName}`
         : currentRuntime.host;
       creationState.setSelectedRuntime({
         mode: "ssh",
@@ -575,7 +576,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
   const creationRuntimeError =
     variant === "creation"
-      ? validateCreationRuntime(creationState.selectedRuntime, coderState.presets.length)
+      ? validateCreationRuntime(creationState.selectedRuntime, latticeState.presets.length)
       : null;
 
   const runtimeFieldError =
@@ -603,21 +604,21 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           runtimeFieldError,
           // Pass latticeProps when CLI is available/outdated, Coder is enabled, or still checking (so "Checking…" UI renders)
           latticeProps:
-            coderState.latticeInfo === null ||
-            coderState.enabled ||
-            coderState.latticeInfo?.state !== "unavailable"
+            latticeState.latticeInfo === null ||
+            latticeState.enabled ||
+            latticeState.latticeInfo?.state !== "unavailable"
               ? {
-                  enabled: coderState.enabled,
-                  onEnabledChange: coderState.setEnabled,
-                  latticeInfo: coderState.latticeInfo,
-                  latticeConfig: coderState.latticeConfig,
-                  onCoderConfigChange: coderState.setCoderConfig,
-                  templates: coderState.templates,
-                  presets: coderState.presets,
-                  existingWorkspaces: coderState.existingWorkspaces,
-                  loadingTemplates: coderState.loadingTemplates,
-                  loadingPresets: coderState.loadingPresets,
-                  loadingWorkspaces: coderState.loadingWorkspaces,
+                  enabled: latticeState.enabled,
+                  onEnabledChange: latticeState.setEnabled,
+                  latticeInfo: latticeState.latticeInfo,
+                  latticeConfig: latticeState.latticeConfig,
+                  onLatticeConfigChange: latticeState.setLatticeConfig,
+                  templates: latticeState.templates,
+                  presets: latticeState.presets,
+                  existingWorkspaces: latticeState.existingWorkspaces,
+                  loadingTemplates: latticeState.loadingTemplates,
+                  loadingPresets: latticeState.loadingPresets,
+                  loadingWorkspaces: latticeState.loadingWorkspaces,
                 }
               : undefined,
         } satisfies React.ComponentProps<typeof CreationControls>)
@@ -627,7 +628,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
   const hasReviews = attachedReviews.length > 0;
   // Disable send while Coder presets are loading (user could bypass preset validation)
   const coderPresetsLoading =
-    coderState.enabled && !coderState.latticeConfig?.existingWorkspace && coderState.loadingPresets;
+    latticeState.enabled && !latticeState.latticeConfig?.existingWorkspace && latticeState.loadingPresets;
   const canSend =
     (hasTypedText || hasImages || hasReviews) &&
     !disabled &&
@@ -1490,7 +1491,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
 
       const runtimeError = validateCreationRuntime(
         creationState.selectedRuntime,
-        coderState.presets.length
+        latticeState.presets.length
       );
       if (runtimeError) {
         return;

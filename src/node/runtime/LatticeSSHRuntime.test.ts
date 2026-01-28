@@ -73,9 +73,9 @@ function createRuntime(
 }
 
 /**
- * Create an SSH+Coder RuntimeConfig for finalizeConfig tests.
+ * Create an SSH+Lattice RuntimeConfig for finalizeConfig tests.
  */
-function createSSHCoderConfig(lattice: {
+function createSSHLatticeConfig(lattice: {
   existingWorkspace?: boolean;
   workspaceName?: string;
 }): RuntimeConfig {
@@ -105,8 +105,8 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
   });
 
   describe("new workspace mode", () => {
-    it("derives Coder name from branch name when not provided", async () => {
-      const config = createSSHCoderConfig({ existingWorkspace: false });
+    it("derives Lattice name from branch name when not provided", async () => {
+      const config = createSSHLatticeConfig({ existingWorkspace: false });
       const result = await runtime.finalizeConfig("my-feature", config);
 
       expect(result.success).toBe(true);
@@ -114,24 +114,24 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
         expect(result.data.type).toBe("ssh");
         if (result.data.type === "ssh") {
           expect(result.data.lattice?.workspaceName).toBe("unix-my-feature");
-          expect(result.data.host).toBe("unix-my-feature.lattice");
+          expect(result.data.host).toBe("lattice.unix-my-feature");
         }
       }
     });
 
     it("converts underscores to hyphens", async () => {
-      const config = createSSHCoderConfig({ existingWorkspace: false });
+      const config = createSSHLatticeConfig({ existingWorkspace: false });
       const result = await runtime.finalizeConfig("my_feature_branch", config);
 
       expect(result.success).toBe(true);
       if (result.success && result.data.type === "ssh") {
         expect(result.data.lattice?.workspaceName).toBe("unix-my-feature-branch");
-        expect(result.data.host).toBe("unix-my-feature-branch.lattice");
+        expect(result.data.host).toBe("lattice.unix-my-feature-branch");
       }
     });
 
     it("collapses multiple hyphens and trims leading/trailing", async () => {
-      const config = createSSHCoderConfig({ existingWorkspace: false });
+      const config = createSSHLatticeConfig({ existingWorkspace: false });
       const result = await runtime.finalizeConfig("--my--feature--", config);
 
       expect(result.success).toBe(true);
@@ -141,18 +141,18 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
     });
 
     it("rejects names that fail regex after conversion", async () => {
-      const config = createSSHCoderConfig({ existingWorkspace: false });
-      // Name with special chars that can't form a valid Coder name (only hyphens/underscores become invalid)
+      const config = createSSHLatticeConfig({ existingWorkspace: false });
+      // Name with special chars that can't form a valid Lattice name (only hyphens/underscores become invalid)
       const result = await runtime.finalizeConfig("@#$%", config);
 
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error).toContain("cannot be converted to a valid Coder name");
+        expect(result.error).toContain("cannot be converted to a valid Lattice name");
       }
     });
 
     it("uses provided workspaceName over branch name", async () => {
-      const config = createSSHCoderConfig({
+      const config = createSSHLatticeConfig({
         existingWorkspace: false,
         workspaceName: "custom-name",
       });
@@ -161,14 +161,14 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
       expect(result.success).toBe(true);
       if (result.success && result.data.type === "ssh") {
         expect(result.data.lattice?.workspaceName).toBe("custom-name");
-        expect(result.data.host).toBe("custom-name.lattice");
+        expect(result.data.host).toBe("lattice.custom-name");
       }
     });
   });
 
   describe("existing workspace mode", () => {
     it("requires workspaceName to be provided", async () => {
-      const config = createSSHCoderConfig({ existingWorkspace: true });
+      const config = createSSHLatticeConfig({ existingWorkspace: true });
       const result = await runtime.finalizeConfig("branch-name", config);
 
       expect(result.success).toBe(false);
@@ -178,7 +178,7 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
     });
 
     it("keeps provided workspaceName and sets host", async () => {
-      const config = createSSHCoderConfig({
+      const config = createSSHLatticeConfig({
         existingWorkspace: true,
         workspaceName: "existing-ws",
       });
@@ -187,7 +187,7 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
       expect(result.success).toBe(true);
       if (result.success && result.data.type === "ssh") {
         expect(result.data.lattice?.workspaceName).toBe("existing-ws");
-        expect(result.data.host).toBe("existing-ws.lattice");
+        expect(result.data.host).toBe("lattice.existing-ws");
       }
     });
   });
@@ -379,7 +379,7 @@ describe("LatticeSSHRuntime.validateBeforePersist", () => {
     const latticeService = createMockLatticeService({ workspaceExists });
     const runtime = createRuntime({}, latticeService);
 
-    const config = createSSHCoderConfig({
+    const config = createSSHLatticeConfig({
       existingWorkspace: false,
       workspaceName: "my-ws",
     });
@@ -397,7 +397,7 @@ describe("LatticeSSHRuntime.validateBeforePersist", () => {
     const latticeService = createMockLatticeService({ workspaceExists });
     const runtime = createRuntime({}, latticeService);
 
-    const config = createSSHCoderConfig({
+    const config = createSSHLatticeConfig({
       existingWorkspace: true,
       workspaceName: "existing-ws",
     });
@@ -709,7 +709,7 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
         trunkBranch: "main",
         workspacePath: "/home/user/src/my-project/ws",
       })
-    ).rejects.toThrow("Coder template is required");
+    ).rejects.toThrow("Lattice template is required");
   });
 });
 

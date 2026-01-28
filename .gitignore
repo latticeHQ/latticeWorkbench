@@ -2,6 +2,7 @@
 *.swp
 *.swo
 *~
+
 # Font files (copied from node_modules during build)
 public/fonts/
 
@@ -28,7 +29,6 @@ DerivedData
 ios/.xcode.env.local
 
 # Android/IntelliJ
-build/
 .idea
 .gradle
 local.properties
@@ -41,6 +41,7 @@ local.properties
 node_modules/
 npm-debug.log
 yarn-error.log
+pnpm-debug.log*
 
 # fastlane
 */fastlane/report.xml
@@ -66,14 +67,13 @@ yarn-error.log
 
 # Bun
 bun.lockb
-# dist - included in release builds for systems without build tools
-# Exclude source maps from dist (saves ~143MB)
-dist/**/*.map
+
+# Build output - dist folder (regenerated on build)
+dist/
 
 # Electron build output
-release
-build/
-!build/entitlements.mac.plist
+release/
+out/
 
 # Documentation
 ai-sdk-docs/
@@ -81,8 +81,12 @@ docs/book/
 docs/mermaid-init.js
 docs/mermaid.min.js
 
-# Secrets
+# Secrets and environment
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
 
 # Nix
 .envrc
@@ -91,25 +95,29 @@ docs/mermaid.min.js
 # Profiling
 **.cpuprofile
 profile.txt
-# src/version.ts - included in release builds
+
+# Temporary markdown files
 OPENAI_FIX_SUMMARY.md
 docs/vercel/
 TESTING.md
 FEATURE_SUMMARY.md
 CODE_CHANGES.md
 README_COMPACT_HERE.md
+
+# Test artifacts
 artifacts/
 tests/e2e/tmp/
-
-# Test temporary directories
 src/test-temp-*/
 tests/**/test-temp-*/
-
 runs/
 
 # Python
 __pycache__
+*.pyc
+.venv/
+venv/
 
+# Misc
 tmpfork
 .mux-agent-cli
 storybook-static/
@@ -124,12 +132,34 @@ test_hot_reload.sh
 
 # mdBook auto-generated assets
 docs/theme/pagetoc.css
-
-# Build-time generated files (included in release builds)
-# *.generated.ts
 docs/theme/pagetoc.js
+
+# Mobile
 mobile/.expo/
+
+# MCP config
 .mux/mcp.jsonc
+
 # Terminal-Bench leaderboard cache
 benchmarks/terminal_bench/.leaderboard_cache/
 
+# Lattice
+.lattice/
+
+# Editor directories
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+
+# Logs
+logs/
+*.log
+
+# Cache
+.cache/
+.parcel-cache/
+.turbo/
+
+# Preload script build output
+preload.js

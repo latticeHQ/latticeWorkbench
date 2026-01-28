@@ -9,7 +9,12 @@ import crypto from "crypto";
 import { KNOWN_MODELS, getKnownModel } from "@/common/constants/knownModels";
 
 /** Small, fast models preferred for name generation (cheap and quick) */
-const DEFAULT_NAME_GENERATION_MODELS = [getKnownModel("HAIKU").id, getKnownModel("GPT_MINI").id];
+const DEFAULT_NAME_GENERATION_MODELS = [
+  getKnownModel("COPILOT_DIRECT_SONNET").id,
+  getKnownModel("COPILOT_DIRECT_GPT").id,
+  getKnownModel("HAIKU").id,
+  getKnownModel("GPT_MINI").id,
+];
 
 /** Schema for AI-generated workspace identity (area name + descriptive title) */
 const workspaceIdentitySchema = z.object({
@@ -168,27 +173,70 @@ export async function generateWorkspaceIdentity(
       return Err(modelResult.error);
     }
 
-    const result = await generateObject({
-      model: modelResult.data,
-      schema: workspaceIdentitySchema,
-      mode: "json",
-      prompt: `Generate a workspace name and title for this development task:
+    // Try structured output first, fall back to text parsing for providers that don't support it well
+    try {
+      const result = await generateObject({
+        model: modelResult.data,
+        schema: workspaceIdentitySchema,
+        mode: "json",
+        prompt: `Generate a workspace name and title for this development task:
 
 "${message}"
 
 Requirements:
 - name: The area of the codebase being worked on (1-2 words, git-safe: lowercase, hyphens only). Random bytes will be appended for uniqueness, so focus on the area not the specific task. Examples: "sidebar", "auth", "config", "api"
 - title: A 2-5 word description in verb-noun format. Examples: "Fix plan mode", "Add user authentication", "Refactor sidebar layout"`,
-    });
+      });
 
-    const suffix = generateNameSuffix();
-    const sanitizedName = sanitizeBranchName(result.object.name, 20);
-    const nameWithSuffix = `${sanitizedName}-${suffix}`;
+      const suffix = generateNameSuffix();
+      const sanitizedName = sanitizeBranchName(result.object.name, 20);
+      const nameWithSuffix = `${sanitizedName}-${suffix}`;
 
-    return Ok({
-      name: nameWithSuffix,
-      title: result.object.title.trim(),
-    });
+      return Ok({
+        name: nameWithSuffix,
+        title: result.object.title.trim(),
+      });
+    } catch (structuredError) {
+      // Fallback: use text generation with manual JSON parsing
+      // This helps with providers like GitHub Copilot that may not support structured output
+      log.debug("Structured output failed, trying text fallback", { error: structuredError });
+
+      const { generateText } = await import("ai");
+      const textResult = await generateText({
+        model: modelResult.data,
+        prompt: `Generate a workspace name and title for this development task. Respond ONLY with a JSON object, no other text:
+
+Task: "${message}"
+
+Requirements:
+- name: The area of the codebase being worked on (1-2 words, git-safe: lowercase letters and hyphens only). Examples: "sidebar", "auth", "config", "api"
+- title: A 2-5 word description in verb-noun format. Examples: "Fix plan mode", "Add user authentication"
+
+Respond with ONLY this JSON format:
+{"name": "area-name", "title": "Short Task Title"}`,
+      });
+
+      // Extract JSON from response (handle markdown code blocks if present)
+      const text = textResult.text.trim();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("Could not find JSON in response");
+      }
+
+      const parsed = JSON.parse(jsonMatch[0]) as { name?: string; title?: string };
+      if (!parsed.name || !parsed.title) {
+        throw new Error("Missing name or title in response");
+      }
+
+      const suffix = generateNameSuffix();
+      const sanitizedName = sanitizeBranchName(parsed.name, 20);
+      const nameWithSuffix = `${sanitizedName}-${suffix}`;
+
+      return Ok({
+        name: nameWithSuffix,
+        title: parsed.title.trim(),
+      });
+    }
   } catch (error) {
     const messageText = error instanceof Error ? error.message : String(error);
     log.error("Failed to generate workspace identity with AI", error);
