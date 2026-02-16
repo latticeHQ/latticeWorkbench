@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "lattice-workbench": {
+      "command": "/Users/onchainengineer/workspace/sandbox/claude-code/agentHQ/latticeWorkbench/scripts/run-mcp.sh --workbench-url http://localhost:3000"
+    }
+  }
+}

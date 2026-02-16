@@ -1,0 +1,562 @@
+{
+  "bio-research": {
+    "name": "bio-research",
+    "version": "1.0.0",
+    "description": "Connect to preclinical research tools and databases (literature search, genomics analysis, target prioritization) to accelerate early-stage life sciences R&D",
+    "author": "Anthropic",
+    "skills": [
+      "bio-research-start",
+      "bio-research-instrument-data-to-allotrope",
+      "bio-research-nextflow-development",
+      "bio-research-scientific-problem-selection",
+      "bio-research-scvi-tools",
+      "bio-research-single-cell-rna-qc"
+    ],
+    "commands": ["bio-research-start"],
+    "mcpServers": {
+      "pubmed": {
+        "transport": "http",
+        "url": "https://pubmed.mcp.claude.com/mcp"
+      },
+      "biorender": {
+        "transport": "http",
+        "url": "https://mcp.services.biorender.com/mcp"
+      },
+      "biorxiv": {
+        "transport": "http",
+        "url": "https://mcp.deepsense.ai/biorxiv/mcp"
+      },
+      "c-trials": {
+        "transport": "http",
+        "url": "https://mcp.deepsense.ai/clinical_trials/mcp"
+      },
+      "chembl": {
+        "transport": "http",
+        "url": "https://mcp.deepsense.ai/chembl/mcp"
+      },
+      "synapse": {
+        "transport": "http",
+        "url": "https://mcp.synapse.org/mcp"
+      },
+      "wiley": {
+        "transport": "http",
+        "url": "https://connector.scholargateway.ai/mcp"
+      },
+      "owkin": {
+        "transport": "http",
+        "url": "https://mcp.k.owkin.com/mcp"
+      },
+      "ot": {
+        "transport": "http",
+        "url": "https://mcp.platform.opentargets.org/mcp"
+      },
+      "benchling": {
+        "transport": "http",
+        "url": ""
+      }
+    }
+  },
+  "cowork-plugin-management": {
+    "name": "cowork-plugin-management",
+    "version": "0.1.0",
+    "description": "Create, customize, and manage plugins tailored to your organization's tools and workflows. Configure MCP servers, adjust plugin behavior, and adapt templates to match how your team works.",
+    "author": "Anthropic",
+    "skills": ["cowork-plugin-management-cowork-plugin-customizer"],
+    "commands": [],
+    "mcpServers": {}
+  },
+  "customer-support": {
+    "name": "customer-support",
+    "version": "1.0.0",
+    "description": "Triage tickets, draft responses, escalate issues, and build your knowledge base. Research customer context and turn resolved issues into self-service content.",
+    "author": "Anthropic",
+    "skills": [
+      "customer-support-draft-response",
+      "customer-support-escalate",
+      "customer-support-kb-article",
+      "customer-support-research",
+      "customer-support-triage",
+      "customer-support-customer-research",
+      "customer-support-escalation",
+      "customer-support-knowledge-management",
+      "customer-support-response-drafting",
+      "customer-support-ticket-triage"
+    ],
+    "commands": [
+      "customer-support-draft-response",
+      "customer-support-escalate",
+      "customer-support-kb-article",
+      "customer-support-research",
+      "customer-support-triage"
+    ],
+    "mcpServers": {
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "intercom": {
+        "transport": "http",
+        "url": "https://mcp.intercom.com/mcp"
+      },
+      "hubspot": {
+        "transport": "http",
+        "url": "https://mcp.hubspot.com/anthropic"
+      },
+      "guru": {
+        "transport": "http",
+        "url": "https://mcp.api.getguru.com/mcp"
+      },
+      "atlassian": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp"
+      },
+      "notion": {
+        "transport": "http",
+        "url": "https://mcp.notion.com/mcp"
+      },
+      "ms365": {
+        "transport": "http",
+        "url": "https://microsoft365.mcp.claude.com/mcp"
+      }
+    }
+  },
+  "data": {
+    "name": "data",
+    "version": "1.0.0",
+    "description": "Write SQL, explore datasets, and generate insights faster. Build visualizations and dashboards, and turn raw data into clear stories for stakeholders.",
+    "author": "Anthropic",
+    "skills": [
+      "data-analyze",
+      "data-build-dashboard",
+      "data-create-viz",
+      "data-explore-data",
+      "data-validate",
+      "data-write-query",
+      "data-data-context-extractor",
+      "data-data-exploration",
+      "data-data-validation",
+      "data-data-visualization",
+      "data-interactive-dashboard-builder",
+      "data-sql-queries",
+      "data-statistical-analysis"
+    ],
+    "commands": [
+      "data-analyze",
+      "data-build-dashboard",
+      "data-create-viz",
+      "data-explore-data",
+      "data-validate",
+      "data-write-query"
+    ],
+    "mcpServers": {
+      "snowflake": {
+        "transport": "http",
+        "url": ""
+      },
+      "databricks": {
+        "transport": "http",
+        "url": ""
+      },
+      "bigquery": {
+        "transport": "http",
+        "url": "https://bigquery.googleapis.com/mcp"
+      },
+      "hex": {
+        "transport": "http",
+        "url": "https://app.hex.tech/mcp"
+      },
+      "amplitude": {
+        "transport": "http",
+        "url": "https://mcp.amplitude.com/mcp"
+      },
+      "atlassian": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp"
+      }
+    }
+  },
+  "enterprise-search": {
+    "name": "enterprise-search",
+    "version": "1.0.0",
+    "description": "Search across all of your company's tools in one place. Find anything across email, chat, documents, and wikis without switching between apps.",
+    "author": "Anthropic",
+    "skills": [
+      "enterprise-search-digest",
+      "enterprise-search-search",
+      "enterprise-search-knowledge-synthesis",
+      "enterprise-search-search-strategy",
+      "enterprise-search-source-management"
+    ],
+    "commands": ["enterprise-search-digest", "enterprise-search-search"],
+    "mcpServers": {
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "notion": {
+        "transport": "http",
+        "url": "https://mcp.notion.com/mcp"
+      },
+      "guru": {
+        "transport": "http",
+        "url": "https://mcp.api.getguru.com/mcp"
+      },
+      "atlassian": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp"
+      },
+      "asana": {
+        "transport": "http",
+        "url": "https://mcp.asana.com/v2/mcp"
+      },
+      "ms365": {
+        "transport": "http",
+        "url": "https://microsoft365.mcp.claude.com/mcp"
+      }
+    }
+  },
+  "finance": {
+    "name": "finance",
+    "version": "1.0.0",
+    "description": "Streamline finance and accounting workflows, from journal entries and reconciliation to financial statements and variance analysis. Speed up audit prep, month-end close, and keeping your books clean.",
+    "author": "Anthropic",
+    "skills": [
+      "finance-income-statement",
+      "finance-journal-entry",
+      "finance-reconciliation",
+      "finance-sox-testing",
+      "finance-variance-analysis",
+      "finance-audit-support",
+      "finance-close-management",
+      "finance-financial-statements",
+      "finance-journal-entry-prep",
+      "finance-reconciliation-guide",
+      "finance-variance-analysis-guide"
+    ],
+    "commands": [
+      "finance-income-statement",
+      "finance-journal-entry",
+      "finance-reconciliation",
+      "finance-sox-testing",
+      "finance-variance-analysis"
+    ],
+    "mcpServers": {
+      "snowflake": {
+        "transport": "http",
+        "url": ""
+      },
+      "databricks": {
+        "transport": "http",
+        "url": ""
+      },
+      "bigquery": {
+        "transport": "http",
+        "url": "https://bigquery.googleapis.com/mcp"
+      },
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "ms365": {
+        "transport": "http",
+        "url": "https://microsoft365.mcp.claude.com/mcp"
+      }
+    }
+  },
+  "legal": {
+    "name": "legal",
+    "version": "1.0.0",
+    "description": "Speed up contract review, NDA triage, and compliance workflows for in-house legal teams. Draft legal briefs, organize precedent research, and manage institutional knowledge.",
+    "author": "Anthropic",
+    "skills": [
+      "legal-brief",
+      "legal-respond",
+      "legal-review-contract",
+      "legal-triage-nda",
+      "legal-vendor-check",
+      "legal-canned-responses",
+      "legal-compliance",
+      "legal-contract-review",
+      "legal-legal-risk-assessment",
+      "legal-meeting-briefing",
+      "legal-nda-triage"
+    ],
+    "commands": [
+      "legal-brief",
+      "legal-respond",
+      "legal-review-contract",
+      "legal-triage-nda",
+      "legal-vendor-check"
+    ],
+    "mcpServers": {
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "box": {
+        "transport": "http",
+        "url": "https://mcp.box.com"
+      },
+      "egnyte": {
+        "transport": "http",
+        "url": "https://mcp-server.egnyte.com/mcp"
+      },
+      "atlassian": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp"
+      },
+      "ms365": {
+        "transport": "http",
+        "url": "https://microsoft365.mcp.claude.com/mcp"
+      }
+    }
+  },
+  "marketing": {
+    "name": "marketing",
+    "version": "1.0.0",
+    "description": "Create content, plan campaigns, and analyze performance across marketing channels. Maintain brand voice consistency, track competitors, and report on what's working.",
+    "author": "Anthropic",
+    "skills": [
+      "marketing-brand-review",
+      "marketing-campaign-plan",
+      "marketing-competitive-brief",
+      "marketing-draft-content",
+      "marketing-email-sequence",
+      "marketing-performance-report",
+      "marketing-seo-audit",
+      "marketing-brand-voice",
+      "marketing-campaign-planning",
+      "marketing-competitive-analysis",
+      "marketing-content-creation",
+      "marketing-performance-analytics"
+    ],
+    "commands": [
+      "marketing-brand-review",
+      "marketing-campaign-plan",
+      "marketing-competitive-brief",
+      "marketing-draft-content",
+      "marketing-email-sequence",
+      "marketing-performance-report",
+      "marketing-seo-audit"
+    ],
+    "mcpServers": {
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "canva": {
+        "transport": "http",
+        "url": "https://mcp.canva.com/mcp"
+      },
+      "figma": {
+        "transport": "http",
+        "url": "https://mcp.figma.com/mcp"
+      },
+      "hubspot": {
+        "transport": "http",
+        "url": "https://mcp.hubspot.com/anthropic"
+      },
+      "amplitude": {
+        "transport": "http",
+        "url": "https://mcp.amplitude.com/mcp"
+      },
+      "notion": {
+        "transport": "http",
+        "url": "https://mcp.notion.com/mcp"
+      },
+      "ahrefs": {
+        "transport": "http",
+        "url": "https://api.ahrefs.com/mcp/mcp"
+      },
+      "similarweb": {
+        "transport": "http",
+        "url": "https://mcp.similarweb.com"
+      },
+      "klaviyo": {
+        "transport": "http",
+        "url": "https://mcp.klaviyo.com/mcp"
+      }
+    }
+  },
+  "product-management": {
+    "name": "product-management",
+    "version": "1.0.0",
+    "description": "Write feature specs, plan roadmaps, and synthesize user research faster. Keep stakeholders updated and stay ahead of the competitive landscape.",
+    "author": "Anthropic",
+    "skills": [
+      "product-management-competitive-brief",
+      "product-management-metrics-review",
+      "product-management-roadmap-update",
+      "product-management-stakeholder-update",
+      "product-management-synthesize-research",
+      "product-management-write-spec",
+      "product-management-competitive-analysis",
+      "product-management-feature-spec",
+      "product-management-metrics-tracking",
+      "product-management-roadmap-management",
+      "product-management-stakeholder-comms",
+      "product-management-user-research-synthesis"
+    ],
+    "commands": [
+      "product-management-competitive-brief",
+      "product-management-metrics-review",
+      "product-management-roadmap-update",
+      "product-management-stakeholder-update",
+      "product-management-synthesize-research",
+      "product-management-write-spec"
+    ],
+    "mcpServers": {
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "linear": {
+        "transport": "http",
+        "url": "https://mcp.linear.app/mcp"
+      },
+      "asana": {
+        "transport": "http",
+        "url": "https://mcp.asana.com/v2/mcp"
+      },
+      "monday": {
+        "transport": "http",
+        "url": "https://mcp.monday.com/mcp"
+      },
+      "clickup": {
+        "transport": "http",
+        "url": "https://mcp.clickup.com/mcp"
+      },
+      "atlassian": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp"
+      },
+      "notion": {
+        "transport": "http",
+        "url": "https://mcp.notion.com/mcp"
+      },
+      "figma": {
+        "transport": "http",
+        "url": "https://mcp.figma.com/mcp"
+      },
+      "amplitude": {
+        "transport": "http",
+        "url": "https://mcp.amplitude.com/mcp"
+      },
+      "pendo": {
+        "transport": "http",
+        "url": "https://app.pendo.io/mcp/v0/shttp"
+      },
+      "intercom": {
+        "transport": "http",
+        "url": "https://mcp.intercom.com/mcp"
+      },
+      "fireflies": {
+        "transport": "http",
+        "url": "https://api.fireflies.ai/mcp"
+      }
+    }
+  },
+  "productivity": {
+    "name": "productivity",
+    "version": "1.0.0",
+    "description": "Manage tasks, plan your day, and build up memory of important context about your work. Syncs with your calendar, email, and chat to keep everything organized and on track.",
+    "author": "Anthropic",
+    "skills": [
+      "productivity-start",
+      "productivity-update",
+      "productivity-memory-management",
+      "productivity-task-management"
+    ],
+    "commands": ["productivity-start", "productivity-update"],
+    "mcpServers": {
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "notion": {
+        "transport": "http",
+        "url": "https://mcp.notion.com/mcp"
+      },
+      "asana": {
+        "transport": "http",
+        "url": "https://mcp.asana.com/v2/mcp"
+      },
+      "linear": {
+        "transport": "http",
+        "url": "https://mcp.linear.app/mcp"
+      },
+      "atlassian": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp"
+      },
+      "ms365": {
+        "transport": "http",
+        "url": "https://microsoft365.mcp.claude.com/mcp"
+      },
+      "monday": {
+        "transport": "http",
+        "url": "https://mcp.monday.com/mcp"
+      },
+      "clickup": {
+        "transport": "http",
+        "url": "https://mcp.clickup.com/mcp"
+      }
+    }
+  },
+  "sales": {
+    "name": "sales",
+    "version": "1.0.0",
+    "description": "Prospect, craft outreach, and build deal strategy faster. Prep for calls, manage your pipeline, and write personalized messaging that moves deals forward.",
+    "author": "Anthropic",
+    "skills": [
+      "sales-call-summary",
+      "sales-forecast",
+      "sales-pipeline-review",
+      "sales-account-research",
+      "sales-call-prep",
+      "sales-competitive-intelligence",
+      "sales-create-an-asset",
+      "sales-daily-briefing",
+      "sales-draft-outreach"
+    ],
+    "commands": ["sales-call-summary", "sales-forecast", "sales-pipeline-review"],
+    "mcpServers": {
+      "slack": {
+        "transport": "http",
+        "url": "https://mcp.slack.com/mcp"
+      },
+      "hubspot": {
+        "transport": "http",
+        "url": "https://mcp.hubspot.com/anthropic"
+      },
+      "close": {
+        "transport": "http",
+        "url": "https://mcp.close.com/mcp"
+      },
+      "clay": {
+        "transport": "http",
+        "url": "https://api.clay.com/v3/mcp"
+      },
+      "zoominfo": {
+        "transport": "http",
+        "url": "https://mcp.zoominfo.com/mcp"
+      },
+      "notion": {
+        "transport": "http",
+        "url": "https://mcp.notion.com/mcp"
+      },
+      "atlassian": {
+        "transport": "http",
+        "url": "https://mcp.atlassian.com/v1/mcp"
+      },
+      "fireflies": {
+        "transport": "http",
+        "url": "https://api.fireflies.ai/mcp"
+      },
+      "ms365": {
+        "transport": "http",
+        "url": "https://microsoft365.mcp.claude.com/mcp"
+      }
+    }
+  }
+}
