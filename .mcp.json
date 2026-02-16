@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "lattice-workbench": {
+      "command": "npx",
+      "args": ["tsx", "src/mcp-server/index.ts", "--workbench-url", "http://localhost:3000"],
+      "env": {}
+    }
+  }
+}

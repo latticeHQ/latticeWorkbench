@@ -1,0 +1,258 @@
+/**
+ * CLI entry point for the lattice oRPC server.
+ * Uses createOrpcServer from ./orpcServer.ts for the actual server logic.
+ */
+import { Config } from "@/node/config";
+import { ServiceContainer } from "@/node/services/serviceContainer";
+import { ServerLockfile } from "@/node/services/serverLockfile";
+import { getLatticeHome, migrateLegacyLatticeHome } from "@/common/constants/paths";
+import type { BrowserWindow } from "electron";
+import { Command } from "commander";
+import { validateProjectPath } from "@/node/utils/pathUtils";
+import { createOrpcServer } from "@/node/orpc/server";
+import type { ORPCContext } from "@/node/orpc/context";
+import { VERSION } from "@/version";
+import {
+  buildLatticeMdnsServiceOptions,
+  MdnsAdvertiserService,
+} from "@/node/services/mdnsAdvertiserService";
+import * as os from "os";
+import { getParseOptions } from "./argv";
+
+const program = new Command();
+program
+  .name("lattice server")
+  .description("HTTP/WebSocket ORPC server for lattice")
+  .option("-h, --host <host>", "bind to specific host", "localhost")
+  .option("-p, --port <port>", "bind to specific port", "3000")
+  .option("--auth-token <token>", "optional bearer token for HTTP/WS auth")
+  .option("--ssh-host <host>", "SSH hostname/alias for editor deep links (e.g., devbox)")
+  .option("--add-project <path>", "add and open project at the specified path (idempotent)")
+  .parse(process.argv, getParseOptions());
+
+const options = program.opts();
+const HOST = options.host as string;
+const PORT = Number.parseInt(String(options.port), 10);
+const rawAuthToken = (options.authToken as string | undefined) ?? process.env.LATTICE_SERVER_AUTH_TOKEN ?? process.env.LATTICE_SERVER_AUTH_TOKEN;
+const AUTH_TOKEN = rawAuthToken?.trim() ? rawAuthToken.trim() : undefined;
+const ADD_PROJECT_PATH = options.addProject as string | undefined;
+// SSH host for editor deep links (CLI flag > env var > config file, resolved later)
+const CLI_SSH_HOST = options.sshHost as string | undefined;
+
+// Track the launch project path for initial navigation
+let launchProjectPath: string | null = null;
+
+function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase();
+
+  // IPv4 loopback range (RFC 1122): 127.0.0.0/8
+  if (normalized.startsWith("127.")) {
+    return true;
+  }
+
+  return normalized === "localhost" || normalized === "::1";
+}
+
+// Minimal BrowserWindow stub for services that expect one
+const mockWindow: BrowserWindow = {
+  isDestroyed: () => false,
+  setTitle: () => undefined,
+  webContents: {
+    send: () => undefined,
+    openDevTools: () => undefined,
+  },
+} as unknown as BrowserWindow;
+
+(async () => {
+  migrateLegacyLatticeHome();
+
+  // Check for existing server (Electron or another lattice server instance)
+  const lockfile = new ServerLockfile(getLatticeHome());
+  const existing = await lockfile.read();
+  if (existing) {
+    console.error(`Error: lattice API server is already running at ${existing.baseUrl}`);
+    console.error(`Use 'lattice api' commands to interact with the running instance.`);
+    process.exit(1);
+  }
+
+  const config = new Config();
+  const serviceContainer = new ServiceContainer(config);
+  await serviceContainer.initialize();
+  serviceContainer.windowService.setMainWindow(mockWindow);
+
+  if (ADD_PROJECT_PATH) {
+    await initializeProjectDirect(ADD_PROJECT_PATH, serviceContainer);
+  }
+
+  // Set launch project path for clients
+  serviceContainer.serverService.setLaunchProject(launchProjectPath);
+
+  // Set SSH host for editor deep links (CLI > env > config file)
+  const sshHost = CLI_SSH_HOST ?? process.env.LATTICE_SSH_HOST ?? config.getServerSshHost();
+  serviceContainer.serverService.setSshHost(sshHost);
+
+  // Build oRPC context from services
+  const context: ORPCContext = {
+    config: serviceContainer.config,
+    aiService: serviceContainer.aiService,
+    projectService: serviceContainer.projectService,
+    workspaceService: serviceContainer.workspaceService,
+    taskService: serviceContainer.taskService,
+    providerService: serviceContainer.providerService,
+    terminalService: serviceContainer.terminalService,
+    editorService: serviceContainer.editorService,
+    windowService: serviceContainer.windowService,
+    updateService: serviceContainer.updateService,
+    tokenizerService: serviceContainer.tokenizerService,
+    serverService: serviceContainer.serverService,
+    menuEventService: serviceContainer.menuEventService,
+    workspaceMcpOverridesService: serviceContainer.workspaceMcpOverridesService,
+    mcpConfigService: serviceContainer.mcpConfigService,
+    featureFlagService: serviceContainer.featureFlagService,
+    sessionTimingService: serviceContainer.sessionTimingService,
+    mcpServerManager: serviceContainer.mcpServerManager,
+    voiceService: serviceContainer.voiceService,
+    telemetryService: serviceContainer.telemetryService,
+    experimentsService: serviceContainer.experimentsService,
+    sessionUsageService: serviceContainer.sessionUsageService,
+    signingService: serviceContainer.signingService,
+    latticeService: serviceContainer.latticeService,
+    inferenceService: serviceContainer.inferenceService,
+    channelService: serviceContainer.channelService,
+    channelSessionRouter: serviceContainer.channelSessionRouter,
+    browserSessionManager: serviceContainer.browserSessionManager,
+    pluginPackService: serviceContainer.pluginPackService,
+  };
+
+  const mdnsAdvertiser = new MdnsAdvertiserService();
+  const server = await createOrpcServer({
+    host: HOST,
+    port: PORT,
+    authToken: AUTH_TOKEN,
+    context,
+    serveStatic: true,
+  });
+
+  // Set env vars so child processes (MCP servers, etc.) can reach the workbench API
+  process.env.LATTICE_WORKBENCH_URL = server.baseUrl;
+  if (AUTH_TOKEN) {
+    process.env.LATTICE_SERVER_AUTH_TOKEN = AUTH_TOKEN;
+  }
+
+  // Acquire lockfile so other instances know we're running
+  await lockfile.acquire(server.baseUrl, AUTH_TOKEN ?? "");
+
+  const mdnsAdvertisementEnabled = config.getMdnsAdvertisementEnabled();
+  if (mdnsAdvertisementEnabled !== false && !isLoopbackHost(HOST)) {
+    const instanceName = config.getMdnsServiceName() ?? `lattice-${os.hostname()}`;
+    const serviceOptions = buildLatticeMdnsServiceOptions({
+      bindHost: HOST,
+      port: server.port,
+      instanceName,
+      version: VERSION.git_describe,
+      authRequired: AUTH_TOKEN?.trim().length ? true : false,
+    });
+
+    try {
+      await mdnsAdvertiser.start(serviceOptions);
+    } catch (err) {
+      console.warn("Failed to advertise lattice API server via mDNS:", err);
+    }
+  } else if (mdnsAdvertisementEnabled === true && isLoopbackHost(HOST)) {
+    console.warn(
+      "mDNS advertisement requested, but the API server is loopback-only. " +
+        "Set --host 0.0.0.0 (or a LAN IP) to enable LAN discovery."
+    );
+  }
+
+  console.log(`Server is running on ${server.baseUrl}`);
+
+  // Cleanup on shutdown
+  let cleanupInProgress = false;
+  const cleanup = async () => {
+    if (cleanupInProgress) return;
+    cleanupInProgress = true;
+
+    console.log("Shutting down server...");
+
+    // Force exit after timeout if cleanup hangs
+    const forceExitTimer = setTimeout(() => {
+      console.log("Cleanup timed out, forcing exit...");
+      process.exit(1);
+    }, 5000);
+
+    try {
+      // Close all PTY sessions first (these are the "sub-processes" nodemon sees)
+      serviceContainer.terminalService.closeAllSessions();
+
+      // Dispose background processes
+      await serviceContainer.dispose();
+
+      // Release lockfile and close server
+      try {
+        await mdnsAdvertiser.stop();
+      } catch (err) {
+        console.warn("Failed to stop mDNS advertiser:", err);
+      }
+
+      await lockfile.release();
+      await server.close();
+
+      clearTimeout(forceExitTimer);
+      process.exit(0);
+    } catch (err) {
+      console.error("Cleanup error:", err);
+      clearTimeout(forceExitTimer);
+      process.exit(1);
+    }
+  };
+
+  process.on("SIGINT", () => void cleanup());
+  process.on("SIGTERM", () => void cleanup());
+})().catch((error) => {
+  console.error("Failed to initialize server:", error);
+  process.exit(1);
+});
+
+async function initializeProjectDirect(
+  projectPath: string,
+  serviceContainer: ServiceContainer
+): Promise<void> {
+  try {
+    let normalizedPath = projectPath.replace(/\/+$/, "");
+    const validation = await validateProjectPath(normalizedPath);
+    if (!validation.valid || !validation.expandedPath) {
+      console.error(
+        `Invalid project path provided via --add-project: ${validation.error ?? "unknown error"}`
+      );
+      return;
+    }
+    normalizedPath = validation.expandedPath;
+
+    const projects = serviceContainer.projectService.list();
+    const alreadyExists = Array.isArray(projects)
+      ? projects.some(([path]) => path === normalizedPath)
+      : false;
+
+    if (alreadyExists) {
+      console.log(`Project already exists: ${normalizedPath}`);
+      launchProjectPath = normalizedPath;
+      return;
+    }
+
+    console.log(`Creating project via --add-project: ${normalizedPath}`);
+    const result = await serviceContainer.projectService.create(normalizedPath);
+    if (result.success) {
+      console.log(`Project created at ${normalizedPath}`);
+      launchProjectPath = normalizedPath;
+    } else {
+      const errorMsg =
+        typeof result.error === "string"
+          ? result.error
+          : JSON.stringify(result.error ?? "unknown error");
+      console.error(`Failed to create project at ${normalizedPath}: ${errorMsg}`);
+    }
+  } catch (error) {
+    console.error(`initializeProject failed for ${projectPath}:`, error);
+  }
+}

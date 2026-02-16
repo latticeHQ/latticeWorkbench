@@ -1,0 +1,332 @@
+import { useRename } from "@/browser/contexts/WorkspaceRenameContext";
+import { stopKeyboardPropagation } from "@/browser/utils/events";
+import { cn } from "@/common/lib/utils";
+import { useGitStatus } from "@/browser/stores/GitStatusStore";
+import { useWorkspaceUnread } from "@/browser/hooks/useWorkspaceUnread";
+import { useWorkspaceSidebarState } from "@/browser/stores/WorkspaceStore";
+import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
+import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import React, { useState, useEffect } from "react";
+import { useDrag } from "react-dnd";
+import { getEmptyImage } from "react-dnd-html5-backend";
+import { GitStatusIndicator } from "./GitStatusIndicator";
+import { RuntimeBadge } from "./RuntimeBadge";
+import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
+import { WorkspaceStatusIndicator } from "./WorkspaceStatusIndicator";
+import { Shimmer } from "./ai-elements/shimmer";
+import { ArchiveIcon } from "./icons/ArchiveIcon";
+import { WORKSPACE_DRAG_TYPE, type WorkspaceDragItem } from "./WorkspaceSectionDropZone";
+import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
+
+export interface WorkspaceSelection {
+  projectPath: string;
+  projectName: string;
+  namedWorkspacePath: string; // Worktree path (directory uses workspace name)
+  workspaceId: string;
+}
+export interface WorkspaceListItemProps {
+  // Workspace metadata passed directly
+  metadata: FrontendWorkspaceMetadata;
+  projectPath: string;
+  projectName: string;
+  isSelected: boolean;
+  isArchiving?: boolean;
+  depth?: number;
+  /** Section ID this workspace belongs to (for drag-drop targeting) */
+  sectionId?: string;
+  // Event handlers
+  onSelectWorkspace: (selection: WorkspaceSelection) => void;
+  onArchiveWorkspace: (workspaceId: string, button: HTMLElement) => Promise<void>;
+}
+
+const WorkspaceListItemInner: React.FC<WorkspaceListItemProps> = ({
+  metadata,
+  projectPath,
+  projectName,
+  isSelected,
+  isArchiving,
+  depth,
+  sectionId,
+  onSelectWorkspace,
+  onArchiveWorkspace,
+}) => {
+  // Destructure metadata for convenience
+  const { id: workspaceId, namedWorkspacePath, status } = metadata;
+  const isLatticeHelpChat = workspaceId === LATTICE_HELP_CHAT_WORKSPACE_ID;
+  const isCreating = status === "creating";
+  const isDisabled = isCreating || isArchiving;
+
+  const { isUnread } = useWorkspaceUnread(workspaceId);
+  const gitStatus = useGitStatus(workspaceId);
+
+  // Get title edit context (renamed from rename context since we now edit titles, not names)
+  const { editingWorkspaceId, requestRename, confirmRename, cancelRename } = useRename();
+
+  // Local state for title editing
+  const [editingTitle, setEditingTitle] = useState<string>("");
+  const [titleError, setTitleError] = useState<string | null>(null);
+
+  // Display title (fallback to name for legacy workspaces without title)
+  const displayTitle = metadata.title ?? metadata.name;
+  const isEditing = editingWorkspaceId === workspaceId;
+
+  const startEditing = () => {
+    if (requestRename(workspaceId, displayTitle)) {
+      setEditingTitle(displayTitle);
+      setTitleError(null);
+    }
+  };
+
+  const handleConfirmEdit = async () => {
+    if (!editingTitle.trim()) {
+      setTitleError("Title cannot be empty");
+      return;
+    }
+
+    const result = await confirmRename(workspaceId, editingTitle);
+    if (!result.success) {
+      setTitleError(result.error ?? "Failed to update title");
+    } else {
+      setTitleError(null);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    cancelRename();
+    setEditingTitle("");
+    setTitleError(null);
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    // Always stop propagation to prevent parent div's onKeyDown and global handlers from interfering
+    stopKeyboardPropagation(e);
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void handleConfirmEdit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      handleCancelEdit();
+    }
+  };
+
+  const { canInterrupt, awaitingUserQuestion, isStarting } = useWorkspaceSidebarState(workspaceId);
+
+  const showUnreadBar = !isCreating && !isEditing && isUnread && !(isSelected && !isDisabled);
+  const barColorClass =
+    isSelected && !isDisabled
+      ? "bg-blue-400"
+      : showUnreadBar
+        ? "bg-muted-foreground"
+        : "bg-transparent";
+  const unreadBar = (
+    <span
+      className={cn(
+        "absolute left-0 top-0 bottom-0 w-[3px] transition-colors duration-150",
+        barColorClass,
+        showUnreadBar ? "pointer-events-auto" : "pointer-events-none"
+      )}
+      aria-hidden={!showUnreadBar}
+    />
+  );
+  const isWorking = (canInterrupt || isStarting) && !awaitingUserQuestion;
+  const safeDepth = typeof depth === "number" && Number.isFinite(depth) ? Math.max(0, depth) : 0;
+  const paddingLeft = 12 + Math.min(32, safeDepth) * 12;
+
+  // Drag handle for moving workspace between sections
+  const [{ isDragging }, drag, dragPreview] = useDrag(
+    () => ({
+      type: WORKSPACE_DRAG_TYPE,
+      item: (): WorkspaceDragItem & { displayTitle?: string; runtimeConfig?: unknown } => ({
+        type: WORKSPACE_DRAG_TYPE,
+        workspaceId,
+        projectPath,
+        currentSectionId: sectionId,
+        // Extra fields for custom drag layer preview
+        displayTitle,
+        runtimeConfig: metadata.runtimeConfig,
+      }),
+      collect: (monitor) => ({
+        isDragging: monitor.isDragging(),
+      }),
+      canDrag: !isDisabled,
+    }),
+    [workspaceId, projectPath, sectionId, isDisabled, displayTitle, metadata.runtimeConfig]
+  );
+
+  // Hide native drag preview; we render a custom preview via WorkspaceDragLayer
+  useEffect(() => {
+    dragPreview(getEmptyImage(), { captureDraggingState: true });
+  }, [dragPreview]);
+
+  return (
+    <React.Fragment>
+      <div
+        ref={drag}
+        className={cn(
+          "py-1.5 pr-2 transition-all duration-150 text-[13px] relative flex gap-2",
+          isDragging && "opacity-50",
+          isDisabled
+            ? "cursor-default opacity-70"
+            : "cursor-pointer hover:bg-hover [&:hover_button]:opacity-100",
+          isSelected && !isDisabled && "bg-hover",
+          isArchiving && "pointer-events-none"
+        )}
+        style={{ paddingLeft }}
+        onClick={() => {
+          if (isDisabled) return;
+          onSelectWorkspace({
+            projectPath,
+            projectName,
+            namedWorkspacePath,
+            workspaceId,
+          });
+        }}
+        onKeyDown={(e) => {
+          if (isDisabled || isEditing) return;
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelectWorkspace({
+              projectPath,
+              projectName,
+              namedWorkspacePath,
+              workspaceId,
+            });
+          }
+        }}
+        role="button"
+        tabIndex={isDisabled ? -1 : 0}
+        aria-current={isSelected ? "true" : undefined}
+        aria-label={
+          isCreating
+            ? `Creating workspace ${displayTitle}`
+            : isArchiving
+              ? `Archiving workspace ${displayTitle}`
+              : `Select workspace ${displayTitle}`
+        }
+        aria-disabled={isDisabled}
+        data-workspace-path={namedWorkspacePath}
+        data-workspace-id={workspaceId}
+        data-section-id={sectionId ?? ""}
+        data-git-status={gitStatus ? JSON.stringify(gitStatus) : undefined}
+      >
+        {/* Workspace indicator bar (selected/unread) */}
+        {showUnreadBar ? (
+          <Tooltip>
+            <TooltipTrigger asChild>{unreadBar}</TooltipTrigger>
+            <TooltipContent align="start">Unread messages</TooltipContent>
+          </Tooltip>
+        ) : (
+          unreadBar
+        )}
+        {/* Archive button - vertically centered against entire item */}
+        {!isLatticeHelpChat && !isCreating && !isEditing && (
+          <div className="relative inline-flex h-4 w-4 shrink-0 items-center self-center">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  className="text-muted hover:text-foreground inline-flex h-4 w-4 cursor-pointer items-center justify-center border-none bg-transparent p-0 opacity-0 transition-colors duration-200"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onArchiveWorkspace(workspaceId, e.currentTarget);
+                  }}
+                  aria-label={`Archive workspace ${displayTitle}`}
+                  data-workspace-id={workspaceId}
+                >
+                  <ArchiveIcon className="h-3 w-3" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent align="start">
+                Archive workspace ({formatKeybind(KEYBINDS.ARCHIVE_WORKSPACE)})
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        )}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <div className="grid min-w-0 grid-cols-[auto_1fr_auto] items-center gap-1.5">
+            <RuntimeBadge
+              runtimeConfig={metadata.runtimeConfig}
+              isWorking={isWorking}
+              tooltipSide="bottom"
+              workspaceName={metadata.name}
+              workspacePath={namedWorkspacePath}
+            />
+            {isEditing ? (
+              <input
+                className="bg-input-bg text-input-text border-input-border font-inherit focus:border-input-border-focus col-span-2 min-w-0 flex-1 rounded-sm border px-1 text-left text-[13px] outline-none"
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                onBlur={() => void handleConfirmEdit()}
+                autoFocus
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Edit title for workspace ${displayTitle}`}
+                data-workspace-id={workspaceId}
+              />
+            ) : (
+              <Tooltip disableHoverableContent>
+                <TooltipTrigger asChild>
+                  <span
+                    className={cn(
+                      "text-foreground block truncate text-left text-[14px] transition-colors duration-200",
+                      !isDisabled && "cursor-pointer"
+                    )}
+                    onDoubleClick={(e) => {
+                      if (isDisabled) return;
+                      e.stopPropagation();
+                      startEditing();
+                    }}
+                  >
+                    {isWorking || isCreating ? (
+                      <Shimmer className="w-full truncate" colorClass="var(--color-foreground)">
+                        {displayTitle}
+                      </Shimmer>
+                    ) : (
+                      displayTitle
+                    )}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent align="start" className="max-w-[420px]">
+                  <div className="flex flex-col gap-1">
+                    <div className="text-foreground font-medium break-words whitespace-normal">
+                      {displayTitle}
+                    </div>
+                    {!isDisabled && <div className="text-muted">Double-click to edit title</div>}
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            {!isCreating && !isEditing && (
+              <GitStatusIndicator
+                gitStatus={gitStatus}
+                workspaceId={workspaceId}
+                projectPath={projectPath}
+                tooltipPosition="right"
+                isWorking={isWorking}
+              />
+            )}
+          </div>
+          {!isCreating && (
+            <div className="min-w-0">
+              {isArchiving ? (
+                <div className="text-muted flex min-w-0 items-center gap-1.5 text-xs">
+                  <ArchiveIcon className="h-3 w-3 shrink-0" />
+                  <span className="min-w-0 truncate">Archiving...</span>
+                </div>
+              ) : (
+                <WorkspaceStatusIndicator workspaceId={workspaceId} />
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      {titleError && isEditing && (
+        <div className="bg-error-bg border-error text-error absolute top-full right-8 left-8 z-10 mt-1 rounded-sm border px-2 py-1.5 text-xs">
+          {titleError}
+        </div>
+      )}
+    </React.Fragment>
+  );
+};
+
+export const WorkspaceListItem = React.memo(WorkspaceListItemInner);

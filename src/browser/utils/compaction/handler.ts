@@ -1,0 +1,100 @@
+/**
+ * Compaction interrupt handling
+ *
+ * Ctrl+C (cancel): Abort compaction, enters edit mode on compaction-request message
+ * with original /compact command restored for re-editing.
+ */
+
+import type { StreamingMessageAggregator } from "@/browser/utils/messages/StreamingMessageAggregator";
+import type { APIClient } from "@/browser/contexts/API";
+import { getFollowUpContentText } from "./format";
+
+/**
+ * Check if the workspace is currently in a compaction stream
+ */
+export function isCompactingStream(aggregator: StreamingMessageAggregator): boolean {
+  // Prefer active stream state (derived from stream-start mode) over scanning history.
+  return aggregator.isCompacting();
+}
+
+/**
+ * Find the compaction-request user message in message history
+ */
+export function findCompactionRequestMessage(
+  aggregator: StreamingMessageAggregator
+): ReturnType<typeof aggregator.getAllMessages>[number] | null {
+  const messages = aggregator.getAllMessages();
+  return (
+    [...messages]
+      .reverse()
+      .find((m) => m.role === "user" && m.metadata?.latticeMetadata?.type === "compaction-request") ??
+    null
+  );
+}
+
+/**
+ * Get the original /compact command from the last user message
+ */
+export function getCompactionCommand(aggregator: StreamingMessageAggregator): string | null {
+  const compactionMsg = findCompactionRequestMessage(aggregator);
+  if (!compactionMsg) return null;
+
+  const latticeMeta = compactionMsg.metadata?.latticeMetadata;
+  if (latticeMeta?.type !== "compaction-request") return null;
+
+  // Support both new `followUpContent` and legacy `continueMessage` for backwards compatibility
+  const parsed = latticeMeta.parsed as { followUpContent?: unknown; continueMessage?: unknown };
+  const followUpContent = (parsed.followUpContent ?? parsed.continueMessage) as Parameters<
+    typeof getFollowUpContentText
+  >[0];
+  const followUpText = getFollowUpContentText(followUpContent);
+  if (followUpText && !latticeMeta.rawCommand.includes("\n")) {
+    return `${latticeMeta.rawCommand}\n${followUpText}`;
+  }
+  return latticeMeta.rawCommand;
+}
+
+/**
+ * Cancel compaction (Ctrl+C flow)
+ *
+ * Aborts the compaction stream and puts user in edit mode for compaction-request:
+ * - Interrupts stream with abandonPartial=true flag (backend skips compaction)
+ * - Enters edit mode on compaction-request message
+ * - Restores original /compact command to input for re-editing
+ * - Leaves compaction-request message in history (can edit or delete it)
+ *
+ * Flow:
+ * 1. Interrupt stream with {abandonPartial: true} - backend detects and skips compaction
+ * 2. Enter edit mode on compaction-request message with original command
+ */
+export async function cancelCompaction(
+  client: APIClient,
+  workspaceId: string,
+  aggregator: StreamingMessageAggregator,
+  startEditingMessage: (messageId: string, initialText: string) => void
+): Promise<boolean> {
+  // Find the compaction request message
+  const compactionRequestMsg = findCompactionRequestMessage(aggregator);
+  if (!compactionRequestMsg) {
+    return false;
+  }
+
+  // Extract command before modifying history
+  const command = getCompactionCommand(aggregator);
+  if (!command) {
+    return false;
+  }
+
+  // Enter edit mode first so any subsequent restore-to-input event from the interrupt can't
+  // clobber the edit buffer.
+  startEditingMessage(compactionRequestMsg.id, command);
+
+  // Interrupt stream with abandonPartial flag
+  // Backend detects this and skips compaction (Ctrl+C flow)
+  await client.workspace.interruptStream({
+    workspaceId,
+    options: { abandonPartial: true },
+  });
+
+  return true;
+}
