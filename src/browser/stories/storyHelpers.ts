@@ -1,0 +1,543 @@
+/**
+ * Shared story setup helpers to reduce boilerplate.
+ *
+ * These helpers encapsulate common patterns used across multiple stories,
+ * making each story file more focused on the specific visual state being tested.
+ */
+
+import type { AgentSkillDescriptor } from "@/common/types/agentSkill";
+import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type {
+  WorkspaceChatMessage,
+  ChatLatticeMessage,
+  ProvidersConfigMap,
+  WorkspaceStatsSnapshot,
+} from "@/common/orpc/types";
+import type { APIClient } from "@/browser/contexts/API";
+import {
+  SELECTED_WORKSPACE_KEY,
+  EXPANDED_PROJECTS_KEY,
+  RIGHT_SIDEBAR_COLLAPSED_KEY,
+  getInputKey,
+  getModelKey,
+  getReviewsKey,
+  getHunkFirstSeenKey,
+  REVIEW_SORT_ORDER_KEY,
+} from "@/common/constants/storage";
+import type { ReviewSortOrder } from "@/common/types/review";
+import type { HunkFirstSeenState } from "@/browser/hooks/useHunkFirstSeen";
+import { updatePersistedState } from "@/browser/hooks/usePersistedState";
+import type { Review, ReviewsState } from "@/common/types/review";
+import { DEFAULT_MODEL } from "@/common/constants/knownModels";
+import {
+  createWorkspace,
+  groupWorkspacesByProject,
+  createStaticChatHandler,
+  createStreamingChatHandler,
+  createGitStatusOutput,
+  type GitStatusFixture,
+} from "./mockFactory";
+import { createMockORPCClient, type MockSessionUsage } from "@/browser/stories/mocks/orpc";
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORKSPACE SELECTION
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Set localStorage to select a workspace */
+export function selectWorkspace(workspace: FrontendWorkspaceMetadata): void {
+  localStorage.setItem(
+    SELECTED_WORKSPACE_KEY,
+    JSON.stringify({
+      workspaceId: workspace.id,
+      projectPath: workspace.projectPath,
+      projectName: workspace.projectName,
+      namedWorkspacePath: workspace.namedWorkspacePath,
+    })
+  );
+}
+
+/** Clear workspace selection from localStorage (for sidebar-focused stories) */
+export function clearWorkspaceSelection(): void {
+  localStorage.removeItem(SELECTED_WORKSPACE_KEY);
+}
+
+/** Set input text for a workspace */
+export function setWorkspaceInput(workspaceId: string, text: string): void {
+  localStorage.setItem(getInputKey(workspaceId), JSON.stringify(text));
+}
+
+/** Set model for a workspace */
+export function setWorkspaceModel(workspaceId: string, model: string): void {
+  localStorage.setItem(getModelKey(workspaceId), model);
+}
+
+/** Expand projects in the sidebar */
+export function expandProjects(projectPaths: string[]): void {
+  localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify(projectPaths));
+}
+
+/** Collapse the right sidebar (default for most stories) */
+export function collapseRightSidebar(): void {
+  localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_KEY, JSON.stringify(true));
+}
+
+/** Expand the right sidebar (for stories testing it) */
+export function expandRightSidebar(): void {
+  localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_KEY, JSON.stringify(false));
+}
+
+/** Set reviews for a workspace */
+export function setReviews(workspaceId: string, reviews: Review[]): void {
+  const state: ReviewsState = {
+    workspaceId,
+    reviews: Object.fromEntries(reviews.map((r) => [r.id, r])),
+    lastUpdated: Date.now(),
+  };
+  updatePersistedState(getReviewsKey(workspaceId), state);
+}
+
+/** Set hunk first-seen timestamps for a workspace (for storybook) */
+export function setHunkFirstSeen(workspaceId: string, firstSeen: Record<string, number>): void {
+  const state: HunkFirstSeenState = { firstSeen };
+  updatePersistedState(getHunkFirstSeenKey(workspaceId), state);
+}
+
+/** Set the review panel sort order (global) */
+export function setReviewSortOrder(order: ReviewSortOrder): void {
+  localStorage.setItem(REVIEW_SORT_ORDER_KEY, JSON.stringify(order));
+}
+
+/** Create a sample review for stories */
+export function createReview(
+  id: string,
+  filePath: string,
+  lineRange: string,
+  note: string,
+  status: "pending" | "attached" | "checked" = "pending",
+  createdAt?: number
+): Review {
+  return {
+    id,
+    data: {
+      filePath,
+      lineRange,
+      selectedCode: "// sample code",
+      userNote: note,
+    },
+    status,
+    createdAt: createdAt ?? Date.now(),
+    statusChangedAt: status === "checked" ? Date.now() : undefined,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// GIT STATUS/DIFF EXECUTOR
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface GitDiffFixture {
+  /** The raw unified diff output */
+  diffOutput: string;
+  /** The numstat output (additions, deletions per file) */
+  numstatOutput?: string;
+  /** File contents for read-more feature (path -> full file content as lines) */
+  fileContents?: Map<string, string[]>;
+  /** List of untracked files (for UntrackedStatus banner) */
+  untrackedFiles?: string[];
+}
+
+// Default mock file tree for explorer stories
+// Mock ls output - order doesn't matter, parseLsOutput sorts the result
+const DEFAULT_LS_OUTPUT = `total 40
+drwxr-xr-x  5 user group  160 Jan 15 10:00 .
+drwxr-xr-x  3 user group   96 Jan 15 10:00 ..
+drwxr-xr-x 10 user group  320 Jan 15 10:00 node_modules
+drwxr-xr-x  3 user group   96 Jan 15 10:00 src
+drwxr-xr-x  2 user group   64 Jan 15 10:00 tests
+-rw-r--r--  1 user group  128 Jan 15 10:00 README.md
+-rw-r--r--  1 user group 1024 Jan 15 10:00 package.json
+-rw-r--r--  1 user group  256 Jan 15 10:00 tsconfig.json`;
+
+const DEFAULT_SRC_LS_OUTPUT = `total 24
+drwxr-xr-x  3 user group   96 Jan 15 10:00 .
+drwxr-xr-x  5 user group  160 Jan 15 10:00 ..
+drwxr-xr-x  2 user group   64 Jan 15 10:00 components
+-rw-r--r--  1 user group  256 Jan 15 10:00 App.tsx
+-rw-r--r--  1 user group  512 Jan 15 10:00 index.ts`;
+
+/**
+ * Creates an executeBash function that returns git status and diff output for workspaces.
+ * Handles: git status, git diff, git diff --numstat, git show (for read-more),
+ * git ls-files --others (for untracked files), ls -la (for file explorer), git check-ignore
+ */
+export function createGitStatusExecutor(
+  gitStatus?: Map<string, GitStatusFixture>,
+  gitDiff?: Map<string, GitDiffFixture>
+) {
+  return (workspaceId: string, script: string) => {
+    // Handle ls -la for file explorer
+    if (script.startsWith("ls -la")) {
+      // Check if it's the root or a subdirectory
+      const isRoot = script === "ls -la ." || script === "ls -la";
+      const output = isRoot ? DEFAULT_LS_OUTPUT : DEFAULT_SRC_LS_OUTPUT;
+      return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
+    }
+
+    // Handle git check-ignore for empty ignored directories
+    if (script.includes("git check-ignore")) {
+      // Return node_modules as ignored if it's in the input
+      const output = script.includes("node_modules") ? "node_modules" : "";
+      return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
+    }
+
+    if (script.includes("git status")) {
+      const status = gitStatus?.get(workspaceId) ?? {};
+      // For git status --ignored --porcelain, add !! node_modules to mark it as ignored
+      let output = createGitStatusOutput(status);
+      if (script.includes("--ignored")) {
+        output = output ? `${output}\n!! node_modules/` : "!! node_modules/";
+      }
+      return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
+    }
+
+    // Handle git ls-files --others (untracked files)
+    if (script.includes("git ls-files --others")) {
+      const diff = gitDiff?.get(workspaceId);
+      const output = diff?.untrackedFiles?.join("\n") ?? "";
+      return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
+    }
+
+    // Handle git diff --numstat
+    if (script.includes("git diff") && script.includes("--numstat")) {
+      const diff = gitDiff?.get(workspaceId);
+      const output = diff?.numstatOutput ?? "";
+      return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
+    }
+
+    // Handle git diff (regular diff output)
+    if (script.includes("git diff")) {
+      const diff = gitDiff?.get(workspaceId);
+      const output = diff?.diffOutput ?? "";
+      return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
+    }
+
+    // Handle git show for read-more feature (e.g., git show "HEAD:file.ts" | sed -n '1,20p')
+    const gitShowMatch = /git show "[^:]+:([^"]+)"/.exec(script);
+    const sedMatch = /sed -n '(\d+),(\d+)p'/.exec(script);
+    if (gitShowMatch && sedMatch) {
+      const filePath = gitShowMatch[1];
+      const startLine = parseInt(sedMatch[1], 10);
+      const endLine = parseInt(sedMatch[2], 10);
+      const diff = gitDiff?.get(workspaceId);
+      const lines = diff?.fileContents?.get(filePath);
+      if (lines) {
+        // sed uses 1-based indexing
+        const output = lines.slice(startLine - 1, endLine).join("\n");
+        return Promise.resolve({
+          success: true as const,
+          output,
+          exitCode: 0,
+          wall_duration_ms: 50,
+        });
+      }
+    }
+
+    return Promise.resolve({
+      success: true as const,
+      output: "",
+      exitCode: 0,
+      wall_duration_ms: 0,
+    });
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CHAT HANDLER ADAPTER
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export type ChatHandler = (callback: (event: WorkspaceChatMessage) => void) => () => void;
+
+/** Adapts callback-based chat handlers to ORPC onChat format */
+export function createOnChatAdapter(chatHandlers: Map<string, ChatHandler>) {
+  return (workspaceId: string, emit: (msg: WorkspaceChatMessage) => void) => {
+    const handler = chatHandlers.get(workspaceId);
+    if (handler) {
+      return handler(emit);
+    }
+    // Default: emit caught-up immediately
+    queueMicrotask(() => emit({ type: "caught-up" }));
+    return undefined;
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SIMPLE CHAT STORY SETUP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface BackgroundProcessFixture {
+  id: string;
+  pid: number;
+  script: string;
+  displayName?: string;
+  startTime: number;
+  status: "running" | "exited" | "killed" | "failed";
+  exitCode?: number;
+}
+
+export interface SimpleChatSetupOptions {
+  workspaceId?: string;
+  workspaceName?: string;
+  projectName?: string;
+  projectPath?: string;
+  messages: ChatLatticeMessage[];
+  gitStatus?: GitStatusFixture;
+  /** Git diff output for Review tab */
+  gitDiff?: GitDiffFixture;
+  providersConfig?: ProvidersConfigMap;
+  backgroundProcesses?: BackgroundProcessFixture[];
+  /** Session usage data for Costs tab */
+  statsTabEnabled?: boolean;
+  sessionUsage?: MockSessionUsage;
+  /** Optional custom chat handler for emitting additional events (e.g., queued-message-changed) */
+  onChat?: (workspaceId: string, emit: (msg: WorkspaceChatMessage) => void) => void;
+  /** Idle compaction hours for context meter (null = disabled) */
+  idleCompactionHours?: number | null;
+  /** Override signing capabilities (for testing warning states) */
+  signingCapabilities?: {
+    publicKey: string | null;
+    githubUser: string | null;
+    error: { message: string; hasEncryptedKey: boolean } | null;
+  };
+  /** Custom executeBash mock (for file viewer stories) */
+  executeBash?: (
+    workspaceId: string,
+    script: string
+  ) => Promise<{ success: true; output: string; exitCode: number; wall_duration_ms: number }>;
+  /** Available agent skills for the project */
+  agentSkills?: AgentSkillDescriptor[];
+}
+
+/**
+ * Setup a simple chat story with one workspace and messages.
+ * Returns an APIClient configured with the mock data.
+ */
+export function setupSimpleChatStory(opts: SimpleChatSetupOptions): APIClient {
+  const workspaceId = opts.workspaceId ?? "ws-chat";
+  const projectName = opts.projectName ?? "my-app";
+  const projectPath = opts.projectPath ?? `/home/user/projects/${projectName}`;
+  const workspaces = [
+    createWorkspace({
+      id: workspaceId,
+      name: opts.workspaceName ?? "feature",
+      projectName,
+      projectPath,
+    }),
+  ];
+
+  const chatHandlers = new Map([[workspaceId, createStaticChatHandler(opts.messages)]]);
+  const gitStatus = opts.gitStatus
+    ? new Map<string, GitStatusFixture>([[workspaceId, opts.gitStatus]])
+    : undefined;
+  const gitDiff = opts.gitDiff
+    ? new Map<string, GitDiffFixture>([[workspaceId, opts.gitDiff]])
+    : undefined;
+
+  // Set localStorage for workspace selection and collapse right sidebar by default
+  selectWorkspace(workspaces[0]);
+  collapseRightSidebar();
+
+  // Set up background processes map
+  const bgProcesses = opts.backgroundProcesses
+    ? new Map([[workspaceId, opts.backgroundProcesses]])
+    : undefined;
+
+  // Set up session usage map
+  const sessionUsageMap = opts.sessionUsage
+    ? new Map([[workspaceId, opts.sessionUsage]])
+    : undefined;
+
+  // Set up idle compaction hours map
+  const idleCompactionHours =
+    opts.idleCompactionHours !== undefined
+      ? new Map([[projectPath, opts.idleCompactionHours]])
+      : undefined;
+
+  // Create onChat handler that combines static messages with custom handler
+  const baseOnChat = createOnChatAdapter(chatHandlers);
+  const onChat = opts.onChat
+    ? (wsId: string, emit: (msg: WorkspaceChatMessage) => void) => {
+        const cleanup = baseOnChat(wsId, emit);
+        opts.onChat!(wsId, emit);
+        return cleanup;
+      }
+    : baseOnChat;
+
+  // Compose executeBash: use custom if provided, otherwise fall back to git status executor
+  const gitStatusExecutor = createGitStatusExecutor(gitStatus, gitDiff);
+  const executeBash = opts.executeBash
+    ? async (wsId: string, script: string) => {
+        // Try custom handler first, fall back to git status executor
+        const customResult = await opts.executeBash!(wsId, script);
+        if (customResult.output || customResult.exitCode !== 0) {
+          return customResult;
+        }
+        // Fall back to git status executor for git commands
+        return gitStatusExecutor(wsId, script);
+      }
+    : gitStatusExecutor;
+
+  // Return ORPC client
+  return createMockORPCClient({
+    projects: groupWorkspacesByProject(workspaces),
+    workspaces,
+    onChat,
+    executeBash,
+    providersConfig: opts.providersConfig,
+    backgroundProcesses: bgProcesses,
+    statsTabVariant: opts.statsTabEnabled ? "stats" : "control",
+    sessionUsage: sessionUsageMap,
+    idleCompactionHours,
+    signingCapabilities: opts.signingCapabilities,
+    agentSkills: opts.agentSkills,
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STREAMING CHAT STORY SETUP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface StreamingChatSetupOptions {
+  workspaceId?: string;
+  workspaceName?: string;
+  projectName?: string;
+  messages: ChatLatticeMessage[];
+  streamingMessageId: string;
+  model?: string;
+  historySequence: number;
+  streamText?: string;
+  pendingTool?: { toolCallId: string; toolName: string; args: object };
+  gitStatus?: GitStatusFixture;
+  statsTabEnabled?: boolean;
+}
+
+/**
+ * Setup a streaming chat story with active streaming state.
+ * Returns an APIClient configured with the mock data.
+ */
+export function setupStreamingChatStory(opts: StreamingChatSetupOptions): APIClient {
+  const workspaceId = opts.workspaceId ?? "ws-streaming";
+  const workspaces = [
+    createWorkspace({
+      id: workspaceId,
+      name: opts.workspaceName ?? "feature",
+      projectName: opts.projectName ?? "my-app",
+    }),
+  ];
+
+  const chatHandlers = new Map([
+    [
+      workspaceId,
+      createStreamingChatHandler({
+        messages: opts.messages,
+        streamingMessageId: opts.streamingMessageId,
+        model: opts.model ?? DEFAULT_MODEL,
+        historySequence: opts.historySequence,
+        streamText: opts.streamText,
+        pendingTool: opts.pendingTool,
+      }),
+    ],
+  ]);
+
+  const gitStatus = opts.gitStatus
+    ? new Map<string, GitStatusFixture>([[workspaceId, opts.gitStatus]])
+    : undefined;
+
+  // Set localStorage for workspace selection and collapse right sidebar by default
+  selectWorkspace(workspaces[0]);
+  collapseRightSidebar();
+
+  const workspaceStatsSnapshots = new Map<string, WorkspaceStatsSnapshot>();
+  if (opts.statsTabEnabled) {
+    workspaceStatsSnapshots.set(workspaceId, {
+      workspaceId,
+      generatedAt: Date.now(),
+      active: {
+        messageId: opts.streamingMessageId,
+        model: "openai:gpt-4o",
+        elapsedMs: 2000,
+        ttftMs: 200,
+        toolExecutionMs: 0,
+        modelTimeMs: 2000,
+        streamingMs: 1800,
+        outputTokens: 100,
+        reasoningTokens: 0,
+        liveTokenCount: 100,
+        liveTPS: 50,
+        invalid: false,
+        anomalies: [],
+      },
+      session: {
+        totalDurationMs: 0,
+        totalToolExecutionMs: 0,
+        totalStreamingMs: 0,
+        totalTtftMs: 0,
+        ttftCount: 0,
+        responseCount: 0,
+        totalOutputTokens: 0,
+        totalReasoningTokens: 0,
+        byModel: {},
+      },
+    });
+  }
+
+  // Return ORPC client
+  return createMockORPCClient({
+    projects: groupWorkspacesByProject(workspaces),
+    workspaces,
+    onChat: createOnChatAdapter(chatHandlers),
+    executeBash: createGitStatusExecutor(gitStatus),
+    workspaceStatsSnapshots,
+    statsTabVariant: opts.statsTabEnabled ? "stats" : "control",
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// CUSTOM CHAT HANDLER SETUP
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface CustomChatSetupOptions {
+  workspaceId?: string;
+  workspaceName?: string;
+  projectName?: string;
+  providersConfig?: ProvidersConfigMap;
+  chatHandler: ChatHandler;
+}
+
+/**
+ * Setup a chat story with a custom chat handler for special scenarios
+ * (e.g., stream errors, custom message sequences).
+ * Returns an APIClient configured with the mock data.
+ */
+export function setupCustomChatStory(opts: CustomChatSetupOptions): APIClient {
+  const workspaceId = opts.workspaceId ?? "ws-custom";
+  const workspaces = [
+    createWorkspace({
+      id: workspaceId,
+      name: opts.workspaceName ?? "feature",
+      projectName: opts.projectName ?? "my-app",
+    }),
+  ];
+
+  const chatHandlers = new Map([[workspaceId, opts.chatHandler]]);
+
+  // Set localStorage for workspace selection and collapse right sidebar by default
+  selectWorkspace(workspaces[0]);
+  collapseRightSidebar();
+
+  // Return ORPC client
+  return createMockORPCClient({
+    projects: groupWorkspacesByProject(workspaces),
+    workspaces,
+    onChat: createOnChatAdapter(chatHandlers),
+    providersConfig: opts.providersConfig,
+  });
+}

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="description" content="Parallel agentic development with Electron + React" />
+    <meta name="theme-color" content="#FAF9F6" />
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" vite-ignore />
+    <link rel="icon" href="/favicon.ico" vite-ignore />
+    <link rel="apple-touch-icon" href="/icon.png" vite-ignore />
+    <title>Lattice</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: var(--color-background, #FAF9F6);
+        color: var(--color-foreground, #191816);
+        font-family: var(
+          --font-primary,
+          "Inter",
+          -apple-system,
+          BlinkMacSystemFont,
+          system-ui,
+          "Segoe UI",
+          "Roboto",
+          "Helvetica Neue",
+          Arial,
+          sans-serif,
+          "Apple Color Emoji",
+          "Segoe UI Emoji",
+          "Segoe UI Symbol"
+        );
+        font-size: 14px;
+      }
+
+      :root[data-theme="light"] body {
+        background: #FAF9F6;
+      }
+
+      :root[data-theme="dark"] body {
+        background: #1A1917;
+      }
+
+      #root {
+        height: 100vh; /* fallback for older browsers */
+        height: 100dvh;
+        overflow: hidden;
+      }
+
+      /* Pre-JS placeholder to avoid a blank screen on cold start. */
+      .boot-loader {
+        height: 100vh; /* fallback for older browsers */
+        height: 100dvh;
+        width: 100vw;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .boot-loader__inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+
+      .boot-loader__spinner {
+        height: 48px;
+        width: 48px;
+        box-sizing: border-box;
+        border-radius: 9999px;
+        border: 4px solid var(--color-border-light, #3A3835);
+        border-top-color: transparent;
+        animation: boot-loader-spin 1s linear infinite;
+      }
+
+      :root[data-theme="light"] .boot-loader__spinner {
+        border-color: var(--color-border-light, #D8D5CC);
+        border-top-color: transparent;
+      }
+
+      .boot-loader__text {
+        margin: 0;
+        font-size: 14px;
+        color: var(--color-text-secondary, #8A8880);
+      }
+
+      :root[data-theme="light"] .boot-loader__text {
+        color: var(--color-text-secondary, #686560);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-loader__spinner {
+          animation: none;
+        }
+      }
+
+      @keyframes boot-loader-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
+    <script>
+      (function () {
+        const THEME_KEY = "uiTheme";
+        const VALID_THEMES = new Set(["light", "dark"]);
+
+        const THEME_COLORS = {
+          light: "#FAF9F6",
+          dark: "#1A1917",
+        };
+
+        function getColorScheme(theme) {
+          return theme === "light" ? "light" : "dark";
+        }
+
+        try {
+          const stored = window.localStorage.getItem(THEME_KEY);
+          let parsed = null;
+
+          // Tolerate legacy values that were written as raw strings (not JSON).
+          if (stored) {
+            try {
+              parsed = JSON.parse(stored);
+            } catch {
+              parsed = stored;
+            }
+          }
+
+          const prefersLight = window.matchMedia
+            ? window.matchMedia("(prefers-color-scheme: light)").matches
+            : false;
+
+          const fallbackTheme = prefersLight ? "light" : "dark";
+          let theme = fallbackTheme;
+
+          if (typeof parsed === "string") {
+            if (VALID_THEMES.has(parsed)) {
+              theme = parsed;
+            } else if (parsed.endsWith("-light") || parsed === "anthropic") {
+              // Migrate legacy themes
+              theme = "light";
+            } else if (parsed.endsWith("-dark") || parsed === "anthropic-dark") {
+              theme = "dark";
+            }
+          }
+
+          const colorScheme = getColorScheme(theme);
+
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = colorScheme;
+
+          const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+          if (metaThemeColor) {
+            metaThemeColor.setAttribute("content", THEME_COLORS[theme] ?? "#FAF9F6");
+          }
+        } catch (error) {
+          console.warn("Failed to apply preferred theme early", error);
+          document.documentElement.dataset.theme = "light";
+          document.documentElement.style.colorScheme = "light";
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root">
+      <div class="boot-loader" role="status" aria-live="polite" aria-busy="true">
+        <div class="boot-loader__inner">
+          <div class="boot-loader__spinner" aria-hidden="true"></div>
+          <p class="boot-loader__text">Loading workspaces...</p>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/browser/main.tsx"></script>
+  </body>
+</html>

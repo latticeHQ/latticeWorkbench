@@ -1,0 +1,298 @@
+name: Lattice Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g., v1.2.3). If provided, will checkout and release this tag regardless of current branch."
+        required: false
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+
+jobs:
+  preflight:
+    name: Validate release target
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure release tag context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -z "$RELEASE_TAG" ]; then
+            echo "::error::RELEASE_TAG is empty. Ensure this workflow runs on a release event or refs/tags/* ref."
+            exit 1
+          fi
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ -n "$INPUT_TAG" ]; then
+              echo "workflow_dispatch with explicit tag input: $INPUT_TAG"
+            elif [[ "$GITHUB_REF" != refs/tags/* ]]; then
+              echo "::error::workflow_dispatch runs must either provide a 'tag' input or target a tag ref. Current ref: $GITHUB_REF"
+              exit 1
+            fi
+          fi
+
+          echo "Publishing tag $RELEASE_TAG"
+
+  build-macos:
+    name: Build and Release macOS
+    needs: preflight
+    runs-on: ${{ github.repository_owner == 'devos' && 'depot-macos-15' || 'macos-latest' }}
+    permissions:
+      contents: write # Upload release assets
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # Required for git describe to find tags
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-lattice
+
+      - name: Build application
+        run: bun run build
+
+      - name: Setup code signing
+        run: ./scripts/setup-macos-signing.sh
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          AC_APIKEY_P8_BASE64: ${{ secrets.AC_APIKEY_P8_BASE64 }}
+          AC_APIKEY_ID: ${{ secrets.AC_APIKEY_ID }}
+          AC_APIKEY_ISSUER_ID: ${{ secrets.AC_APIKEY_ISSUER_ID }}
+
+      - name: Package and publish for macOS
+        run: make dist-mac-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-linux:
+    name: Build and Release Linux
+    needs: preflight
+    runs-on: ${{ github.repository_owner == 'devos' && 'depot-ubuntu-22.04-16' || 'ubuntu-latest' }}
+    permissions:
+      contents: write # Upload release assets
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # Required for git describe to find tags
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-lattice
+
+      - name: Build application
+        run: bun run build
+
+      - name: Package and publish for Linux
+        run: bun x electron-builder --linux --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-vscode-extension:
+    name: Build and Release VS Code Extension
+    needs: preflight
+    runs-on: ${{ github.repository_owner == 'devos' && 'depot-ubuntu-22.04-16' || 'ubuntu-latest' }}
+    permissions:
+      contents: write # Upload .vsix to release
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0 # Required for git describe to find tags
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-lattice
+
+      - uses: ./.github/actions/build-vscode-extension
+
+      - name: Wait for GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              echo "Release $RELEASE_TAG is available"
+              exit 0
+            fi
+
+            echo "Release $RELEASE_TAG not found yet (attempt $attempt/30); waiting 10s..."
+            sleep 10
+          done
+
+          echo "::error::Timed out waiting for release $RELEASE_TAG"
+          exit 1
+
+      - name: Upload VS Code extension to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$RELEASE_TAG" \
+            vscode/lattice-*.vsix \
+            --clobber
+
+      - name: Publish to VS Code Marketplace
+        working-directory: vscode
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "VSCE_PAT secret is not set; skipping VS Code Marketplace publish."
+            exit 0
+          fi
+
+          bunx vsce publish -p "$VSCE_PAT"
+
+  build-windows:
+    name: Build and Release Windows
+    needs: preflight
+    runs-on: windows-latest
+    permissions:
+      contents: write # Upload release assets
+      id-token: write # GCP workload identity for code signing
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-lattice
+
+      - name: Add MSYS2 make to PATH
+        shell: pwsh
+        run: |
+          # MSYS2 is pre-installed on Windows runners, just needs to be in PATH
+          # Install make via pacman (faster than choco)
+          C:\msys64\usr\bin\pacman.exe -S --noconfirm make
+          echo "C:\msys64\usr\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify tools
+        shell: bash
+        run: |
+          make --version
+          bun --version
+          magick --version | head -1
+
+      - name: Build application
+        run: bun run build
+
+      - name: Setup code signing
+        id: signing
+        uses: ./.github/actions/setup-windows-signing
+        with:
+          ev_signing_cert: ${{ secrets.EV_SIGNING_CERT }}
+          gcp_workload_id_provider: ${{ vars.GCP_WORKLOAD_ID_PROVIDER }}
+          gcp_service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Package and publish for Windows (.exe)
+        run: bun x electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # EV signing environment variables (used by custom sign script if configured)
+          EV_KEYSTORE: ${{ vars.EV_KEYSTORE }}
+          EV_KEY: ${{ vars.EV_KEY }}
+          EV_TSA_URL: ${{ vars.EV_TSA_URL }}
+          GCLOUD_ACCESS_TOKEN: ${{ steps.signing.outputs.gcloud_access_token }}
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: windows-release
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+          if-no-files-found: error
+
+  notify-slack-failure:
+    name: Notify Slack on Failure
+    runs-on: ubuntu-latest
+    needs: [build-macos, build-linux, build-windows, build-vscode-extension]
+    if: failure()
+    steps:
+      - name: Send failure notification to Slack
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
+          WORKFLOW_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL secret is not set; skipping Slack notification."
+            exit 0
+          fi
+
+          # Build JSON payload with proper escaping via jq
+          jq -n \
+            --arg text "🚨 Release build failed for \`$RELEASE_TAG\`" \
+            --arg workflow_url "$WORKFLOW_URL" \
+            '{
+              text: $text,
+              blocks: [
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: ("🚨 *Release build failed*\n\nTag: `" + $ARGS.named.tag + "`\n<" + $workflow_url + "|View workflow run>")
+                  }
+                }
+              ]
+            }' --arg tag "$RELEASE_TAG" > payload.json
+
+          # Send to Slack
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$SLACK_WEBHOOK_URL"
+
+  notify-discord:
+    name: Notify Discord
+    runs-on: ubuntu-latest
+    needs: [build-macos, build-linux, build-windows, build-vscode-extension]
+    # Only notify on actual releases, not manual workflow runs
+    if: github.event_name == 'release'
+    steps:
+      - name: Send release notification to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          REPO_NAME: ${{ github.repository }}
+        run: |
+          # Truncate body so we don't blow up Discord
+          BODY="${RELEASE_BODY}"
+          if [ ${#BODY} -gt 1500 ]; then
+            BODY="${BODY:0:1500}..."
+          fi
+
+          # Build JSON payload with proper escaping via jq
+          jq -n \
+            --arg title "New release: ${RELEASE_NAME:-$RELEASE_TAG}" \
+            --arg url "$RELEASE_URL" \
+            --arg body "$BODY" \
+            --arg repo "$REPO_NAME" \
+            '{
+              username: "GitHub Releases",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $body,
+                footer: { text: $repo }
+              }]
+            }' > payload.json
+
+          # Send to Discord
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d @payload.json \
+            "$DISCORD_WEBHOOK_URL"
