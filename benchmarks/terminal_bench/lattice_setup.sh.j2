@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+log() {
+  printf '[lattice-setup] %s\n' "$1"
+}
+
+ensure_tool() {
+  if command -v "$1" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if ! command -v apt-get >/dev/null 2>&1; then
+    printf 'Required tool "%s" missing and apt-get unavailable\n' "$1" >&2
+    return 1
+  fi
+
+  log "installing missing dependency: $1"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y "$1"
+}
+
+ensure_tool curl
+ensure_tool git
+ensure_tool unzip
+export BUN_INSTALL="${BUN_INSTALL:-/root/.bun}"
+export PATH="${BUN_INSTALL}/bin:${PATH}"
+
+if ! command -v bun >/dev/null 2>&1; then
+  log "installing bun"
+  curl -fsSL "${LATTICE_BUN_INSTALL_URL:-https://bun.sh/install}" | bash
+fi
+
+LATTICE_APP_ROOT="${LATTICE_APP_ROOT:-/opt/lattice-app}"
+LATTICE_CONFIG_ROOT="${LATTICE_CONFIG_ROOT:-/root/.lattice}"
+LATTICE_AGENT_VERSION="{{ version if version is not none else '' }}"
+
+rm -rf "${LATTICE_APP_ROOT}"
+if [[ -n "${LATTICE_AGENT_VERSION}" ]]; then
+  : "${LATTICE_AGENT_GIT_URL:?LATTICE_AGENT_GIT_URL required when version is set}"
+  log "cloning lattice from ${LATTICE_AGENT_GIT_URL} @ ${LATTICE_AGENT_VERSION}"
+  git clone --depth 1 --branch "${LATTICE_AGENT_VERSION}" "${LATTICE_AGENT_GIT_URL}" "${LATTICE_APP_ROOT}"
+else
+  log "extracting lattice archive"
+  mkdir -p "${LATTICE_APP_ROOT}"
+  tar -xzf "/installed-agent/lattice-app.tar.gz" -C "${LATTICE_APP_ROOT}"
+fi
+
+cd "${LATTICE_APP_ROOT}"
+
+log "installing lattice dependencies via bun"
+bun install --frozen-lockfile
+
+mkdir -p "${LATTICE_CONFIG_ROOT}"
+
+chmod +x /installed-agent/lattice-run.sh
+
+log "setup complete"

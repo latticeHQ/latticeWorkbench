@@ -1,0 +1,3 @@
+[submodule "vendor/latticeInference"]
+	path = vendor/latticeInference
+	url = git@github.com:latticeHQ/latticeInference.git

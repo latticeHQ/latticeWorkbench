@@ -1,0 +1,114 @@
+{
+  "name": "lattice",
+  "displayName": "Lattice",
+  "description": "Open Lattice workspaces directly from VS Code",
+  "version": "0.1.0",
+  "publisher": "lattice",
+  "icon": "icon.png",
+  "extensionKind": [
+    "ui"
+  ],
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "lattice",
+    "workspace",
+    "remote",
+    "ssh",
+    "development"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:lattice.chatView",
+    "onCommand:lattice.openWorkspace",
+    "onCommand:lattice.configureConnection",
+    "onCommand:lattice.debugConnection"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "lattice.openWorkspace",
+        "title": "Lattice: Open Workspace"
+      },
+      {
+        "command": "lattice.configureConnection",
+        "title": "Lattice: Configure Connection"
+      },
+      {
+        "command": "lattice.debugConnection",
+        "title": "Lattice: Debug Connection"
+      },
+      {
+        "command": "lattice.toggleLmProxy",
+        "title": "Lattice: Toggle Copilot LM Proxy"
+      }
+    ],
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "latticeSecondary",
+          "title": "Lattice",
+          "icon": "icon.png"
+        }
+      ]
+    },
+    "views": {
+      "latticeSecondary": [
+        {
+          "id": "lattice.chatView",
+          "name": "Chat (Preview)",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Lattice",
+      "properties": {
+        "lattice.connectionMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "server-only",
+            "file-only"
+          ],
+          "default": "auto",
+          "scope": "machine",
+          "description": "How the Lattice VS Code extension connects to Lattice (prefer server, require server, or use local files)."
+        },
+        "lattice.serverUrl": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "Override the Lattice server URL (leave empty to auto-discover). Example: http://127.0.0.1:3000"
+        },
+        "lattice.lmProxyPort": {
+          "type": "number",
+          "default": 3941,
+          "scope": "machine",
+          "description": "Port for the Copilot LM Proxy (OpenAI-compatible endpoint bridging VS Code Language Model API). Configure backend with baseURL: http://127.0.0.1:<port>/v1"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "bun run compile",
+    "compile": "node esbuild.config.js",
+    "watch": "node esbuild.config.js --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.106.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.27.0",
+    "typescript": "^5.3.0"
+  },
+  "license": "MIT",
+  "packageManager": "bun@1.1.42"
+}
+

@@ -1,0 +1,22 @@
+# lattice server docker-compose configuration
+#
+# Quick start:
+#   docker compose up -d
+#
+# Add a project:
+#   docker compose run --rm lattice-server --add-project /projects/my-repo
+
+services:
+  lattice-server:
+    build: .
+    container_name: lattice-server
+    ports:
+      - "3000:3000"
+    volumes:
+      - lattice-data:/root/.lattice
+      # Mount project directories as needed:
+      # - ~/projects:/projects:rw
+    restart: unless-stopped
+
+volumes:
+  lattice-data:
