@@ -58,7 +58,7 @@ export function MainAreaTabBar({
       )}
 
       {/* Scrollable agent/terminal tabs */}
-      <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
+      <div className="scrollbar-none flex min-w-0 flex-1 items-center overflow-x-auto">
         {agentTabs.map((tab) => (
           <Tab
             key={tab}
