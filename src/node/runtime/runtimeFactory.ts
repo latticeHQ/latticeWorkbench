@@ -8,14 +8,18 @@ import { LatticeSSHRuntime } from "./LatticeSSHRuntime";
 import { createSSHTransport } from "./transports";
 import { DockerRuntime, getContainerName } from "./DockerRuntime";
 import { DevcontainerRuntime } from "./DevcontainerRuntime";
+import { RemoteRuntime } from "./RemoteRuntime";
 import type { RuntimeConfig, RuntimeMode, RuntimeAvailabilityStatus } from "@/common/types/runtime";
 import { hasSrcBaseDir } from "@/common/types/runtime";
 import { isIncompatibleRuntimeConfig } from "@/common/utils/runtimeCompatibility";
 import { execAsync } from "@/node/utils/disposableExec";
 import type { LatticeService } from "@/node/services/latticeService";
+import type { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
 import { Config } from "@/node/config";
 import { checkDevcontainerCliVersion } from "./devcontainerCli";
 import { buildDevcontainerConfigInfo, scanDevcontainerConfigs } from "./devcontainerConfigs";
+import { bootstrapAgentsOnRemote } from "./agentBootstrap";
+import { log } from "@/node/services/log";
 
 // Re-export for backward compatibility with existing imports
 export { isIncompatibleRuntimeConfig };
@@ -36,14 +40,37 @@ export function setGlobalLatticeService(service: LatticeService): void {
  * Run the full init sequence: postCreateSetup (if present) then initWorkspace.
  * Use this everywhere instead of calling initWorkspace directly to ensure
  * runtimes with provisioning steps (Docker, LatticeSSH) work correctly.
+ *
+ * When cliAgentDetectionService is provided and the runtime is remote (SSH/Docker),
+ * locally-detected CLI agents are automatically installed on the remote before
+ * initWorkspace runs. This ensures hire_employee works out of the box.
  */
 export async function runFullInit(
   runtime: Runtime,
-  params: WorkspaceInitParams
+  params: WorkspaceInitParams,
+  cliAgentDetectionService?: CliAgentDetectionService
 ): Promise<WorkspaceInitResult> {
   if (runtime.postCreateSetup) {
     await runtime.postCreateSetup(params);
   }
+
+  // Auto-install CLI agents on remote runtimes (SSH, Docker)
+  if (cliAgentDetectionService && runtime instanceof RemoteRuntime) {
+    try {
+      await bootstrapAgentsOnRemote(
+        runtime,
+        params.initLogger,
+        cliAgentDetectionService,
+        params.abortSignal
+      );
+    } catch (err) {
+      // Non-fatal: log but continue with workspace init
+      const msg = err instanceof Error ? err.message : String(err);
+      params.initLogger.logStderr(`Agent bootstrap failed: ${msg}`);
+      log.warn("[agent-bootstrap] Failed", { error: msg });
+    }
+  }
+
   return runtime.initWorkspace(params);
 }
 
@@ -51,16 +78,16 @@ export async function runFullInit(
  * Fire-and-forget init with standardized error handling.
  * Use this for background init after workspace creation (workspaceService, taskService).
  */
-
 export function runBackgroundInit(
   runtime: Runtime,
   params: WorkspaceInitParams,
   workspaceId: string,
-  logger?: { error: (msg: string, ctx: object) => void }
+  logger?: { error: (msg: string, ctx: object) => void },
+  cliAgentDetectionService?: CliAgentDetectionService
 ): void {
   void (async () => {
     try {
-      await runFullInit(runtime, params);
+      await runFullInit(runtime, params, cliAgentDetectionService);
     } catch (error: unknown) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger?.error(`Workspace init failed for ${workspaceId}:`, { error });

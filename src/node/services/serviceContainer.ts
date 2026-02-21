@@ -235,6 +235,9 @@ export class ServiceContainer {
     this.workspaceService.setTerminalService(this.terminalService);
     // Wire terminal service to AI service so hire_employee tool can create sessions
     this.aiService.setTerminalService(this.terminalService);
+    // Wire agent detection to workspace/task services for remote agent bootstrap
+    this.workspaceService.setCliAgentDetectionService(this.cliAgentDetectionService);
+    this.taskService.setCliAgentDetectionService(this.cliAgentDetectionService);
     // Disk-backed scrollback persistence for employee agent terminals
     this.terminalScrollbackService = new TerminalScrollbackService(config);
     // Editor service for opening workspaces in code editors

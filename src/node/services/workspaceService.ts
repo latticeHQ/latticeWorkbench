@@ -68,6 +68,7 @@ import { isValidModelFormat, normalizeGatewayModel } from "@/common/utils/ai/mod
 import { WORKSPACE_DEFAULTS } from "@/constants/workspaceDefaults";
 import type { StreamEndEvent, StreamAbortEvent } from "@/common/types/stream";
 import type { TerminalService } from "@/node/services/terminalService";
+import type { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
 import type { WorkspaceAISettingsSchema } from "@/common/orpc/schemas";
 import type { SessionTimingService } from "@/node/services/sessionTimingService";
 import type { SessionUsageService } from "@/node/services/sessionUsageService";
@@ -175,6 +176,7 @@ export class WorkspaceService extends EventEmitter {
   // Optional terminal service for cleanup on workspace removal
   private terminalService?: TerminalService;
   private sessionTimingService?: SessionTimingService;
+  private cliAgentDetectionService?: CliAgentDetectionService;
 
   /**
    * Set the MCP server manager for tool access.
@@ -205,6 +207,14 @@ export class WorkspaceService extends EventEmitter {
    */
   setSessionTimingService(sessionTimingService: SessionTimingService): void {
     this.sessionTimingService = sessionTimingService;
+  }
+
+  /**
+   * Set CLI agent detection service for remote agent bootstrap.
+   * When set, runBackgroundInit will auto-install locally-detected agents on SSH/Docker runtimes.
+   */
+  setCliAgentDetectionService(service: CliAgentDetectionService): void {
+    this.cliAgentDetectionService = service;
   }
 
   /**
@@ -788,7 +798,7 @@ export class WorkspaceService extends EventEmitter {
 
       // Background init: run postCreateSetup (if present) then initWorkspace
       const secrets = secretsToRecord(this.config.getProjectSecrets(projectPath));
-      // Background init: postCreateSetup (provisioning) + initWorkspace (sync/checkout/hook)
+      // Background init: postCreateSetup (provisioning) + agent bootstrap + initWorkspace (sync/checkout/hook)
       runBackgroundInit(
         runtime,
         {
@@ -800,7 +810,8 @@ export class WorkspaceService extends EventEmitter {
           env: secrets,
         },
         workspaceId,
-        log
+        log,
+        this.cliAgentDetectionService
       );
 
       return Ok({ metadata: completeMetadata });
@@ -1612,7 +1623,8 @@ export class WorkspaceService extends EventEmitter {
           env: secrets,
         },
         newWorkspaceId,
-        log
+        log,
+        this.cliAgentDetectionService
       );
 
       const sourceSessionDir = this.config.getSessionDir(sourceWorkspaceId);

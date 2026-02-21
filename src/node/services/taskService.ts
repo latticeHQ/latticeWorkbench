@@ -9,6 +9,7 @@ import type { WorkspaceService } from "@/node/services/workspaceService";
 import type { HistoryService } from "@/node/services/historyService";
 import type { PartialService } from "@/node/services/partialService";
 import type { InitStateManager } from "@/node/services/initStateManager";
+import type { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
 import { log } from "@/node/services/log";
 import { detectDefaultTrunkBranch, listLocalBranches } from "@/node/git";
 import {
@@ -202,6 +203,15 @@ export class TaskService {
   // Bounded by TTL + max entries (see COMPLETED_REPORT_CACHE_*).
   private readonly completedReportsByTaskId = new Map<string, CompletedAgentReportCacheEntry>();
   private readonly remindedAwaitingReport = new Set<string>();
+  private cliAgentDetectionService?: CliAgentDetectionService;
+
+  /**
+   * Set CLI agent detection service for remote agent bootstrap.
+   * When set, task workspace init will auto-install locally-detected agents on SSH/Docker runtimes.
+   */
+  setCliAgentDetectionService(service: CliAgentDetectionService): void {
+    this.cliAgentDetectionService = service;
+  }
 
   constructor(
     private readonly config: Config,
@@ -696,7 +706,9 @@ export class TaskService {
         env: secrets,
         skipInitHook,
       },
-      taskId
+      taskId,
+      undefined,
+      this.cliAgentDetectionService
     );
 
     // Start immediately (counts towards parallel limit).
@@ -1657,7 +1669,9 @@ export class TaskService {
             env: secrets,
             skipInitHook,
           },
-          taskId
+          taskId,
+          undefined,
+          this.cliAgentDetectionService
         );
       }
 
