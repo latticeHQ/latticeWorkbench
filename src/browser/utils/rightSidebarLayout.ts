@@ -68,8 +68,8 @@ export function getDefaultMainAreaLayoutState(): RightSidebarLayoutState {
     root: {
       type: "tabset",
       id: "tabset-1",
-      tabs: ["chat"],
-      activeTab: "chat",
+      tabs: ["home", "chat"],
+      activeTab: "home",
     },
   };
 }
