@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Puzzle,
   Terminal,
+  Network,
 } from "lucide-react";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { useExperimentValue } from "@/browser/hooks/useExperiments";
@@ -26,6 +27,7 @@ import { ExperimentsSection } from "./sections/ExperimentsSection";
 import { KeybindsSection } from "./sections/KeybindsSection";
 import { ChannelsSection } from "./sections/ChannelsSection";
 import { PluginPacksSection } from "./sections/PluginPacksSection";
+import { LatticeSection } from "./sections/LatticeSection";
 import type { SettingsSection } from "./types";
 
 const BASE_SECTIONS: SettingsSection[] = [
@@ -46,6 +48,12 @@ const BASE_SECTIONS: SettingsSection[] = [
     label: "Plugins",
     icon: <Puzzle className="h-[14px] w-[14px] shrink-0" />,
     component: PluginPacksSection,
+  },
+  {
+    id: "lattice",
+    label: "Lattice",
+    icon: <Network className="h-[14px] w-[14px] shrink-0" />,
+    component: LatticeSection,
   },
   {
     id: "channels",
