@@ -123,12 +123,12 @@ const SortableTab: React.FC<{
             {...attributes}
             {...(listeners ?? {})}
             className={cn(
-              // Stacked icon + label in a pill-shaped button
-              "relative flex w-full cursor-pointer flex-col items-center gap-[3px] rounded-md px-1 py-2.5 touch-none",
+              // Icon-only button — centered, no text label
+              "relative flex w-full cursor-pointer items-center justify-center rounded-md p-2 touch-none",
               "transition-colors duration-150",
               // Active: accent left rule + slightly lighter background
               item.selected
-                ? "text-foreground bg-hover before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-accent"
+                ? "text-foreground bg-hover before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[2px] before:rounded-full before:bg-accent"
                 : "text-muted hover:bg-hover/40 hover:text-foreground",
               item.disabled && "pointer-events-none opacity-40",
               isDragging && "opacity-40",
@@ -159,9 +159,6 @@ const SortableTab: React.FC<{
             tabIndex={item.disabled ? -1 : (attributes.tabIndex ?? 0)}
           >
             {icon}
-            <span className="text-center text-[8px] font-medium uppercase leading-none tracking-[0.06em]">
-              {shortLabel}
-            </span>
           </div>
         </TooltipTrigger>
         {/* Tooltip on the left — doesn't overlap the content panel */}
@@ -203,8 +200,8 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
     <div
       ref={setNodeRef}
       className={cn(
-        // Vertical strip — narrow, bordered on the right, sidebar bg
-        "border-border-light bg-sidebar flex w-[52px] shrink-0 flex-col items-center border-r px-1 py-2 transition-colors",
+        // Vertical strip — narrow icon-only column, bordered on the right
+        "border-border-light bg-sidebar flex w-10 shrink-0 flex-col items-center border-r px-1 py-2 transition-colors",
         showDropHighlight && "bg-accent/20",
         isDraggingFromHere && "bg-accent/10",
       )}
@@ -220,7 +217,7 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
 
       {/* Settings pinned to bottom of the activity bar */}
       <div className={cn("mt-1 shrink-0", isDesktop && "titlebar-no-drag")}>
-        <SettingsButton className="h-7 w-7 rounded-md" />
+        <SettingsButton className="h-8 w-8 rounded-md" />
       </div>
     </div>
   );
