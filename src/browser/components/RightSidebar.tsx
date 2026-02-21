@@ -134,14 +134,11 @@ const SidebarContainer: React.FC<SidebarContainerProps> = ({
   return (
     <div
       className={cn(
-        "bg-sidebar border-l border-border-light flex flex-col overflow-hidden flex-shrink-0",
+        "bg-sidebar flex flex-col overflow-hidden flex-shrink-0",
         // Hide on mobile touch devices - too narrow for useful interaction
         "mobile-hide-right-sidebar",
         !isResizing && "transition-[width] duration-200",
-        collapsed && "sticky right-0 z-10 shadow-[-2px_0_4px_rgba(0,0,0,0.2)]",
-        // In desktop mode, hide the left border when collapsed to avoid
-        // visual separation in the titlebar area (overlay buttons zone)
-        isDesktop && collapsed && "border-l-0"
+        collapsed && "sticky right-0 z-10 shadow-[-2px_0_4px_rgba(0,0,0,0.2)]"
       )}
       style={{ width }}
       role={role}
