@@ -638,6 +638,10 @@ export function MainArea({
         onToggleLeftSidebarCollapsed={onToggleLeftSidebarCollapsed}
         namedWorkspacePath={workspacePath}
         runtimeConfig={runtimeConfig}
+        onHireEmployee={(slug) => void hireEmployee(slug)}
+        detectedSlugs={detectedSlugs}
+        detectingAgents={detectingAgents}
+        onRefreshAgents={refreshAgents}
       />
 
       {/* Tab bar */}
@@ -645,12 +649,8 @@ export function MainArea({
         tabs={allTabs}
         activeTab={activeTab}
         employeeMeta={employeeMeta}
-        detectedSlugs={detectedSlugs}
-        detectingAgents={detectingAgents}
-        onRefreshAgents={refreshAgents}
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
-        onHireEmployee={(slug) => void hireEmployee(slug)}
       />
 
       {/* Tab content panels — all mounted, inactive hidden (keep-alive).
