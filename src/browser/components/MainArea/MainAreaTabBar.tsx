@@ -56,7 +56,7 @@ export function MainAreaTabBar({
   const agentTabs = tabs.filter((t) => !isChatTab(t));
 
   return (
-    <div className="border-border-light bg-sidebar relative z-10 flex min-w-0 items-center border-b px-2 py-1.5">
+    <div className="border-border-light bg-sidebar relative z-10 flex min-w-0 items-center border-b px-2">
       {/* PM Chat — always pinned, never scrolls off */}
       {chatTab && (
         <Tab
@@ -69,11 +69,11 @@ export function MainAreaTabBar({
 
       {/* Divider between pinned PM Chat and scrollable agent tabs */}
       {agentTabs.length > 0 && (
-        <div className="bg-border-light mx-1.5 h-4 w-px shrink-0" />
+        <div className="bg-border-light mx-2 h-4 w-px shrink-0" />
       )}
 
       {/* Scrollable agent/terminal tabs */}
-      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
         {agentTabs.map((tab) => (
           <Tab
             key={tab}
@@ -190,10 +190,13 @@ function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
   return (
     <div
       className={cn(
-        "group relative flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-xs font-medium transition-all duration-150",
+        // Bottom-border underline style — no rounded corners, flush with bar border
+        "group relative flex h-9 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap px-3 text-xs font-medium transition-colors duration-150",
+        // Active: accent bottom border (slightly overlaps container's border-b)
+        "border-b-2 -mb-px",
         isActive
-          ? "bg-hover text-foreground"
-          : "text-muted hover:bg-hover/50 hover:text-foreground"
+          ? "border-b-accent text-foreground"
+          : "border-b-transparent text-muted hover:text-foreground"
       )}
       onClick={onSelect}
       role="tab"
@@ -223,7 +226,7 @@ function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
             e.stopPropagation();
           }}
           className={cn(
-            "text-muted hover:text-foreground hover:bg-white/10 relative z-10 ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border-none bg-transparent transition-colors",
+            "text-muted hover:text-foreground hover:bg-white/10 relative z-10 ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded border-none bg-transparent transition-colors",
             "opacity-0 group-hover:opacity-100",
             isActive && "opacity-60 hover:opacity-100"
           )}
