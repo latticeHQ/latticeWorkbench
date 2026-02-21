@@ -212,7 +212,7 @@
     --color-input-bg: hsl(35 10% 7%);
     --color-input-text: hsl(35 10% 82%);
     --color-input-border: hsl(35 12% 38%);
-    --color-input-border-focus: hsl(35 12% 52%);
+    --color-input-border-focus: hsl(24 90% 58%);
 
     /* Scrollbar */
     --color-scrollbar-track: hsl(35 8% 14%);
@@ -254,11 +254,11 @@
     --color-modal-bg: hsl(35 8% 14%);
     --color-inline-code-dark-bg: hsl(35 8% 14%);
 
-    --color-accent: hsl(35 14% 68%); /* warm tan — Anthropic dark mode accent */
-    --color-accent-hover: hsl(35 14% 74%);
-    --color-accent-dark: hsl(35 14% 62%);
-    --color-accent-darker: hsl(35 14% 52%);
-    --color-accent-light: hsl(35 14% 82%);
+    --color-accent: hsl(24 90% 58%);        /* vibrant orange — modern HQ accent */
+    --color-accent-hover: hsl(24 90% 64%);
+    --color-accent-dark: hsl(24 90% 52%);
+    --color-accent-darker: hsl(24 90% 44%);
+    --color-accent-light: hsl(24 90% 72%);
 
     --color-success: hsl(122 39% 49%); /* #4caf50 - success green */
     --color-success-light: hsl(123 46% 64%); /* #4ade80 - lighter success */
