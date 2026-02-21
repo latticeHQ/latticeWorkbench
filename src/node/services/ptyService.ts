@@ -440,7 +440,11 @@ export class PTYService {
           cwd: workspacePath,
           cols: params.cols,
           rows: params.rows,
-          preferElectronBuild: true,
+          // false = use @lydell/node-pty (Bun/dev ABI).
+          // The Electron-ABI build (preferElectronBuild: true) causes posix_spawnp
+          // failures in the Bun dev-server because the native addon conflicts with
+          // Bun's loader — the same reason directExec uses false above.
+          preferElectronBuild: false,
           logLocalEnv: true,
         });
       }
