@@ -1,5 +1,6 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { Bell, BellOff, Menu, Pencil, Server } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { Bell, BellOff, Menu, Pencil, Plus, Server } from "lucide-react";
 import { CUSTOM_EVENTS } from "@/common/constants/events";
 import { cn } from "@/common/lib/utils";
 
@@ -33,6 +34,8 @@ import { WorkspaceLinks } from "./WorkspaceLinks";
 import { SkillIndicator } from "./SkillIndicator";
 import { useAPI } from "@/browser/contexts/API";
 import type { AgentSkillDescriptor } from "@/common/types/agentSkill";
+import { AgentPicker } from "./MainArea/AgentPicker";
+import type { EmployeeSlug } from "./MainArea/AgentPicker";
 
 interface WorkspaceHeaderProps {
   workspaceId: string;
@@ -43,6 +46,14 @@ interface WorkspaceHeaderProps {
   runtimeConfig?: RuntimeConfig;
   leftSidebarCollapsed: boolean;
   onToggleLeftSidebarCollapsed: () => void;
+  /** Callback to hire (spawn) a new employee agent */
+  onHireEmployee: (slug: EmployeeSlug) => void;
+  /** Set of detected/installed agent slugs */
+  detectedSlugs?: Set<string>;
+  /** True while agent detection scan is running */
+  detectingAgents?: boolean;
+  /** Callback to re-scan for installed agents */
+  onRefreshAgents?: () => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -54,6 +65,10 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   runtimeConfig,
   leftSidebarCollapsed,
   onToggleLeftSidebarCollapsed,
+  onHireEmployee,
+  detectedSlugs,
+  detectingAgents,
+  onRefreshAgents,
 }) => {
   const { api } = useAPI();
   const openInEditor = useOpenInEditor();
@@ -65,6 +80,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   const [editorError, setEditorError] = useState<string | null>(null);
   const [debugLlmRequestOpen, setDebugLlmRequestOpen] = useState(false);
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   const [availableSkills, setAvailableSkills] = useState<AgentSkillDescriptor[]>([]);
 
   const [rightSidebarCollapsed] = usePersistedState<boolean>(RIGHT_SIDEBAR_COLLAPSED_KEY, false, {
@@ -215,6 +232,40 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       </div>
       <div className={cn("flex items-center gap-2", isDesktop && "titlebar-no-drag")}>
         <WorkspaceLinks workspaceId={workspaceId} />
+
+        {/* Hire employee (+) button */}
+        <div className="relative">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                ref={addButtonRef}
+                onClick={() => setPickerOpen((v) => !v)}
+                className={cn(
+                  "text-muted hover:text-foreground hover:bg-hover flex h-10 w-10 shrink-0 items-center justify-center rounded-none border-none bg-transparent transition-colors",
+                  pickerOpen && "bg-hover text-foreground"
+                )}
+                aria-label="Hire employee"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="center">
+              Hire employee
+            </TooltipContent>
+          </Tooltip>
+
+          {pickerOpen && (
+            <HeaderAgentPickerPopover
+              buttonRef={addButtonRef}
+              detectedSlugs={detectedSlugs}
+              detectingAgents={detectingAgents}
+              onRefreshAgents={onRefreshAgents}
+              onHireEmployee={onHireEmployee}
+              onClose={() => setPickerOpen(false)}
+            />
+          )}
+        </div>
+
         <Popover open={notificationPopoverOpen} onOpenChange={setNotificationPopoverOpen}>
           <Tooltip {...(notificationPopoverOpen ? { open: false } : {})}>
             <TooltipTrigger asChild>
@@ -350,3 +401,62 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
     </div>
   );
 };
+
+/**
+ * Portalled popover for AgentPicker in the workspace header.
+ * Rendered into document.body so it's never clipped by parent overflow/transforms.
+ */
+function HeaderAgentPickerPopover({
+  buttonRef,
+  detectedSlugs,
+  detectingAgents,
+  onRefreshAgents,
+  onHireEmployee,
+  onClose,
+}: {
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  detectedSlugs?: Set<string>;
+  detectingAgents?: boolean;
+  onRefreshAgents?: () => void;
+  onHireEmployee: (slug: EmployeeSlug) => void;
+  onClose: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  useEffect(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    setPos({
+      top: rect.bottom + 4,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, [buttonRef]);
+
+  return createPortal(
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/* Picker panel */}
+      <div
+        ref={panelRef}
+        className="fixed z-50 flex flex-col overflow-hidden"
+        style={
+          pos
+            ? { top: pos.top, right: pos.right, maxHeight: `calc(100vh - ${pos.top + 8}px)` }
+            : { top: 0, right: 0, visibility: "hidden" }
+        }
+      >
+        <AgentPicker
+          detectedSlugs={detectedSlugs}
+          loading={detectingAgents}
+          onRefresh={onRefreshAgents}
+          onSelect={onHireEmployee}
+          onClose={onClose}
+        />
+      </div>
+    </>,
+    document.body
+  );
+}
