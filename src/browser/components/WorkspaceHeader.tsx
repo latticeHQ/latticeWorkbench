@@ -168,8 +168,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       style={headerRightPadding > 0 ? { paddingRight: headerRightPadding } : undefined}
       data-testid="workspace-header"
       className={cn(
-        "bg-sidebar border-border-light flex items-center justify-between border-b px-2",
-        isDesktop ? DESKTOP_TITLEBAR_HEIGHT_CLASS : "h-12",
+        "bg-background-secondary border-border-light flex items-center justify-between border-b px-2",
+        isDesktop ? DESKTOP_TITLEBAR_HEIGHT_CLASS : "h-10",
         // In desktop mode, make header draggable for window movement
         isDesktop && "titlebar-drag",
         // Keep header visible when iOS keyboard opens and causes scroll
