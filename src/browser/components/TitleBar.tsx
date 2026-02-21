@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { cn } from "@/common/lib/utils";
 import { VERSION } from "@/version";
-import { SettingsButton } from "./SettingsButton";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import type { UpdateStatus } from "@/common/orpc/types";
 import type { LatticeWhoami } from "@/common/orpc/schemas/lattice";
@@ -289,8 +288,8 @@ export function TitleBar() {
           </TooltipContent>
         </Tooltip>
       </div>
-      <div className={cn("flex items-center gap-3", isDesktop && "titlebar-no-drag")}>
-        {latticeUser?.state === "authenticated" && (
+      {latticeUser?.state === "authenticated" && (
+        <div className={cn("flex items-center", isDesktop && "titlebar-no-drag")}>
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="bg-accent/10 text-accent flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-medium">
@@ -307,9 +306,8 @@ export function TitleBar() {
               </div>
             </TooltipContent>
           </Tooltip>
-        )}
-        <SettingsButton />
-      </div>
+        </div>
+      )}
     </div>
   );
 }
