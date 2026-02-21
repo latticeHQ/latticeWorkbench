@@ -473,13 +473,23 @@ export function MainArea({
       for await (const { sessionId, slug, label } of iterator) {
         if (cancelled) break;
         const tabType = makeTerminalTabType(sessionId);
+        // Guard against historical event replay: if this session is already
+        // tracked (loaded from localStorage on mount), skip re-adding it.
+        // New hires (never seen before) won't be in the map, so they still
+        // get added and their tab opened normally.
+        let isNew = false;
         setEmployeeMeta((prev) => {
+          if (prev.has(sessionId)) return prev;
+          isNew = true;
           const next = new Map(prev);
           next.set(sessionId, { slug: slug as EmployeeSlug, label, status: "running" });
           saveEmployeeMeta(workspaceId, next);
           return next;
         });
+        if (!isNew) continue;
         setLayout((prev) => {
+          const existing = collectAllTabs(prev.root);
+          if (existing.includes(tabType)) return prev;
           const withTab = addTabToFocusedTabset(prev, tabType);
           return selectTabInFocusedTabset(withTab, tabType);
         });
@@ -750,6 +760,9 @@ export function MainArea({
                   workspaceName={workspaceName}
                   projectName={projectName}
                   employeeMeta={employeeMeta}
+                  onOpenSession={(sessionId) =>
+                    handleSelectTab(makeTerminalTabType(sessionId))
+                  }
                 />
               </div>
             );
