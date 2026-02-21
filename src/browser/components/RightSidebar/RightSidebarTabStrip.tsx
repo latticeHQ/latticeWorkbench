@@ -204,18 +204,25 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
 
   const isDesktop = isDesktopMode();
 
-  // When collapsed, clicking any tab icon should also expand the sidebar
-  const expandingItems = items.map((item) =>
-    collapsed && onCollapseToggle
-      ? {
-          ...item,
-          onSelect: () => {
+  // Clicking a tab icon toggles the sidebar:
+  //  - While collapsed → expand and select the tab
+  //  - While expanded and the tab is already active → collapse
+  //  - Otherwise → just select the tab (normal)
+  const expandingItems = onCollapseToggle
+    ? items.map((item) => ({
+        ...item,
+        onSelect: () => {
+          if (collapsed) {
             onCollapseToggle();
             item.onSelect();
-          },
-        }
-      : item
-  );
+          } else if (item.selected) {
+            onCollapseToggle();
+          } else {
+            item.onSelect();
+          }
+        },
+      }))
+    : items;
 
   return (
     <div
