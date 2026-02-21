@@ -138,3 +138,14 @@ export function getLatticeExtensionMetadataPath(rootDir?: string): string {
   const root = rootDir ?? getLatticeHome();
   return join(root, "extensionMetadata.json");
 }
+
+/**
+ * Get the PTY PID tracking file path.
+ * Used by PTYService to track spawned PTY process IDs for orphan recovery.
+ *
+ * @param rootDir - Optional root directory (defaults to getLatticeHome())
+ */
+export function getLatticePtyPidsFile(rootDir?: string): string {
+  const root = rootDir ?? getLatticeHome();
+  return join(root, "pty-pids.json");
+}
