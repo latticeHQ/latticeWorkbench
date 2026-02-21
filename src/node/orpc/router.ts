@@ -2355,6 +2355,25 @@ export const router = (authToken?: string) => {
     },
 
     // ═══════════════════════════════════════════════════════════════════════
+    // ██ Inference Setup Wizard — Python environment setup                 █
+    // ═══════════════════════════════════════════════════════════════════════
+    inferenceSetup: {
+      checkStatus: t
+        .input(schemas.inferenceSetup.checkStatus.input)
+        .output(schemas.inferenceSetup.checkStatus.output)
+        .handler(async ({ context }) => {
+          return context.inferenceSetupService.checkSetupStatus();
+        }),
+
+      runSetup: t
+        .input(schemas.inferenceSetup.runSetup.input)
+        .output(schemas.inferenceSetup.runSetup.output)
+        .handler(async function* ({ context }) {
+          yield* context.inferenceSetupService.runSetup();
+        }),
+    },
+
+    // ═══════════════════════════════════════════════════════════════════════
     // ██ Channels — cross-platform messaging adapters (Telegram, Discord…) █
     // ═══════════════════════════════════════════════════════════════════════
     channels: {

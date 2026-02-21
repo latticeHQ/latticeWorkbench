@@ -1532,6 +1532,58 @@ export const inference = {
   },
 };
 
+// ─── Inference Setup Wizard ──────────────────────────────────────────
+
+const InferenceSetupPhaseSchema = z.enum([
+  "detecting-python",
+  "creating-venv",
+  "installing-deps",
+  "verifying",
+  "restarting-engine",
+]);
+
+const InferenceSetupStreamEventSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("phase"),
+    phase: InferenceSetupPhaseSchema,
+    message: z.string(),
+  }),
+  z.object({ type: z.literal("stdout"), data: z.string() }),
+  z.object({ type: z.literal("stderr"), data: z.string() }),
+  z.object({
+    type: z.literal("result"),
+    success: z.boolean(),
+    message: z.string(),
+    backend: z.string().optional(),
+  }),
+]);
+
+const InferenceSetupStatusSchema = z.object({
+  venvExists: z.boolean(),
+  venvPath: z.string(),
+  systemPythonFound: z.boolean(),
+  systemPythonPath: z.string().nullable(),
+  systemPythonVersion: z.string().nullable(),
+  pythonVersionOk: z.boolean(),
+  platform: z.enum(["apple-silicon", "other"]),
+  requiredPackages: z.array(z.string()),
+  depsInstalled: z.boolean(),
+  detectedBackend: z.string().nullable(),
+  inferenceAvailable: z.boolean(),
+  error: z.string().nullable(),
+});
+
+export const inferenceSetup = {
+  checkStatus: {
+    input: z.void(),
+    output: InferenceSetupStatusSchema,
+  },
+  runSetup: {
+    input: z.void(),
+    output: eventIterator(InferenceSetupStreamEventSchema),
+  },
+};
+
 // Debug endpoints (test-only, not for production use)
 export const debug = {
   /**

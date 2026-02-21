@@ -381,6 +381,7 @@ async function loadServices(): Promise<void> {
     signingService: services.signingService,
     latticeService: services.latticeService,
     inferenceService: services.inferenceService,
+    inferenceSetupService: services.inferenceSetupService,
     channelService: services.channelService,
     channelSessionRouter: services.channelSessionRouter,
     browserSessionManager: services.browserSessionManager,
