@@ -401,7 +401,7 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
   const sortableIds = items.map((item) => `${props.node.id}:${item.tab}`);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-row" onMouseDownCapture={setFocused}>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-row-reverse" onMouseDownCapture={setFocused}>
       <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
         <RightSidebarTabStrip
           ariaLabel="Sidebar views"
