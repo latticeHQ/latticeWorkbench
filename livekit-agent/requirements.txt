@@ -1,0 +1,2 @@
+livekit-agents[deepgram,openai,silero]~=1.3
+python-dotenv

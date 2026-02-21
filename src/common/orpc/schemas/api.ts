@@ -1322,6 +1322,18 @@ export const voice = {
   },
 };
 
+// ─── LiveKit ────────────────────────────────────────────────────────
+
+export const livekit = {
+  getToken: {
+    input: z.object({ roomName: z.string(), identity: z.string() }),
+    output: ResultSchema(
+      z.object({ token: z.string(), wsUrl: z.string() }),
+      z.string()
+    ),
+  },
+};
+
 // ─── Inference (Local Models) ──────────────────────────────────────
 
 const ModelInfoSchema = z.object({

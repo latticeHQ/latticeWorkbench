@@ -108,6 +108,8 @@
     "jsdom": "^27.2.0",
     "json-schema-to-typescript": "^15.0.4",
     "jsonc-parser": "^3.3.1",
+    "livekit-client": "^2.17.2",
+    "livekit-server-sdk": "^2.15.0",
     "lru-cache": "^11.2.2",
     "lucide-react": "^0.553.0",
     "markdown-it": "^14.1.0",
