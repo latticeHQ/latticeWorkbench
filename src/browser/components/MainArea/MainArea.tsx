@@ -12,7 +12,11 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/common/lib/utils";
-import { getMainAreaLayoutKey, getMainAreaEmployeeMetaKey } from "@/common/constants/storage";
+import {
+  getMainAreaLayoutKey,
+  getMainAreaEmployeeMetaKey,
+  getClosingSessionsKey,
+} from "@/common/constants/storage";
 import { CLI_AGENT_DEFINITIONS } from "@/common/constants/cliAgents";
 import {
   collectAllTabs,
@@ -129,6 +133,57 @@ function saveEmployeeMeta(workspaceId: string, meta: Map<string, EmployeeMeta>) 
   }
 }
 
+/**
+ * TTL for persisted closing-session IDs (30 s).
+ * After this window the backend has certainly torn down the PTY, so we no
+ * longer need to suppress session-sync from re-adding it.
+ */
+const CLOSING_SESSION_TTL_MS = 30_000;
+
+/** Load sessionIds that were being closed when the page last unloaded. */
+function loadClosingSessions(workspaceId: string): Set<string> {
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(getClosingSessionsKey(workspaceId)) ?? "null"
+    ) as Record<string, number> | null;
+    if (raw && typeof raw === "object") {
+      const now = Date.now();
+      const live = new Set<string>();
+      for (const [sid, ts] of Object.entries(raw)) {
+        if (now - ts < CLOSING_SESSION_TTL_MS) live.add(sid);
+      }
+      return live;
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return new Set();
+}
+
+function addClosingSession(workspaceId: string, sessionId: string) {
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(getClosingSessionsKey(workspaceId)) ?? "{}"
+    ) as Record<string, number>;
+    raw[sessionId] = Date.now();
+    localStorage.setItem(getClosingSessionsKey(workspaceId), JSON.stringify(raw));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function removeClosingSession(workspaceId: string, sessionId: string) {
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(getClosingSessionsKey(workspaceId)) ?? "{}"
+    ) as Record<string, number>;
+    delete raw[sessionId];
+    localStorage.setItem(getClosingSessionsKey(workspaceId), JSON.stringify(raw));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 /** Shell process names that should never replace a tab label (too generic). */
 const GENERIC_SHELL_TITLES = new Set([
   "bash", "zsh", "sh", "fish", "csh", "tcsh", "ksh", "dash", "pwsh", "cmd", "powershell",
@@ -172,7 +227,8 @@ export function MainArea({
 
   // Track sessions that are being closed so the session-sync effect doesn't
   // re-add them before the backend has finished tearing down the PTY.
-  const closingSessionIds = useRef(new Set<string>());
+  // Seeded from localStorage so closes-in-progress survive page reloads.
+  const closingSessionIds = useRef(loadClosingSessions(workspaceId));
 
   // Always-fresh refs so the session-sync effect (intentionally not re-run on
   // every layout/meta change) can still read the LATEST state and avoid
@@ -192,10 +248,11 @@ export function MainArea({
     saveEmployeeMeta(workspaceId, employeeMeta);
   }, [workspaceId, employeeMeta]);
 
-  // Reset layout + meta when workspace changes
+  // Reset layout + meta + closing-sessions when workspace changes
   useEffect(() => {
     setLayout(loadLayout(workspaceId));
     setEmployeeMeta(loadEmployeeMeta(workspaceId));
+    closingSessionIds.current = loadClosingSessions(workspaceId);
   }, [workspaceId]);
 
   // ── Session sync: restore tabs for live backend sessions, relaunch dead agents ──
@@ -221,8 +278,10 @@ export function MainArea({
 
       const backendSessionSet = new Set(backendSessionIds);
 
-      // Current terminal tabs in this layout (captured at effect-creation time)
-      const currentTabs = collectAllTabs(layout.root);
+      // Current terminal tabs in this layout — use refs so we read the latest
+      // state even if the effect closure is stale (avoids relaunching tabs the
+      // user just explicitly closed).
+      const currentTabs = collectAllTabs(layoutRef.current.root);
       const currentTerminalTabs = currentTabs.filter(isTerminalTab);
       const currentTerminalSessionIds = new Set(
         currentTerminalTabs.map(getTerminalSessionId).filter(Boolean)
@@ -244,7 +303,7 @@ export function MainArea({
         const sid = getTerminalSessionId(tab);
         if (!sid || backendSessionSet.has(sid)) continue; // still alive — skip
 
-        const meta = employeeMeta.get(sid);
+        const meta = employeeMetaRef.current.get(sid);
         if (meta && meta.slug !== "terminal") {
           // Named agent — we can relaunch it
           toRelaunch.push({ oldTab: tab, oldSid: sid, meta });
@@ -465,8 +524,10 @@ export function MainArea({
       const sessionId = getTerminalSessionId(tab);
       if (sessionId) {
         // Mark as closing so session-sync doesn't re-add this tab while the
-        // backend is still tearing down the PTY process.
+        // backend is still tearing down the PTY process.  Persisted to
+        // localStorage so the guard also works across page reloads.
         closingSessionIds.current.add(sessionId);
+        addClosingSession(workspaceId, sessionId);
 
         setEmployeeMeta((prev) => {
           const next = new Map(prev);
@@ -482,7 +543,10 @@ export function MainArea({
           .finally(() => {
             // Give a short grace period before allowing re-add (in case
             // session-sync runs immediately after the close resolves).
-            setTimeout(() => closingSessionIds.current.delete(sessionId), 2000);
+            setTimeout(() => {
+              closingSessionIds.current.delete(sessionId);
+              removeClosingSession(workspaceId, sessionId);
+            }, 2000);
           });
       }
       setLayout((prev) => {
@@ -493,7 +557,7 @@ export function MainArea({
         return next;
       });
     },
-    [api]
+    [api, workspaceId]
   );
 
   // ── Employee status + label updates ──────────────────────────────────────
