@@ -227,8 +227,8 @@ export class ServiceContainer {
       this.cliAgentDetectionService
     );
     this.cliAgentPreferencesService = new CliAgentPreferencesService(config);
-    // Terminal services - PTYService is cross-platform
-    this.ptyService = new PTYService();
+    // Terminal services - PTYService is cross-platform (with PTY lifecycle guard)
+    this.ptyService = new PTYService(config.rootDir);
     this.terminalService = new TerminalService(config, this.ptyService);
     // Wire terminal service to workspace service for cleanup on removal
     this.workspaceService.setTerminalService(this.terminalService);

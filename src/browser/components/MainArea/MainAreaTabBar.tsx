@@ -119,7 +119,7 @@ function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
         "group relative flex shrink-0 cursor-pointer items-center gap-1.5 border-r px-3 py-2 text-[12px] transition-colors",
         "border-border-light",
         isActive
-          ? "bg-dark text-foreground after:bg-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px]"
+          ? "bg-dark text-foreground after:pointer-events-none after:bg-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px]"
           : "text-muted hover:bg-hover hover:text-foreground"
       )}
       onClick={onSelect}
@@ -142,16 +142,22 @@ function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
         <button
           onClick={(e) => {
             e.stopPropagation();
+            e.preventDefault();
             onClose();
           }}
+          onPointerDown={(e) => {
+            // Prevent the parent div's onClick from firing on pointer down
+            e.stopPropagation();
+          }}
           className={cn(
-            "text-muted hover:text-foreground ml-0.5 flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border-none bg-transparent transition-colors",
+            "text-muted hover:text-foreground hover:bg-white/10 relative z-10 ml-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border-none bg-transparent transition-colors",
             "opacity-0 group-hover:opacity-100",
             isActive && "opacity-60 hover:opacity-100"
           )}
           title="Close"
+          aria-label={`Close ${label}`}
         >
-          <X size={10} />
+          <X size={12} />
         </button>
       )}
     </div>

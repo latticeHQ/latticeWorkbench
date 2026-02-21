@@ -5,6 +5,7 @@
 import { Config } from "@/node/config";
 import { ServiceContainer } from "@/node/services/serviceContainer";
 import { ServerLockfile } from "@/node/services/serverLockfile";
+import { PTYService } from "@/node/services/ptyService";
 import { getLatticeHome, migrateLegacyLatticeHome } from "@/common/constants/paths";
 import type { BrowserWindow } from "electron";
 import { Command } from "commander";
@@ -68,6 +69,10 @@ const mockWindow: BrowserWindow = {
 
 (async () => {
   migrateLegacyLatticeHome();
+
+  // Reap orphaned PTY processes from any previous crashed server instance.
+  // Must run before services start so we reclaim PTY devices.
+  PTYService.reapOrphans(getLatticeHome());
 
   // Check for existing server (Electron or another lattice server instance)
   const lockfile = new ServerLockfile(getLatticeHome());
