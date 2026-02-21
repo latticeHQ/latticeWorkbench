@@ -169,7 +169,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       data-testid="workspace-header"
       className={cn(
         "bg-sidebar border-border-light flex items-center justify-between border-b px-2",
-        isDesktop ? DESKTOP_TITLEBAR_HEIGHT_CLASS : "h-8",
+        isDesktop ? DESKTOP_TITLEBAR_HEIGHT_CLASS : "h-12",
         // In desktop mode, make header draggable for window movement
         isDesktop && "titlebar-drag",
         // Keep header visible when iOS keyboard opens and causes scroll
@@ -223,18 +223,18 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
                   type="button"
                   onClick={() => setNotifyOnResponse((prev) => !prev)}
                   className={cn(
-                    "flex h-6 w-6 shrink-0 items-center justify-center rounded",
+                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-none",
                     notifyOnResponse
                       ? "text-foreground"
-                      : "text-muted hover:bg-sidebar-hover hover:text-foreground"
+                      : "text-muted hover:bg-hover hover:text-foreground"
                   )}
                   data-testid="notify-on-response-button"
                   aria-pressed={notifyOnResponse}
                 >
                   {notifyOnResponse ? (
-                    <Bell className="h-3.5 w-3.5" />
+                    <Bell className="h-4 w-4" />
                   ) : (
-                    <BellOff className="h-3.5 w-3.5" />
+                    <BellOff className="h-4 w-4" />
                   )}
                 </button>
               </PopoverTrigger>
@@ -310,10 +310,10 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
               variant="ghost"
               size="icon"
               onClick={() => setMcpModalOpen(true)}
-              className="text-muted hover:text-foreground h-6 w-6 shrink-0"
+              className="text-muted hover:text-foreground h-10 w-10 shrink-0 rounded-none [&_svg]:h-4 [&_svg]:w-4"
               data-testid="workspace-mcp-button"
             >
-              <Server className="h-3.5 w-3.5" />
+              <Server className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center">
@@ -326,9 +326,9 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
               variant="ghost"
               size="icon"
               onClick={() => void handleOpenInEditor()}
-              className="text-muted hover:text-foreground ml-1 h-6 w-6 shrink-0"
+              className="text-muted hover:text-foreground h-10 w-10 shrink-0 rounded-none [&_svg]:h-4 [&_svg]:w-4"
             >
-              <Pencil className="h-3.5 w-3.5" />
+              <Pencil className="h-4 w-4" />
             </Button>
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center">

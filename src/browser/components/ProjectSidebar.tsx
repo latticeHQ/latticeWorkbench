@@ -93,7 +93,7 @@ const LatticeChatHelpButton: React.FC<{
 };
 
 const PROJECT_ITEM_BASE_CLASS =
-  "py-2 px-3 flex items-center border-l-transparent bg-sidebar transition-colors duration-150";
+  "py-2 px-3 flex items-center border-l-2 border-l-transparent bg-sidebar transition-all duration-150";
 
 function getProjectItemClassName(opts: {
   isDragging: boolean;
@@ -103,8 +103,10 @@ function getProjectItemClassName(opts: {
   return cn(
     PROJECT_ITEM_BASE_CLASS,
     opts.isDragging ? "cursor-grabbing opacity-35 [&_*]:!cursor-grabbing" : "cursor-grab",
-    opts.isOver && "bg-accent/[0.08]",
-    opts.selected && "bg-hover border-l-accent",
+    opts.isOver && "bg-accent/[0.06]",
+    opts.selected
+      ? "border-l-accent bg-gradient-to-r from-accent/[0.10] to-transparent"
+      : "hover:bg-hover/70 hover:translate-x-[1px]",
     "hover:[&_button]:opacity-100 hover:[&_[data-drag-handle]]:opacity-100"
   );
 }

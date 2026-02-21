@@ -1,3 +1,4 @@
+@import "@fontsource-variable/inter";
 @import "tailwindcss";
 
 /* Disable the default browser focus outline (the blue ring).
@@ -100,23 +101,23 @@
     --color-git-untracked: #73c991; /* green for new/untracked files */
 
     /* Background & Layout */
-    --color-background: hsl(0 0% 12%);
-    --color-background-secondary: hsl(60 1% 15%);
-    --color-border: #262626; /* neutral-800 */
-    --color-foreground: hsl(0 0% 83%);
-    --color-text: hsl(0 0% 83%);
-    --color-text-light: hsl(0 0% 73%);
-    --color-text-secondary: hsl(0 0% 42%);
-    --color-muted-foreground: hsl(0 0% 60%);
-    --color-secondary: hsl(0 0% 42%);
+    --color-background: hsl(35 10% 7%);
+    --color-background-secondary: hsl(35 8% 11%);
+    --color-border: #2C2A26;
+    --color-foreground: hsl(35 12% 87%);
+    --color-text: hsl(35 12% 87%);
+    --color-text-light: hsl(35 8% 76%);
+    --color-text-secondary: hsl(35 4% 48%);
+    --color-muted-foreground: hsl(35 4% 58%);
+    --color-secondary: hsl(35 4% 48%);
 
     /* Code */
-    --color-code-bg: hsl(0 6.43% 8.04%);
+    --color-code-bg: hsl(35 12% 5%);
 
     /* Buttons */
-    --color-button-bg: hsl(0 0% 24%);
-    --color-button-text: hsl(0 0% 80%);
-    --color-button-hover: hsl(0 0% 29%);
+    --color-button-bg: hsl(35 6% 22%);
+    --color-button-text: hsl(35 10% 82%);
+    --color-button-hover: hsl(35 6% 27%);
 
     /* Messages */
     --color-user-border: hsla(0 0% 100% / 0.1);
@@ -132,16 +133,16 @@
     --color-line-number-text: rgba(255, 255, 255, 0.4);
     --color-line-number-border: rgba(255, 255, 255, 0.1);
     --color-assistant-border: hsl(207 45% 40%);
-    --color-hover-foreground: hsl(0 0% 96%);
-    --color-command-surface: hsl(0 0% 15%);
-    --color-command-border: hsl(240 2% 25%);
-    --color-command-input: hsl(0 0% 9%);
+    --color-hover-foreground: hsl(35 10% 94%);
+    --color-command-surface: hsl(35 8% 12%);
+    --color-command-border: #2C2A26;
+    --color-command-input: hsl(35 10% 7%);
     --color-command-input-border: hsla(0 0% 100% / 0.08);
-    --color-command-foreground: hsl(0 0% 83%);
-    --color-command-subdued: hsl(0 0% 63%);
-    --color-sidebar-tab-active: hsl(0 0% 100%);
+    --color-command-foreground: hsl(35 12% 87%);
+    --color-command-subdued: hsl(35 4% 62%);
+    --color-sidebar-tab-active: hsl(35 10% 94%);
     --color-assistant-border-hover: hsl(207 45% 50%);
-    --color-message-header: hsl(0 0% 80%);
+    --color-message-header: hsl(35 10% 82%);
 
     /* Tokens */
     --color-token-prompt: hsl(0 0% 40%);
@@ -192,12 +193,12 @@
     --border-warning-dashed: color-mix(in srgb, var(--color-warning), transparent 45%);
 
     /* Toggle */
-    --color-toggle-bg: hsl(0 0% 16.5%);
-    --color-toggle-active: hsl(0 0% 22.7%);
-    --color-toggle-hover: hsl(0 0% 17.6%);
-    --color-toggle-text: hsl(0 0% 53.3%);
-    --color-toggle-text-active: hsl(0 0% 100%);
-    --color-toggle-text-hover: hsl(0 0% 66.7%);
+    --color-toggle-bg: hsl(35 8% 14%);
+    --color-toggle-active: hsl(35 6% 20%);
+    --color-toggle-hover: hsl(35 8% 15%);
+    --color-toggle-text: hsl(35 4% 52%);
+    --color-toggle-text-active: hsl(35 10% 94%);
+    --color-toggle-text-hover: hsl(35 4% 65%);
 
     /* Status */
     --color-interrupted: hsl(38 92% 50%);
@@ -208,56 +209,56 @@
     --color-error-bg: hsl(0 32% 18%);
 
     /* Input */
-    --color-input-bg: hsl(0 0% 12%);
-    --color-input-text: hsl(0 0% 80%);
-    --color-input-border: hsl(207 51% 59%);
-    --color-input-border-focus: hsl(193 91% 64%);
+    --color-input-bg: hsl(35 10% 7%);
+    --color-input-text: hsl(35 10% 82%);
+    --color-input-border: hsl(35 12% 38%);
+    --color-input-border-focus: hsl(35 12% 52%);
 
     /* Scrollbar */
-    --color-scrollbar-track: hsl(0 0% 18%);
-    --color-scrollbar-thumb: hsl(0 0% 32%);
-    --color-scrollbar-thumb-hover: hsl(0 0% 42%);
+    --color-scrollbar-track: hsl(35 8% 14%);
+    --color-scrollbar-thumb: hsl(35 6% 30%);
+    --color-scrollbar-thumb-hover: hsl(35 6% 40%);
 
     /* Additional Semantic Colors */
-    --color-muted: hsl(0 0% 53%); /* #888 - muted text */
-    --color-muted-light: hsl(0 0% 50%); /* #808080 - muted light */
-    --color-muted-dark: hsl(0 0% 43%); /* #6e6e6e - muted darker */
-    --color-placeholder: hsl(0 0% 42%); /* #6b6b6b - placeholder */
-    --color-subtle: hsl(0 0% 60%); /* #999 - subtle */
-    --color-dim: hsl(0 0% 42%); /* #666 - dimmed */
-    --color-light: hsl(0 0% 83%); /* #d4d4d4 - light */
-    --color-text-lighter: hsl(0 0% 87%); /* #dddddd - lighter text */
-    --color-lighter: hsl(0 0% 90%); /* #e5e5e5 - lighter */
-    --color-bright: hsl(0 0% 80%); /* #cccccc - bright */
-    --color-subdued: hsl(0 0% 60%); /* #9a9a9a - subdued */
-    --color-label: hsl(0 0% 67%); /* #aaa - label */
-    --color-gray: hsl(0 0% 48%); /* #7a7a7a - gray */
-    --color-medium: hsl(0 0% 59%); /* #969696 - medium */
+    --color-muted: hsl(35 4% 54%);
+    --color-muted-light: hsl(35 4% 50%);
+    --color-muted-dark: hsl(35 4% 43%);
+    --color-placeholder: hsl(35 4% 42%);
+    --color-subtle: hsl(35 4% 58%);
+    --color-dim: hsl(35 4% 42%);
+    --color-light: hsl(35 12% 83%);
+    --color-text-lighter: hsl(35 10% 87%);
+    --color-lighter: hsl(35 8% 90%);
+    --color-bright: hsl(35 10% 80%);
+    --color-subdued: hsl(35 4% 58%);
+    --color-label: hsl(35 4% 65%);
+    --color-gray: hsl(35 3% 48%);
+    --color-medium: hsl(35 4% 57%);
 
-    --color-border-light: #262626; /* neutral-800 - borders */
-    --color-border-medium: hsl(0 0% 27%); /* #444 - medium borders */
-    --color-border-darker: hsl(0 0% 33%); /* #555 - darker borders */
-    --color-border-subtle: hsl(0 0% 40%); /* #666 - subtle border */
-    --color-border-gray: hsl(240 1% 31%); /* #4e4e52 - gray border */
+    --color-border-light: #2C2A26;
+    --color-border-medium: hsl(35 6% 27%);
+    --color-border-darker: hsl(35 6% 33%);
+    --color-border-subtle: hsl(35 5% 38%);
+    --color-border-gray: hsl(35 4% 32%);
 
-    --color-dark: #1D1D1D; /* dark backgrounds */
-    --color-darker: hsl(0 0% 8.6%); /* #161616 - darker backgrounds */
-    --color-hover: hsl(0 0% 16.5%); /* #2a2a2b - hover states */
-    --color-bg-medium: hsl(0 0% 27%); /* #454545 - medium bg */
-    --color-bg-light: hsl(0 0% 30%); /* #4c4c4c - light bg */
-    --color-bg-subtle: hsl(240 3% 22%); /* #37373d - subtle bg */
+    --color-dark: #1D1B17;
+    --color-darker: hsl(35 10% 8%);
+    --color-hover: hsl(35 8% 14%);
+    --color-bg-medium: hsl(35 6% 27%);
+    --color-bg-light: hsl(35 6% 30%);
+    --color-bg-subtle: hsl(35 6% 20%);
 
-    --color-sidebar: #171717; /* neutral-900 - sidebar background */
-    --color-separator: #262626; /* neutral-800 - dividers/separators */
-    --color-separator-light: hsl(0 0% 27%); /* #464647 - lighter separator */
-    --color-modal-bg: hsl(0 0% 18%); /* #2d2d30 - modal backgrounds */
-    --color-inline-code-dark-bg: hsl(0 0% 18%); /* #2d2d30 - always dark, for inline code that should stay dark in all themes */
+    --color-sidebar: #100F0D;
+    --color-separator: #2C2A26;
+    --color-separator-light: hsl(35 6% 27%);
+    --color-modal-bg: hsl(35 8% 14%);
+    --color-inline-code-dark-bg: hsl(35 8% 14%);
 
-    --color-accent: hsl(207 100% 40%); /* #007acc - VS Code blue */
-    --color-accent-hover: hsl(207 100% 45%); /* #1177bb - accent hover */
-    --color-accent-dark: hsl(207 100% 37%); /* #0e639c - darker accent */
-    --color-accent-darker: hsl(202 100% 23%); /* #094771 - even darker accent */
-    --color-accent-light: hsl(198 100% 65%); /* #4db8ff - lighter accent */
+    --color-accent: hsl(35 14% 68%); /* warm tan — Anthropic dark mode accent */
+    --color-accent-hover: hsl(35 14% 74%);
+    --color-accent-dark: hsl(35 14% 62%);
+    --color-accent-darker: hsl(35 14% 52%);
+    --color-accent-light: hsl(35 14% 82%);
 
     --color-success: hsl(122 39% 49%); /* #4caf50 - success green */
     --color-success-light: hsl(123 46% 64%); /* #4ade80 - lighter success */
@@ -279,8 +280,8 @@
     --color-syntax-error: hsl(355 65% 65%); /* #e06c75 - One Dark error red */
 
     /* Terminal */
-    --color-terminal-bg: hsl(0 0% 12%); /* #1e1e1e */
-    --color-terminal-fg: hsl(0 0% 83%); /* #d4d4d4 */
+    --color-terminal-bg: hsl(35 10% 7%);
+    --color-terminal-fg: hsl(35 12% 87%);
 
     /* Info (blue accent for in-progress states) */
     --color-info: hsl(207 90% 54%); /* #2196f3 */
@@ -336,7 +337,8 @@
   --plan-mode-rgb: 31, 107, 184;
 
   --font-primary:
-    -apple-system, BlinkMacSystemFont, "Geist", system-ui, "Segoe UI", "Roboto", "Helvetica Neue",
+    "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Geist",
+    system-ui, "Segoe UI", "Roboto", "Helvetica Neue",
     Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
 
   --font-monospace:
@@ -380,53 +382,53 @@
   /* File explorer */
   --color-folder-icon: #c9a227; /* darker gold for light theme */
 
-  --color-background: hsl(210 33% 98%);
-  --color-background-secondary: hsl(210 36% 95%);
-  --color-border: hsl(210 24% 82%);
-  --color-foreground: hsl(210 18% 16%);
-  --color-text: hsl(210 18% 16%);
-  --color-text-light: hsl(210 15% 28%);
-  --color-text-secondary: hsl(210 12% 42%);
-  --color-muted-foreground: hsl(210 14% 48%);
-  --color-secondary: hsl(210 18% 60%);
+  --color-background: #FAF9F6;
+  --color-background-secondary: #F0EDE6;
+  --color-border: #DDD9D0;
+  --color-foreground: #1A1917;
+  --color-text: #1A1917;
+  --color-text-light: #3D3A36;
+  --color-text-secondary: #6B6860;
+  --color-muted-foreground: #8A877F;
+  --color-secondary: #8A877F;
 
-  --color-code-bg: hsl(210 40% 96%);
+  --color-code-bg: #F0EDE6;
 
-  --color-button-bg: hsl(210 35% 94%);
-  --color-button-text: hsl(210 20% 20%);
-  --color-button-hover: hsl(210 32% 90%);
+  --color-button-bg: #E8E4DC;
+  --color-button-text: #1A1917;
+  --color-button-hover: #DDD9D0;
 
-  --color-user-surface: hsl(0 0% 91%);
-  --color-user-border: hsl(210 20% 78%);
-  --color-user-border-hover: hsl(210 20% 68%);
-  --color-user-text: hsl(210 18% 20%);
-  --color-message-debug-bg: hsl(210 40% 95%);
-  --color-message-debug-border: hsl(210 26% 82%);
-  --color-message-debug-text: hsl(210 28% 32%);
-  --color-message-hidden-bg: hsl(210 36% 94%);
-  --color-attachment-border: hsl(210 24% 82%);
-  --color-line-number-bg: hsl(210 34% 93%);
-  --color-line-number-text: hsl(210 14% 46%);
-  --color-line-number-border: hsl(210 22% 84%);
+  --color-user-surface: #EAE7DF;
+  --color-user-border: #D0CBC2;
+  --color-user-border-hover: #BEB9B1;
+  --color-user-text: #1A1917;
+  --color-message-debug-bg: #F0EDE6;
+  --color-message-debug-border: #CEC9C1;
+  --color-message-debug-text: #4A4642;
+  --color-message-hidden-bg: #EAE7DF;
+  --color-attachment-border: #DDD9D0;
+  --color-line-number-bg: #EAE7DF;
+  --color-line-number-text: #8A877F;
+  --color-line-number-border: #D0CBC2;
   --color-assistant-border: hsl(207 65% 50%);
-  --color-hover-foreground: hsl(210 18% 12%);
-  --color-command-surface: hsl(210 32% 97%);
-  --color-command-border: hsl(210 22% 82%);
-  --color-command-input: hsl(210 36% 95%);
-  --color-command-input-border: hsl(210 24% 84%);
-  --color-command-foreground: hsl(210 18% 18%);
-  --color-command-subdued: hsl(210 14% 46%);
-  --color-sidebar-tab-active: hsl(210 18% 18%);
+  --color-hover-foreground: #0D0C0A;
+  --color-command-surface: #FAF9F6;
+  --color-command-border: #DDD9D0;
+  --color-command-input: #F5F2EB;
+  --color-command-input-border: #DDD9D0;
+  --color-command-foreground: #1A1917;
+  --color-command-subdued: #8A877F;
+  --color-sidebar-tab-active: #1A1917;
   --color-assistant-border-hover: hsl(207 65% 40%);
-  --color-message-header: hsl(210 18% 20%);
+  --color-message-header: #1A1917;
 
-  --color-token-prompt: hsl(210 18% 32%);
-  --color-token-completion: hsl(207 90% 40%);
-  --color-token-variable: hsl(207 90% 40%);
-  --color-token-fixed: hsl(210 18% 32%);
+  --color-token-prompt: #6B6860;
+  --color-token-completion: #1A1917;
+  --color-token-variable: #1A1917;
+  --color-token-fixed: #6B6860;
   --color-token-input: hsl(125 45% 36%);
-  --color-token-output: hsl(207 90% 40%);
-  --color-token-cached: hsl(210 16% 50%);
+  --color-token-output: #1A1917;
+  --color-token-cached: #8A877F;
   --color-token-cache-create: hsl(140 18% 52%);
 
   --surface-plan-gradient: linear-gradient(
@@ -452,12 +454,12 @@
 
   --border-warning-dashed: color-mix(in srgb, var(--color-warning), transparent 55%);
 
-  --color-toggle-bg: hsl(210 34% 95%);
-  --color-toggle-active: hsl(210 48% 88%);
-  --color-toggle-hover: hsl(210 38% 92%);
-  --color-toggle-text: hsl(210 16% 32%);
-  --color-toggle-text-active: hsl(210 18% 18%);
-  --color-toggle-text-hover: hsl(210 20% 26%);
+  --color-toggle-bg: #EDEAE3;
+  --color-toggle-active: #DDD9D0;
+  --color-toggle-hover: #E8E4DC;
+  --color-toggle-text: #4A4642;
+  --color-toggle-text-active: #1A1917;
+  --color-toggle-text-hover: #3D3A36;
 
   --color-interrupted: hsl(38 92% 50%);
   --color-backgrounded: hsl(200 70% 50%);
@@ -466,52 +468,52 @@
   --color-error: hsl(0 68% 46%);
   --color-error-bg: hsl(0 82% 94%);
 
-  --color-input-bg: hsl(0 0% 100%);
-  --color-input-text: hsl(210 18% 16%);
-  --color-input-border: hsl(207 75% 52%);
-  --color-input-border-focus: hsl(193 85% 56%);
+  --color-input-bg: #FAF9F6;
+  --color-input-text: #1A1917;
+  --color-input-border: #CEC9C1;
+  --color-input-border-focus: #8A877F;
 
-  --color-scrollbar-track: hsl(210 38% 95%);
-  --color-scrollbar-thumb: hsl(210 18% 78%);
-  --color-scrollbar-thumb-hover: hsl(210 18% 70%);
+  --color-scrollbar-track: #F0EDE6;
+  --color-scrollbar-thumb: #C8C2BA;
+  --color-scrollbar-thumb-hover: #B8B2AA;
 
-  --color-muted: hsl(210 14% 52%);
-  --color-muted-light: hsl(210 20% 60%);
-  --color-muted-dark: hsl(210 12% 42%);
-  --color-placeholder: hsl(210 16% 52%);
-  --color-subtle: hsl(210 20% 64%);
-  --color-dim: hsl(210 16% 50%);
-  --color-light: hsl(210 22% 40%);
-  --color-lighter: hsl(210 24% 52%);
-  --color-bright: hsl(210 60% 48%);
-  --color-subdued: hsl(210 18% 60%);
-  --color-label: hsl(210 18% 46%);
-  --color-gray: hsl(210 14% 54%);
-  --color-medium: hsl(210 18% 58%);
+  --color-muted: #8A877F;
+  --color-muted-light: #A09B93;
+  --color-muted-dark: #6B6860;
+  --color-placeholder: #A09B93;
+  --color-subtle: #A09B93;
+  --color-dim: #8A877F;
+  --color-light: #4A4642;
+  --color-lighter: #6B6860;
+  --color-bright: #1A1917;
+  --color-subdued: #8A877F;
+  --color-label: #6B6860;
+  --color-gray: #8A877F;
+  --color-medium: #8A877F;
 
-  --color-border-light: hsl(210 24% 84%);
-  --color-border-medium: hsl(210 22% 78%);
-  --color-border-darker: hsl(210 20% 70%);
-  --color-border-subtle: hsl(210 18% 64%);
-  --color-border-gray: hsl(210 22% 76%);
+  --color-border-light: #DDD9D0;
+  --color-border-medium: #CEC9C1;
+  --color-border-darker: #BEB9B1;
+  --color-border-subtle: #AFA9A1;
+  --color-border-gray: #C8C2BA;
 
-  --color-dark: hsl(210 33% 98%);
-  --color-darker: hsl(210 30% 94%);
-  --color-hover: hsl(210 28% 92%);
-  --color-bg-medium: hsl(210 26% 88%);
-  --color-bg-light: hsl(210 24% 84%);
-  --color-bg-subtle: hsl(210 32% 92%);
+  --color-dark: #FAF9F6;
+  --color-darker: #F0EDE6;
+  --color-hover: #E8E4DC;
+  --color-bg-medium: #E0DDD6;
+  --color-bg-light: #D8D4CC;
+  --color-bg-subtle: #E8E4DC;
 
-  --color-sidebar: hsl(0 0% 96%); /* light theme sidebar */
-  --color-separator: hsl(0 0% 91%);
-  --color-separator-light: hsl(0 0% 96%);
-  --color-modal-bg: hsl(210 35% 96%);
+  --color-sidebar: #EDEAE3;
+  --color-separator: #DDD9D0;
+  --color-separator-light: #EAE7DF;
+  --color-modal-bg: #F5F2EB;
 
-  --color-accent: hsl(207 90% 42%);
-  --color-accent-hover: hsl(207 90% 46%);
-  --color-accent-dark: hsl(207 90% 38%);
-  --color-accent-darker: hsl(204 92% 30%);
-  --color-accent-light: hsl(198 100% 70%);
+  --color-accent: #1A1917;
+  --color-accent-hover: #2D2A26;
+  --color-accent-dark: #1A1917;
+  --color-accent-darker: #0D0C0A;
+  --color-accent-light: #6B6860;
 
   --color-success: hsl(122 39% 45%);
   --color-success-light: hsl(123 46% 60%);
@@ -539,19 +541,19 @@
 
   --color-danger-overlay: hsl(4 80% 52% / 0.12);
   --color-warning-overlay: hsl(45 100% 50% / 0.12);
-  --color-gray-overlay: hsl(210 16% 30% / 0.08);
-  --color-white-overlay-light: hsl(210 14% 12% / 0.04);
-  --color-white-overlay: hsl(210 14% 12% / 0.08);
-  --color-selection: hsl(204 100% 45% / 0.3);
-  --color-vim-status: hsl(210 18% 32% / 0.6);
-  --color-code-keyword-overlay-light: hsl(210 88% 28% / 0.16);
-  --color-code-keyword-overlay: hsl(210 88% 28% / 0.32);
+  --color-gray-overlay: hsl(35 6% 30% / 0.08);
+  --color-white-overlay-light: hsl(35 10% 12% / 0.04);
+  --color-white-overlay: hsl(35 10% 12% / 0.08);
+  --color-selection: hsl(35 30% 60% / 0.3);
+  --color-vim-status: hsl(35 6% 32% / 0.6);
+  --color-code-keyword-overlay-light: hsl(35 14% 28% / 0.12);
+  --color-code-keyword-overlay: hsl(35 14% 28% / 0.24);
 
   --color-info-light: hsl(5 90% 70%);
   --color-info-yellow: hsl(38 100% 60%);
 
-  --color-review-bg-blue: hsl(212 57% 82%);
-  --color-review-bg-info: hsl(200 60% 80%);
+  --color-review-bg-blue: #E4E0D8;
+  --color-review-bg-info: #EAE7DF;
   --color-review-bg-warning: hsl(38 88% 82%);
   --color-review-warning: hsl(34 86% 45%);
   --color-review-warning-medium: hsl(34 86% 52%);
@@ -560,12 +562,12 @@
   --color-error-bg-dark: hsl(0 65% 86%);
 
   /* Init message surfaces */
-  --color-init-bg: hsl(210 36% 94%);
-  --color-init-border: hsl(210 28% 82%);
+  --color-init-bg: #EAE7DF;
+  --color-init-border: #C8C2BA;
   --color-init-error-bg: hsl(0 56% 94%);
   --color-init-error-border: hsl(0 48% 78%);
-  --color-init-output-bg: hsl(210 30% 90%);
-  --color-init-output-text: hsl(210 18% 28%);
+  --color-init-output-bg: #E4E0D8;
+  --color-init-output-text: #4A4642;
   --color-init-output-error-text: hsl(0 65% 42%);
 
   --radius: 0.5rem;
