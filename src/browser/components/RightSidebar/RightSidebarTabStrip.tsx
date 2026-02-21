@@ -5,12 +5,20 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useDroppable, useDndContext } from "@dnd-kit/core";
 import type { TabType } from "@/browser/types/rightSidebar";
-import {
-  isDesktopMode,
-  getTitlebarRightInset,
-  DESKTOP_TITLEBAR_MIN_HEIGHT_CLASS,
-} from "@/browser/hooks/useDesktopTitlebar";
+import { isDesktopMode } from "@/browser/hooks/useDesktopTitlebar";
 import { SettingsButton } from "../SettingsButton";
+import {
+  CircleDollarSign,
+  GitPullRequest,
+  FolderOpen,
+  Network,
+  Database,
+  Globe,
+  Activity,
+  SquareTerminal,
+  FileCode,
+  LayoutGrid,
+} from "lucide-react";
 
 // Re-export for consumers that import from this file
 export { getTabName } from "./tabs";
@@ -43,17 +51,49 @@ interface RightSidebarTabStripProps {
   tabsetId: string;
 }
 
+/** Icon for each tab type */
+function getTabIcon(tab: TabType): React.ReactNode {
+  if (tab === "costs") return <CircleDollarSign className="h-[18px] w-[18px]" />;
+  if (tab === "review") return <GitPullRequest className="h-[18px] w-[18px]" />;
+  if (tab === "explorer") return <FolderOpen className="h-[18px] w-[18px]" />;
+  if (tab === "cluster") return <Network className="h-[18px] w-[18px]" />;
+  if (tab === "models") return <Database className="h-[18px] w-[18px]" />;
+  if (tab === "browser") return <Globe className="h-[18px] w-[18px]" />;
+  if (tab === "stats") return <Activity className="h-[18px] w-[18px]" />;
+  if (typeof tab === "string" && tab.startsWith("terminal:"))
+    return <SquareTerminal className="h-[18px] w-[18px]" />;
+  if (typeof tab === "string" && tab.startsWith("file:"))
+    return <FileCode className="h-[18px] w-[18px]" />;
+  return <LayoutGrid className="h-[18px] w-[18px]" />;
+}
+
+/** Short label for vertical display (max ~7 chars for the narrow strip) */
+function getTabShortLabel(tab: TabType): string {
+  if (tab === "costs") return "Costs";
+  if (tab === "review") return "Review";
+  if (tab === "explorer") return "Files";
+  if (tab === "cluster") return "Cluster";
+  if (tab === "models") return "Models";
+  if (tab === "browser") return "Browser";
+  if (tab === "stats") return "Stats";
+  if (typeof tab === "string" && tab.startsWith("terminal:")) return "Term";
+  if (typeof tab === "string" && tab.startsWith("file:")) {
+    const path = tab.slice("file:".length);
+    const filename = path.split("/").pop() ?? "File";
+    return filename.length > 6 ? filename.slice(0, 5) + "…" : filename;
+  }
+  return "Tab";
+}
+
 /**
- * Individual sortable tab button using @dnd-kit.
- * Uses useSortable for drag + drop within the same tabset.
+ * Individual sortable tab in a vertical activity-bar layout.
+ * Shows an icon + tiny label; active state uses a left accent rule.
  */
 const SortableTab: React.FC<{
   item: RightSidebarTabStripItem;
   index: number;
   tabsetId: string;
-  isDesktop: boolean;
-}> = ({ item, index, tabsetId, isDesktop }) => {
-  // Create a unique sortable ID that encodes tabset + tab
+}> = ({ item, index, tabsetId }) => {
   const sortableId = `${tabsetId}:${item.tab}`;
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -70,10 +110,12 @@ const SortableTab: React.FC<{
     transition,
   };
 
+  const icon = getTabIcon(item.tab);
+  const shortLabel = getTabShortLabel(item.tab);
   const sortableOnKeyDown = listeners?.onKeyDown;
 
   return (
-    <div className={cn("relative shrink-0", isDesktop && "titlebar-no-drag")} style={style}>
+    <div className="relative w-full" style={style}>
       <Tooltip>
         <TooltipTrigger asChild>
           <div
@@ -81,34 +123,29 @@ const SortableTab: React.FC<{
             {...attributes}
             {...(listeners ?? {})}
             className={cn(
-              "flex min-w-0 max-w-[240px] items-baseline gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-xs font-medium transition-all duration-150",
-              "cursor-grab touch-none active:cursor-grabbing",
+              // Stacked icon + label in a pill-shaped button
+              "relative flex w-full cursor-pointer flex-col items-center gap-[3px] rounded-md px-1 py-2.5 touch-none",
+              "transition-colors duration-150",
+              // Active: accent left rule + slightly lighter background
               item.selected
-                ? "bg-hover text-foreground"
-                : "bg-transparent text-muted hover:bg-hover/50 hover:text-foreground",
-              item.disabled && "pointer-events-none opacity-50",
-              isDragging && "cursor-grabbing opacity-50"
+                ? "text-foreground bg-hover before:absolute before:left-0 before:top-2 before:bottom-2 before:w-[2px] before:rounded-full before:bg-accent"
+                : "text-muted hover:bg-hover/40 hover:text-foreground",
+              item.disabled && "pointer-events-none opacity-40",
+              isDragging && "opacity-40",
             )}
             onClick={item.onSelect}
             onKeyDown={(e) => {
-              // Ignore bubbled key events from nested elements (e.g. close/pop-out buttons)
-              // so Enter/Space still activates those buttons instead of selecting the tab.
-              if (e.currentTarget !== e.target) {
-                return;
-              }
-
+              // Ignore bubbled key events from nested elements
+              if (e.currentTarget !== e.target) return;
               sortableOnKeyDown?.(e);
-              if (e.defaultPrevented) {
-                return;
-              }
-
+              if (e.defaultPrevented) return;
               if (!item.disabled && (e.key === "Enter" || e.key === " ")) {
                 e.preventDefault();
                 item.onSelect();
               }
             }}
             onAuxClick={(e) => {
-              // Middle-click (button 1) closes closeable tabs
+              // Middle-click closes closeable tabs
               if (e.button === 1 && item.onClose) {
                 e.preventDefault();
                 item.onClose();
@@ -121,17 +158,26 @@ const SortableTab: React.FC<{
             aria-disabled={item.disabled ? true : undefined}
             tabIndex={item.disabled ? -1 : (attributes.tabIndex ?? 0)}
           >
-            {item.label}
+            {icon}
+            <span className="text-center text-[8px] font-medium uppercase leading-none tracking-[0.06em]">
+              {shortLabel}
+            </span>
           </div>
         </TooltipTrigger>
-        <TooltipContent side="bottom" align="center">
-          {item.tooltip}
+        {/* Tooltip on the left — doesn't overlap the content panel */}
+        <TooltipContent side="left" align="center">
+          {item.tooltip ?? shortLabel}
         </TooltipContent>
       </Tooltip>
     </div>
   );
 };
 
+/**
+ * Vertical activity-bar tab strip that sits on the LEFT edge of the right sidebar.
+ * Tabs are stacked vertically (icon + short label); Settings lives at the bottom.
+ * This replaces the old horizontal top-strip layout.
+ */
 export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
   items,
   ariaLabel = "Sidebar views",
@@ -140,10 +186,9 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
   const { active } = useDndContext();
   const activeData = active?.data.current as TabDragData | undefined;
 
-  // Track if we're dragging from this tabset (for visual feedback)
   const isDraggingFromHere = activeData?.sourceTabsetId === tabsetId;
 
-  // Make the tabstrip a drop target for tabs from OTHER tabsets
+  // Make the strip a drop target for tabs dragged from other tabsets
   const { setNodeRef, isOver } = useDroppable({
     id: `tabstrip:${tabsetId}`,
     data: { tabsetId },
@@ -152,40 +197,30 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
   const canDrop = activeData !== undefined && activeData.sourceTabsetId !== tabsetId;
   const showDropHighlight = isOver && canDrop;
 
-  // In desktop mode, add right padding for Windows/Linux titlebar overlay buttons
   const isDesktop = isDesktopMode();
-  const rightInset = getTitlebarRightInset();
 
   return (
     <div
       ref={setNodeRef}
       className={cn(
-        "border-border-light flex min-w-0 items-center border-b px-2 py-1.5 transition-colors",
-        isDesktop && DESKTOP_TITLEBAR_MIN_HEIGHT_CLASS,
-        showDropHighlight && "bg-accent/30",
+        // Vertical strip — narrow, bordered on the right, sidebar bg
+        "border-border-light bg-sidebar flex w-[52px] shrink-0 flex-col items-center border-r px-1 py-2 transition-colors",
+        showDropHighlight && "bg-accent/20",
         isDraggingFromHere && "bg-accent/10",
-        // In desktop mode, make header draggable for window movement
-        isDesktop && "titlebar-drag"
       )}
-      style={rightInset > 0 ? { paddingRight: rightInset } : undefined}
       role="tablist"
       aria-label={ariaLabel}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+      {/* Tab buttons stacked vertically */}
+      <div className="flex w-full flex-1 flex-col items-center gap-0.5">
         {items.map((item, index) => (
-          <SortableTab
-            key={item.id}
-            item={item}
-            index={index}
-            tabsetId={tabsetId}
-            isDesktop={isDesktop}
-          />
+          <SortableTab key={item.id} item={item} index={index} tabsetId={tabsetId} />
         ))}
       </div>
 
-      {/* Settings button — pinned to the right edge of the tab strip */}
-      <div className={cn("ml-1 shrink-0", isDesktop && "titlebar-no-drag")}>
-        <SettingsButton className="h-6 w-6 rounded-md" />
+      {/* Settings pinned to bottom of the activity bar */}
+      <div className={cn("mt-1 shrink-0", isDesktop && "titlebar-no-drag")}>
+        <SettingsButton className="h-7 w-7 rounded-md" />
       </div>
     </div>
   );
