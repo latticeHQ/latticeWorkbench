@@ -10,6 +10,7 @@ import {
   getTitlebarRightInset,
   DESKTOP_TITLEBAR_MIN_HEIGHT_CLASS,
 } from "@/browser/hooks/useDesktopTitlebar";
+import { SettingsButton } from "../SettingsButton";
 
 // Re-export for consumers that import from this file
 export { getTabName } from "./tabs";
@@ -180,6 +181,11 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
             isDesktop={isDesktop}
           />
         ))}
+      </div>
+
+      {/* Settings button — pinned to the right edge of the tab strip */}
+      <div className={cn("ml-1 shrink-0", isDesktop && "titlebar-no-drag")}>
+        <SettingsButton className="h-6 w-6 rounded-md" />
       </div>
     </div>
   );
