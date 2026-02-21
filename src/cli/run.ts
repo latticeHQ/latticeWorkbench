@@ -73,6 +73,7 @@ import chalk from "chalk";
 import type { InitLogger, WorkspaceInitResult } from "@/node/runtime/Runtime";
 import { DockerRuntime } from "@/node/runtime/DockerRuntime";
 import { runFullInit } from "@/node/runtime/runtimeFactory";
+import { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
 import { execSync } from "child_process";
 import { getParseOptions } from "./argv";
 import { EXPERIMENT_IDS } from "@/common/constants/experiments";
@@ -492,6 +493,8 @@ async function main(): Promise<number> {
     }
 
     // Use runFullInit to ensure postCreateSetup runs before initWorkspace
+    // Also bootstrap locally-detected CLI agents on the Docker runtime
+    const cliAgentDetection = new CliAgentDetectionService();
     let initResult: WorkspaceInitResult;
     try {
       initResult = await runFullInit(runtime, {
@@ -500,7 +503,7 @@ async function main(): Promise<number> {
         trunkBranch,
         workspacePath: createResult.workspacePath!,
         initLogger,
-      });
+      }, cliAgentDetection);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       initLogger.logStderr(`Initialization failed: ${errorMessage}`);
