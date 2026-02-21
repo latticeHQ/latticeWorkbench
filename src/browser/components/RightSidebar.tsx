@@ -81,6 +81,7 @@ import { BrowserTab } from "./RightSidebar/BrowserTab";
 import { ClusterTab } from "./RightSidebar/ClusterTab";
 import { ModelsTab } from "./RightSidebar/ModelsTab";
 import { ExplorerTab } from "./RightSidebar/ExplorerTab";
+import { SettingsPanelInline } from "./Settings/SettingsModal";
 import {
   DndContext,
   DragOverlay,
@@ -564,6 +565,17 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
             className="h-full"
           >
             <BrowserTab workspaceId={props.workspaceId} />
+          </div>
+        )}
+
+        {props.node.activeTab === "settings" && (
+          <div
+            role="tabpanel"
+            id={`${tabsetBaseId}-panel-settings`}
+            aria-labelledby={`${tabsetBaseId}-tab-settings`}
+            className="h-full"
+          >
+            <SettingsPanelInline />
           </div>
         )}
 

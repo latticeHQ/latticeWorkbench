@@ -79,7 +79,7 @@ export interface TabConfig {
 
 /** Static tab configurations (non-terminal tabs) */
 export const TAB_CONFIGS: Record<
-  "costs" | "review" | "explorer" | "cluster" | "models" | "stats" | "browser",
+  "costs" | "review" | "explorer" | "cluster" | "models" | "stats" | "browser" | "settings",
   TabConfig
 > = {
   costs: {
@@ -111,6 +111,10 @@ export const TAB_CONFIGS: Record<
     name: "Browser",
     contentClassName: "overflow-hidden p-0",
   },
+  settings: {
+    name: "Settings",
+    contentClassName: "overflow-hidden p-0",
+  },
 };
 
 /** Terminal tab configuration */
@@ -136,7 +140,8 @@ export function getTabConfig(tab: TabType): TabConfig {
     tab === "cluster" ||
     tab === "models" ||
     tab === "stats" ||
-    tab === "browser"
+    tab === "browser" ||
+    tab === "settings"
   ) {
     return TAB_CONFIGS[tab];
   }

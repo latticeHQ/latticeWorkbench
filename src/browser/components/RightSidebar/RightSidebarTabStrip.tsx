@@ -5,8 +5,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useDroppable, useDndContext } from "@dnd-kit/core";
 import type { TabType } from "@/browser/types/rightSidebar";
-import { isDesktopMode } from "@/browser/hooks/useDesktopTitlebar";
-import { SettingsButton } from "../SettingsButton";
+
 import {
   CircleDollarSign,
   GitPullRequest,
@@ -20,6 +19,7 @@ import {
   LayoutGrid,
   PanelRightClose,
   PanelRightOpen,
+  Settings,
   X,
 } from "lucide-react";
 
@@ -71,6 +71,7 @@ function getTabIcon(tab: TabType): React.ReactNode {
     return <SquareTerminal className="h-[18px] w-[18px]" />;
   if (typeof tab === "string" && tab.startsWith("file:"))
     return <FileCode className="h-[18px] w-[18px]" />;
+  if (tab === "settings") return <Settings className="h-[18px] w-[18px]" />;
   return <LayoutGrid className="h-[18px] w-[18px]" />;
 }
 
@@ -89,6 +90,7 @@ function getTabShortLabel(tab: TabType): string {
     const filename = path.split("/").pop() ?? "File";
     return filename.length > 6 ? filename.slice(0, 5) + "…" : filename;
   }
+  if (tab === "settings") return "Settings";
   return "Tab";
 }
 
@@ -217,8 +219,6 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
   const canDrop = activeData !== undefined && activeData.sourceTabsetId !== tabsetId;
   const showDropHighlight = isOver && canDrop;
 
-  const isDesktop = isDesktopMode();
-
   // Clicking a tab icon toggles the sidebar:
   //  - While collapsed → expand and select the tab
   //  - While expanded and the tab is already active → collapse
@@ -256,11 +256,6 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
         {expandingItems.map((item, index) => (
           <SortableTab key={item.id} item={item} index={index} tabsetId={tabsetId} />
         ))}
-      </div>
-
-      {/* Settings pinned to bottom of the activity bar */}
-      <div className={cn("mt-1 shrink-0", isDesktop && "titlebar-no-drag")}>
-        <SettingsButton className="h-8 w-8 rounded-md" />
       </div>
 
       {/* Collapse / expand toggle at very bottom */}
