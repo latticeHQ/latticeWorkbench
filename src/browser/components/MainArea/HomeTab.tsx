@@ -36,6 +36,7 @@ import {
   X,
   Hourglass,
   Layers,
+  Sparkles,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -198,11 +199,11 @@ function OrchestratorCard({
       <div className="flex shrink-0 flex-col items-center gap-2 pt-0.5">
         <div
           className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-lg text-base",
+            "flex h-8 w-8 items-center justify-center rounded-lg",
             "border border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/10"
           )}
         >
-          ✨
+          <Sparkles className="h-4 w-4 text-[var(--color-exec-mode)]" />
         </div>
         <StatusDot status={isStreaming ? "streaming" : "idle"} />
       </div>

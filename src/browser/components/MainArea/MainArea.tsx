@@ -279,6 +279,13 @@ export function MainArea({
   // Seeded from localStorage so closes-in-progress survive page reloads.
   const closingSessionIds = useRef(loadClosingSessions(workspaceId));
 
+  // Guards onEmployeeHired against historical event replay.
+  // The backend streams ALL past hire events when you subscribe; we must
+  // ignore them until session-sync has finished listing the live backend
+  // sessions (at which point any new event is a genuine new hire).
+  // Reset to false when workspaceId changes so the guard re-arms.
+  const sessionSyncDoneRef = useRef(false);
+
   // Always-fresh refs so the session-sync effect (intentionally not re-run on
   // every layout/meta change) can still read the LATEST state and avoid
   // relaunching tabs that were just explicitly closed by the user.
@@ -302,6 +309,7 @@ export function MainArea({
     setLayout(loadLayout(workspaceId));
     setEmployeeMeta(loadEmployeeMeta(workspaceId));
     closingSessionIds.current = loadClosingSessions(workspaceId);
+    sessionSyncDoneRef.current = false; // re-arm historical-event guard
   }, [workspaceId]);
 
   // ── Session sync: restore tabs for live backend sessions, relaunch dead agents ──
@@ -326,6 +334,28 @@ export function MainArea({
       if (cancelled) return;
 
       const backendSessionSet = new Set(backendSessionIds);
+
+      // ── Purge ghost sessions from employeeMeta ────────────────────────────
+      // Sessions persisted in localStorage that are no longer alive in the
+      // backend are stale/ghost entries (from past runs, historical replays,
+      // etc.).  Remove them now so they don't show as "idle" in the kanban.
+      setEmployeeMeta((prev) => {
+        const next = new Map(prev);
+        let changed = false;
+        for (const [sessionId] of prev) {
+          if (!backendSessionSet.has(sessionId) && !closingSessionIds.current.has(sessionId)) {
+            next.delete(sessionId);
+            changed = true;
+          }
+        }
+        if (changed) saveEmployeeMeta(workspaceId, next);
+        return changed ? next : prev;
+      });
+
+      // ── Arm the onEmployeeHired guard ─────────────────────────────────────
+      // Any hire event that arrives from this point forward is a genuine new
+      // hire — historical replay events arrive before listSessions resolves.
+      sessionSyncDoneRef.current = true;
 
       // Clean up closing sessions whose PTY the backend has confirmed is gone.
       // This replaces the old 2-second setTimeout approach: we only lift the
@@ -472,14 +502,18 @@ export function MainArea({
       const iterator = await api.terminal.onEmployeeHired({ workspaceId });
       for await (const { sessionId, slug, label } of iterator) {
         if (cancelled) break;
+
+        // ── Historical-event guard ─────────────────────────────────────────
+        // The backend replays ALL past hire events when you subscribe.
+        // We only trust events that arrive AFTER session-sync has completed
+        // (i.e. after we've listed live sessions and armed the flag).
+        // Pre-sync events are historical replays — silently discard them.
+        if (!sessionSyncDoneRef.current) continue;
+
         const tabType = makeTerminalTabType(sessionId);
-        // Guard against historical event replay: if this session is already
-        // tracked (loaded from localStorage on mount), skip re-adding it.
-        // New hires (never seen before) won't be in the map, so they still
-        // get added and their tab opened normally.
         let isNew = false;
         setEmployeeMeta((prev) => {
-          if (prev.has(sessionId)) return prev;
+          if (prev.has(sessionId)) return prev; // already tracked — skip
           isNew = true;
           const next = new Map(prev);
           next.set(sessionId, { slug: slug as EmployeeSlug, label, status: "running" });
