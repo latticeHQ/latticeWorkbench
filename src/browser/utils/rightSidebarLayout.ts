@@ -75,7 +75,7 @@ export function getDefaultMainAreaLayoutState(): RightSidebarLayoutState {
 }
 
 export function getDefaultRightSidebarLayoutState(activeTab: TabType): RightSidebarLayoutState {
-  const baseTabs: TabType[] = ["costs", "review", "explorer", "cluster", "models", "browser"];
+  const baseTabs: TabType[] = ["costs", "review", "explorer", "cluster", "models", "browser", "settings"];
 
   // If the active tab is one of the base tabs, keep it active; otherwise add it.
   const tabs = baseTabs.includes(activeTab) ? baseTabs : [...baseTabs, activeTab];

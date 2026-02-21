@@ -98,6 +98,74 @@ function readSidebarWidth(min = 380): number {
   return Math.max(min, n);
 }
 
+/**
+ * Settings panel rendered inline inside the right sidebar tab area.
+ * No portal, no fixed positioning — fills whatever container it's placed in.
+ */
+export function SettingsPanelInline() {
+  const { activeSection, setActiveSection } = useSettings();
+  const system1Enabled = useExperimentValue(EXPERIMENT_IDS.SYSTEM_1);
+
+  const sections = system1Enabled
+    ? [
+        ...BASE_SECTIONS,
+        {
+          id: "system1",
+          label: "System 1",
+          icon: <BrainCircuit className="h-[14px] w-[14px] shrink-0" />,
+          component: System1Section,
+        },
+      ]
+    : BASE_SECTIONS;
+
+  const currentSection = sections.find((s) => s.id === activeSection) ?? sections[0]!;
+  const SectionComponent = currentSection.component;
+
+  return (
+    <div className="flex h-full flex-row overflow-hidden">
+      {/* ── Left nav ──────────────────────────────────────────── */}
+      <div className="flex w-[148px] shrink-0 flex-col border-r border-border">
+        <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
+          <span className="select-none text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
+            Settings
+          </span>
+        </div>
+        <nav className="flex flex-1 flex-col overflow-y-auto py-1" aria-label="Settings sections">
+          {sections.map((section) => {
+            const isActive = section.id === activeSection;
+            return (
+              <button
+                key={section.id}
+                onClick={() => setActiveSection(section.id)}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex w-full items-center gap-2.5 border-l-2 py-[7px] pl-[14px] pr-3 text-left text-[11px] transition-all duration-150",
+                  isActive
+                    ? "border-l-accent bg-gradient-to-r from-accent/[0.10] to-transparent font-medium text-foreground"
+                    : "border-l-transparent text-muted hover:translate-x-[1px] hover:bg-hover/70 hover:text-foreground"
+                )}
+              >
+                {section.icon}
+                <span className="truncate">{section.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      {/* ── Content panel ─────────────────────────────────────── */}
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-modal-bg">
+        <div className="flex h-10 shrink-0 items-center border-b border-border px-4">
+          <span className="text-[13px] font-medium text-foreground">{currentSection.label}</span>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          <SectionComponent />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsModal() {
   const { isOpen, close, activeSection, setActiveSection } = useSettings();
   const system1Enabled = useExperimentValue(EXPERIMENT_IDS.SYSTEM_1);
