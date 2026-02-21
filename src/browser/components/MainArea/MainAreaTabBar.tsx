@@ -1,20 +1,18 @@
 /**
  * MainAreaTabBar — the tab strip for the main area.
  *
- * Layout: [ ⚡ PM Chat ] [ A Claude Code ✕ ] [ ▲ Codex ✕ ] [ + ]
+ * Layout: [ ⚡ PM Chat ] [ A Claude Code ✕ ] [ ▲ Codex ✕ ]
  *
  * - "chat" tab is always first and cannot be closed
  * - Employee (agent) tabs show CliAgentIcon + label + close button
- * - "+" button opens AgentPicker to hire a new employee
+ * - Hire employee (+) button lives in WorkspaceHeader
  */
-import React, { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Plus, Sparkles, Terminal, X } from "lucide-react";
+import React from "react";
+import { Sparkles, Terminal, X } from "lucide-react";
 import { cn } from "@/common/lib/utils";
 import { isChatTab, isTerminalTab } from "@/browser/types/rightSidebar";
 import type { TabType } from "@/browser/types/rightSidebar";
 import { CliAgentIcon } from "@/browser/components/CliAgentIcon";
-import { AgentPicker } from "./AgentPicker";
 import type { EmployeeSlug } from "./AgentPicker";
 
 export interface EmployeeMeta {
@@ -28,30 +26,17 @@ interface MainAreaTabBarProps {
   tabs: TabType[];
   activeTab: TabType;
   employeeMeta: Map<string, EmployeeMeta>;
-  detectedSlugs?: Set<string>;
-  /** True while CLI agent detection scan is still running */
-  detectingAgents?: boolean;
-  /** Callback to re-scan for installed agents */
-  onRefreshAgents?: () => void;
   onSelectTab: (tab: TabType) => void;
   onCloseTab: (tab: TabType) => void;
-  onHireEmployee: (slug: EmployeeSlug) => void;
 }
 
 export function MainAreaTabBar({
   tabs,
   activeTab,
   employeeMeta,
-  detectedSlugs,
-  detectingAgents,
-  onRefreshAgents,
   onSelectTab,
   onCloseTab,
-  onHireEmployee,
 }: MainAreaTabBarProps) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const addButtonRef = useRef<HTMLButtonElement>(null);
-
   const chatTab = tabs.find(isChatTab);
   const agentTabs = tabs.filter((t) => !isChatTab(t));
 
@@ -86,32 +71,6 @@ export function MainAreaTabBar({
         ))}
       </div>
 
-      {/* Hire employee (+) button */}
-      <div className="relative shrink-0 pl-1">
-        <button
-          ref={addButtonRef}
-          onClick={() => setPickerOpen((v) => !v)}
-          className={cn(
-            "text-muted hover:text-foreground hover:bg-hover flex h-6 w-6 items-center justify-center rounded border-none bg-transparent transition-colors",
-            pickerOpen && "bg-hover text-foreground"
-          )}
-          title="Hire employee"
-        >
-          <Plus size={14} />
-        </button>
-
-        {/* AgentPicker popover — viewport-aware positioning */}
-        {pickerOpen && (
-          <AgentPickerPopover
-            buttonRef={addButtonRef}
-            detectedSlugs={detectedSlugs}
-            detectingAgents={detectingAgents}
-            onRefreshAgents={onRefreshAgents}
-            onHireEmployee={onHireEmployee}
-            onClose={() => setPickerOpen(false)}
-          />
-        )}
-      </div>
     </div>
   );
 }
@@ -124,65 +83,6 @@ interface TabProps {
   onClose?: () => void;
 }
 
-/**
- * Portalled popover for AgentPicker. Rendered into document.body so it's
- * never clipped by parent overflow:hidden or CSS transforms. Positioned
- * using the trigger button's bounding rect.
- */
-function AgentPickerPopover({
-  buttonRef,
-  detectedSlugs,
-  detectingAgents,
-  onRefreshAgents,
-  onHireEmployee,
-  onClose,
-}: {
-  buttonRef: React.RefObject<HTMLButtonElement | null>;
-  detectedSlugs?: Set<string>;
-  detectingAgents?: boolean;
-  onRefreshAgents?: () => void;
-  onHireEmployee: (slug: EmployeeSlug) => void;
-  onClose: () => void;
-}) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
-
-  useEffect(() => {
-    const btn = buttonRef.current;
-    if (!btn) return;
-    const rect = btn.getBoundingClientRect();
-    setPos({
-      top: rect.bottom + 4,
-      right: Math.max(8, window.innerWidth - rect.right),
-    });
-  }, [buttonRef]);
-
-  return createPortal(
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 z-40" onClick={onClose} />
-      {/* Picker panel — fixed position, max-height keeps it inside viewport */}
-      <div
-        ref={panelRef}
-        className="fixed z-50 flex flex-col overflow-hidden"
-        style={
-          pos
-            ? { top: pos.top, right: pos.right, maxHeight: `calc(100vh - ${pos.top + 8}px)` }
-            : { top: 0, right: 0, visibility: "hidden" }
-        }
-      >
-        <AgentPicker
-          detectedSlugs={detectedSlugs}
-          loading={detectingAgents}
-          onRefresh={onRefreshAgents}
-          onSelect={onHireEmployee}
-          onClose={onClose}
-        />
-      </div>
-    </>,
-    document.body
-  );
-}
 
 function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
   const { icon, label, statusBadge } = getTabDisplay(tab, employeeMeta);
