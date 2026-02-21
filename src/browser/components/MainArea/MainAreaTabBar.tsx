@@ -145,13 +145,13 @@ function getStatusBadge(status?: EmployeeMeta["status"]) {
   if (status === "running") {
     return (
       <span className="relative flex h-2 w-2 shrink-0">
-        <span className="bg-accent/70 absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
-        <span className="bg-accent relative inline-flex h-2 w-2 rounded-full" />
+        <span className="bg-[var(--color-exec-mode)]/70 absolute inline-flex h-full w-full animate-ping rounded-full opacity-75" />
+        <span className="bg-[var(--color-exec-mode)] relative inline-flex h-2 w-2 rounded-full" />
       </span>
     );
   }
   if (status === "done") {
-    return <span className="text-accent text-[10px] leading-none">✓</span>;
+    return <span className="text-[var(--color-exec-mode)] text-[10px] leading-none">✓</span>;
   }
   if (status === "error") {
     return <span className="text-amber-400 text-[10px] leading-none">!</span>;

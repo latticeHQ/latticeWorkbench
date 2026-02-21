@@ -319,7 +319,7 @@ function AgentRow({
             <div
               className={`h-1.5 w-1.5 rounded-full ${
                 agent.detected
-                  ? "bg-accent"
+                  ? "bg-[var(--color-exec-mode)]"
                   : isInstalling
                     ? "bg-yellow-500 animate-pulse"
                     : "bg-border-medium"
@@ -327,7 +327,7 @@ function AgentRow({
             />
             <span
               className={`text-[11px] ${
-                agent.detected ? "text-accent" : isInstalling ? "text-yellow-500" : "text-muted"
+                agent.detected ? "text-[var(--color-exec-mode)]" : isInstalling ? "text-yellow-500" : "text-muted"
               }`}
             >
               {agent.detected ? "Detected" : isInstalling ? "Installing..." : "Not installed"}
@@ -344,7 +344,7 @@ function AgentRow({
                   !health || health.status === "checking"
                     ? "bg-blue-400 animate-pulse"
                     : health.status === "healthy"
-                      ? "bg-green-500"
+                      ? "bg-[var(--color-success)]"
                       : health.status === "unhealthy"
                         ? "bg-orange-500"
                         : "bg-border-medium"
@@ -355,7 +355,7 @@ function AgentRow({
                   !health || health.status === "checking"
                     ? "text-blue-400"
                     : health.status === "healthy"
-                      ? "text-green-500"
+                      ? "text-[var(--color-success)]"
                       : health.status === "unhealthy"
                         ? "text-orange-500"
                         : "text-muted"
