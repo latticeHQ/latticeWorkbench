@@ -1093,18 +1093,39 @@ export class LatticeService {
           ? error.message.split("\n")[0].slice(0, 200).trim()
           : "Unknown error";
 
+      const lowerError = errorMessage.toLowerCase();
+
       const isNotInstalled =
         error instanceof Error &&
         ((error as NodeJS.ErrnoException).code === "ENOENT" ||
-          errorMessage.toLowerCase().includes("command not found") ||
-          errorMessage.toLowerCase().includes("enoent"));
+          lowerError.includes("command not found") ||
+          lowerError.includes("enoent"));
 
-      this.cachedWhoami = {
-        state: "unauthenticated",
-        reason: isNotInstalled
-          ? "Lattice CLI is not installed"
-          : `Not authenticated: ${errorMessage}`,
-      };
+      if (isNotInstalled) {
+        // CLI not installed — don't block the app
+        this.cachedWhoami = {
+          state: "authenticated",
+          username: "local",
+          deploymentUrl: "",
+        };
+      } else {
+        // CLI installed but not authenticated — could be no deployment configured,
+        // wrong URL, or genuinely unauthenticated. Show the auth modal so user
+        // can enter their deployment URL and login.
+        const isNoDeployment =
+          lowerError.includes("not a lattice instance") ||
+          lowerError.includes("unexpected non-json response") ||
+          lowerError.includes("is the url correct") ||
+          lowerError.includes("econnrefused") ||
+          lowerError.includes("missing build version header");
+
+        this.cachedWhoami = {
+          state: "unauthenticated",
+          reason: isNoDeployment
+            ? "No Lattice deployment configured. Enter your deployment URL to sign in."
+            : `Not authenticated: ${errorMessage}`,
+        };
+      }
 
       return this.cachedWhoami;
     }
@@ -1115,6 +1136,90 @@ export class LatticeService {
    */
   clearWhoamiCache(): void {
     this.cachedWhoami = null;
+  }
+
+  /**
+   * Authenticate with Lattice by piping a session token to `lattice login <url>`.
+   *
+   * Flow:
+   * 1. User logs into the Lattice deployment in their browser
+   * 2. Browser shows a session token
+   * 3. User copies the token and pastes it into our modal
+   * 4. We pipe the token to `lattice login <url>` via stdin
+   *
+   * Uses spawn with stdin pipe (not execAsync) because the CLI waits for
+   * interactive token input on stdin.
+   *
+   * @param url - The Lattice deployment URL (e.g., "https://orbitalclusters.com")
+   * @param sessionToken - The session token from browser login
+   */
+  async login(url: string, sessionToken: string): Promise<{ success: boolean; message: string }> {
+    if (!url.trim()) {
+      return { success: false, message: "Deployment URL is required" };
+    }
+    if (!sessionToken.trim()) {
+      return { success: false, message: "Session token is required" };
+    }
+
+    log.info("[Lattice] Authenticating with session token", { url });
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const resolveOnce = (result: { success: boolean; message: string }) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(result);
+      };
+
+      const child = spawn("lattice", ["login", url], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout?.on("data", (chunk) => {
+        stdout += String(chunk);
+      });
+      child.stderr?.on("data", (chunk) => {
+        stderr += String(chunk);
+      });
+
+      // Write session token to stdin — the CLI is waiting for this after
+      // printing "Paste your token:" (or opening the browser)
+      child.stdin.write(sessionToken.trim() + "\n");
+      child.stdin.end();
+
+      child.on("close", (code) => {
+        // Clear cache so next whoami check reflects new auth state
+        this.clearWhoamiCache();
+        this.clearCache();
+
+        const output = (stdout + "\n" + stderr).trim();
+        log.info("[Lattice] Login completed", { url, exitCode: code, output: output.slice(0, 200) });
+
+        if (code === 0) {
+          resolveOnce({ success: true, message: output || "Login completed" });
+        } else {
+          resolveOnce({ success: false, message: output || `Login failed (exit ${code})` });
+        }
+      });
+
+      child.on("error", (err) => {
+        log.warn("[Lattice] Login spawn error", { url, error: err.message });
+        resolveOnce({ success: false, message: err.message });
+      });
+
+      // Timeout after 30s to avoid hanging forever
+      setTimeout(() => {
+        try {
+          child.kill();
+        } catch {
+          // ignore
+        }
+        resolveOnce({ success: false, message: "Login timed out after 30 seconds" });
+      }, 30_000);
+    });
   }
 
   /**

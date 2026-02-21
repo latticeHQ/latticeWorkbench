@@ -129,4 +129,14 @@ export const lattice = {
       .optional(),
     output: LatticeWhoamiSchema,
   },
+  login: {
+    input: z.object({
+      url: z.string().meta({ description: "Lattice deployment URL (e.g., https://orbitalclusters.com)" }),
+      sessionToken: z.string().meta({ description: "Session token from browser login" }),
+    }),
+    output: z.object({
+      success: z.boolean(),
+      message: z.string(),
+    }),
+  },
 };

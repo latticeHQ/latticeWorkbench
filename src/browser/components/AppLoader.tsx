@@ -133,20 +133,9 @@ function AppLoaderInner() {
     })();
   }, [api, latticeAuthChecked]);
 
-  const handleLatticeRetry = useCallback(async (): Promise<boolean> => {
-    if (!api) return false;
-    try {
-      // Clear server-side cache so it re-runs `lattice whoami`
-      const whoami = await api.lattice.whoami({ refresh: true });
-      if (whoami.state === "authenticated") {
-        setLatticeAuthRequired(false);
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }, [api]);
+  const handleLatticeAuthenticated = useCallback(() => {
+    setLatticeAuthRequired(false);
+  }, []);
 
   const handleLatticeSkip = useCallback(() => {
     setLatticeAuthRequired(false);
@@ -157,13 +146,15 @@ function AppLoaderInner() {
     return <AuthTokenModal isOpen={true} onSubmit={apiState.authenticate} error={apiState.error} />;
   }
 
-  // Show Lattice auth modal if CLI is available but user is not authenticated
-  if (latticeAuthRequired) {
+  // Show Lattice auth modal if CLI is available but user is not authenticated.
+  // The modal auto-triggers `lattice login` (opens browser for OAuth) and polls whoami.
+  if (latticeAuthRequired && api) {
     return (
       <LatticeAuthModal
         isOpen={true}
         reason={latticeAuthReason}
-        onRetry={handleLatticeRetry}
+        api={api}
+        onAuthenticated={handleLatticeAuthenticated}
         onSkip={handleLatticeSkip}
       />
     );

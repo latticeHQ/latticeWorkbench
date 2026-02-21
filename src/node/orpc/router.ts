@@ -1157,6 +1157,12 @@ export const router = (authToken?: string) => {
           }
           return context.latticeService.getWhoamiInfo();
         }),
+      login: t
+        .input(schemas.lattice.login.input)
+        .output(schemas.lattice.login.output)
+        .handler(async ({ context, input }) => {
+          return context.latticeService.login(input.url, input.sessionToken);
+        }),
     },
     workspace: {
       list: t
