@@ -1,10 +1,11 @@
 /**
  * MainAreaTabBar — the tab strip for the main area.
  *
- * Layout: [ ⚡ PM Chat ] [ A Claude Code ✕ ] [ ▲ Codex ✕ ]
+ * Layout: [ 🏠 Home ] [ ⚡ PM Chat ] [ A Claude Code ✕ ] [ ▲ Codex ✕ ]
  *
- * - "chat" tab is always first and cannot be closed
+ * - "home" and "chat" tabs are always pinned and cannot be closed
  * - Employee (agent) tabs show CliAgentIcon + label + close button
+ * - PM Chat tab shows an orange dot when there are unread messages
  * - Hire employee (+) button lives in WorkspaceHeader
  */
 import React from "react";
@@ -13,6 +14,7 @@ import { cn } from "@/common/lib/utils";
 import { isChatTab, isHomeTab, isTerminalTab } from "@/browser/types/rightSidebar";
 import type { TabType } from "@/browser/types/rightSidebar";
 import { CliAgentIcon } from "@/browser/components/CliAgentIcon";
+import { useWorkspaceUnread } from "@/browser/hooks/useWorkspaceUnread";
 import type { EmployeeSlug } from "./AgentPicker";
 
 export interface EmployeeMeta {
@@ -26,6 +28,8 @@ interface MainAreaTabBarProps {
   tabs: TabType[];
   activeTab: TabType;
   employeeMeta: Map<string, EmployeeMeta>;
+  /** Workspace ID — used for the PM Chat unread badge */
+  workspaceId: string;
   onSelectTab: (tab: TabType) => void;
   onCloseTab: (tab: TabType) => void;
 }
@@ -34,6 +38,7 @@ export function MainAreaTabBar({
   tabs,
   activeTab,
   employeeMeta,
+  workspaceId,
   onSelectTab,
   onCloseTab,
 }: MainAreaTabBarProps) {
@@ -49,16 +54,18 @@ export function MainAreaTabBar({
           tab={homeTab}
           isActive={homeTab === activeTab}
           employeeMeta={employeeMeta}
+          workspaceId={workspaceId}
           onSelect={() => onSelectTab(homeTab)}
         />
       )}
 
-      {/* PM Chat — always pinned, never scrolls off */}
+      {/* PM Chat — always pinned, shows unread dot when away */}
       {chatTab && (
         <Tab
           tab={chatTab}
           isActive={chatTab === activeTab}
           employeeMeta={employeeMeta}
+          workspaceId={workspaceId}
           onSelect={() => onSelectTab(chatTab)}
         />
       )}
@@ -76,12 +83,12 @@ export function MainAreaTabBar({
             tab={tab}
             isActive={tab === activeTab}
             employeeMeta={employeeMeta}
+            workspaceId={workspaceId}
             onSelect={() => onSelectTab(tab)}
             onClose={() => onCloseTab(tab)}
           />
         ))}
       </div>
-
     </div>
   );
 }
@@ -90,12 +97,12 @@ interface TabProps {
   tab: TabType;
   isActive: boolean;
   employeeMeta: Map<string, EmployeeMeta>;
+  workspaceId: string;
   onSelect: () => void;
   onClose?: () => void;
 }
 
-
-function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
+function Tab({ tab, isActive, employeeMeta, workspaceId, onSelect, onClose }: TabProps) {
   const { icon, label, statusBadge } = getTabDisplay(tab, employeeMeta);
 
   return (
@@ -118,6 +125,11 @@ function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
 
       {/* Label */}
       <span className="max-w-[120px] truncate">{label}</span>
+
+      {/* Unread badge for PM Chat tab */}
+      {isChatTab(tab) && (
+        <ChatUnreadBadge workspaceId={workspaceId} isActive={isActive} />
+      )}
 
       {/* Status badge (for employee tabs) */}
       {statusBadge && (
@@ -151,6 +163,32 @@ function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
   );
 }
 
+// ── Unread badge for PM Chat ──────────────────────────────────────────────────
+
+function ChatUnreadBadge({
+  workspaceId,
+  isActive,
+}: {
+  workspaceId: string;
+  isActive: boolean;
+}) {
+  const { isUnread } = useWorkspaceUnread(workspaceId);
+
+  if (!isUnread || isActive) return null;
+
+  return (
+    <span
+      aria-label="Unread messages"
+      className="relative flex h-1.5 w-1.5 shrink-0"
+    >
+      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-exec-mode)] opacity-50" />
+      <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-exec-mode)]" />
+    </span>
+  );
+}
+
+// ── Tab display helpers ───────────────────────────────────────────────────────
+
 function getStatusBadge(status?: EmployeeMeta["status"]) {
   if (!status || status === "idle") return null;
   if (status === "running") {
@@ -162,7 +200,7 @@ function getStatusBadge(status?: EmployeeMeta["status"]) {
     );
   }
   if (status === "done") {
-    return <span className="text-[var(--color-exec-mode)] text-[10px] leading-none">✓</span>;
+    return <span className="text-[var(--color-success)] text-[10px] leading-none">✓</span>;
   }
   if (status === "error") {
     return <span className="text-amber-400 text-[10px] leading-none">!</span>;
