@@ -6,9 +6,9 @@ import { supports1MContext } from "../ai/models";
 // even if a host environment doesn't define the CSS variables (e.g., an embedded UI).
 export const TOKEN_COMPONENT_COLORS = {
   cached: "var(--color-token-cached, hsl(0 0% 50%))",
-  cacheCreate: "var(--color-token-cache-create, hsl(140 20% 55%))",
-  input: "var(--color-token-input, hsl(120 40% 35%))",
-  output: "var(--color-token-output, hsl(207 100% 40%))",
+  cacheCreate: "var(--color-token-cache-create, hsl(35 55% 52%))",
+  input: "var(--color-token-input, hsl(24 70% 42%))",
+  output: "var(--color-token-output, hsl(30 90% 64%))",
   thinking: "var(--color-thinking-mode, hsl(271 76% 53%))",
 } as const;
 

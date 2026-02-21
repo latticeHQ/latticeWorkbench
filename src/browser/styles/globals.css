@@ -152,10 +152,10 @@
     --color-token-completion: hsl(207 100% 40%);
     --color-token-variable: hsl(207 100% 40%);
     --color-token-fixed: hsl(0 0% 40%);
-    --color-token-input: hsl(120 40% 35%);
-    --color-token-output: hsl(207 100% 40%);
+    --color-token-input: hsl(24 70% 42%);
+    --color-token-output: hsl(30 90% 64%);
     --color-token-cached: hsl(0 0% 50%);
-    --color-token-cache-create: hsl(140 20% 55%);
+    --color-token-cache-create: hsl(35 55% 52%);
 
     /* Task/subagent surfaces - teal/cyan theme for parallel work */
     --color-task-mode: hsl(175 60% 42%);
@@ -432,10 +432,10 @@
   --color-token-completion: #1A1917;
   --color-token-variable: #1A1917;
   --color-token-fixed: #6B6860;
-  --color-token-input: hsl(125 45% 36%);
-  --color-token-output: #1A1917;
+  --color-token-input: hsl(24 70% 36%);
+  --color-token-output: hsl(30 80% 52%);
   --color-token-cached: #8A877F;
-  --color-token-cache-create: hsl(140 18% 52%);
+  --color-token-cache-create: hsl(35 50% 44%);
 
   --surface-plan-gradient: linear-gradient(
     135deg,
@@ -672,10 +672,10 @@
   --color-token-completion: #205ea6;
   --color-token-variable: #205ea6;
   --color-token-fixed: #6f6e69;
-  --color-token-input: #66800b; /* Flexoki green-600 */
-  --color-token-output: #205ea6;
+  --color-token-input: #bc5215; /* Flexoki orange-600 */
+  --color-token-output: #da702c; /* Flexoki orange-400 */
   --color-token-cached: #6f6e69;
-  --color-token-cache-create: #66800b;
+  --color-token-cache-create: #c87737; /* Flexoki amber */
 
   --color-toggle-bg: #f2f0e5;
   --color-toggle-active: #e6e4d9;
@@ -873,10 +873,10 @@
   --color-token-completion: #4385be;
   --color-token-variable: #4385be;
   --color-token-fixed: #878580;
-  --color-token-input: #879a39; /* Flexoki green-400 */
-  --color-token-output: #4385be;
+  --color-token-input: #da702c; /* Flexoki orange-400 */
+  --color-token-output: #f2a55e; /* Flexoki orange-200 */
   --color-token-cached: #575653;
-  --color-token-cache-create: #879a39;
+  --color-token-cache-create: #e89050; /* Flexoki amber-300 */
 
   --color-toggle-bg: #1c1b1a;
   --color-toggle-active: #282726;
