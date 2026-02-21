@@ -3,16 +3,19 @@ import {
   RIGHT_SIDEBAR_COLLAPSED_KEY,
   RIGHT_SIDEBAR_TAB_KEY,
   getRightSidebarLayoutKey,
+  getTerminalTitlesKey,
 } from "@/common/constants/storage";
 import { isDesktopMode } from "@/browser/hooks/useDesktopTitlebar";
 import {
   readPersistedState,
+  updatePersistedState,
   usePersistedState,
 } from "@/browser/hooks/usePersistedState";
 import { useWorkspaceUsage, useWorkspaceStatsSnapshot } from "@/browser/stores/WorkspaceStore";
 import { useFeatureFlags } from "@/browser/contexts/FeatureFlagsContext";
 import { CostsTab } from "./RightSidebar/CostsTab";
 
+import { TerminalTab } from "./RightSidebar/TerminalTab";
 import { ReviewPanel } from "./RightSidebar/CodeReview/ReviewPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { StatsTab } from "./RightSidebar/StatsTab";
@@ -26,10 +29,15 @@ import {
   RIGHT_SIDEBAR_TABS,
   isTabType,
   isFileTab,
+  isTerminalTab,
   getFilePath,
+  getTerminalSessionId,
   makeFileTabType,
+  makeTerminalTabType,
   type TabType,
 } from "@/browser/types/rightSidebar";
+import { useAPI } from "@/browser/contexts/API";
+import { openTerminalPopout } from "@/browser/utils/terminal";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import {
   addTabToFocusedTabset,
@@ -38,6 +46,7 @@ import {
   dockTabToEdge,
   findTabset,
   getDefaultRightSidebarLayoutState,
+  getFocusedActiveTab,
   isRightSidebarLayoutState,
   moveTabToTabset,
   parseRightSidebarLayoutState,
@@ -64,6 +73,7 @@ import {
   ModelsTabLabel,
   ReviewTabLabel,
   StatsTabLabel,
+  TerminalTabLabel,
   getTabContentClassName,
   type ReviewStats,
 } from "./RightSidebar/tabs";
@@ -200,8 +210,22 @@ interface RightSidebarTabsetNodeProps {
   /** Data about the currently dragged tab (if any) */
   activeDragData: TabDragData | null;
   setLayout: (updater: (prev: RightSidebarLayoutState) => RightSidebarLayoutState) => void;
+  /** Handler to pop out a terminal tab to a separate window */
+  onPopOutTerminal: (tab: TabType) => void;
+  /** Handler to close a terminal tab */
+  onCloseTerminal: (tab: TabType) => void;
+  /** Map of terminal tab types to their current titles (from OSC sequences) */
+  terminalTitles: Map<TabType, string>;
+  /** Handler to update a terminal's title */
+  onTerminalTitleChange: (tab: TabType, title: string) => void;
   /** Map of tab → global position index (0-based) for keybind tooltips */
   tabPositions: Map<TabType, number>;
+  /** Terminal session ID that should be auto-focused */
+  autoFocusTerminalSession: string | null;
+  /** Callback to request terminal focus when a tab is selected */
+  onRequestTerminalFocus: (sessionId: string) => void;
+  /** Callback to clear the auto-focus state after it's been consumed */
+  onAutoFocusConsumed: () => void;
   /** Handler to open a file in a new tab */
   onOpenFile: (relativePath: string) => void;
   /** Handler to close a file tab */
@@ -252,11 +276,21 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
   };
 
   const selectTab = (tab: TabType) => {
+    if (isTerminalTab(tab)) {
+      const sessionId = getTerminalSessionId(tab);
+      if (sessionId) {
+        props.onRequestTerminalFocus(sessionId);
+      }
+    }
+
     props.setLayout((prev) => {
       const withFocus = setFocusedTabset(prev, props.node.id);
       return selectTabInTabset(withFocus, props.node.id, tab);
     });
   };
+
+  // Count terminal tabs in this tabset for numbering (Terminal, Terminal 2, etc.)
+  const terminalTabs = props.node.tabs.filter(isTerminalTab);
 
   const items = props.node.tabs.flatMap((tab) => {
     if (tab === "stats" && !props.statsTabEnabled) {
@@ -267,6 +301,7 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
     const panelId = `${tabsetBaseId}-panel-${tab}`;
 
     // Show keybind for tabs 1-9 based on their position in the layout
+    const isTerminal = isTerminalTab(tab);
     const isFile = isFileTab(tab);
     const tabPosition = props.tabPositions.get(tab);
     const keybinds = [
@@ -316,6 +351,16 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
       label = <BrowserTabLabel />;
     } else if (tab === "stats") {
       label = <StatsTabLabel sessionDuration={props.sessionDuration} />;
+    } else if (isTerminal) {
+      const terminalIndex = terminalTabs.indexOf(tab);
+      label = (
+        <TerminalTabLabel
+          dynamicTitle={props.terminalTitles.get(tab)}
+          terminalIndex={terminalIndex}
+          onPopOut={() => props.onPopOutTerminal(tab)}
+          onClose={() => props.onCloseTerminal(tab)}
+        />
+      );
     } else if (isFileTab(tab)) {
       const filePath = getFilePath(tab);
       label = <FileTabLabel filePath={filePath ?? tab} onClose={() => props.onCloseFile(tab)} />;
@@ -332,8 +377,12 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
         label,
         tooltip,
         tab,
-        // File tabs are closeable
-        onClose: isFileTab(tab) ? () => props.onCloseFile(tab) : undefined,
+        // Terminal and file tabs are closeable
+        onClose: isTerminal
+          ? () => props.onCloseTerminal(tab)
+          : isFileTab(tab)
+            ? () => props.onCloseFile(tab)
+            : undefined,
       },
     ];
   });
@@ -422,6 +471,35 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
             <CostsTab workspaceId={props.workspaceId} />
           </div>
         )}
+
+        {/* Render all terminal tabs (keep-alive: hidden but mounted) */}
+        {terminalTabs.map((terminalTab) => {
+          const terminalTabId = `${tabsetBaseId}-tab-${terminalTab}`;
+          const terminalPanelId = `${tabsetBaseId}-panel-${terminalTab}`;
+          const isActive = props.node.activeTab === terminalTab;
+          const terminalSessionId = getTerminalSessionId(terminalTab);
+          const shouldAutoFocus = isActive && terminalSessionId === props.autoFocusTerminalSession;
+
+          return (
+            <div
+              key={terminalPanelId}
+              role="tabpanel"
+              id={terminalPanelId}
+              aria-labelledby={terminalTabId}
+              className="h-full"
+              hidden={!isActive}
+            >
+              <TerminalTab
+                workspaceId={props.workspaceId}
+                tabType={terminalTab}
+                visible={isActive}
+                onTitleChange={(title) => props.onTerminalTitleChange(terminalTab, title)}
+                autoFocus={shouldAutoFocus}
+                onAutoFocusConsumed={shouldAutoFocus ? props.onAutoFocusConsumed : undefined}
+              />
+            </div>
+          );
+        })}
 
         {props.node.tabs.includes("stats") && props.statsTabEnabled && (
           <div
@@ -548,6 +626,11 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
   // Review stats reported by ReviewPanel
   const [reviewStats, setReviewStats] = React.useState<ReviewStats | null>(null);
 
+  // Terminal session ID that should be auto-focused (new terminal or explicit tab focus).
+  const [autoFocusTerminalSession, setAutoFocusTerminalSession] = React.useState<string | null>(
+    null
+  );
+
   // Manual collapse state (persisted globally)
   const [collapsed, setCollapsed] = usePersistedState<boolean>(RIGHT_SIDEBAR_COLLAPSED_KEY, false, {
     listener: true,
@@ -644,6 +727,20 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
     );
   }, [initialActiveTab]);
 
+  const focusActiveTerminal = React.useCallback(
+    (state: RightSidebarLayoutState) => {
+      const activeTab = getFocusedActiveTab(state, initialActiveTab);
+      if (!isTerminalTab(activeTab)) {
+        return;
+      }
+      const sessionId = getTerminalSessionId(activeTab);
+      if (sessionId) {
+        setAutoFocusTerminalSession(sessionId);
+      }
+    },
+    [initialActiveTab, setAutoFocusTerminalSession]
+  );
+
   const setLayout = React.useCallback(
     (updater: (prev: RightSidebarLayoutState) => RightSidebarLayoutState) => {
       if (isSidebarTabDragInProgressRef.current) {
@@ -688,7 +785,12 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
           );
           const allTabs = collectAllTabsWithTabset(currentLayout.root);
           const target = allTabs[i];
-          if (target?.tab === "review") {
+          if (target && isTerminalTab(target.tab)) {
+            const sessionId = getTerminalSessionId(target.tab);
+            if (sessionId) {
+              setAutoFocusTerminalSession(sessionId);
+            }
+          } else if (target?.tab === "review") {
             // Review panel keyboard navigation (j/k) is gated on focus. If the user explicitly
             // opened the tab via shortcut, focus the panel so it works immediately.
             _setFocusTrigger((prev) => prev + 1);
@@ -703,7 +805,7 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [initialActiveTab, setCollapsed, setLayout, _setFocusTrigger]);
+  }, [initialActiveTab, setAutoFocusTerminalSession, setCollapsed, setLayout, _setFocusTrigger]);
 
   const usage = useWorkspaceUsage(workspaceId);
 
@@ -752,7 +854,18 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
   // @dnd-kit state for tracking active drag
   const [activeDragData, setActiveDragData] = React.useState<TabDragData | null>(null);
 
-  // Keyboard shortcut for closing active tab (Ctrl/Cmd+W) — handles file tabs only
+  // Terminal titles from OSC sequences (e.g., shell setting window title)
+  // Persisted to localStorage so they survive reload
+  const terminalTitlesKey = getTerminalTitlesKey(workspaceId);
+  const [terminalTitles, setTerminalTitles] = React.useState<Map<TabType, string>>(() => {
+    const stored = readPersistedState<Record<string, string>>(terminalTitlesKey, {});
+    return new Map(Object.entries(stored) as Array<[TabType, string]>);
+  });
+
+  // API for managing terminal sessions
+  const { api } = useAPI();
+
+  // Keyboard shortcut for closing active tab (Ctrl/Cmd+W) — handles terminal and file tabs
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!matchesKeybind(e, KEYBINDS.CLOSE_TAB)) return;
@@ -762,17 +875,42 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
 
       const activeTab = focusedTabset.activeTab;
 
+      // Handle terminal tabs
+      if (isTerminalTab(activeTab)) {
+        e.preventDefault();
+
+        // Close the backend session
+        const sessionId = getTerminalSessionId(activeTab);
+        if (sessionId) {
+          void api?.terminal.close({ sessionId });
+        }
+
+        const nextLayout = removeTabEverywhere(layout, activeTab);
+        setLayout(() => nextLayout);
+        focusActiveTerminal(nextLayout);
+
+        // Clean up title (and persist)
+        setTerminalTitles((prev) => {
+          const next = new Map(prev);
+          next.delete(activeTab);
+          updatePersistedState(terminalTitlesKey, Object.fromEntries(next));
+          return next;
+        });
+        return;
+      }
+
       // Handle file tabs
       if (isFileTab(activeTab)) {
         e.preventDefault();
         const nextLayout = removeTabEverywhere(layout, activeTab);
         setLayout(() => nextLayout);
+        focusActiveTerminal(nextLayout);
       }
     };
 
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [layout, setLayout]);
+  }, [api, focusActiveTerminal, layout, setLayout, terminalTitlesKey]);
 
   // Handler to open a file in a new tab
   const handleOpenFile = React.useCallback(
@@ -801,17 +939,20 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
     [layout.root, setLayout]
   );
 
-  // Expose handleOpenFile to parent via ref (for FileOpenerContext)
+  // Expose handleOpenFile to parent via ref (for FileOpenerContext).
+  const handleOpenFileLatest = React.useRef(handleOpenFile);
+  handleOpenFileLatest.current = handleOpenFile;
+
   React.useEffect(() => {
-    if (openFileRef) {
-      openFileRef.current = handleOpenFile;
-    }
-    return () => {
-      if (openFileRef) {
-        openFileRef.current = null;
-      }
+    if (!openFileRef) return;
+    openFileRef.current = (relativePath: string) => {
+      handleOpenFileLatest.current(relativePath);
     };
-  }, [openFileRef, handleOpenFile]);
+    return () => {
+      openFileRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openFileRef]);
 
   // Handler to close a file tab
   const handleCloseFile = React.useCallback(
@@ -820,6 +961,127 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
       setLayout(() => nextLayout);
     },
     [getBaseLayout, setLayout]
+  );
+
+  // Handler to update a terminal's title (from OSC sequences)
+  // Also persists to localStorage for reload survival
+  const handleTerminalTitleChange = React.useCallback(
+    (tab: TabType, title: string) => {
+      setTerminalTitles((prev) => {
+        const next = new Map(prev);
+        next.set(tab, title);
+        // Persist to localStorage
+        updatePersistedState(terminalTitlesKey, Object.fromEntries(next));
+        return next;
+      });
+    },
+    [terminalTitlesKey]
+  );
+
+  // Sync terminal tabs with backend sessions on workspace mount.
+  // - Adds tabs for backend sessions that don't have tabs (restore after reload)
+  // - Removes "ghost" tabs for sessions that no longer exist (cleanup after app restart)
+  React.useEffect(() => {
+    if (!api) return;
+
+    let cancelled = false;
+
+    void api.terminal.listSessions({ workspaceId }).then((backendSessionIds) => {
+      if (cancelled) return;
+
+      const backendSessionSet = new Set(backendSessionIds);
+
+      // Get current terminal tabs in layout
+      const currentTabs = collectAllTabs(layout.root);
+      const currentTerminalTabs = currentTabs.filter(isTerminalTab);
+      const currentTerminalSessionIds = new Set(
+        currentTerminalTabs.map(getTerminalSessionId).filter(Boolean)
+      );
+
+      // Find sessions that don't have tabs yet (add them)
+      const missingSessions = backendSessionIds.filter(
+        (sid) => !currentTerminalSessionIds.has(sid)
+      );
+
+      // Find tabs for sessions that no longer exist in backend (remove them)
+      const ghostTabs = currentTerminalTabs.filter((tab) => {
+        const sessionId = getTerminalSessionId(tab);
+        return sessionId && !backendSessionSet.has(sessionId);
+      });
+
+      if (missingSessions.length > 0 || ghostTabs.length > 0) {
+        setLayout((prev) => {
+          let next = prev;
+
+          // Remove ghost tabs first
+          for (const ghostTab of ghostTabs) {
+            next = removeTabEverywhere(next, ghostTab);
+          }
+
+          // Add tabs for backend sessions that don't have tabs
+          for (const sessionId of missingSessions) {
+            next = addTabToFocusedTabset(next, makeTerminalTabType(sessionId), false);
+          }
+
+          return next;
+        });
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run on workspace change, not layout change.
+  }, [api, workspaceId, setLayout]);
+
+  // Handler to close a terminal tab
+  const handleCloseTerminal = React.useCallback(
+    (tab: TabType) => {
+      // Close the backend session
+      const sessionId = getTerminalSessionId(tab);
+      if (sessionId) {
+        void api?.terminal.close({ sessionId });
+      }
+
+      const nextLayout = removeTabEverywhere(getBaseLayout(), tab);
+      setLayout(() => nextLayout);
+      focusActiveTerminal(nextLayout);
+
+      // Clean up title (and persist)
+      setTerminalTitles((prev) => {
+        const next = new Map(prev);
+        next.delete(tab);
+        updatePersistedState(terminalTitlesKey, Object.fromEntries(next));
+        return next;
+      });
+    },
+    [api, focusActiveTerminal, getBaseLayout, setLayout, terminalTitlesKey]
+  );
+
+  // Handler to pop out a terminal to a separate window, then remove the tab
+  const handlePopOutTerminal = React.useCallback(
+    (tab: TabType) => {
+      if (!api) return;
+
+      const sessionId = getTerminalSessionId(tab);
+      if (!sessionId) return;
+
+      // Open the pop-out window
+      openTerminalPopout(api, workspaceId, sessionId);
+
+      // Remove the tab from the sidebar (terminal now lives in its own window)
+      // Don't close the session - the pop-out window takes over
+      setLayout((prev) => removeTabEverywhere(prev, tab));
+
+      // Clean up title (and persist)
+      setTerminalTitles((prev) => {
+        const next = new Map(prev);
+        next.delete(tab);
+        updatePersistedState(terminalTitlesKey, Object.fromEntries(next));
+        return next;
+      });
+    },
+    [api, workspaceId, setLayout, terminalTitlesKey]
   );
 
   const sensors = useSensors(
@@ -966,7 +1228,14 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
         activeDragData={activeDragData}
         sessionCost={sessionCost}
         setLayout={setLayout}
+        onPopOutTerminal={handlePopOutTerminal}
+        onCloseTerminal={handleCloseTerminal}
+        terminalTitles={terminalTitles}
+        onTerminalTitleChange={handleTerminalTitleChange}
         tabPositions={tabPositions}
+        autoFocusTerminalSession={autoFocusTerminalSession}
+        onRequestTerminalFocus={setAutoFocusTerminalSession}
+        onAutoFocusConsumed={() => setAutoFocusTerminalSession(null)}
         onOpenFile={handleOpenFile}
         onCloseFile={handleCloseFile}
       />
