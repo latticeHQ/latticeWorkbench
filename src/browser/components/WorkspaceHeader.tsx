@@ -233,39 +233,6 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
       <div className={cn("flex items-center gap-2", isDesktop && "titlebar-no-drag")}>
         <WorkspaceLinks workspaceId={workspaceId} />
 
-        {/* Hire employee (+) button */}
-        <div className="relative">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                ref={addButtonRef}
-                onClick={() => setPickerOpen((v) => !v)}
-                className={cn(
-                  "text-muted hover:text-foreground hover:bg-hover flex h-10 w-10 shrink-0 items-center justify-center rounded-none border-none bg-transparent transition-colors",
-                  pickerOpen && "bg-hover text-foreground"
-                )}
-                aria-label="Hire employee"
-              >
-                <Plus className="h-4 w-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" align="center">
-              Hire employee
-            </TooltipContent>
-          </Tooltip>
-
-          {pickerOpen && (
-            <HeaderAgentPickerPopover
-              buttonRef={addButtonRef}
-              detectedSlugs={detectedSlugs}
-              detectingAgents={detectingAgents}
-              onRefreshAgents={onRefreshAgents}
-              onHireEmployee={onHireEmployee}
-              onClose={() => setPickerOpen(false)}
-            />
-          )}
-        </div>
-
         <Popover open={notificationPopoverOpen} onOpenChange={setNotificationPopoverOpen}>
           <Tooltip {...(notificationPopoverOpen ? { open: false } : {})}>
             <TooltipTrigger asChild>
@@ -386,6 +353,39 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             Open in editor ({formatKeybind(KEYBINDS.OPEN_IN_EDITOR)})
           </TooltipContent>
         </Tooltip>
+
+        {/* Hire employee (+) button — far right */}
+        <div className="relative">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                ref={addButtonRef}
+                onClick={() => setPickerOpen((v) => !v)}
+                className={cn(
+                  "text-muted hover:text-foreground hover:bg-hover flex h-10 w-10 shrink-0 items-center justify-center rounded-none border-none bg-transparent transition-colors",
+                  pickerOpen && "bg-hover text-foreground"
+                )}
+                aria-label="Hire employee"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="end">
+              Hire employee
+            </TooltipContent>
+          </Tooltip>
+
+          {pickerOpen && (
+            <HeaderAgentPickerPopover
+              buttonRef={addButtonRef}
+              detectedSlugs={detectedSlugs}
+              detectingAgents={detectingAgents}
+              onRefreshAgents={onRefreshAgents}
+              onHireEmployee={onHireEmployee}
+              onClose={() => setPickerOpen(false)}
+            />
+          )}
+        </div>
       </div>
       <WorkspaceMCPModal
         workspaceId={workspaceId}
