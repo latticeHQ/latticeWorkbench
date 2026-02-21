@@ -141,6 +141,10 @@ export function parseRightSidebarLayoutState(
     if (!layoutContainsTab(raw.root, "browser")) {
       injectTabIntoLayout(raw.root, "browser");
     }
+    // Migrate: inject "settings" tab if missing from persisted layout
+    if (!layoutContainsTab(raw.root, "settings")) {
+      injectTabIntoLayout(raw.root, "settings");
+    }
     // Migrate: remove all terminal tabs — terminals now live exclusively in MainArea
     let migrated: RightSidebarLayoutState = raw;
     for (const tab of collectAllTabs(raw.root)) {
