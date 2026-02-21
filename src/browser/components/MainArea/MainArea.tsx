@@ -278,6 +278,17 @@ export function MainArea({
 
       const backendSessionSet = new Set(backendSessionIds);
 
+      // Clean up closing sessions whose PTY the backend has confirmed is gone.
+      // This replaces the old 2-second setTimeout approach: we only lift the
+      // "closing" guard once we KNOW the session no longer exists in the backend,
+      // so session-sync can never race and re-add a tab the user just closed.
+      for (const sid of [...closingSessionIds.current]) {
+        if (!backendSessionSet.has(sid)) {
+          closingSessionIds.current.delete(sid);
+          removeClosingSession(workspaceId, sid);
+        }
+      }
+
       // Current terminal tabs in this layout — use refs so we read the latest
       // state even if the effect closure is stale (avoids relaunching tabs the
       // user just explicitly closed).
@@ -538,19 +549,12 @@ export function MainArea({
           return next;
         });
         // Clear disk-backed scrollback then close the PTY session.
-        // Remove from closingSessionIds once the backend confirms the close.
+        // closingSessionIds cleanup is handled inside the session-sync effect once
+        // the backend confirms the session is truly gone — do NOT use a timer here,
+        // as the PTY may still be alive after an arbitrary delay and session-sync
+        // would incorrectly re-add the tab.
         void api?.terminal.scrollback.clear({ sessionId }).catch(() => undefined);
-        void api?.terminal
-          .close({ sessionId })
-          .catch(() => undefined)
-          .finally(() => {
-            // Give a short grace period before allowing re-add (in case
-            // session-sync runs immediately after the close resolves).
-            setTimeout(() => {
-              closingSessionIds.current.delete(sessionId);
-              removeClosingSession(workspaceId, sessionId);
-            }, 2000);
-          });
+        void api?.terminal.close({ sessionId }).catch(() => undefined);
       }
       setLayout((prev) => {
         const next = removeTabEverywhere(prev, tab);
