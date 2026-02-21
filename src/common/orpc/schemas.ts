@@ -205,6 +205,7 @@ export {
   inference,
   inferenceSetup,
   voice,
+  livekit,
   window,
   workspace,
   channels,

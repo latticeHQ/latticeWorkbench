@@ -63,6 +63,9 @@ import {
   useBackgroundBashActions,
   useBackgroundBashError,
 } from "@/browser/contexts/BackgroundBashContext";
+import { useLiveKit } from "@/browser/hooks/useLiveKit";
+import { LiveKitBar } from "./LiveKitBar";
+import { LiveKitVideoTile } from "./LiveKitVideoTile";
 
 interface ChatPaneProps {
   workspaceId: string;
@@ -101,6 +104,24 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
   const reviews = useReviews(workspaceId);
   const { autoBackgroundOnSend } = useBackgroundBashActions();
   const { clearError: clearBackgroundBashError } = useBackgroundBashError();
+
+  // ── LiveKit voice/video ─────────────────────────────────────────────
+  const [isLiveKitConfigured, setIsLiveKitConfigured] = useState(false);
+  useEffect(() => {
+    if (!api) return;
+    void api.providers.getConfig().then((cfg) => {
+      const lk = cfg.livekit;
+      setIsLiveKitConfigured(Boolean(lk?.apiKeySet && lk?.baseUrl));
+    });
+  }, [api]);
+
+  const liveKit = useLiveKit({ api });
+
+  const handleLiveKitStart = useCallback(() => {
+    void liveKit.connect(workspaceId, "user");
+  }, [liveKit, workspaceId]);
+
+  // ── End LiveKit ─────────────────────────────────────────────────────
 
   const meta = workspaceMetadata.get(workspaceId);
   const isQueuedAgentTask = Boolean(meta?.parentWorkspaceId) && meta?.taskStatus === "queued";
@@ -664,7 +685,32 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
             Press {formatKeybind(KEYBINDS.JUMP_TO_BOTTOM)} to jump to bottom
           </button>
         )}
+
+        {/* LiveKit floating video tile (self-view + remote video) */}
+        <LiveKitVideoTile
+          localVideoTrack={liveKit.localVideoTrack}
+          isMicOn={liveKit.isMicOn}
+          remoteParticipants={liveKit.remoteParticipants}
+        />
       </div>
+
+      {/* LiveKit voice/video control bar */}
+      <LiveKitBar
+        state={liveKit.state}
+        error={liveKit.error}
+        isMicOn={liveKit.isMicOn}
+        isCameraOn={liveKit.isCameraOn}
+        remoteParticipants={liveKit.remoteParticipants}
+        isConfigured={isLiveKitConfigured}
+        onStart={handleLiveKitStart}
+        onEnd={liveKit.disconnect}
+        onToggleMic={() => void liveKit.toggleMic()}
+        onToggleCamera={() => void liveKit.toggleCamera()}
+        onOpenSettings={() => {
+          /* TODO: trigger settings modal open — for now shows tooltip */
+        }}
+      />
+
       {/* Floating input card — padded from edges, no flush bottom bar */}
       <div className="px-4 pb-4 pt-1">
         <ChatInputPane
