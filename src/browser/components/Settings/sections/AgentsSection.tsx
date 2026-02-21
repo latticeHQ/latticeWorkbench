@@ -319,7 +319,7 @@ function AgentRow({
             <div
               className={`h-1.5 w-1.5 rounded-full ${
                 agent.detected
-                  ? "bg-green-500"
+                  ? "bg-accent"
                   : isInstalling
                     ? "bg-yellow-500 animate-pulse"
                     : "bg-border-medium"
@@ -327,7 +327,7 @@ function AgentRow({
             />
             <span
               className={`text-[11px] ${
-                agent.detected ? "text-green-500" : isInstalling ? "text-yellow-500" : "text-muted"
+                agent.detected ? "text-accent" : isInstalling ? "text-yellow-500" : "text-muted"
               }`}
             >
               {agent.detected ? "Detected" : isInstalling ? "Installing..." : "Not installed"}
