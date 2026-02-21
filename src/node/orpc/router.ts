@@ -2114,6 +2114,35 @@ export const router = (authToken?: string) => {
           return context.voiceService.transcribe(input.audioBase64);
         }),
     },
+    livekit: {
+      getToken: t
+        .input(schemas.livekit.getToken.input)
+        .output(schemas.livekit.getToken.output)
+        .handler(async ({ context, input }) => {
+          const cfg = (context.config.loadProvidersConfig() ?? {}).livekit as
+            | { apiKey?: string; apiSecret?: string; wsUrl?: string }
+            | undefined;
+          if (!cfg?.apiKey || !cfg?.apiSecret || !cfg?.wsUrl) {
+            return {
+              success: false as const,
+              error: "LiveKit is not configured. Add your credentials in Settings → Providers.",
+            };
+          }
+          const { AccessToken } = await import("livekit-server-sdk");
+          const at = new AccessToken(cfg.apiKey, cfg.apiSecret, {
+            identity: input.identity,
+            ttl: "4h",
+          });
+          at.addGrant({
+            room: input.roomName,
+            roomJoin: true,
+            canPublish: true,
+            canSubscribe: true,
+          });
+          const token = await at.toJwt();
+          return { success: true as const, data: { token, wsUrl: cfg.wsUrl } };
+        }),
+    },
     experiments: {
       getAll: t
         .input(schemas.experiments.getAll.input)
