@@ -43,6 +43,7 @@ interface HomeTabProps {
   workspaceName: string;
   projectName: string;
   employeeMeta: Map<string, EmployeeMeta>;
+  onOpenSession?: (sessionId: string) => void;
 }
 
 type AgentStatus = "streaming" | "running" | "awaiting" | "done" | "queued" | "idle" | "error";
@@ -297,9 +298,11 @@ function AgentWorkspaceCard({
 function EmployeeCard({
   sessionId,
   meta,
+  onOpen,
 }: {
   sessionId: string;
   meta: EmployeeMeta;
+  onOpen?: (sessionId: string) => void;
 }) {
   const isRunning = meta.status === "running";
   const isDone = meta.status === "done";
@@ -307,10 +310,17 @@ function EmployeeCard({
 
   return (
     <div
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={() => onOpen?.(sessionId)}
+      onKeyDown={(e) => {
+        if (onOpen && (e.key === "Enter" || e.key === " ")) onOpen(sessionId);
+      }}
       className={cn(
-        "flex items-center gap-3 rounded-lg border p-3 transition-colors",
+        "group/emp flex items-center gap-3 rounded-lg border p-3 transition-all duration-150",
         "border-border bg-background-secondary",
-        isRunning && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/5"
+        isRunning && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/5",
+        onOpen && "cursor-pointer hover:border-[var(--color-exec-mode)]/50"
       )}
     >
       <div className="flex shrink-0 flex-col items-center gap-1">
@@ -350,6 +360,10 @@ function EmployeeCard({
           {meta.status ?? "idle"}
         </span>
       </div>
+
+      {onOpen && (
+        <ArrowRight className="h-3 w-3 shrink-0 text-[var(--color-exec-mode)] opacity-0 transition-opacity group-hover/emp:opacity-100" />
+      )}
     </div>
   );
 }
@@ -445,6 +459,7 @@ export function HomeTab({
   workspaceName,
   projectName,
   employeeMeta,
+  onOpenSession,
 }: HomeTabProps) {
   const { workspaceMetadata, setSelectedWorkspace } = useWorkspaceContext();
   const ownUsage = useWorkspaceUsage(workspaceId);
@@ -624,7 +639,12 @@ export function HomeTab({
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {employeeEntries.map(([sessionId, meta]) => (
-                <EmployeeCard key={sessionId} sessionId={sessionId} meta={meta} />
+                <EmployeeCard
+                  key={sessionId}
+                  sessionId={sessionId}
+                  meta={meta}
+                  onOpen={onOpenSession}
+                />
               ))}
             </div>
           </section>
