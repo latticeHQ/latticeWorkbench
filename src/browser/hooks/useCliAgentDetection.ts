@@ -31,19 +31,20 @@ function createDefaultAgents(): Map<string, CliAgentDetectionResult> {
 }
 
 /**
- * Hook to detect installed CLI coding agents on the system.
+ * Hook to detect installed CLI coding agents.
  *
- * Emdash pattern:
+ * When `workspaceId` is provided, detects agents on the workspace's runtime
+ * (SSH/Docker) via the batch `detect` endpoint — so the UI reflects what's
+ * actually available there.
+ *
+ * When omitted, uses the progressive `detectEach` stream for local detection:
  * - All agents appear **immediately** in the undetected state (no loading spinner).
- * - The `cliAgents.detectEach` stream updates each agent in-place as its probe
- *   resolves. Cache hits and fast probes arrive in ~100 ms; slow probes trickle in.
- * - The server pre-warms detection at startup, so warm-cache subscribers see all
- *   results near-instantly.
+ * - The stream updates each agent in-place as its probe resolves.
+ * - Cache hits and fast probes arrive in ~100 ms; slow probes trickle in.
  *
- * `loading` is only true while the detection stream is actively running, but the
- * UI should not gate rendering on it — all agents are visible from the start.
+ * @param workspaceId - Optional workspace ID for runtime-aware detection
  */
-export function useCliAgentDetection() {
+export function useCliAgentDetection(workspaceId?: string) {
   const { api } = useAPI();
 
   // Start with all agents visible as undetected — never blocks the UI
@@ -60,15 +61,30 @@ export function useCliAgentDetection() {
     void (async () => {
       setLoading(true);
       try {
-        const iterator = await api.cliAgents.detectEach();
-        for await (const result of iterator) {
-          if (cancelled) break;
-          // Merge each arriving result into the map — existing entries update in-place
-          setAgentMap((prev) => {
-            const next = new Map(prev);
-            next.set(result.slug, result);
-            return next;
-          });
+        if (workspaceId) {
+          // Runtime-aware detection: batch detect on workspace runtime
+          const results = await api.cliAgents.detect({ workspaceId });
+          if (!cancelled) {
+            setAgentMap((prev) => {
+              const next = new Map(prev);
+              for (const result of results) {
+                next.set(result.slug, result);
+              }
+              return next;
+            });
+          }
+        } else {
+          // Local detection: progressive streaming
+          const iterator = await api.cliAgents.detectEach();
+          for await (const result of iterator) {
+            if (cancelled) break;
+            // Merge each arriving result into the map — existing entries update in-place
+            setAgentMap((prev) => {
+              const next = new Map(prev);
+              next.set(result.slug, result);
+              return next;
+            });
+          }
         }
       } catch {
         // Ignore errors — agents remain in their default (undetected) state
@@ -80,7 +96,7 @@ export function useCliAgentDetection() {
     return () => {
       cancelled = true;
     };
-  }, [api, refreshKey]);
+  }, [api, refreshKey, workspaceId]);
 
   /**
    * Re-run detection (e.g. after installing an agent).

@@ -174,6 +174,14 @@ export function MainArea({
   // re-add them before the backend has finished tearing down the PTY.
   const closingSessionIds = useRef(new Set<string>());
 
+  // Always-fresh refs so the session-sync effect (intentionally not re-run on
+  // every layout/meta change) can still read the LATEST state and avoid
+  // relaunching tabs that were just explicitly closed by the user.
+  const layoutRef = useRef(layout);
+  layoutRef.current = layout;
+  const employeeMetaRef = useRef(employeeMeta);
+  employeeMetaRef.current = employeeMeta;
+
   // Persist layout whenever it changes
   useEffect(() => {
     saveLayout(workspaceId, layout);

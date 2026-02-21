@@ -343,9 +343,12 @@ export class PTYService {
         workspacePath,
         cols: params.cols,
         rows: params.rows,
+        initialCommand: params.initialCommand,
+        directExec: params.directExec,
       });
       runtimeLabel = "SSH";
-      log.info(`[PTY] SSH terminal for ${sessionId}: ssh ${runtime.getConfig().host}`);
+      const execNote = params.directExec ? " (direct exec)" : "";
+      log.info(`[PTY] SSH terminal${execNote} for ${sessionId}: ssh ${runtime.getConfig().host}`);
     } else if (runtime instanceof DevcontainerRuntime) {
       // Must check before LocalBaseRuntime since DevcontainerRuntime extends it
       const devcontainerArgs = ["exec", "--workspace-folder", workspacePath];
@@ -451,26 +454,50 @@ export class PTYService {
       if (!containerName) {
         throw new Error("Docker container not initialized");
       }
-      const dockerArgs = [
-        "exec",
-        "-it",
-        containerName,
-        "/bin/sh",
-        "-c",
-        `cd ${shellQuotePath(workspacePath)} && exec /bin/sh`,
-      ];
       runtimeLabel = "Docker";
-      log.info(`[PTY] Docker terminal for ${sessionId}: docker ${dockerArgs.join(" ")}`);
 
-      ptyProcess = spawnPtyProcess({
-        runtimeLabel,
-        command: "docker",
-        args: dockerArgs,
-        cwd: process.cwd(),
-        cols: params.cols,
-        rows: params.rows,
-        preferElectronBuild: false,
-      });
+      if (params.initialCommand && params.directExec) {
+        // Direct exec: run the agent binary directly in the container, bypassing shell.
+        // This ensures the agent auto-starts (same behavior as local directExec).
+        const dockerArgs = [
+          "exec",
+          "-it",
+          "-w", workspacePath,
+          containerName,
+          "/bin/sh", "-l", "-c", params.initialCommand,
+        ];
+        log.info(`[PTY] Docker terminal (direct exec) for ${sessionId}: docker ${dockerArgs.join(" ")}`);
+
+        ptyProcess = spawnPtyProcess({
+          runtimeLabel,
+          command: "docker",
+          args: dockerArgs,
+          cwd: process.cwd(),
+          cols: params.cols,
+          rows: params.rows,
+          preferElectronBuild: false,
+        });
+      } else {
+        const dockerArgs = [
+          "exec",
+          "-it",
+          containerName,
+          "/bin/sh",
+          "-c",
+          `cd ${shellQuotePath(workspacePath)} && exec /bin/sh`,
+        ];
+        log.info(`[PTY] Docker terminal for ${sessionId}: docker ${dockerArgs.join(" ")}`);
+
+        ptyProcess = spawnPtyProcess({
+          runtimeLabel,
+          command: "docker",
+          args: dockerArgs,
+          cwd: process.cwd(),
+          cols: params.cols,
+          rows: params.rows,
+          preferElectronBuild: false,
+        });
+      }
       // docker exec spawns local process
       if ("pid" in ptyProcess && typeof ptyProcess.pid === "number") {
         pid = ptyProcess.pid;

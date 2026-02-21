@@ -28,10 +28,12 @@ import { cn } from "@/common/lib/utils";
 interface AgentExecutionPanelProps {
   projectPath: string;
   className?: string;
+  /** Workspace ID for runtime-aware agent detection (SSH/Docker) */
+  workspaceId?: string;
 }
 
-export function AgentExecutionPanel({ projectPath, className }: AgentExecutionPanelProps) {
-  const { detectedAgents, loading: detectLoading } = useCliAgentDetection();
+export function AgentExecutionPanel({ projectPath, className, workspaceId }: AgentExecutionPanelProps) {
+  const { detectedAgents, loading: detectLoading } = useCliAgentDetection(workspaceId);
   const { run, stop, running, sessions, refreshSessions, lastResult } = useCliAgentExecution();
 
   const [selectedSlug, setSelectedSlug] = useState<string>("");
