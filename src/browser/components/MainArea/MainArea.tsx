@@ -282,9 +282,16 @@ export function MainArea({
   // Guards onEmployeeHired against historical event replay.
   // The backend streams ALL past hire events when you subscribe; we must
   // ignore them until session-sync has finished listing the live backend
-  // sessions (at which point any new event is a genuine new hire).
-  // Reset to false when workspaceId changes so the guard re-arms.
+  // sessions.  Reset to false when workspaceId changes so it re-arms.
   const sessionSyncDoneRef = useRef(false);
+
+  // Synchronous dedup set for session IDs — avoids relying on React's async
+  // state batching in onEmployeeHired.  Mutated eagerly in session-sync
+  // (before setEmployeeMeta) so the check is always up-to-date.
+  // Initialised from persisted localStorage on mount.
+  const knownSessionIdsRef = useRef<Set<string>>(
+    new Set(Array.from(loadEmployeeMeta(workspaceId).keys()))
+  );
 
   // Always-fresh refs so the session-sync effect (intentionally not re-run on
   // every layout/meta change) can still read the LATEST state and avoid
@@ -306,10 +313,12 @@ export function MainArea({
 
   // Reset layout + meta + closing-sessions when workspace changes
   useEffect(() => {
+    const freshMeta = loadEmployeeMeta(workspaceId);
     setLayout(loadLayout(workspaceId));
-    setEmployeeMeta(loadEmployeeMeta(workspaceId));
+    setEmployeeMeta(freshMeta);
     closingSessionIds.current = loadClosingSessions(workspaceId);
-    sessionSyncDoneRef.current = false; // re-arm historical-event guard
+    sessionSyncDoneRef.current = false;
+    knownSessionIdsRef.current = new Set(freshMeta.keys()); // re-seed from persisted meta
   }, [workspaceId]);
 
   // ── Session sync: restore tabs for live backend sessions, relaunch dead agents ──
@@ -335,10 +344,16 @@ export function MainArea({
 
       const backendSessionSet = new Set(backendSessionIds);
 
-      // ── Purge ghost sessions from employeeMeta ────────────────────────────
+      // ── Purge ghost sessions from employeeMeta + knownSessionIdsRef ───────
       // Sessions persisted in localStorage that are no longer alive in the
-      // backend are stale/ghost entries (from past runs, historical replays,
-      // etc.).  Remove them now so they don't show as "idle" in the kanban.
+      // backend are stale/ghost entries.  Remove them synchronously from
+      // knownSessionIdsRef first (so onEmployeeHired can't race and re-add),
+      // then from React state.
+      for (const sessionId of knownSessionIdsRef.current) {
+        if (!backendSessionSet.has(sessionId) && !closingSessionIds.current.has(sessionId)) {
+          knownSessionIdsRef.current.delete(sessionId);
+        }
+      }
       setEmployeeMeta((prev) => {
         const next = new Map(prev);
         let changed = false;
@@ -352,10 +367,11 @@ export function MainArea({
         return changed ? next : prev;
       });
 
-      // ── Arm the onEmployeeHired guard ─────────────────────────────────────
-      // Any hire event that arrives from this point forward is a genuine new
-      // hire — historical replay events arrive before listSessions resolves.
-      sessionSyncDoneRef.current = true;
+      // NOTE: sessionSyncDoneRef is set at the END of this effect — after all
+      // relaunched session IDs are pre-registered in knownSessionIdsRef.
+      // Setting it here (before createTerminalSession) caused duplicates because
+      // the newly-created sessions would then trigger onEmployeeHired events
+      // that passed the flag check but failed the prev.has() check (React batching).
 
       // Clean up closing sessions whose PTY the backend has confirmed is gone.
       // This replaces the old 2-second setTimeout approach: we only lift the
@@ -432,6 +448,23 @@ export function MainArea({
 
       if (cancelled) return;
 
+      // ── Pre-register new + missing session IDs in knownSessionIdsRef ──────
+      // This MUST happen before sessionSyncDoneRef is set to true.
+      // Relaunched sessions emit onEmployeeHired events shortly after creation;
+      // if they're in knownSessionIdsRef already, those events are discarded
+      // rather than creating duplicate tabs.
+      for (const { newSid } of spawned) {
+        knownSessionIdsRef.current.add(newSid);
+      }
+      for (const sid of missingSessions) {
+        knownSessionIdsRef.current.add(sid);
+      }
+
+      // ── Arm the onEmployeeHired historical-event guard ────────────────────
+      // Only now — after all pre-existing and relaunched session IDs are
+      // registered — do we allow onEmployeeHired to process new events.
+      sessionSyncDoneRef.current = true;
+
       // Apply layout changes atomically
       setLayout((prev) => {
         let next = prev;
@@ -504,23 +537,25 @@ export function MainArea({
         if (cancelled) break;
 
         // ── Historical-event guard ─────────────────────────────────────────
-        // The backend replays ALL past hire events when you subscribe.
-        // We only trust events that arrive AFTER session-sync has completed
-        // (i.e. after we've listed live sessions and armed the flag).
-        // Pre-sync events are historical replays — silently discard them.
+        // The backend replays ALL past hire events on subscribe.
+        // Discard events that arrive before session-sync completes.
         if (!sessionSyncDoneRef.current) continue;
 
+        // ── Synchronous dedup via knownSessionIdsRef ───────────────────────
+        // React state batching means setEmployeeMeta's prev.has() check can
+        // race with concurrent updates (e.g. relaunched sessions from sync).
+        // knownSessionIdsRef is mutated eagerly and is always current.
+        if (knownSessionIdsRef.current.has(sessionId)) continue;
+        knownSessionIdsRef.current.add(sessionId); // register before any async op
+
         const tabType = makeTerminalTabType(sessionId);
-        let isNew = false;
         setEmployeeMeta((prev) => {
-          if (prev.has(sessionId)) return prev; // already tracked — skip
-          isNew = true;
+          if (prev.has(sessionId)) return prev; // double-check React state too
           const next = new Map(prev);
           next.set(sessionId, { slug: slug as EmployeeSlug, label, status: "running" });
           saveEmployeeMeta(workspaceId, next);
           return next;
         });
-        if (!isNew) continue;
         setLayout((prev) => {
           const existing = collectAllTabs(prev.root);
           if (existing.includes(tabType)) return prev;
@@ -557,11 +592,10 @@ export function MainArea({
       });
       const tabType = makeTerminalTabType(session.sessionId);
 
+      knownSessionIdsRef.current.add(session.sessionId); // register before onEmployeeHired fires
       setEmployeeMeta((prev) => {
         const next = new Map(prev);
         next.set(session.sessionId, { slug, label, status: "running" });
-        // Persist immediately so the label survives a fast page reload even if the
-        // async useEffect flush hasn't run yet.
         saveEmployeeMeta(workspaceId, next);
         return next;
       });
@@ -583,13 +617,12 @@ export function MainArea({
       void (async () => {
         const session = await createTerminalSession(api, workspaceId, options);
         const tabType = makeTerminalTabType(session.sessionId);
+        const metaSlug = (options?.slug ?? "terminal") as EmployeeSlug;
+        const metaLabel = options?.label ?? "Terminal";
+        knownSessionIdsRef.current.add(session.sessionId); // register before onEmployeeHired fires
         setEmployeeMeta((prev) => {
           const next = new Map(prev);
-          const metaSlug = (options?.slug ?? "terminal") as EmployeeSlug;
-          const metaLabel = options?.label ?? "Terminal";
           next.set(session.sessionId, { slug: metaSlug, label: metaLabel, status: "running" });
-          // Persist immediately so the label survives a fast page reload even if the
-          // async useEffect flush hasn't run yet.
           saveEmployeeMeta(workspaceId, next);
           return next;
         });
@@ -627,11 +660,9 @@ export function MainArea({
     (tab: TabType) => {
       const sessionId = getTerminalSessionId(tab);
       if (sessionId) {
-        // Mark as closing so session-sync doesn't re-add this tab while the
-        // backend is still tearing down the PTY process.  Persisted to
-        // localStorage so the guard also works across page reloads.
         closingSessionIds.current.add(sessionId);
         addClosingSession(workspaceId, sessionId);
+        knownSessionIdsRef.current.delete(sessionId); // unregister so session won't be re-added
 
         setEmployeeMeta((prev) => {
           const next = new Map(prev);
@@ -717,6 +748,7 @@ export function MainArea({
       void (async () => {
         const session = await createTerminalSession(api, workspaceId, options);
         const tabType = makeTerminalTabType(session.sessionId);
+        knownSessionIdsRef.current.add(session.sessionId);
         setEmployeeMeta((prev) => {
           const next = new Map(prev);
           next.set(session.sessionId, { slug: "terminal", label: "Terminal", status: "running" });
