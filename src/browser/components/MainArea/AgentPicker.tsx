@@ -26,23 +26,20 @@ interface AgentPickerProps {
   className?: string;
 }
 
-const AGENT_ORDER: EmployeeSlug[] = [
-  "claude-code",
-  "codex",
-  "gemini",
-  "amp",
-  "auggie",
-  "cline",
-  "codebuff",
-  "continue",
-  "cursor",
-  "droid",
-  "github-copilot",
-  "goose",
-  "kilocode",
-  "kimi",
-  "kiro",
-  "terminal",
+/** Sections — controls both order and grouping label */
+const AGENT_SECTIONS: Array<{ label: string; slugs: EmployeeSlug[] }> = [
+  {
+    label: "Lab Agents",
+    slugs: ["claude-code", "codex", "gemini", "github-copilot", "cursor", "kiro"],
+  },
+  {
+    label: "Community",
+    slugs: ["amp", "auggie", "cline", "codebuff", "continue", "droid", "goose", "kilocode", "kimi"],
+  },
+  {
+    label: "Custom",
+    slugs: ["terminal"],
+  },
 ];
 
 export function AgentPicker({ detectedSlugs, loading, onRefresh, onSelect, onClose, className }: AgentPickerProps) {
@@ -83,39 +80,54 @@ export function AgentPicker({ detectedSlugs, loading, onRefresh, onSelect, onClo
         <p className="text-muted text-[11px]">Launch an AI agent in this mission</p>
       </div>
 
-      {/* Agent list — uses flex-1 + min-h-0 so the parent's max-height is respected */}
+      {/* Sectioned agent list */}
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1">
-        {AGENT_ORDER.map((slug) => {
-          if (slug === "terminal") {
-            return (
-              <EmployeeRow
-                key="terminal"
-                slug="terminal"
-                displayName="Custom Agent"
-                description="Bare shell — install & run any CLI agent"
-                detected={true}
-                onSelect={handleSelect}
-              />
-            );
-          }
+        {AGENT_SECTIONS.map((section, sectionIdx) => (
+          <div key={section.label}>
+            {/* Section divider (skip top border on first section) */}
+            {sectionIdx > 0 && (
+              <div className="border-border-light mx-3 my-1 border-t" />
+            )}
 
-          const def = CLI_AGENT_DEFINITIONS[slug as keyof typeof CLI_AGENT_DEFINITIONS];
-          if (!def) return null;
+            {/* Section label */}
+            <p className="text-muted px-3 pb-0.5 pt-1.5 text-[10px] font-semibold uppercase tracking-widest">
+              {section.label}
+            </p>
 
-          const detected = !loading && detectedSlugs ? detectedSlugs.has(slug) : undefined;
+            {/* Rows */}
+            {section.slugs.map((slug) => {
+              if (slug === "terminal") {
+                return (
+                  <EmployeeRow
+                    key="terminal"
+                    slug="terminal"
+                    displayName="Custom Agent"
+                    description="Bare shell — install & run any CLI agent"
+                    detected={true}
+                    onSelect={handleSelect}
+                  />
+                );
+              }
 
-          return (
-            <EmployeeRow
-              key={slug}
-              slug={slug}
-              displayName={def.displayName}
-              description={def.description}
-              detected={detected}
-              installUrl={def.installUrl}
-              onSelect={handleSelect}
-            />
-          );
-        })}
+              const def = CLI_AGENT_DEFINITIONS[slug as keyof typeof CLI_AGENT_DEFINITIONS];
+              if (!def) return null;
+
+              const detected = !loading && detectedSlugs ? detectedSlugs.has(slug) : undefined;
+
+              return (
+                <EmployeeRow
+                  key={slug}
+                  slug={slug}
+                  displayName={def.displayName}
+                  description={def.description}
+                  detected={detected}
+                  installUrl={def.installUrl}
+                  onSelect={handleSelect}
+                />
+              );
+            })}
+          </div>
+        ))}
       </div>
     </div>
   );
