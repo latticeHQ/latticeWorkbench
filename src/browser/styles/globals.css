@@ -1174,6 +1174,15 @@ body,
    in index.html */
 
 
+/* Hide scrollbar visually while keeping scroll functionality */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 @utility plan-surface {
   background: var(--surface-plan-gradient);
   border: 1px solid var(--surface-plan-border);
