@@ -20,6 +20,7 @@ import {
   LayoutGrid,
   PanelRightClose,
   PanelRightOpen,
+  X,
 } from "lucide-react";
 
 // Re-export for consumers that import from this file
@@ -121,7 +122,7 @@ const SortableTab: React.FC<{
   const sortableOnKeyDown = listeners?.onKeyDown;
 
   return (
-    <div className="relative w-full" style={style}>
+    <div className="group/tab relative w-full" style={style}>
       <Tooltip>
         <TooltipTrigger asChild>
           <div
@@ -172,6 +173,20 @@ const SortableTab: React.FC<{
           {item.tooltip ?? shortLabel}
         </TooltipContent>
       </Tooltip>
+
+      {/* Close button — appears on hover for closeable tabs (files, terminals) */}
+      {item.onClose && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            item.onClose!();
+          }}
+          aria-label="Close tab"
+          className="absolute top-0.5 right-0.5 hidden h-3.5 w-3.5 items-center justify-center rounded-sm bg-sidebar text-muted hover:text-foreground group-hover/tab:flex"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
+      )}
     </div>
   );
 };
