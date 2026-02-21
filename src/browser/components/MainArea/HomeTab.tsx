@@ -4,9 +4,9 @@
  * Shows a live tree of the current workspace's child agent workspaces,
  * CLI agent terminal sessions, aggregate stats, and per-agent metrics.
  */
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo } from "react";
 import { cn } from "@/common/lib/utils";
-import { useWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
+import { useWorkspaceContext, toWorkspaceSelection } from "@/browser/contexts/WorkspaceContext";
 import {
   useWorkspaceUsage,
   useWorkspaceState,
@@ -31,6 +31,7 @@ import {
   Clock,
   AlertCircle,
   Users,
+  ArrowRight,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -166,10 +167,12 @@ function AgentWorkspaceCard({
   workspace,
   isLast,
   depth,
+  onOpen,
 }: {
   workspace: FrontendWorkspaceMetadata;
   isLast: boolean;
   depth: number;
+  onOpen?: (workspace: FrontendWorkspaceMetadata) => void;
 }) {
   const usage = useWorkspaceUsage(workspace.id);
   const wsState = useWorkspaceState(workspace.id);
@@ -196,12 +199,19 @@ function AgentWorkspaceCard({
         <div className="absolute left-1/2 top-5 h-px w-4 -translate-y-0 bg-border" />
       </div>
 
-      {/* Card */}
+      {/* Card (clickable → opens that workspace) */}
       <div
+        role={onOpen ? "button" : undefined}
+        tabIndex={onOpen ? 0 : undefined}
+        onClick={() => onOpen?.(workspace)}
+        onKeyDown={(e) => {
+          if (onOpen && (e.key === "Enter" || e.key === " ")) onOpen(workspace);
+        }}
         className={cn(
-          "mb-2 flex min-w-0 flex-1 items-start gap-3 rounded-lg border p-3 transition-all duration-200",
+          "group/card mb-2 flex min-w-0 flex-1 items-start gap-3 rounded-lg border p-3 transition-all duration-200",
           "border-border bg-background-secondary",
-          isActive && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/5 shadow-sm"
+          isActive && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/5 shadow-sm",
+          onOpen && "cursor-pointer hover:border-[var(--color-exec-mode)]/50 hover:bg-[var(--color-exec-mode)]/5"
         )}
       >
         {/* Emoji + status */}
@@ -268,6 +278,13 @@ function AgentWorkspaceCard({
             )}
           </div>
         </div>
+
+        {/* Open arrow — visible on hover */}
+        {onOpen && (
+          <div className="mt-1 shrink-0 self-start opacity-0 transition-opacity group-hover/card:opacity-100">
+            <ArrowRight className="text-[var(--color-exec-mode)] h-3.5 w-3.5" />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -429,7 +446,7 @@ export function HomeTab({
   projectName,
   employeeMeta,
 }: HomeTabProps) {
-  const { workspaceMetadata } = useWorkspaceContext();
+  const { workspaceMetadata, setSelectedWorkspace } = useWorkspaceContext();
   const ownUsage = useWorkspaceUsage(workspaceId);
   const ownState = useWorkspaceState(workspaceId);
 
@@ -470,6 +487,13 @@ export function HomeTab({
   const totalAgents = childWorkspaces.length + employeeEntries.length;
 
   const hasActivity = childWorkspaces.length > 0 || employeeEntries.length > 0;
+
+  const handleOpenWorkspace = useCallback(
+    (ws: FrontendWorkspaceMetadata) => {
+      setSelectedWorkspace(toWorkspaceSelection(ws));
+    },
+    [setSelectedWorkspace]
+  );
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -569,6 +593,7 @@ export function HomeTab({
                       workspace={ws}
                       isLast={idx === childWorkspaces.length - 1}
                       depth={1}
+                      onOpen={handleOpenWorkspace}
                     />
                   ))}
                 </div>

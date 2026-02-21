@@ -49,6 +49,7 @@ import { ChatPane } from "@/browser/components/ChatPane";
 import { TerminalTab } from "@/browser/components/RightSidebar/TerminalTab";
 import { WorkspaceHeader } from "@/browser/components/WorkspaceHeader";
 import { HomeTab } from "./HomeTab";
+import { showAgentToast } from "@/browser/stores/agentToast";
 
 import type { RuntimeConfig } from "@/common/types/runtime";
 import type { WorkspaceState } from "@/browser/stores/WorkspaceStore";
@@ -196,6 +197,40 @@ function removeClosingSession(workspaceId: string, sessionId: string) {
   } catch {
     // ignore storage errors
   }
+}
+
+// ── Terminal exit subscriber ──────────────────────────────────────────────────
+// Renders nothing; subscribes to a single terminal session's exit stream.
+// When the process exits, marks the session "done" and fires a global toast.
+
+interface TerminalExitSubscriberProps {
+  sessionId: string;
+  label: string;
+  onDone: (sessionId: string, label: string) => void;
+}
+
+function TerminalExitSubscriber({ sessionId, label, onDone }: TerminalExitSubscriberProps) {
+  const { api } = useAPI();
+  useEffect(() => {
+    if (!api) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const iterator = await api.terminal.onExit({ sessionId });
+        for await (const _exitCode of iterator) {
+          if (cancelled) break;
+          onDone(sessionId, label);
+          break;
+        }
+      } catch {
+        // Session closed externally or before exit — ignore
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [api, sessionId, label, onDone]);
+  return null;
 }
 
 /** Shell process names that should never replace a tab label (too generic). */
@@ -584,6 +619,18 @@ export function MainArea({
     [api, workspaceId]
   );
 
+  // ── Terminal exit handler — marks session "done" + fires toast ───────────
+  const handleTerminalDone = useCallback((sessionId: string, label: string) => {
+    setEmployeeMeta((prev) => {
+      const meta = prev.get(sessionId);
+      if (!meta || meta.status === "done") return prev; // already marked
+      const next = new Map(prev);
+      next.set(sessionId, { ...meta, status: "done" });
+      return next;
+    });
+    showAgentToast(label, { label: "Agent Done", type: "done" });
+  }, []);
+
   // ── Employee status + label updates ──────────────────────────────────────
   const handleTerminalTitleChange = useCallback((tab: TabType, title: string) => {
     const sessionId = getTerminalSessionId(tab);
@@ -658,11 +705,25 @@ export function MainArea({
         onRefreshAgents={refreshAgents}
       />
 
+      {/* Terminal exit subscribers — one per active CLI agent session.
+          Renders nothing; fires a toast + marks status "done" on process exit. */}
+      {Array.from(employeeMeta.entries()).map(([sessionId, meta]) =>
+        meta.status !== "done" ? (
+          <TerminalExitSubscriber
+            key={sessionId}
+            sessionId={sessionId}
+            label={meta.label}
+            onDone={handleTerminalDone}
+          />
+        ) : null
+      )}
+
       {/* Tab bar */}
       <MainAreaTabBar
         tabs={allTabs}
         activeTab={activeTab}
         employeeMeta={employeeMeta}
+        workspaceId={workspaceId}
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
       />
