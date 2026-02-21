@@ -1,5 +1,6 @@
 export const RIGHT_SIDEBAR_TABS = [
   "chat",       // PM Chat tab (main area only)
+  "home",       // Team dashboard / agent hierarchy (main area only)
   "costs",
   "review",
   "explorer",
@@ -33,6 +34,11 @@ export function isTabType(value: unknown): value is TabType {
 /** Check if a tab type represents the PM Chat tab */
 export function isChatTab(tab: TabType): boolean {
   return tab === "chat";
+}
+
+/** Check if a tab type represents the Home dashboard tab */
+export function isHomeTab(tab: TabType): boolean {
+  return tab === "home";
 }
 
 /** Check if a tab type represents a file viewer tab */

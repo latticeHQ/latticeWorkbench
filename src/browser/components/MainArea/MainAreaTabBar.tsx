@@ -8,9 +8,9 @@
  * - Hire employee (+) button lives in WorkspaceHeader
  */
 import React from "react";
-import { Sparkles, Terminal, X } from "lucide-react";
+import { Sparkles, Terminal, X, LayoutDashboard } from "lucide-react";
 import { cn } from "@/common/lib/utils";
-import { isChatTab, isTerminalTab } from "@/browser/types/rightSidebar";
+import { isChatTab, isHomeTab, isTerminalTab } from "@/browser/types/rightSidebar";
 import type { TabType } from "@/browser/types/rightSidebar";
 import { CliAgentIcon } from "@/browser/components/CliAgentIcon";
 import type { EmployeeSlug } from "./AgentPicker";
@@ -37,11 +37,22 @@ export function MainAreaTabBar({
   onSelectTab,
   onCloseTab,
 }: MainAreaTabBarProps) {
+  const homeTab = tabs.find(isHomeTab);
   const chatTab = tabs.find(isChatTab);
-  const agentTabs = tabs.filter((t) => !isChatTab(t));
+  const agentTabs = tabs.filter((t) => !isChatTab(t) && !isHomeTab(t));
 
   return (
     <div className="border-border-light bg-background-secondary relative z-10 flex min-w-0 items-center border-b px-2">
+      {/* Home tab — pinned first */}
+      {homeTab && (
+        <Tab
+          tab={homeTab}
+          isActive={homeTab === activeTab}
+          employeeMeta={employeeMeta}
+          onSelect={() => onSelectTab(homeTab)}
+        />
+      )}
+
       {/* PM Chat — always pinned, never scrolls off */}
       {chatTab && (
         <Tab
@@ -52,7 +63,7 @@ export function MainAreaTabBar({
         />
       )}
 
-      {/* Divider between pinned PM Chat and scrollable agent tabs */}
+      {/* Divider between pinned tabs and scrollable agent tabs */}
       {agentTabs.length > 0 && (
         <div className="bg-border-light mx-2 h-4 w-px shrink-0" />
       )}
@@ -160,6 +171,14 @@ function getStatusBadge(status?: EmployeeMeta["status"]) {
 }
 
 function getTabDisplay(tab: TabType, employeeMeta: Map<string, EmployeeMeta>) {
+  if (isHomeTab(tab)) {
+    return {
+      icon: <LayoutDashboard size={12} />,
+      label: "Home",
+      statusBadge: null,
+    };
+  }
+
   if (isChatTab(tab)) {
     return {
       icon: <Sparkles size={12} />,

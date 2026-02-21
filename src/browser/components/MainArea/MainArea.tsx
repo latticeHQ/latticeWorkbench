@@ -31,6 +31,7 @@ import {
 import type { RightSidebarLayoutState } from "@/browser/utils/rightSidebarLayout";
 import {
   isChatTab,
+  isHomeTab,
   isTerminalTab,
   makeTerminalTabType,
   getTerminalSessionId,
@@ -47,6 +48,7 @@ import type { EmployeeSlug } from "./AgentPicker";
 import { ChatPane } from "@/browser/components/ChatPane";
 import { TerminalTab } from "@/browser/components/RightSidebar/TerminalTab";
 import { WorkspaceHeader } from "@/browser/components/WorkspaceHeader";
+import { HomeTab } from "./HomeTab";
 
 import type { RuntimeConfig } from "@/common/types/runtime";
 import type { WorkspaceState } from "@/browser/stores/WorkspaceStore";
@@ -75,18 +77,30 @@ function loadLayout(workspaceId: string): RightSidebarLayoutState {
   try {
     const raw = JSON.parse(localStorage.getItem(getMainAreaLayoutKey(workspaceId)) ?? "null");
     if (isRightSidebarLayoutState(raw)) {
-      // Always ensure "chat" tab exists as first tab in the focused tabset
       const allTabs = collectAllTabs(raw.root);
+      let patched = raw;
+
+      // Ensure "chat" tab exists
       if (!allTabs.includes("chat")) {
-        // Inject chat at the front
-        if (raw.root.type === "tabset") {
-          return {
-            ...raw,
-            root: { ...raw.root, tabs: ["chat", ...raw.root.tabs], activeTab: "chat" },
+        if (patched.root.type === "tabset") {
+          patched = {
+            ...patched,
+            root: { ...patched.root, tabs: ["chat", ...patched.root.tabs], activeTab: "chat" },
           };
         }
       }
-      return raw;
+
+      // Inject "home" tab before "chat" if not present (migration for existing users)
+      if (!collectAllTabs(patched.root).includes("home")) {
+        if (patched.root.type === "tabset") {
+          const chatIdx = patched.root.tabs.indexOf("chat");
+          const newTabs = [...patched.root.tabs];
+          newTabs.splice(chatIdx >= 0 ? chatIdx : 0, 0, "home");
+          patched = { ...patched, root: { ...patched.root, tabs: newTabs } };
+        }
+      }
+
+      return patched;
     }
   } catch {
     // ignore parse errors
@@ -662,6 +676,23 @@ export function MainArea({
       <div className="relative flex-1 overflow-hidden">
         {allTabs.map((tab) => {
           const isActive = tab === activeTab;
+
+          if (isHomeTab(tab)) {
+            return (
+              <div
+                key="home"
+                className="absolute inset-0 flex flex-col overflow-hidden"
+                style={isActive ? undefined : { display: "none" }}
+              >
+                <HomeTab
+                  workspaceId={workspaceId}
+                  workspaceName={workspaceName}
+                  projectName={projectName}
+                  employeeMeta={employeeMeta}
+                />
+              </div>
+            );
+          }
 
           if (isChatTab(tab)) {
             return (
