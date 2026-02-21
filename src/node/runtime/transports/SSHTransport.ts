@@ -21,6 +21,10 @@ export interface PtySessionParams {
   workspacePath: string;
   cols: number;
   rows: number;
+  /** Command to execute directly (bypassing shell) when directExec is true */
+  initialCommand?: string;
+  /** When true, run initialCommand directly instead of starting an interactive shell */
+  directExec?: boolean;
 }
 
 export interface SSHTransport {

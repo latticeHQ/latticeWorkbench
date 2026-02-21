@@ -18,6 +18,8 @@ import { createAsyncMessageQueue } from "@/common/utils/asyncMessageQueue";
 
 import { createRuntime, checkRuntimeAvailability } from "@/node/runtime/runtimeFactory";
 import { createRuntimeForWorkspace } from "@/node/runtime/runtimeHelpers";
+import { RemoteRuntime } from "@/node/runtime/RemoteRuntime";
+import { detectAgentsOnRuntime } from "@/node/runtime/agentBootstrap";
 import { readPlanFile } from "@/node/utils/runtime/helpers";
 import { secretsToRecord } from "@/common/types/secrets";
 import { roundToBase2 } from "@/common/telemetry/utils";
@@ -609,7 +611,29 @@ export const router = (authToken?: string) => {
       detect: t
         .input(schemas.cliAgents.detect.input)
         .output(schemas.cliAgents.detect.output)
-        .handler(async ({ context }) => context.cliAgentDetectionService.detectAll()),
+        .handler(async ({ context, input }) => {
+          // When no workspaceId, use local detection (existing behavior)
+          if (!input?.workspaceId) {
+            return context.cliAgentDetectionService.detectAll();
+          }
+
+          // Resolve workspace runtime — detect agents on remote if applicable
+          try {
+            const metadata = await context.workspaceService.getInfo(input.workspaceId);
+            if (!metadata) {
+              return context.cliAgentDetectionService.detectAll();
+            }
+
+            const runtime = createRuntimeForWorkspace(metadata);
+            if (runtime instanceof RemoteRuntime) {
+              return detectAgentsOnRuntime(runtime);
+            }
+          } catch {
+            // Fall back to local detection if runtime resolution fails
+          }
+
+          return context.cliAgentDetectionService.detectAll();
+        }),
       /**
        * Progressive detection stream.
        * Runs detectOne() for every agent in parallel and yields each result

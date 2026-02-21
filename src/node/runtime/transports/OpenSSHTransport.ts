@@ -87,7 +87,13 @@ export class OpenSSHTransport implements SSHTransport {
     // expandTildeForSSH already returns a quoted string (e.g., "$HOME/path")
     // Do NOT wrap with shellQuotePath - that would double-quote it
     const expandedPath = expandTildeForSSH(params.workspacePath);
-    args.push(`cd ${expandedPath} && exec $SHELL -i`);
+    if (params.initialCommand && params.directExec) {
+      // Direct exec: run agent binary via login shell, bypassing interactive shell
+      const quoted = "'" + params.initialCommand.replace(/'/g, "'\\''") + "'";
+      args.push(`cd ${expandedPath} && exec /bin/sh -l -c ${quoted}`);
+    } else {
+      args.push(`cd ${expandedPath} && exec $SHELL -i`);
+    }
 
     return spawnPtyProcess({
       runtimeLabel: "SSH",

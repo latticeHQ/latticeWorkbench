@@ -19,6 +19,7 @@ import {
   TERMINAL_ICON_FALLBACK_FAMILY,
 } from "@/browser/terminal/terminalFontFamily";
 import { TERMINAL_CONTAINER_ATTR } from "@/browser/utils/ui/keybinds";
+import { WrappedUrlLinkProvider } from "@/browser/terminal/WrappedUrlLinkProvider";
 
 function normalizeTerminalFontConfig(value: unknown): TerminalFontConfig {
   if (!value || typeof value !== "object") {
@@ -490,6 +491,36 @@ export function TerminalView({
 
         terminal.open(containerEl);
         fitAddon.fit();
+
+        // Replace the built-in UrlRegexProvider with our own that correctly
+        // handles URLs spanning multiple wrapped lines. The built-in only
+        // detects single-line URLs, so long OAuth URLs get truncated on click.
+        // Our UrlLinkProvider joins wrapped line groups before running the
+        // regex, detecting the full URL across all lines.
+        //
+        // Strategy: register our provider, then remove the built-in
+        // UrlRegexProvider from the LinkDetector so there's no conflict.
+        terminal.registerLinkProvider(
+          new WrappedUrlLinkProvider(terminal) as Parameters<typeof terminal.registerLinkProvider>[0]
+        );
+
+        // Remove the built-in UrlRegexProvider from the LinkDetector.
+        // Our provider handles both single-line and multi-line URLs, so the
+        // built-in is redundant and would conflict (its single-line match
+        // shadows our full multi-line match in the LinkDetector cache).
+        //
+        // ghostty-web registers providers in open() in this order:
+        //   [0] OSC8LinkProvider  — hyperlink escape sequences (keep)
+        //   [1] UrlRegexProvider  — single-line URL regex (REMOVE)
+        // Then registerLinkProvider appends ours:
+        //   [2] UrlLinkProvider   — our single+multi-line URL handler (keep)
+        //
+        // We splice out index 1 directly rather than using instanceof
+        // because the class reference may differ across bundle boundaries.
+        const linkDet = (terminal as unknown as { linkDetector?: { providers?: unknown[] } }).linkDetector;
+        if (linkDet?.providers && linkDet.providers.length >= 3) {
+          linkDet.providers.splice(1, 1);
+        }
 
         // Platform-aware clipboard shortcuts matching VS Code's integrated terminal:
         // https://code.visualstudio.com/docs/terminal/basics#_copy-paste

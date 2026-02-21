@@ -326,7 +326,13 @@ export class SSH2Transport implements SSHTransport {
     // Do NOT wrap with shellQuotePath - that would double-quote it
     // Exit on cd failure to match OpenSSH transport behavior (cd ... && exec $SHELL -i)
     const expandedPath = expandTildeForSSH(params.workspacePath);
-    channel.write(`cd ${expandedPath} || exit 1\n`);
+    if (params.initialCommand && params.directExec) {
+      // Direct exec: run agent binary via login shell, bypassing interactive shell
+      const quoted = "'" + params.initialCommand.replace(/'/g, "'\\''") + "'";
+      channel.write(`cd ${expandedPath} && exec /bin/sh -l -c ${quoted}\n`);
+    } else {
+      channel.write(`cd ${expandedPath} || exit 1\n`);
+    }
 
     return new SSH2Pty(channel);
   }

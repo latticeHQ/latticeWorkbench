@@ -2,12 +2,12 @@
  * AgentPicker — popover for hiring an AI employee into the current mission.
  *
  * Shows all known CLI agents (employees). Detected/installed agents show a
- * "ready" badge; uninstalled ones show an "Install" link but are still
- * clickable (the terminal will open regardless — worst case the binary is
- * not found). While detection is in progress a subtle spinner is shown.
+ * green icon highlight; uninstalled ones are dimmed with a hover-only
+ * install link that opens the agent's docs page.
+ * While detection is in progress a subtle spinner is shown in the header.
  */
 import React from "react";
-import { Terminal, Loader2 } from "lucide-react";
+import { Terminal, Loader2, RefreshCw, ExternalLink } from "lucide-react";
 import { CLI_AGENT_DEFINITIONS } from "@/common/constants/cliAgents";
 import { CliAgentIcon } from "@/browser/components/CliAgentIcon";
 import { cn } from "@/common/lib/utils";
@@ -19,6 +19,8 @@ interface AgentPickerProps {
   detectedSlugs?: Set<string>;
   /** True while the detection scan is still running */
   loading?: boolean;
+  /** Callback to re-scan for installed agents */
+  onRefresh?: () => void;
   onSelect: (slug: EmployeeSlug) => void;
   onClose: () => void;
   className?: string;
@@ -43,7 +45,7 @@ const AGENT_ORDER: EmployeeSlug[] = [
   "terminal",
 ];
 
-export function AgentPicker({ detectedSlugs, loading, onSelect, onClose, className }: AgentPickerProps) {
+export function AgentPicker({ detectedSlugs, loading, onRefresh, onSelect, onClose, className }: AgentPickerProps) {
   const handleSelect = (slug: EmployeeSlug) => {
     onSelect(slug);
     onClose();
@@ -52,7 +54,7 @@ export function AgentPicker({ detectedSlugs, loading, onSelect, onClose, classNa
   return (
     <div
       className={cn(
-        "bg-sidebar border-border-light flex w-64 flex-col overflow-hidden rounded-lg border shadow-xl",
+        "bg-sidebar border-border-light flex w-72 flex-col overflow-hidden rounded-lg border shadow-xl",
         className
       )}
     >
@@ -60,17 +62,29 @@ export function AgentPicker({ detectedSlugs, loading, onSelect, onClose, classNa
       <div className="border-border-light border-b px-3 py-2.5">
         <div className="flex items-center gap-1.5">
           <p className="text-foreground text-[13px] font-semibold">Hire an Employee</p>
-          {loading && (
+          {loading ? (
             <span title="Scanning for installed agents…">
               <Loader2 size={11} className="text-muted animate-spin" />
             </span>
-          )}
+          ) : onRefresh ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRefresh();
+              }}
+              className="text-muted hover:text-foreground flex items-center justify-center rounded p-0.5 transition-colors"
+              title="Re-scan for installed agents"
+            >
+              <RefreshCw size={11} />
+            </button>
+          ) : null}
         </div>
         <p className="text-muted text-[11px]">Launch an AI agent in this mission</p>
       </div>
 
-      {/* Employee list */}
-      <div className="flex max-h-[360px] flex-col overflow-y-auto py-1">
+      {/* Agent list — uses flex-1 + min-h-0 so the parent's max-height is respected */}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto py-1">
         {AGENT_ORDER.map((slug) => {
           if (slug === "terminal") {
             return (
@@ -88,7 +102,6 @@ export function AgentPicker({ detectedSlugs, loading, onSelect, onClose, classNa
           const def = CLI_AGENT_DEFINITIONS[slug as keyof typeof CLI_AGENT_DEFINITIONS];
           if (!def) return null;
 
-          // Detection complete: show real state. Still loading: treat as unknown (clickable, no badge).
           const detected = !loading && detectedSlugs ? detectedSlugs.has(slug) : undefined;
 
           return (
@@ -98,7 +111,7 @@ export function AgentPicker({ detectedSlugs, loading, onSelect, onClose, classNa
               displayName={def.displayName}
               description={def.description}
               detected={detected}
-              installUrl={detected === false ? def.installUrl : undefined}
+              installUrl={def.installUrl}
               onSelect={handleSelect}
             />
           );
@@ -112,21 +125,44 @@ interface EmployeeRowProps {
   slug: EmployeeSlug;
   displayName: string;
   description: string;
-  /** true = installed, false = not installed, undefined = detection still running */
   detected: boolean | undefined;
   installUrl?: string;
   onSelect: (slug: EmployeeSlug) => void;
 }
 
-function EmployeeRow({ slug, displayName, description, detected, installUrl, onSelect }: EmployeeRowProps) {
+function EmployeeRow({
+  slug,
+  displayName,
+  description,
+  detected,
+  installUrl,
+  onSelect,
+}: EmployeeRowProps) {
   return (
-    <button
+    <div
       onClick={() => onSelect(slug)}
-      className="hover:bg-hover flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left transition-colors"
-      title={detected === false && installUrl ? `Not installed — visit ${installUrl}` : undefined}
+      className={cn(
+        "group hover:bg-hover flex w-full cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
+        detected === false && "opacity-60 hover:opacity-100"
+      )}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect(slug);
+        }
+      }}
     >
       {/* Icon */}
-      <span className="text-foreground flex h-6 w-6 shrink-0 items-center justify-center text-[14px]">
+      <span
+        className={cn(
+          "flex h-7 w-7 shrink-0 items-center justify-center rounded text-[14px]",
+          detected === true
+            ? "bg-green-500/10 text-green-400"
+            : "text-foreground"
+        )}
+      >
         {slug === "terminal" ? (
           <Terminal size={14} />
         ) : (
@@ -137,28 +173,30 @@ function EmployeeRow({ slug, displayName, description, detected, installUrl, onS
       {/* Label + description */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-foreground text-[13px] font-medium">{displayName}</span>
+          <span className="text-foreground text-[13px] font-medium leading-tight">{displayName}</span>
           {detected === true && (
             <span className="bg-green-500/15 text-green-400 rounded px-1 py-px text-[10px] font-medium leading-none">
               ready
             </span>
           )}
         </div>
-        <p className="text-muted truncate text-[11px]">{description}</p>
+        <p className="text-muted truncate text-[11px] leading-tight">{description}</p>
       </div>
 
-      {/* Install link shown only when detection finished and agent is absent */}
+      {/* Install link — only visible on hover for uninstalled agents */}
       {detected === false && installUrl && (
         <a
           href={installUrl}
           target="_blank"
-          rel="noreferrer"
+          rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="text-accent hover:text-accent-dark shrink-0 text-[11px] underline"
+          className="text-muted hover:text-accent flex shrink-0 items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] opacity-0 transition-all group-hover:opacity-100"
+          title={`Install ${displayName}`}
         >
-          Install
+          <ExternalLink size={9} />
+          <span>Install</span>
         </a>
       )}
-    </button>
+    </div>
   );
 }
