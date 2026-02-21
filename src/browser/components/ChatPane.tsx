@@ -665,29 +665,32 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
           </button>
         )}
       </div>
-      <ChatInputPane
-        workspaceId={workspaceId}
-        projectName={projectName}
-        workspaceName={workspaceName}
-        isStreamStarting={isStreamStarting}
-        runtimeConfig={runtimeConfig}
-        isQueuedAgentTask={isQueuedAgentTask}
-        isCompacting={isCompacting}
-        canInterrupt={canInterrupt}
-        autoCompactionResult={autoCompactionResult}
-        shouldShowCompactionWarning={shouldShowCompactionWarning}
-        onCompactClick={handleCompactClick}
-        onMessageSent={handleMessageSent}
-        onTruncateHistory={handleClearHistory}
-        onProviderConfig={handleProviderConfig}
-        editingMessage={editingMessage}
-        onCancelEdit={handleCancelEdit}
-        onEditLastUserMessage={handleEditLastUserMessageClick}
-        onChatInputReady={handleChatInputReady}
-        hasQueuedCompaction={Boolean(workspaceState.queuedMessage?.hasCompactionRequest)}
-        reviews={reviews}
-        onCheckReviews={handleCheckReviews}
-      />
+      {/* Floating input card — padded from edges, no flush bottom bar */}
+      <div className="px-4 pb-4 pt-1">
+        <ChatInputPane
+          workspaceId={workspaceId}
+          projectName={projectName}
+          workspaceName={workspaceName}
+          isStreamStarting={isStreamStarting}
+          runtimeConfig={runtimeConfig}
+          isQueuedAgentTask={isQueuedAgentTask}
+          isCompacting={isCompacting}
+          canInterrupt={canInterrupt}
+          autoCompactionResult={autoCompactionResult}
+          shouldShowCompactionWarning={shouldShowCompactionWarning}
+          onCompactClick={handleCompactClick}
+          onMessageSent={handleMessageSent}
+          onTruncateHistory={handleClearHistory}
+          onProviderConfig={handleProviderConfig}
+          editingMessage={editingMessage}
+          onCancelEdit={handleCancelEdit}
+          onEditLastUserMessage={handleEditLastUserMessageClick}
+          onChatInputReady={handleChatInputReady}
+          hasQueuedCompaction={Boolean(workspaceState.queuedMessage?.hasCompactionRequest)}
+          reviews={reviews}
+          onCheckReviews={handleCheckReviews}
+        />
+      </div>
     </div>
   );
 };
