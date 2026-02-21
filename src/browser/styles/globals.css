@@ -61,9 +61,9 @@
     --color-plan-mode-light: hsl(210 70% 68%);
     --color-plan-mode-alpha: hsla(210 70% 40% / 0.1);
 
-    --color-exec-mode: hsl(268.56 94.04% 55.19%);
-    --color-exec-mode-hover: hsl(268.56 94.04% 67%);
-    --color-exec-mode-light: hsl(268.56 94.04% 78%);
+    --color-exec-mode: hsl(24 90% 58%);
+    --color-exec-mode-hover: hsl(24 90% 64%);
+    --color-exec-mode-light: hsl(24 90% 75%);
 
     /* Edit mode: amber/gold for editing warnings and barriers */
     --color-edit-mode: hsl(38 80% 45%);
@@ -80,15 +80,15 @@
     --color-debug-light: hsl(214 100% 76%);
     --color-debug-text: hsl(214 100% 80%);
 
-    --color-thinking-mode: hsl(271 76% 53%);
-    --color-thinking-mode-light: hsl(271 76% 65%);
-    --color-thinking-border: hsl(271 76% 53%);
+    --color-thinking-mode: hsl(24 90% 58%);
+    --color-thinking-mode-light: hsl(24 90% 72%);
+    --color-thinking-border: hsl(24 90% 58%);
 
-    /* Runtime icon colors (matches Tailwind blue-500/purple-500) */
+    /* Runtime icon colors (matches Tailwind blue-500/orange-500) */
     --color-runtime-ssh: #3b82f6;
     --color-runtime-ssh-text: #60a5fa; /* blue-400 */
-    --color-runtime-worktree: #a855f7;
-    --color-runtime-worktree-text: #c084fc; /* purple-400 */
+    --color-runtime-worktree: hsl(24 90% 55%);
+    --color-runtime-worktree-text: hsl(24 90% 70%);
     --color-runtime-local: hsl(0 0% 60%); /* matches --color-muted-foreground */
     --color-runtime-docker: #2496ed; /* Docker blue */
     --color-runtime-docker-text: #54b3f4;
@@ -354,9 +354,9 @@
   --color-plan-mode-light: hsl(210 70% 68%);
   --color-plan-mode-alpha: hsla(210 70% 40% / 0.08);
 
-  --color-exec-mode: hsl(268.56 94.04% 55.19%);
-  --color-exec-mode-hover: hsl(268.56 94.04% 67%);
-  --color-exec-mode-light: hsl(268.56 94.04% 78%);
+  --color-exec-mode: hsl(24 85% 48%);
+  --color-exec-mode-hover: hsl(24 85% 54%);
+  --color-exec-mode-light: hsl(24 85% 68%);
 
   --color-pending: hsl(30 100% 64%);
 
@@ -364,15 +364,15 @@
   --color-debug-light: hsl(214 100% 68%);
   --color-debug-text: hsl(214 100% 32%);
 
-  --color-thinking-mode: hsl(271 70% 46%);
-  --color-thinking-mode-light: hsl(271 70% 62%);
-  --color-thinking-border: hsl(271 70% 46%);
+  --color-thinking-mode: hsl(24 85% 48%);
+  --color-thinking-mode-light: hsl(24 85% 64%);
+  --color-thinking-border: hsl(24 85% 48%);
 
-  /* Runtime icon colors (matches Tailwind blue-500/purple-500) */
+  /* Runtime icon colors (matches Tailwind blue-500/orange-500) */
   --color-runtime-ssh: #3b82f6;
   --color-runtime-ssh-text: #60a5fa;
-  --color-runtime-worktree: #a855f7;
-  --color-runtime-worktree-text: #c084fc;
+  --color-runtime-worktree: hsl(24 85% 48%);
+  --color-runtime-worktree-text: hsl(24 85% 35%);
   --color-runtime-local: hsl(210 14% 48%); /* matches --color-muted-foreground */
   --color-runtime-docker: #2496ed; /* Docker blue */
   --color-runtime-docker-text: #0d7cc4;
@@ -591,7 +591,7 @@
   --color-plan-mode-light: color-mix(in srgb, var(--color-plan-mode), white 42%);
   --color-plan-mode-alpha: hsl(from var(--color-plan-mode) h s l / 0.08);
 
-  --color-exec-mode: #5e409d; /* Flexoki purple-600 */
+  --color-exec-mode: #bc5215; /* Flexoki orange-600 */
   --color-exec-mode-hover: color-mix(in srgb, var(--color-exec-mode), white 18%);
   --color-exec-mode-light: color-mix(in srgb, var(--color-exec-mode), white 42%);
 
@@ -609,7 +609,7 @@
   --color-debug-light: color-mix(in srgb, var(--color-debug-mode), white 42%);
   --color-debug-text: color-mix(in srgb, var(--color-debug-mode), black 30%);
 
-  --color-thinking-mode: #a02f6f; /* Flexoki magenta-600 */
+  --color-thinking-mode: #bc5215; /* Flexoki orange-600 */
   --color-thinking-mode-light: color-mix(in srgb, var(--color-thinking-mode), white 42%);
   --color-thinking-border: var(--color-thinking-mode);
 
@@ -797,7 +797,7 @@
   --color-plan-mode-light: color-mix(in srgb, var(--color-plan-mode), white 22%);
   --color-plan-mode-alpha: hsl(from var(--color-plan-mode) h s l / 0.12);
 
-  --color-exec-mode: #8b7ec8; /* Flexoki purple-400 */
+  --color-exec-mode: #da702c; /* Flexoki orange-400 */
   --color-exec-mode-hover: color-mix(in srgb, var(--color-exec-mode), white 10%);
   --color-exec-mode-light: color-mix(in srgb, var(--color-exec-mode), white 22%);
 
@@ -815,7 +815,7 @@
   --color-debug-light: color-mix(in srgb, var(--color-debug-mode), white 22%);
   --color-debug-text: color-mix(in srgb, var(--color-debug-mode), white 30%);
 
-  --color-thinking-mode: #ce5d97; /* Flexoki magenta-400 */
+  --color-thinking-mode: #da702c; /* Flexoki orange-400 */
   --color-thinking-mode-light: color-mix(in srgb, var(--color-thinking-mode), white 22%);
   --color-thinking-border: var(--color-thinking-mode);
 
