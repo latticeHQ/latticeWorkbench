@@ -14,7 +14,8 @@ import {
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { useExperimentValue } from "@/browser/hooks/useExperiments";
 import { EXPERIMENT_IDS } from "@/common/constants/experiments";
-import { Dialog, DialogContent, DialogTitle, VisuallyHidden } from "@/browser/components/ui/dialog";
+import { VisuallyHidden } from "@/browser/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/browser/components/ui/sheet";
 import { GeneralSection } from "./sections/GeneralSection";
 import { ProvidersSection } from "./sections/ProvidersSection";
 import { System1Section } from "./sections/System1Section";
@@ -104,43 +105,32 @@ export function SettingsModal() {
   const SectionComponent = currentSection.component;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
-      <DialogContent
-        showCloseButton={false}
-        maxWidth="920px"
+    <Sheet open={isOpen} onOpenChange={(open) => !open && close()}>
+      <SheetContent
         aria-describedby={undefined}
-        className="flex h-[85vh] max-h-[680px] flex-col gap-0 overflow-hidden p-0 md:h-[75vh] md:flex-row"
+        className="w-[min(920px,95vw)] flex-row"
       >
         {/* Visually hidden title for accessibility */}
         <VisuallyHidden>
-          <DialogTitle>Settings</DialogTitle>
+          <SheetTitle>Settings</SheetTitle>
         </VisuallyHidden>
-        {/* Sidebar - horizontal tabs on mobile, vertical on desktop */}
-        <div className="bg-background-secondary/30 flex shrink-0 flex-col border-b border-border-medium md:w-52 md:border-r md:border-b-0">
-          <div className="flex h-11 items-center justify-between border-b border-border-medium px-4 md:justify-start">
+
+        {/* Nav sidebar */}
+        <div className="bg-background-secondary/30 flex w-48 shrink-0 flex-col border-r border-border-medium">
+          <div className="flex h-11 shrink-0 items-center border-b border-border-medium px-4">
             <span className="text-foreground text-xs font-semibold tracking-wide uppercase">
               Settings
             </span>
-            {/* Close button in header on mobile only */}
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={close}
-              className="h-6 w-6 md:hidden"
-              aria-label="Close settings"
-            >
-              <X className="h-4 w-4" />
-            </Button>
           </div>
-          <nav className="flex gap-0.5 overflow-x-auto p-1.5 md:flex-1 md:flex-col md:overflow-y-auto">
+          <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-1.5">
             {sections.map((section) => (
               <Button
                 key={section.id}
                 variant="ghost"
                 onClick={() => setActiveSection(section.id)}
-                className={`flex h-auto shrink-0 items-center justify-start gap-2.5 rounded-md px-3 py-1.5 text-left text-xs whitespace-nowrap md:w-full ${
+                className={`flex h-auto w-full items-center justify-start gap-2.5 rounded-md px-3 py-1.5 text-left text-xs ${
                   activeSection === section.id
-                    ? "bg-accent/15 text-accent hover:bg-accent/15 hover:text-accent font-medium"
+                    ? "bg-accent/10 text-foreground hover:bg-accent/10 font-medium"
                     : "text-muted hover:bg-hover hover:text-foreground"
                 }`}
               >
@@ -151,25 +141,25 @@ export function SettingsModal() {
           </nav>
         </div>
 
-        {/* Content */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div className="hidden h-11 items-center justify-between border-b border-border-medium px-6 md:flex">
+        {/* Content panel */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-border-medium px-6">
             <span className="text-foreground text-sm font-medium">{currentSection.label}</span>
             <Button
               variant="ghost"
               size="icon"
               onClick={close}
-              className="h-6 w-6"
+              className="h-7 w-7"
               aria-label="Close settings"
             >
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 md:px-6 md:py-5">
+          <div className="flex-1 overflow-y-auto px-6 py-5">
             <SectionComponent />
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   );
 }
