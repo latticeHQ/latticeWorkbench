@@ -92,7 +92,7 @@ import {
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, rectSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 
 // Re-export for consumers
 export type { ReviewStats };
@@ -401,8 +401,8 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
   const sortableIds = items.map((item) => `${props.node.id}:${item.tab}`);
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col" onMouseDownCapture={setFocused}>
-      <SortableContext items={sortableIds} strategy={rectSortingStrategy}>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-row" onMouseDownCapture={setFocused}>
+      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
         <RightSidebarTabStrip
           ariaLabel="Sidebar views"
           items={items}
