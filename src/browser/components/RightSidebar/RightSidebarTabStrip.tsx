@@ -229,7 +229,7 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
       ref={setNodeRef}
       className={cn(
         // Vertical strip — narrow icon-only column on the right edge of the sidebar
-        "border-border-light bg-sidebar flex w-10 shrink-0 flex-col items-center border-l px-1 py-2 transition-colors",
+        "bg-sidebar flex w-10 shrink-0 flex-col items-center px-1 py-2 transition-colors",
         showDropHighlight && "bg-accent/20",
         isDraggingFromHere && "bg-accent/10",
       )}
