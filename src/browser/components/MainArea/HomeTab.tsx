@@ -6,7 +6,7 @@
  *
  * Columns:  Active → Queued → Done
  */
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { cn } from "@/common/lib/utils";
 import { useWorkspaceContext, toWorkspaceSelection } from "@/browser/contexts/WorkspaceContext";
 import {
@@ -24,7 +24,6 @@ import type { EmployeeSlug } from "./AgentPicker";
 import { CliAgentIcon } from "@/browser/components/CliAgentIcon";
 import {
   LayoutDashboard,
-  Cpu,
   Terminal,
   DollarSign,
   Zap,
@@ -37,6 +36,8 @@ import {
   Hourglass,
   Layers,
   Sparkles,
+  Copy,
+  Check,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -336,6 +337,45 @@ function WorkspaceKanbanCard({
 // Kanban agent card — CLI session variant
 // ─────────────────────────────────────────────────────────────────────────────
 
+function CopyableSessionId({ sessionId }: { sessionId: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const shortId =
+    sessionId.length > 16
+      ? `${sessionId.slice(0, 8)}…${sessionId.slice(-6)}`
+      : sessionId;
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation(); // don't trigger card click
+    void navigator.clipboard.writeText(sessionId).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? "Copied!" : `Copy session ID: ${sessionId}`}
+      className={cn(
+        "group/copy flex items-center gap-1 rounded px-0.5 transition-colors",
+        "hover:bg-border focus:outline-none",
+        copied ? "text-[var(--color-success)]" : "text-muted"
+      )}
+    >
+      <span className="font-mono text-[9px] opacity-70 leading-none">
+        {shortId}
+      </span>
+      {copied ? (
+        <Check className="h-2 w-2 shrink-0 opacity-80" />
+      ) : (
+        <Copy className="h-2 w-2 shrink-0 opacity-0 transition-opacity group-hover/copy:opacity-60" />
+      )}
+    </button>
+  );
+}
+
 function CliKanbanCard({
   sessionId,
   meta,
@@ -390,12 +430,7 @@ function CliKanbanCard({
         )}
         <div className="min-w-0 flex-1">
           <span className="text-foreground block truncate text-xs font-semibold">{meta.label}</span>
-          <span
-            className="text-muted block truncate font-mono text-[9px] opacity-60"
-            title={sessionId}
-          >
-            {sessionId.length > 16 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-6)}` : sessionId}
-          </span>
+          <CopyableSessionId sessionId={sessionId} />
         </div>
         {onOpen && (
           <ArrowRight className="h-3 w-3 shrink-0 text-[var(--color-exec-mode)] opacity-0 transition-opacity group-hover/cli:opacity-100" />

@@ -14,15 +14,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "@/common/lib/utils";
 import {
   getMainAreaLayoutKey,
-  getMainAreaEmployeeMetaKey,
-  getClosingSessionsKey,
 } from "@/common/constants/storage";
 import { CLI_AGENT_DEFINITIONS } from "@/common/constants/cliAgents";
 import {
   collectAllTabs,
   addTabToFocusedTabset,
   removeTabEverywhere,
-  replaceTabEverywhere,
   selectTabInFocusedTabset,
   isRightSidebarLayoutState,
   getDefaultMainAreaLayoutState,
@@ -40,6 +37,7 @@ import type { TabType } from "@/browser/types/rightSidebar";
 import { createTerminalSession } from "@/browser/utils/terminal";
 import { useAPI } from "@/browser/contexts/API";
 import { useCliAgentDetection } from "@/browser/hooks/useCliAgentDetection";
+import { useSessionRegistry } from "@/browser/hooks/useSessionRegistry";
 import { MainAreaTabBar } from "./MainAreaTabBar";
 import type { EmployeeMeta } from "./MainAreaTabBar";
 import type { EmployeeSlug } from "./AgentPicker";
@@ -70,9 +68,6 @@ interface MainAreaProps {
   /** Ref callback so WorkspaceShell can imperatively open a terminal tab */
   addTerminalRef?: React.MutableRefObject<((options?: TerminalSessionCreateOptions) => void) | null>;
 }
-
-/** Persisted shape of employeeMeta: Record<sessionId, EmployeeMeta> */
-type PersistedEmployeeMeta = Record<string, { slug: EmployeeSlug; label: string }>;
 
 function loadLayout(workspaceId: string): RightSidebarLayoutState {
   try {
@@ -112,88 +107,6 @@ function loadLayout(workspaceId: string): RightSidebarLayoutState {
 function saveLayout(workspaceId: string, layout: RightSidebarLayoutState) {
   try {
     localStorage.setItem(getMainAreaLayoutKey(workspaceId), JSON.stringify(layout));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function loadEmployeeMeta(workspaceId: string): Map<string, EmployeeMeta> {
-  try {
-    const raw = JSON.parse(
-      localStorage.getItem(getMainAreaEmployeeMetaKey(workspaceId)) ?? "null"
-    ) as PersistedEmployeeMeta | null;
-    if (raw && typeof raw === "object") {
-      return new Map(
-        Object.entries(raw).map(([sessionId, meta]) => [
-          sessionId,
-          { slug: meta.slug, label: meta.label, status: "idle" as const },
-        ])
-      );
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return new Map();
-}
-
-function saveEmployeeMeta(workspaceId: string, meta: Map<string, EmployeeMeta>) {
-  try {
-    const obj: PersistedEmployeeMeta = {};
-    for (const [sessionId, m] of meta) {
-      obj[sessionId] = { slug: m.slug, label: m.label };
-    }
-    localStorage.setItem(getMainAreaEmployeeMetaKey(workspaceId), JSON.stringify(obj));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-/**
- * TTL for persisted closing-session IDs (30 s).
- * After this window the backend has certainly torn down the PTY, so we no
- * longer need to suppress session-sync from re-adding it.
- */
-const CLOSING_SESSION_TTL_MS = 30_000;
-
-/** Load sessionIds that were being closed when the page last unloaded. */
-function loadClosingSessions(workspaceId: string): Set<string> {
-  try {
-    const raw = JSON.parse(
-      localStorage.getItem(getClosingSessionsKey(workspaceId)) ?? "null"
-    ) as Record<string, number> | null;
-    if (raw && typeof raw === "object") {
-      const now = Date.now();
-      const live = new Set<string>();
-      for (const [sid, ts] of Object.entries(raw)) {
-        if (now - ts < CLOSING_SESSION_TTL_MS) live.add(sid);
-      }
-      return live;
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return new Set();
-}
-
-function addClosingSession(workspaceId: string, sessionId: string) {
-  try {
-    const raw = JSON.parse(
-      localStorage.getItem(getClosingSessionsKey(workspaceId)) ?? "{}"
-    ) as Record<string, number>;
-    raw[sessionId] = Date.now();
-    localStorage.setItem(getClosingSessionsKey(workspaceId), JSON.stringify(raw));
-  } catch {
-    // ignore storage errors
-  }
-}
-
-function removeClosingSession(workspaceId: string, sessionId: string) {
-  try {
-    const raw = JSON.parse(
-      localStorage.getItem(getClosingSessionsKey(workspaceId)) ?? "{}"
-    ) as Record<string, number>;
-    delete raw[sessionId];
-    localStorage.setItem(getClosingSessionsKey(workspaceId), JSON.stringify(raw));
   } catch {
     // ignore storage errors
   }
@@ -270,305 +183,25 @@ export function MainArea({
   const detectedSlugs = new Set(detectedAgents.map((a) => a.slug));
 
   const [layout, setLayout] = useState<RightSidebarLayoutState>(() => loadLayout(workspaceId));
-  const [employeeMeta, setEmployeeMeta] = useState<Map<string, EmployeeMeta>>(
-    () => loadEmployeeMeta(workspaceId)
-  );
+  const [employeeMeta, sessionActions] = useSessionRegistry(workspaceId);
 
-  // Track sessions that are being closed so the session-sync effect doesn't
-  // re-add them before the backend has finished tearing down the PTY.
-  // Seeded from localStorage so closes-in-progress survive page reloads.
-  const closingSessionIds = useRef(loadClosingSessions(workspaceId));
-
-  // Guards onEmployeeHired against historical event replay.
-  // The backend streams ALL past hire events when you subscribe; we must
-  // ignore them until session-sync has finished listing the live backend
-  // sessions.  Reset to false when workspaceId changes so it re-arms.
-  const sessionSyncDoneRef = useRef(false);
-
-  // Synchronous dedup set for session IDs — avoids relying on React's async
-  // state batching in onEmployeeHired.  Mutated eagerly in session-sync
-  // (before setEmployeeMeta) so the check is always up-to-date.
-  // Initialised from persisted localStorage on mount.
-  const knownSessionIdsRef = useRef<Set<string>>(
-    new Set(Array.from(loadEmployeeMeta(workspaceId).keys()))
-  );
-
-  // Always-fresh refs so the session-sync effect (intentionally not re-run on
-  // every layout/meta change) can still read the LATEST state and avoid
-  // relaunching tabs that were just explicitly closed by the user.
+  // Always-fresh ref so effects that intentionally don't re-run on every
+  // layout change can still read the latest layout state.
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
-  const employeeMetaRef = useRef(employeeMeta);
-  employeeMetaRef.current = employeeMeta;
 
   // Persist layout whenever it changes
   useEffect(() => {
     saveLayout(workspaceId, layout);
   }, [workspaceId, layout]);
 
-  // Persist employeeMeta whenever it changes
+  // Reset layout when workspace changes (session state is handled by the hook)
   useEffect(() => {
-    saveEmployeeMeta(workspaceId, employeeMeta);
-  }, [workspaceId, employeeMeta]);
-
-  // Reset layout + meta + closing-sessions when workspace changes
-  useEffect(() => {
-    const freshMeta = loadEmployeeMeta(workspaceId);
     setLayout(loadLayout(workspaceId));
-    setEmployeeMeta(freshMeta);
-    closingSessionIds.current = loadClosingSessions(workspaceId);
-    sessionSyncDoneRef.current = false;
-    knownSessionIdsRef.current = new Set(freshMeta.keys()); // re-seed from persisted meta
   }, [workspaceId]);
-
-  // ── Session sync: restore tabs for live backend sessions, relaunch dead agents ──
-  //
-  // On every mount / workspace change we compare the persisted layout against the
-  // live backend session list.  Three categories of terminal tab are handled:
-  //
-  //  1. Alive in backend but missing from layout  → re-add the tab (no focus steal)
-  //  2. Ghost agent tab  (session dead, slug ≠ "terminal") → relaunch the binary,
-  //     swap the old tab-type for the new one so the tab stays in the same position
-  //  3. Ghost plain-terminal tab (session dead, slug = "terminal") → remove silently;
-  //     a bare shell cannot be meaningfully restored
-  //
-  // This means agent tabs survive app restarts (Electron) and page reloads (browser)
-  // even when the backend restarts and destroys all PTY processes.
-  useEffect(() => {
-    if (!api) return;
-    let cancelled = false;
-
-    void (async () => {
-      const backendSessionIds = await api.terminal.listSessions({ workspaceId });
-      if (cancelled) return;
-
-      const backendSessionSet = new Set(backendSessionIds);
-
-      // ── Purge ghost sessions from employeeMeta + knownSessionIdsRef ───────
-      // Sessions persisted in localStorage that are no longer alive in the
-      // backend are stale/ghost entries.  Remove them synchronously from
-      // knownSessionIdsRef first (so onEmployeeHired can't race and re-add),
-      // then from React state.
-      for (const sessionId of knownSessionIdsRef.current) {
-        if (!backendSessionSet.has(sessionId) && !closingSessionIds.current.has(sessionId)) {
-          knownSessionIdsRef.current.delete(sessionId);
-        }
-      }
-      setEmployeeMeta((prev) => {
-        const next = new Map(prev);
-        let changed = false;
-        for (const [sessionId] of prev) {
-          if (!backendSessionSet.has(sessionId) && !closingSessionIds.current.has(sessionId)) {
-            next.delete(sessionId);
-            changed = true;
-          }
-        }
-        if (changed) saveEmployeeMeta(workspaceId, next);
-        return changed ? next : prev;
-      });
-
-      // NOTE: sessionSyncDoneRef is set at the END of this effect — after all
-      // relaunched session IDs are pre-registered in knownSessionIdsRef.
-      // Setting it here (before createTerminalSession) caused duplicates because
-      // the newly-created sessions would then trigger onEmployeeHired events
-      // that passed the flag check but failed the prev.has() check (React batching).
-
-      // Clean up closing sessions whose PTY the backend has confirmed is gone.
-      // This replaces the old 2-second setTimeout approach: we only lift the
-      // "closing" guard once we KNOW the session no longer exists in the backend,
-      // so session-sync can never race and re-add a tab the user just closed.
-      for (const sid of [...closingSessionIds.current]) {
-        if (!backendSessionSet.has(sid)) {
-          closingSessionIds.current.delete(sid);
-          removeClosingSession(workspaceId, sid);
-        }
-      }
-
-      // Current terminal tabs in this layout — use refs so we read the latest
-      // state even if the effect closure is stale (avoids relaunching tabs the
-      // user just explicitly closed).
-      const currentTabs = collectAllTabs(layoutRef.current.root);
-      const currentTerminalTabs = currentTabs.filter(isTerminalTab);
-      const currentTerminalSessionIds = new Set(
-        currentTerminalTabs.map(getTerminalSessionId).filter(Boolean)
-      );
-
-      // Sessions that exist in backend but have no tab yet → restore them.
-      // Exclude sessions that are in the process of being closed by the user
-      // (the backend may not have fully torn them down yet).
-      const missingSessions = backendSessionIds.filter(
-        (sid) => !currentTerminalSessionIds.has(sid) && !closingSessionIds.current.has(sid)
-      );
-
-      // Tabs whose backend session is gone → split by whether we can relaunch them
-      type Relaunchable = { oldTab: TabType; oldSid: string; meta: EmployeeMeta };
-      const toRelaunch: Relaunchable[] = [];
-      const toRemove: TabType[] = [];
-
-      for (const tab of currentTerminalTabs) {
-        const sid = getTerminalSessionId(tab);
-        if (!sid || backendSessionSet.has(sid)) continue; // still alive — skip
-
-        const meta = employeeMetaRef.current.get(sid);
-        if (meta && meta.slug !== "terminal") {
-          // Named agent — we can relaunch it
-          toRelaunch.push({ oldTab: tab, oldSid: sid, meta });
-        } else {
-          // Plain terminal or unknown — just remove
-          toRemove.push(tab);
-        }
-      }
-
-      if (missingSessions.length === 0 && toRelaunch.length === 0 && toRemove.length === 0) {
-        return;
-      }
-
-      // Re-spawn each relaunachable agent (sequentially to avoid overwhelming the backend)
-      type Spawned = { oldTab: TabType; oldSid: string; newSid: string; meta: EmployeeMeta };
-      const spawned: Spawned[] = [];
-
-      for (const { oldTab, oldSid, meta } of toRelaunch) {
-        if (cancelled) return;
-        try {
-          const agentDef =
-            CLI_AGENT_DEFINITIONS[meta.slug as keyof typeof CLI_AGENT_DEFINITIONS];
-          const initialCommand = agentDef?.binaryNames[0] ?? meta.slug;
-          const session = await createTerminalSession(api, workspaceId, {
-            initialCommand,
-            slug: meta.slug,
-            label: meta.label,
-            directExec: true,
-          });
-          spawned.push({ oldTab, oldSid, newSid: session.sessionId, meta });
-        } catch {
-          // Couldn't spawn (binary missing, workspace unavailable, etc.) → remove the tab
-          toRemove.push(oldTab);
-        }
-      }
-
-      if (cancelled) return;
-
-      // ── Pre-register new + missing session IDs in knownSessionIdsRef ──────
-      // This MUST happen before sessionSyncDoneRef is set to true.
-      // Relaunched sessions emit onEmployeeHired events shortly after creation;
-      // if they're in knownSessionIdsRef already, those events are discarded
-      // rather than creating duplicate tabs.
-      for (const { newSid } of spawned) {
-        knownSessionIdsRef.current.add(newSid);
-      }
-      for (const sid of missingSessions) {
-        knownSessionIdsRef.current.add(sid);
-      }
-
-      // ── Arm the onEmployeeHired historical-event guard ────────────────────
-      // Only now — after all pre-existing and relaunched session IDs are
-      // registered — do we allow onEmployeeHired to process new events.
-      sessionSyncDoneRef.current = true;
-
-      // Apply layout changes atomically
-      setLayout((prev) => {
-        let next = prev;
-
-        // Swap old terminal tab-type for new one (preserves position + active state)
-        for (const { oldTab, newSid } of spawned) {
-          next = replaceTabEverywhere(next, oldTab, makeTerminalTabType(newSid));
-        }
-
-        // Remove tabs that couldn't be restored
-        for (const deadTab of toRemove) {
-          next = removeTabEverywhere(next, deadTab);
-        }
-
-        // Re-add tabs for sessions that exist in backend but had no tab
-        for (const sessionId of missingSessions) {
-          next = addTabToFocusedTabset(next, makeTerminalTabType(sessionId), false);
-        }
-
-        // Ensure "chat" always survives
-        if (!collectAllTabs(next.root).includes("chat")) {
-          return getDefaultMainAreaLayoutState();
-        }
-
-        return next;
-      });
-
-      // Update meta: new session IDs for relaunched agents, delete removed ones
-      setEmployeeMeta((prev) => {
-        const next = new Map(prev);
-
-        for (const { oldSid, newSid, meta } of spawned) {
-          next.delete(oldSid);
-          next.set(newSid, { ...meta, status: "running" });
-          void api?.terminal.scrollback.clear({ sessionId: oldSid }).catch(() => undefined);
-        }
-
-        for (const deadTab of toRemove) {
-          const sid = getTerminalSessionId(deadTab);
-          if (sid) {
-            next.delete(sid);
-            void api?.terminal.scrollback.clear({ sessionId: sid }).catch(() => undefined);
-          }
-        }
-
-        saveEmployeeMeta(workspaceId, next);
-        return next;
-      });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Only run on workspace change, not layout/meta change
-  }, [api, workspaceId]);
 
   const activeTab = getFocusedActiveTab(layout, "chat");
   const allTabs = collectAllTabs(layout.root);
-
-  // ── AI-hired employee subscription (PM Chat → hire_employee tool) ────────
-  // Subscribe to onEmployeeHired so that when PM Chat calls hire_employee(),
-  // the new tab appears automatically without any manual interaction.
-  useEffect(() => {
-    if (!api) return;
-    let cancelled = false;
-
-    void (async () => {
-      const iterator = await api.terminal.onEmployeeHired({ workspaceId });
-      for await (const { sessionId, slug, label } of iterator) {
-        if (cancelled) break;
-
-        // ── Historical-event guard ─────────────────────────────────────────
-        // The backend replays ALL past hire events on subscribe.
-        // Discard events that arrive before session-sync completes.
-        if (!sessionSyncDoneRef.current) continue;
-
-        // ── Synchronous dedup via knownSessionIdsRef ───────────────────────
-        // React state batching means setEmployeeMeta's prev.has() check can
-        // race with concurrent updates (e.g. relaunched sessions from sync).
-        // knownSessionIdsRef is mutated eagerly and is always current.
-        if (knownSessionIdsRef.current.has(sessionId)) continue;
-        knownSessionIdsRef.current.add(sessionId); // register before any async op
-
-        const tabType = makeTerminalTabType(sessionId);
-        setEmployeeMeta((prev) => {
-          if (prev.has(sessionId)) return prev; // double-check React state too
-          const next = new Map(prev);
-          next.set(sessionId, { slug: slug as EmployeeSlug, label, status: "running" });
-          saveEmployeeMeta(workspaceId, next);
-          return next;
-        });
-        setLayout((prev) => {
-          const existing = collectAllTabs(prev.root);
-          if (existing.includes(tabType)) return prev;
-          const withTab = addTabToFocusedTabset(prev, tabType);
-          return selectTabInFocusedTabset(withTab, tabType);
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, workspaceId]);
 
   // ── Hire an employee (open agent terminal tab) ──────────────────────────
   const hireEmployee = useCallback(
@@ -592,20 +225,14 @@ export function MainArea({
       });
       const tabType = makeTerminalTabType(session.sessionId);
 
-      knownSessionIdsRef.current.add(session.sessionId); // register before onEmployeeHired fires
-      setEmployeeMeta((prev) => {
-        const next = new Map(prev);
-        next.set(session.sessionId, { slug, label, status: "running" });
-        saveEmployeeMeta(workspaceId, next);
-        return next;
-      });
+      sessionActions.registerSession(session.sessionId, slug, label);
 
       setLayout((prev) => {
         const withTab = addTabToFocusedTabset(prev, tabType);
         return selectTabInFocusedTabset(withTab, tabType);
       });
     },
-    [api, workspaceId]
+    [api, workspaceId, sessionActions]
   );
 
   // Expose plain terminal launch to WorkspaceShell via ref.
@@ -619,20 +246,14 @@ export function MainArea({
         const tabType = makeTerminalTabType(session.sessionId);
         const metaSlug = (options?.slug ?? "terminal") as EmployeeSlug;
         const metaLabel = options?.label ?? "Terminal";
-        knownSessionIdsRef.current.add(session.sessionId); // register before onEmployeeHired fires
-        setEmployeeMeta((prev) => {
-          const next = new Map(prev);
-          next.set(session.sessionId, { slug: metaSlug, label: metaLabel, status: "running" });
-          saveEmployeeMeta(workspaceId, next);
-          return next;
-        });
+        sessionActions.registerSession(session.sessionId, metaSlug, metaLabel);
         setLayout((prev) => {
           const withTab = addTabToFocusedTabset(prev, tabType);
           return selectTabInFocusedTabset(withTab, tabType);
         });
       })();
     },
-    [api, workspaceId]
+    [api, workspaceId, sessionActions]
   );
 
   const addTerminalHandlerRef = useRef(addTerminalHandler);
@@ -660,23 +281,8 @@ export function MainArea({
     (tab: TabType) => {
       const sessionId = getTerminalSessionId(tab);
       if (sessionId) {
-        closingSessionIds.current.add(sessionId);
-        addClosingSession(workspaceId, sessionId);
-        knownSessionIdsRef.current.delete(sessionId); // unregister so session won't be re-added
-
-        setEmployeeMeta((prev) => {
-          const next = new Map(prev);
-          next.delete(sessionId);
-          // Persist immediately — same as hireEmployee — so a fast app restart
-          // doesn't reload stale meta and try to relaunch the closed session.
-          saveEmployeeMeta(workspaceId, next);
-          return next;
-        });
+        sessionActions.unregisterSession(sessionId);
         // Clear disk-backed scrollback then close the PTY session.
-        // closingSessionIds cleanup is handled inside the session-sync effect once
-        // the backend confirms the session is truly gone — do NOT use a timer here,
-        // as the PTY may still be alive after an arbitrary delay and session-sync
-        // would incorrectly re-add the tab.
         void api?.terminal.scrollback.clear({ sessionId }).catch(() => undefined);
         void api?.terminal.close({ sessionId }).catch(() => undefined);
       }
@@ -691,20 +297,14 @@ export function MainArea({
         return finalLayout;
       });
     },
-    [api, workspaceId]
+    [api, workspaceId, sessionActions]
   );
 
   // ── Terminal exit handler — marks session "done" + fires toast ───────────
   const handleTerminalDone = useCallback((sessionId: string, label: string) => {
-    setEmployeeMeta((prev) => {
-      const meta = prev.get(sessionId);
-      if (!meta || meta.status === "done") return prev; // already marked
-      const next = new Map(prev);
-      next.set(sessionId, { ...meta, status: "done" });
-      return next;
-    });
+    sessionActions.markDone(sessionId);
     showAgentToast(label, { label: "Agent Done", type: "done" });
-  }, []);
+  }, [sessionActions]);
 
   // ── Employee status + label updates ──────────────────────────────────────
   const handleTerminalTitleChange = useCallback((tab: TabType, title: string) => {
@@ -720,25 +320,16 @@ export function MainArea({
     // e.g. "claude" → "Claude Code", "codex" → "Codex", "gh" → "GitHub Copilot"
     const resolvedTitle = BINARY_TO_DISPLAY_NAME[lc] ?? trimmed;
 
-    setEmployeeMeta((prev) => {
-      const meta = prev.get(sessionId);
-      if (!meta) return prev;
+    // Update label from title only when the current label is the generic placeholder
+    // and the new title is not a shell name. This captures agent names for terminals
+    // that were opened as plain "Terminal" tabs and had an agent launched inside them.
+    const meta = employeeMeta.get(sessionId);
+    if (!meta) return;
 
-      // Always upgrade status to "running" on title change (agent is active).
-      const newStatus: EmployeeMeta["status"] = "running";
-      // Update label from title only when the current label is the generic placeholder
-      // and the new title is not a shell name. This captures agent names for terminals
-      // that were opened as plain "Terminal" tabs and had an agent launched inside them.
-      const newLabel =
-        isMeaningful && meta.label === "Terminal" ? resolvedTitle : meta.label;
-
-      if (newStatus === meta.status && newLabel === meta.label) return prev;
-
-      const next = new Map(prev);
-      next.set(sessionId, { ...meta, status: newStatus, label: newLabel });
-      return next;
-    });
-  }, []);
+    if (isMeaningful && meta.label === "Terminal") {
+      sessionActions.updateLabel(sessionId, resolvedTitle);
+    }
+  }, [employeeMeta, sessionActions]);
 
   // Opens a plain terminal in MainArea's own layout.
   // Used by ChatPane's code-block "run in terminal" button (via MessageListContext).
@@ -748,19 +339,14 @@ export function MainArea({
       void (async () => {
         const session = await createTerminalSession(api, workspaceId, options);
         const tabType = makeTerminalTabType(session.sessionId);
-        knownSessionIdsRef.current.add(session.sessionId);
-        setEmployeeMeta((prev) => {
-          const next = new Map(prev);
-          next.set(session.sessionId, { slug: "terminal", label: "Terminal", status: "running" });
-          return next;
-        });
+        sessionActions.registerSession(session.sessionId, "terminal", "Terminal");
         setLayout((prev) => {
           const withTab = addTabToFocusedTabset(prev, tabType);
           return selectTabInFocusedTabset(withTab, tabType);
         });
       })();
     },
-    [api, workspaceId]
+    [api, workspaceId, sessionActions]
   );
 
   return (
