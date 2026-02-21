@@ -22,7 +22,6 @@ import { StatsTab } from "./RightSidebar/StatsTab";
 
 import { sumUsageHistory, type ChatUsageDisplay } from "@/common/utils/tokens/usageAggregator";
 import { matchesKeybind, KEYBINDS, formatKeybind } from "@/browser/utils/ui/keybinds";
-import { SidebarCollapseButton } from "./ui/SidebarCollapseButton";
 import { cn } from "@/common/lib/utils";
 import type { ReviewNoteData } from "@/common/types/review";
 import {
@@ -127,7 +126,10 @@ const SidebarContainer: React.FC<SidebarContainerProps> = ({
   role,
   "aria-label": ariaLabel,
 }) => {
-  const width = collapsed ? "20px" : customWidth ? `${customWidth}px` : "400px";
+  // When collapsed, shrink to exactly the icon-strip width (w-10 = 40px).
+  // The content panel (flex-1 min-w-0) gets 0px width automatically via overflow-hidden,
+  // while the icon strip (w-10 shrink-0) stays fully visible.
+  const width = collapsed ? "40px" : customWidth ? `${customWidth}px` : "400px";
 
   return (
     <div
@@ -230,6 +232,10 @@ interface RightSidebarTabsetNodeProps {
   onOpenFile: (relativePath: string) => void;
   /** Handler to close a file tab */
   onCloseFile: (tab: TabType) => void;
+  /** Whether the sidebar is currently collapsed (passed to icon strip for collapse button) */
+  collapsed?: boolean;
+  /** Callback to toggle the sidebar collapsed state */
+  onCollapseToggle?: () => void;
 }
 
 const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) => {
@@ -407,6 +413,8 @@ const RightSidebarTabsetNode: React.FC<RightSidebarTabsetNodeProps> = (props) =>
           ariaLabel="Sidebar views"
           items={items}
           tabsetId={props.node.id}
+          collapsed={props.collapsed}
+          onCollapseToggle={props.onCollapseToggle}
         />
       </SortableContext>
       <div
@@ -1238,6 +1246,8 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
         onAutoFocusConsumed={() => setAutoFocusTerminalSession(null)}
         onOpenFile={handleOpenFile}
         onCloseFile={handleCloseFile}
+        collapsed={collapsed}
+        onCollapseToggle={() => setCollapsed((c) => !c)}
       />
     );
   };
@@ -1252,36 +1262,22 @@ const RightSidebarComponent: React.FC<RightSidebarProps> = ({
         role="complementary"
         aria-label="Workspace insights"
       >
-        {!collapsed && (
-          <div className="flex min-h-0 min-w-0 flex-1 flex-row">
-            {/* Resize handle (left edge) */}
-            {onStartResize && (
-              <div
-                className={cn(
-                  "w-0.5 flex-shrink-0 z-10 transition-[background] duration-150 cursor-col-resize",
-                  isResizing ? "bg-accent" : "bg-border-light hover:bg-accent"
-                )}
-                onMouseDown={(e) => onStartResize(e as unknown as React.MouseEvent)}
-              />
-            )}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-row">
+          {/* Resize handle (left edge) — only when expanded */}
+          {!collapsed && onStartResize && (
+            <div
+              className={cn(
+                "w-0.5 flex-shrink-0 z-10 transition-[background] duration-150 cursor-col-resize",
+                isResizing ? "bg-accent" : "bg-border-light hover:bg-accent"
+              )}
+              onMouseDown={(e) => onStartResize(e as unknown as React.MouseEvent)}
+            />
+          )}
 
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {renderLayoutNode(layout.root)}
-              <SidebarCollapseButton
-                collapsed={collapsed}
-                onToggle={() => setCollapsed(!collapsed)}
-                side="right"
-              />
-            </div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {renderLayoutNode(layout.root)}
           </div>
-        )}
-        {collapsed && (
-          <SidebarCollapseButton
-            collapsed={collapsed}
-            onToggle={() => setCollapsed(!collapsed)}
-            side="right"
-          />
-        )}
+        </div>
       </SidebarContainer>
 
       {/* Drag overlay - shows tab being dragged at cursor position */}

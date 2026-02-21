@@ -18,6 +18,8 @@ import {
   SquareTerminal,
   FileCode,
   LayoutGrid,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 
 // Re-export for consumers that import from this file
@@ -49,6 +51,10 @@ interface RightSidebarTabStripProps {
   ariaLabel?: string;
   /** Unique ID of this tabset (for drag/drop) */
   tabsetId: string;
+  /** Whether the parent sidebar is currently collapsed */
+  collapsed?: boolean;
+  /** Callback to toggle the collapsed state of the sidebar */
+  onCollapseToggle?: () => void;
 }
 
 /** Icon for each tab type */
@@ -179,6 +185,8 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
   items,
   ariaLabel = "Sidebar views",
   tabsetId,
+  collapsed,
+  onCollapseToggle,
 }) => {
   const { active } = useDndContext();
   const activeData = active?.data.current as TabDragData | undefined;
@@ -219,6 +227,30 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
       <div className={cn("mt-1 shrink-0", isDesktop && "titlebar-no-drag")}>
         <SettingsButton className="h-8 w-8 rounded-md" />
       </div>
+
+      {/* Collapse / expand toggle at very bottom */}
+      {onCollapseToggle && (
+        <div className="mt-0.5 shrink-0">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={onCollapseToggle}
+                className="text-muted hover:bg-hover/40 hover:text-foreground relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-md p-2 transition-colors duration-150"
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {collapsed ? (
+                  <PanelRightOpen className="h-[18px] w-[18px]" />
+                ) : (
+                  <PanelRightClose className="h-[18px] w-[18px]" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" align="center">
+              {collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      )}
     </div>
   );
 };
