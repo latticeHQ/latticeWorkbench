@@ -7,6 +7,7 @@ export const RIGHT_SIDEBAR_TABS = [
   "models",
   "stats",
   "browser",
+  "settings",
 ] as const;
 
 /** Base tab types that are always valid */
