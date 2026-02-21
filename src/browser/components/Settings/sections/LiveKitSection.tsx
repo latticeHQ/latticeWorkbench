@@ -6,34 +6,32 @@
  *   - apiKey     (LiveKit API Key)
  *   - apiSecret  (LiveKit API Secret — password-obscured)
  *
- * Uses the same api.providers.setProviderConfig pattern as the rest
- * of the providers section. Saves on blur (not on every keystroke).
+ * Uses a single "Save" button — all dirty fields are written together.
  */
 
-import React, { useEffect, useRef, useState } from "react";
-import { Eye, EyeOff, ExternalLink, CheckCircle2, Loader2 } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Eye, EyeOff, ExternalLink, Check, Loader2, Save } from "lucide-react";
 import { Input } from "@/browser/components/ui/input";
+import { Button } from "@/browser/components/ui/button";
 import { useAPI } from "@/browser/contexts/API";
 
-interface FieldState {
-  value: string;
-  saving: boolean;
-  saved: boolean;
-}
-
-const EMPTY: FieldState = { value: "", saving: false, saved: false };
+type SaveState = "idle" | "saving" | "saved";
 
 export function LiveKitSection() {
   const { api } = useAPI();
 
-  const [wsUrl, setWsUrl] = useState<FieldState>(EMPTY);
-  const [apiKey, setApiKey] = useState<FieldState>(EMPTY);
-  const [apiSecret, setApiSecret] = useState<FieldState>(EMPTY);
+  // Current values in the form
+  const [wsUrl, setWsUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [apiSecret, setApiSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
-  // Track saved flash timeouts
-  const savedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  // Track what was last successfully saved (to detect dirty state)
+  const savedRef = useRef({ wsUrl: "", apiKey: "", apiSecret: "" });
+
+  const [loaded, setLoaded] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const savedFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load current config ──────────────────────────────────────────
 
@@ -43,49 +41,72 @@ export function LiveKitSection() {
       const lk = config.livekit as
         | { apiKeySet?: boolean; baseUrl?: string; [k: string]: unknown }
         | undefined;
-      // wsUrl is stored as baseUrl in the generic ProviderConfig schema
-      setWsUrl({ value: (lk?.baseUrl as string | undefined) ?? "", saving: false, saved: false });
-      // apiKey and apiSecret: apiKeySet tells us if they're set, but the actual values
-      // are redacted. Show placeholder if set.
-      setApiKey({
-        value: lk?.apiKeySet ? "••••••••••••••••" : "",
-        saving: false,
-        saved: false,
-      });
-      setApiSecret({ value: "", saving: false, saved: false });
+      const url = (lk?.baseUrl as string | undefined) ?? "";
+      const key = lk?.apiKeySet ? "••••••••••••••••" : "";
+      setWsUrl(url);
+      setApiKey(key);
+      setApiSecret("");
+      savedRef.current = { wsUrl: url, apiKey: key, apiSecret: "" };
       setLoaded(true);
     });
   }, [api]);
 
-  // ── Save helper ──────────────────────────────────────────────────
+  // ── Dirty check ──────────────────────────────────────────────────
 
-  const save = async (
-    field: string,
-    keyPath: string[],
-    value: string,
-    setter: React.Dispatch<React.SetStateAction<FieldState>>
-  ) => {
-    if (!api || !value.trim()) return;
-    setter((prev) => ({ ...prev, saving: true, saved: false }));
+  const isDirty =
+    wsUrl !== savedRef.current.wsUrl ||
+    apiKey !== savedRef.current.apiKey ||
+    apiSecret !== savedRef.current.apiSecret;
+
+  // ── Save all dirty fields ────────────────────────────────────────
+
+  const handleSave = useCallback(async () => {
+    if (!api || saveState === "saving") return;
+    setSaveState("saving");
+
     try {
-      await api.providers.setProviderConfig({ provider: "livekit", keyPath, value });
-      setter((prev) => ({ ...prev, saving: false, saved: true }));
-      // Clear "saved" flash after 2s
-      if (savedTimers.current[field]) clearTimeout(savedTimers.current[field]);
-      savedTimers.current[field] = setTimeout(() => {
-        setter((prev) => ({ ...prev, saved: false }));
-      }, 2000);
+      const saves: Promise<unknown>[] = [];
+
+      if (wsUrl !== savedRef.current.wsUrl && wsUrl.trim()) {
+        saves.push(
+          api.providers.setProviderConfig({ provider: "livekit", keyPath: ["wsUrl"], value: wsUrl.trim() })
+        );
+      }
+      if (apiKey !== savedRef.current.apiKey && apiKey.trim() && !apiKey.startsWith("•")) {
+        saves.push(
+          api.providers.setProviderConfig({ provider: "livekit", keyPath: ["apiKey"], value: apiKey.trim() })
+        );
+      }
+      if (apiSecret.trim()) {
+        saves.push(
+          api.providers.setProviderConfig({ provider: "livekit", keyPath: ["apiSecret"], value: apiSecret.trim() })
+        );
+      }
+
+      await Promise.all(saves);
+
+      // Update saved baseline
+      savedRef.current = { wsUrl, apiKey, apiSecret: "" };
+      // Clear secret field after save (it's write-only)
+      setApiSecret("");
+
+      setSaveState("saved");
+      if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current);
+      savedFlashTimer.current = setTimeout(() => setSaveState("idle"), 2000);
     } catch {
-      setter((prev) => ({ ...prev, saving: false, saved: false }));
+      setSaveState("idle");
     }
+  }, [api, wsUrl, apiKey, apiSecret, saveState]);
+
+  // Enter key saves
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && isDirty) void handleSave();
   };
 
-  // ── Cleanup timers ───────────────────────────────────────────────
-
+  // Cleanup
   useEffect(() => {
-    const timers = savedTimers.current;
     return () => {
-      for (const t of Object.values(timers)) clearTimeout(t);
+      if (savedFlashTimer.current) clearTimeout(savedFlashTimer.current);
     };
   }, []);
 
@@ -114,44 +135,61 @@ export function LiveKitSection() {
         <span className="text-muted text-[10px]">— get your credentials from Project Settings</span>
       </div>
 
-      {/* wsUrl */}
+      {/* Server URL */}
       <CredentialRow
         label="Server URL"
         placeholder="wss://my-project.livekit.cloud"
-        value={wsUrl.value}
-        saving={wsUrl.saving}
-        saved={wsUrl.saved}
+        value={wsUrl}
         type="text"
-        onChange={(v) => setWsUrl((p) => ({ ...p, value: v }))}
-        onBlur={(v) => void save("wsUrl", ["wsUrl"], v, setWsUrl)}
+        onKeyDown={handleKeyDown}
+        onChange={setWsUrl}
       />
 
-      {/* apiKey */}
+      {/* API Key */}
       <CredentialRow
         label="API Key"
         placeholder="APIxxxxxxxxxxxxxxx"
-        value={apiKey.value}
-        saving={apiKey.saving}
-        saved={apiKey.saved}
+        value={apiKey}
         type="text"
-        onChange={(v) => setApiKey((p) => ({ ...p, value: v }))}
-        onBlur={(v) => void save("apiKey", ["apiKey"], v, setApiKey)}
+        onKeyDown={handleKeyDown}
+        onChange={(v) => setApiKey(v)}
       />
 
-      {/* apiSecret */}
+      {/* API Secret */}
       <CredentialRow
         label="API Secret"
         placeholder="Enter to update…"
-        value={apiSecret.value}
-        saving={apiSecret.saving}
-        saved={apiSecret.saved}
+        value={apiSecret}
         type={showSecret ? "text" : "password"}
         showToggle
         onToggleShow={() => setShowSecret((s) => !s)}
         showingSecret={showSecret}
-        onChange={(v) => setApiSecret((p) => ({ ...p, value: v }))}
-        onBlur={(v) => void save("apiSecret", ["apiSecret"], v, setApiSecret)}
+        onKeyDown={handleKeyDown}
+        onChange={setApiSecret}
       />
+
+      {/* Save button row */}
+      <div className="flex items-center justify-end gap-2 pt-1">
+        {saveState === "saved" && (
+          <span className="text-[var(--color-success)] flex items-center gap-1 text-[11px]">
+            <Check size={11} />
+            Saved
+          </span>
+        )}
+        <Button
+          size="sm"
+          onClick={() => void handleSave()}
+          disabled={!isDirty || saveState === "saving"}
+          className="h-6 gap-1 px-2.5 text-[11px]"
+        >
+          {saveState === "saving" ? (
+            <Loader2 size={11} className="animate-spin" />
+          ) : (
+            <Save size={11} />
+          )}
+          {saveState === "saving" ? "Saving…" : "Save"}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -162,28 +200,24 @@ interface CredentialRowProps {
   label: string;
   placeholder: string;
   value: string;
-  saving: boolean;
-  saved: boolean;
   type: "text" | "password";
   showToggle?: boolean;
   showingSecret?: boolean;
   onToggleShow?: () => void;
   onChange: (v: string) => void;
-  onBlur: (v: string) => void;
+  onKeyDown?: (e: React.KeyboardEvent) => void;
 }
 
 function CredentialRow({
   label,
   placeholder,
   value,
-  saving,
-  saved,
   type,
   showToggle,
   showingSecret,
   onToggleShow,
   onChange,
-  onBlur,
+  onKeyDown,
 }: CredentialRowProps) {
   return (
     <div className="flex items-center gap-2">
@@ -194,25 +228,21 @@ function CredentialRow({
           value={value}
           placeholder={placeholder}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
-          onBlur={(e: React.FocusEvent<HTMLInputElement>) => onBlur(e.target.value)}
-          className="border-border-medium bg-background-secondary h-7 flex-1 pr-12 text-[11px] font-mono"
+          onKeyDown={onKeyDown}
+          className="border-border-medium bg-background-secondary h-7 flex-1 text-[11px] font-mono"
+          style={showToggle ? { paddingRight: "2rem" } : undefined}
         />
-        {/* Status indicators */}
-        <div className="absolute right-2 flex items-center gap-1">
-          {saving && <Loader2 size={11} className="text-muted animate-spin" />}
-          {saved && <CheckCircle2 size={11} className="text-[var(--color-success)]" />}
-          {showToggle && onToggleShow && (
-            <button
-              type="button"
-              onClick={onToggleShow}
-              className="text-muted hover:text-foreground ml-0.5 transition-colors"
-              tabIndex={-1}
-              title={showingSecret ? "Hide secret" : "Show secret"}
-            >
-              {showingSecret ? <EyeOff size={11} /> : <Eye size={11} />}
-            </button>
-          )}
-        </div>
+        {showToggle && onToggleShow && (
+          <button
+            type="button"
+            onClick={onToggleShow}
+            className="text-muted hover:text-foreground absolute right-2 transition-colors"
+            tabIndex={-1}
+            title={showingSecret ? "Hide secret" : "Show secret"}
+          >
+            {showingSecret ? <EyeOff size={11} /> : <Eye size={11} />}
+          </button>
+        )}
       </div>
     </div>
   );
