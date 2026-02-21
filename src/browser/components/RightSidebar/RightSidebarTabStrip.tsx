@@ -161,7 +161,7 @@ const SortableTab: React.FC<{
             {icon}
           </div>
         </TooltipTrigger>
-        {/* Tooltip on the left — doesn't overlap the content panel */}
+        {/* Tooltip on the left — points into the content area */}
         <TooltipContent side="left" align="center">
           {item.tooltip ?? shortLabel}
         </TooltipContent>
@@ -200,8 +200,8 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
     <div
       ref={setNodeRef}
       className={cn(
-        // Vertical strip — narrow icon-only column, bordered on the right
-        "border-border-light bg-sidebar flex w-10 shrink-0 flex-col items-center border-r px-1 py-2 transition-colors",
+        // Vertical strip — narrow icon-only column on the right edge of the sidebar
+        "border-border-light bg-sidebar flex w-10 shrink-0 flex-col items-center border-l px-1 py-2 transition-colors",
         showDropHighlight && "bg-accent/20",
         isDraggingFromHere && "bg-accent/10",
       )}
