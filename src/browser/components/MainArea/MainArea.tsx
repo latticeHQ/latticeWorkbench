@@ -763,6 +763,9 @@ export function MainArea({
                   onOpenSession={(sessionId) =>
                     handleSelectTab(makeTerminalTabType(sessionId))
                   }
+                  onCloseSession={(sessionId) =>
+                    handleCloseTab(makeTerminalTabType(sessionId))
+                  }
                 />
               </div>
             );
