@@ -532,6 +532,9 @@ export function MainArea({
         setEmployeeMeta((prev) => {
           const next = new Map(prev);
           next.delete(sessionId);
+          // Persist immediately — same as hireEmployee — so a fast app restart
+          // doesn't reload stale meta and try to relaunch the closed session.
+          saveEmployeeMeta(workspaceId, next);
           return next;
         });
         // Clear disk-backed scrollback then close the PTY session.
@@ -553,8 +556,11 @@ export function MainArea({
         const next = removeTabEverywhere(prev, tab);
         // Ensure "chat" always survives — if layout somehow lost it, restore default
         const remaining = collectAllTabs(next.root);
-        if (!remaining.includes("chat")) return getDefaultMainAreaLayoutState();
-        return next;
+        const finalLayout = remaining.includes("chat") ? next : getDefaultMainAreaLayoutState();
+        // Persist immediately so a fast app restart doesn't reload a stale layout
+        // with the closed tab still present (useEffect save is async/post-paint).
+        saveLayout(workspaceId, finalLayout);
+        return finalLayout;
       });
     },
     [api, workspaceId]
@@ -644,7 +650,11 @@ export function MainArea({
       />
 
       {/* Tab content panels — all mounted, inactive hidden (keep-alive).
-          Uses absolute positioning so only one panel occupies space at a time. */}
+          Uses absolute positioning so only one panel occupies space at a time.
+          Note: we use inline style display:none instead of the HTML `hidden`
+          attribute because Tailwind v4 resets [hidden] with zero specificity
+          (:where([hidden])), which the `flex` utility class overrides. Inline
+          styles always win regardless of cascade layer order. */}
       <div className="relative flex-1 overflow-hidden">
         {allTabs.map((tab) => {
           const isActive = tab === activeTab;
@@ -654,7 +664,7 @@ export function MainArea({
               <div
                 key="chat"
                 className="absolute inset-0 flex flex-col overflow-hidden"
-                hidden={!isActive}
+                style={isActive ? undefined : { display: "none" }}
               >
                 <ChatPane
                   workspaceId={workspaceId}
@@ -676,7 +686,7 @@ export function MainArea({
               <div
                 key={tab}
                 className="absolute inset-0 flex flex-col overflow-hidden"
-                hidden={!isActive}
+                style={isActive ? undefined : { display: "none" }}
               >
                 <TerminalTab
                   workspaceId={workspaceId}

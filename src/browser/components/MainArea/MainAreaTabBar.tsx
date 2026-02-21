@@ -56,7 +56,7 @@ export function MainAreaTabBar({
   const agentTabs = tabs.filter((t) => !isChatTab(t));
 
   return (
-    <div className="border-border-light bg-sidebar flex min-w-0 items-center border-b px-2 py-1.5">
+    <div className="border-border-light bg-sidebar relative z-10 flex min-w-0 items-center border-b px-2 py-1.5">
       {/* PM Chat — always pinned, never scrolls off */}
       {chatTab && (
         <Tab
