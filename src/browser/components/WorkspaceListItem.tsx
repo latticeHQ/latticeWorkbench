@@ -114,7 +114,7 @@ const WorkspaceListItemInner: React.FC<WorkspaceListItemProps> = ({
   const showUnreadBar = !isCreating && !isEditing && isUnread && !(isSelected && !isDisabled);
   const barColorClass =
     isSelected && !isDisabled
-      ? "bg-blue-400"
+      ? "bg-accent"
       : showUnreadBar
         ? "bg-muted-foreground"
         : "bg-transparent";
@@ -167,8 +167,8 @@ const WorkspaceListItemInner: React.FC<WorkspaceListItemProps> = ({
           isDragging && "opacity-50",
           isDisabled
             ? "cursor-default opacity-70"
-            : "cursor-pointer hover:bg-hover [&:hover_button]:opacity-100",
-          isSelected && !isDisabled && "bg-hover",
+            : "cursor-pointer hover:bg-hover/70 [&:hover_button]:opacity-100",
+          isSelected && !isDisabled && "bg-gradient-to-r from-accent/[0.10] to-transparent",
           isArchiving && "pointer-events-none"
         )}
         style={{ paddingLeft }}
