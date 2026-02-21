@@ -6,10 +6,11 @@
  * in a compact, real-time panel — like Activity Monitor.
  */
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Cable,
   Cpu,
+  Download,
   HardDrive,
   Info,
   Monitor,
@@ -22,6 +23,8 @@ import {
 } from "lucide-react";
 import { useInference } from "@/browser/hooks/useInference";
 import { cn } from "@/common/lib/utils";
+import { Button } from "@/browser/components/ui/button";
+import { InferenceSetupWizard } from "@/browser/components/InferenceSetupWizard";
 
 interface ClusterTabProps {
   workspaceId: string;
@@ -230,6 +233,7 @@ export const ClusterTab: React.FC<ClusterTabProps> = () => {
   }, [refreshPoolStatus, refreshClusterStatus, refreshTransportStatus, refreshSystemInfo]);
 
   const isOnline = inferenceStatus?.available === true;
+  const [setupWizardOpen, setSetupWizardOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
@@ -564,14 +568,28 @@ export const ClusterTab: React.FC<ClusterTabProps> = () => {
         </div>
       )}
 
-      {/* Empty state */}
+      {/* Empty state — with setup wizard button */}
       {!isOnline && (
-        <div className="text-muted flex flex-1 flex-col items-center justify-center gap-2 py-8">
+        <div className="text-muted flex flex-1 flex-col items-center justify-center gap-3 py-8">
           <Network className="h-8 w-8 opacity-30" />
           <span className="text-[11px]">Inference engine not running</span>
           <span className="text-[9px] opacity-60">
-            Start the inference service to see cluster status
+            Python ML dependencies may need to be installed
           </span>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setSetupWizardOpen(true)}
+            className="mt-1"
+          >
+            <Download className="mr-1.5 size-3.5" />
+            Setup Inference
+          </Button>
+          <InferenceSetupWizard
+            isOpen={setupWizardOpen}
+            onClose={() => setSetupWizardOpen(false)}
+            onSuccess={() => setSetupWizardOpen(false)}
+          />
         </div>
       )}
     </div>

@@ -149,3 +149,15 @@ export function getLatticePtyPidsFile(rootDir?: string): string {
   const root = rootDir ?? getLatticeHome();
   return join(root, "pty-pids.json");
 }
+
+/**
+ * Get the inference Python virtual environment directory.
+ * Used by the inference setup wizard to create and detect the managed venv.
+ * Example: ~/.lattice/inference-venv
+ *
+ * @param rootDir - Optional root directory (defaults to getLatticeHome())
+ */
+export function getLatticeInferenceVenvDir(rootDir?: string): string {
+  const root = rootDir ?? getLatticeHome();
+  return join(root, "inference-venv");
+}

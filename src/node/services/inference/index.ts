@@ -30,6 +30,14 @@ export {
   checkPythonDependencies,
 } from "./backendDetection";
 
+// Inference setup wizard
+export { InferenceSetupService } from "./inferenceSetupService";
+export type {
+  InferenceSetupStatus,
+  SetupStreamEvent,
+  SetupPhase,
+} from "./inferenceSetupService";
+
 // Legacy: Python worker (kept for backward compat, not used in new architecture)
 export { PythonWorkerManager } from "./workerManager";
 

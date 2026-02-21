@@ -23,7 +23,7 @@ import type { SessionTimingService } from "@/node/services/sessionTimingService"
 import type { SessionUsageService } from "@/node/services/sessionUsageService";
 import type { TaskService } from "@/node/services/taskService";
 import type { LatticeService } from "@/node/services/latticeService";
-import type { InferenceService } from "@/node/services/inference";
+import type { InferenceService, InferenceSetupService } from "@/node/services/inference";
 import type { ChannelService } from "@/node/services/channelService";
 import type { ChannelSessionRouter } from "@/node/services/channelSessionRouter";
 import type { BrowserSessionManager } from "@/node/services/browserSessionManager";
@@ -59,6 +59,7 @@ export interface ORPCContext {
   signingService: SigningService;
   latticeService: LatticeService;
   inferenceService: InferenceService;
+  inferenceSetupService: InferenceSetupService;
   channelService: ChannelService;
   channelSessionRouter: ChannelSessionRouter;
   browserSessionManager: BrowserSessionManager;

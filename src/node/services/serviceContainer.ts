@@ -53,7 +53,7 @@ import { TaskService } from "@/node/services/taskService";
 import { getSigningService, type SigningService } from "@/node/services/signingService";
 import { latticeService, type LatticeService } from "@/node/services/latticeService";
 import { setGlobalLatticeService } from "@/node/runtime/runtimeFactory";
-import { InferenceService } from "@/node/services/inference";
+import { InferenceService, InferenceSetupService } from "@/node/services/inference";
 import { ChannelService } from "@/node/services/channelService";
 import { ChannelSessionRouter } from "@/node/services/channelSessionRouter";
 import { BrowserSessionManager } from "@/node/services/browserSessionManager";
@@ -113,6 +113,7 @@ export class ServiceContainer {
   public readonly signingService: SigningService;
   public readonly latticeService: LatticeService;
   public readonly inferenceService: InferenceService;
+  public readonly inferenceSetupService: InferenceSetupService;
   public readonly channelSessionRouter: ChannelSessionRouter;
   public readonly channelService: ChannelService;
   private readonly initStateManager: InitStateManager;
@@ -260,6 +261,7 @@ export class ServiceContainer {
 
     // Local on-device inference (Lattice Inference)
     this.inferenceService = new InferenceService(config.rootDir);
+    this.inferenceSetupService = new InferenceSetupService(this.inferenceService);
     this.aiService.setInferenceService(this.inferenceService);
 
     // Backend timing stats (behind feature flag).
