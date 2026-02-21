@@ -1,8 +1,10 @@
 /**
- * HomeTab — Team dashboard / agent hierarchy view for the main area.
+ * HomeTab — Team dashboard / agent kanban view for the main area.
  *
- * Shows a live tree of the current workspace's child agent workspaces,
- * CLI agent terminal sessions, aggregate stats, and per-agent metrics.
+ * Shows a live kanban board of the current workspace's child agent workspaces
+ * and CLI agent terminal sessions, plus aggregate stats.
+ *
+ * Columns:  Active → Queued → Done
  */
 import React, { useCallback, useMemo } from "react";
 import { cn } from "@/common/lib/utils";
@@ -22,7 +24,6 @@ import type { EmployeeSlug } from "./AgentPicker";
 import { CliAgentIcon } from "@/browser/components/CliAgentIcon";
 import {
   LayoutDashboard,
-  GitBranch,
   Cpu,
   Terminal,
   DollarSign,
@@ -32,6 +33,9 @@ import {
   AlertCircle,
   Users,
   ArrowRight,
+  X,
+  Hourglass,
+  Layers,
 } from "lucide-react";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -44,9 +48,14 @@ interface HomeTabProps {
   projectName: string;
   employeeMeta: Map<string, EmployeeMeta>;
   onOpenSession?: (sessionId: string) => void;
+  onCloseSession?: (sessionId: string) => void;
 }
 
 type AgentStatus = "streaming" | "running" | "awaiting" | "done" | "queued" | "idle" | "error";
+
+type KanbanItem =
+  | { kind: "workspace"; workspace: FrontendWorkspaceMetadata }
+  | { kind: "cli"; sessionId: string; meta: EmployeeMeta };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -64,16 +73,16 @@ function deriveAgentStatus(
   return "idle";
 }
 
-function statusLabel(status: AgentStatus): string {
-  switch (status) {
-    case "streaming": return "streaming";
-    case "running":   return "active";
-    case "awaiting":  return "awaiting";
-    case "done":      return "done";
-    case "queued":    return "queued";
-    case "error":     return "error";
-    default:          return "idle";
-  }
+function cliToKanbanColumn(status: EmployeeMeta["status"]): "active" | "queued" | "done" {
+  if (status === "running") return "active";
+  if (status === "done" || status === "error") return "done";
+  return "queued";
+}
+
+function wsToKanbanColumn(status: AgentStatus): "active" | "queued" | "done" {
+  if (status === "streaming" || status === "running") return "active";
+  if (status === "done" || status === "awaiting") return "done";
+  return "queued";
 }
 
 function getAgentEmoji(agentId?: string): string {
@@ -103,7 +112,7 @@ function StatusDot({ status }: { status: AgentStatus }) {
     );
   }
   if (status === "done") {
-    return <span className="text-[var(--color-success)] text-[10px] leading-none font-bold">✓</span>;
+    return <CheckCircle2 className="h-3 w-3 shrink-0 text-[var(--color-success)]" />;
   }
   if (status === "awaiting") {
     return <span className="h-2 w-2 shrink-0 rounded-full bg-amber-400 block" />;
@@ -112,9 +121,8 @@ function StatusDot({ status }: { status: AgentStatus }) {
     return <span className="h-2 w-2 shrink-0 rounded-full border border-[var(--color-muted)] block" />;
   }
   if (status === "error") {
-    return <span className="text-destructive text-[10px] leading-none font-bold">!</span>;
+    return <AlertCircle className="h-3 w-3 shrink-0 text-destructive" />;
   }
-  // idle
   return <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--color-muted)] opacity-40 block" />;
 }
 
@@ -161,214 +169,6 @@ function StatCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Agent workspace node (child workspace)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function AgentWorkspaceCard({
-  workspace,
-  isLast,
-  depth,
-  onOpen,
-}: {
-  workspace: FrontendWorkspaceMetadata;
-  isLast: boolean;
-  depth: number;
-  onOpen?: (workspace: FrontendWorkspaceMetadata) => void;
-}) {
-  const usage = useWorkspaceUsage(workspace.id);
-  const wsState = useWorkspaceState(workspace.id);
-  const status = deriveAgentStatus(workspace.taskStatus, wsState.loading);
-  const totalCost = getTotalCost(usage.sessionTotal);
-  const totalTokens = usage.totalTokens;
-  const emoji = getAgentEmoji(workspace.agentId);
-  const title = workspace.title ?? workspace.name;
-  const currentActivity = wsState.agentStatus?.message;
-  const isActive = status === "streaming" || status === "running";
-
-  return (
-    <div className="relative flex items-stretch">
-      {/* Tree connector lines */}
-      <div className="relative mr-3 flex w-4 shrink-0 flex-col items-center">
-        {/* Vertical line */}
-        <div
-          className={cn(
-            "absolute left-1/2 top-0 w-px -translate-x-1/2 bg-border",
-            isLast ? "h-5" : "h-full"
-          )}
-        />
-        {/* Horizontal connector */}
-        <div className="absolute left-1/2 top-5 h-px w-4 -translate-y-0 bg-border" />
-      </div>
-
-      {/* Card (clickable → opens that workspace) */}
-      <div
-        role={onOpen ? "button" : undefined}
-        tabIndex={onOpen ? 0 : undefined}
-        onClick={() => onOpen?.(workspace)}
-        onKeyDown={(e) => {
-          if (onOpen && (e.key === "Enter" || e.key === " ")) onOpen(workspace);
-        }}
-        className={cn(
-          "group/card mb-2 flex min-w-0 flex-1 items-start gap-3 rounded-lg border p-3 transition-all duration-200",
-          "border-border bg-background-secondary",
-          isActive && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/5 shadow-sm",
-          onOpen && "cursor-pointer hover:border-[var(--color-exec-mode)]/50 hover:bg-[var(--color-exec-mode)]/5"
-        )}
-      >
-        {/* Emoji + status */}
-        <div className="mt-0.5 flex shrink-0 flex-col items-center gap-1.5">
-          <span className="text-base leading-none">{emoji}</span>
-          <StatusDot status={status} />
-        </div>
-
-        {/* Info */}
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-foreground truncate text-sm font-semibold">{title}</span>
-            <span
-              className={cn(
-                "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                status === "streaming" || status === "running"
-                  ? "bg-[var(--color-exec-mode)]/15 text-[var(--color-exec-mode)]"
-                  : status === "done"
-                    ? "bg-[var(--color-success)]/15 text-[var(--color-success)]"
-                    : status === "awaiting"
-                      ? "bg-amber-400/15 text-amber-400"
-                      : "bg-border text-muted"
-              )}
-            >
-              {statusLabel(status)}
-            </span>
-          </div>
-
-          {workspace.agentId && (
-            <span className="text-muted mt-0.5 block text-[11px]">
-              {workspace.agentId}
-            </span>
-          )}
-
-          {/* Current activity */}
-          {currentActivity && (
-            <p className="text-muted mt-1 truncate text-[11px] italic">
-              "{currentActivity}"
-            </p>
-          )}
-
-          {/* Metrics row */}
-          <div className="mt-2 flex items-center gap-3">
-            {totalCost !== undefined && (
-              <span className="text-muted flex items-center gap-0.5 text-[11px]">
-                <DollarSign className="h-2.5 w-2.5" />
-                {totalCost > 0 ? formatCostWithDollar(totalCost) : "$0.00"}
-              </span>
-            )}
-            {totalTokens > 0 && (
-              <span className="text-muted flex items-center gap-0.5 text-[11px]">
-                <Zap className="h-2.5 w-2.5" />
-                {formatTokens(totalTokens)} tok
-              </span>
-            )}
-            {workspace.createdAt && (
-              <span className="text-muted flex items-center gap-0.5 text-[11px]">
-                <Clock className="h-2.5 w-2.5" />
-                {new Date(workspace.createdAt).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Open arrow — visible on hover */}
-        {onOpen && (
-          <div className="mt-1 shrink-0 self-start opacity-0 transition-opacity group-hover/card:opacity-100">
-            <ArrowRight className="text-[var(--color-exec-mode)] h-3.5 w-3.5" />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CLI employee card (terminal session)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function EmployeeCard({
-  sessionId,
-  meta,
-  onOpen,
-}: {
-  sessionId: string;
-  meta: EmployeeMeta;
-  onOpen?: (sessionId: string) => void;
-}) {
-  const isRunning = meta.status === "running";
-  const isDone = meta.status === "done";
-  const isError = meta.status === "error";
-
-  return (
-    <div
-      role={onOpen ? "button" : undefined}
-      tabIndex={onOpen ? 0 : undefined}
-      onClick={() => onOpen?.(sessionId)}
-      onKeyDown={(e) => {
-        if (onOpen && (e.key === "Enter" || e.key === " ")) onOpen(sessionId);
-      }}
-      className={cn(
-        "group/emp flex items-center gap-3 rounded-lg border p-3 transition-all duration-150",
-        "border-border bg-background-secondary",
-        isRunning && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/5",
-        onOpen && "cursor-pointer hover:border-[var(--color-exec-mode)]/50"
-      )}
-    >
-      <div className="flex shrink-0 flex-col items-center gap-1">
-        {meta.slug === "terminal" ? (
-          <Terminal className="text-muted h-4 w-4" />
-        ) : (
-          <CliAgentIcon slug={meta.slug as EmployeeSlug} className="text-base" />
-        )}
-        {isRunning ? (
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-exec-mode)] opacity-60" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-exec-mode)]" />
-          </span>
-        ) : isDone ? (
-          <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" />
-        ) : isError ? (
-          <AlertCircle className="text-destructive h-3 w-3" />
-        ) : (
-          <span className="h-1.5 w-1.5 rounded-full bg-[var(--color-muted)] opacity-30 block" />
-        )}
-      </div>
-
-      <div className="min-w-0 flex-1">
-        <span className="text-foreground block truncate text-xs font-medium">{meta.label}</span>
-        <span
-          className={cn(
-            "text-[10px]",
-            isRunning
-              ? "text-[var(--color-exec-mode)]"
-              : isDone
-                ? "text-[var(--color-success)]"
-                : isError
-                  ? "text-destructive"
-                  : "text-muted"
-          )}
-        >
-          {meta.status ?? "idle"}
-        </span>
-      </div>
-
-      {onOpen && (
-        <ArrowRight className="h-3 w-3 shrink-0 text-[var(--color-exec-mode)] opacity-0 transition-opacity group-hover/emp:opacity-100" />
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // OrchestratorCard (current workspace / PM)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -395,7 +195,6 @@ function OrchestratorCard({
         isStreaming && "border-[var(--color-exec-mode)]/50 bg-[var(--color-exec-mode)]/8 shadow-md"
       )}
     >
-      {/* Icon */}
       <div className="flex shrink-0 flex-col items-center gap-2 pt-0.5">
         <div
           className={cn(
@@ -408,7 +207,6 @@ function OrchestratorCard({
         <StatusDot status={isStreaming ? "streaming" : "idle"} />
       </div>
 
-      {/* Info */}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
           <div>
@@ -451,6 +249,249 @@ function OrchestratorCard({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Kanban agent card — workspace variant
+// ─────────────────────────────────────────────────────────────────────────────
+
+function WorkspaceKanbanCard({
+  workspace,
+  onOpen,
+}: {
+  workspace: FrontendWorkspaceMetadata;
+  onOpen?: (workspace: FrontendWorkspaceMetadata) => void;
+}) {
+  const usage = useWorkspaceUsage(workspace.id);
+  const wsState = useWorkspaceState(workspace.id);
+  const status = deriveAgentStatus(workspace.taskStatus, wsState.loading);
+  const totalCost = getTotalCost(usage.sessionTotal);
+  const totalTokens = usage.totalTokens;
+  const emoji = getAgentEmoji(workspace.agentId);
+  const title = workspace.title ?? workspace.name;
+  const currentActivity = wsState.agentStatus?.message;
+
+  return (
+    <div
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={() => onOpen?.(workspace)}
+      onKeyDown={(e) => {
+        if (onOpen && (e.key === "Enter" || e.key === " ")) onOpen(workspace);
+      }}
+      className={cn(
+        "group/card w-full rounded-lg border p-3 transition-all duration-150 text-left",
+        "border-border bg-background",
+        (status === "streaming" || status === "running") &&
+          "border-[var(--color-exec-mode)]/30 bg-[var(--color-exec-mode)]/5",
+        onOpen && "cursor-pointer hover:border-[var(--color-exec-mode)]/50 hover:shadow-sm"
+      )}
+    >
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-base leading-none shrink-0">{emoji}</span>
+          <span className="text-foreground truncate text-xs font-semibold">{title}</span>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <StatusDot status={status} />
+          {onOpen && (
+            <ArrowRight className="h-3 w-3 text-[var(--color-exec-mode)] opacity-0 transition-opacity group-hover/card:opacity-100" />
+          )}
+        </div>
+      </div>
+
+      {/* Agent ID */}
+      {workspace.agentId && (
+        <span className="text-muted mt-1 block text-[10px]">{workspace.agentId}</span>
+      )}
+
+      {/* Activity */}
+      {currentActivity && (
+        <p className="text-muted mt-1.5 line-clamp-2 text-[10px] italic">"{currentActivity}"</p>
+      )}
+
+      {/* Metrics */}
+      <div className="mt-2 flex items-center gap-2.5 flex-wrap">
+        {totalCost !== undefined && totalCost > 0 && (
+          <span className="text-muted flex items-center gap-0.5 text-[10px]">
+            <DollarSign className="h-2.5 w-2.5" />{formatCostWithDollar(totalCost)}
+          </span>
+        )}
+        {totalTokens > 0 && (
+          <span className="text-muted flex items-center gap-0.5 text-[10px]">
+            <Zap className="h-2.5 w-2.5" />{formatTokens(totalTokens)} tok
+          </span>
+        )}
+        {workspace.createdAt && (
+          <span className="text-muted flex items-center gap-0.5 text-[10px]">
+            <Clock className="h-2.5 w-2.5" />
+            {new Date(workspace.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kanban agent card — CLI session variant
+// ─────────────────────────────────────────────────────────────────────────────
+
+function CliKanbanCard({
+  sessionId,
+  meta,
+  onOpen,
+  onClose,
+}: {
+  sessionId: string;
+  meta: EmployeeMeta;
+  onOpen?: (sessionId: string) => void;
+  onClose?: (sessionId: string) => void;
+}) {
+  const isRunning = meta.status === "running";
+  const isDone = meta.status === "done";
+  const isError = meta.status === "error";
+
+  return (
+    <div
+      className={cn(
+        "group/cli relative w-full rounded-lg border p-3 transition-all duration-150",
+        "border-border bg-background",
+        isRunning && "border-[var(--color-exec-mode)]/30 bg-[var(--color-exec-mode)]/5",
+        isError && "border-destructive/30",
+        onOpen && "cursor-pointer hover:border-[var(--color-exec-mode)]/50 hover:shadow-sm"
+      )}
+      role={onOpen ? "button" : undefined}
+      tabIndex={onOpen ? 0 : undefined}
+      onClick={() => onOpen?.(sessionId)}
+      onKeyDown={(e) => {
+        if (onOpen && (e.key === "Enter" || e.key === " ")) onOpen(sessionId);
+      }}
+    >
+      {/* Close button */}
+      {onClose && (
+        <button
+          aria-label="Close agent session"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose(sessionId);
+          }}
+          className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded opacity-0 transition-opacity hover:bg-border group-hover/cli:opacity-100"
+        >
+          <X className="h-2.5 w-2.5 text-muted" />
+        </button>
+      )}
+
+      {/* Header */}
+      <div className="flex items-center gap-2 min-w-0 pr-4">
+        {meta.slug === "terminal" ? (
+          <Terminal className="text-muted h-3.5 w-3.5 shrink-0" />
+        ) : (
+          <CliAgentIcon slug={meta.slug as EmployeeSlug} className="text-sm shrink-0" />
+        )}
+        <div className="min-w-0 flex-1">
+          <span className="text-foreground block truncate text-xs font-semibold">{meta.label}</span>
+          <span
+            className="text-muted block truncate font-mono text-[9px] opacity-60"
+            title={sessionId}
+          >
+            {sessionId.length > 16 ? `${sessionId.slice(0, 8)}…${sessionId.slice(-6)}` : sessionId}
+          </span>
+        </div>
+        {onOpen && (
+          <ArrowRight className="h-3 w-3 shrink-0 text-[var(--color-exec-mode)] opacity-0 transition-opacity group-hover/cli:opacity-100" />
+        )}
+      </div>
+
+      {/* Status */}
+      <div className="mt-1.5 flex items-center gap-1.5">
+        {isRunning ? (
+          <span className="relative flex h-1.5 w-1.5 shrink-0">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-exec-mode)] opacity-60" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--color-exec-mode)]" />
+          </span>
+        ) : isDone ? (
+          <CheckCircle2 className="h-3 w-3 shrink-0 text-[var(--color-success)]" />
+        ) : isError ? (
+          <AlertCircle className="h-3 w-3 shrink-0 text-destructive" />
+        ) : (
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--color-muted)] opacity-30 block" />
+        )}
+        <span
+          className={cn(
+            "text-[10px]",
+            isRunning ? "text-[var(--color-exec-mode)]"
+            : isDone ? "text-[var(--color-success)]"
+            : isError ? "text-destructive"
+            : "text-muted"
+          )}
+        >
+          {meta.status ?? "idle"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Kanban column
+// ─────────────────────────────────────────────────────────────────────────────
+
+function KanbanColumn({
+  title,
+  icon,
+  count,
+  accent,
+  children,
+  emptyText,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  count: number;
+  accent?: "orange" | "green" | "muted";
+  children?: React.ReactNode;
+  emptyText?: string;
+}) {
+  const accentClass = {
+    orange: "text-[var(--color-exec-mode)]",
+    green: "text-[var(--color-success)]",
+    muted: "text-muted",
+  }[accent ?? "muted"];
+
+  const badgeClass = {
+    orange: "bg-[var(--color-exec-mode)]/15 text-[var(--color-exec-mode)]",
+    green: "bg-[var(--color-success)]/15 text-[var(--color-success)]",
+    muted: "bg-border text-muted",
+  }[accent ?? "muted"];
+
+  const borderClass = {
+    orange: "border-[var(--color-exec-mode)]/20",
+    green: "border-[var(--color-success)]/20",
+    muted: "border-border",
+  }[accent ?? "muted"];
+
+  return (
+    <div className={cn("flex flex-col rounded-xl border bg-background-secondary", borderClass)}>
+      {/* Column header */}
+      <div className={cn("flex items-center gap-2 border-b px-4 py-3", borderClass)}>
+        <span className={accentClass}>{icon}</span>
+        <span className={cn("text-xs font-semibold uppercase tracking-widest", accentClass)}>{title}</span>
+        <span className={cn("ml-auto rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums", badgeClass)}>
+          {count}
+        </span>
+      </div>
+
+      {/* Cards */}
+      <div className="flex flex-col gap-2 overflow-y-auto p-3" style={{ maxHeight: "calc(100vh - 360px)", minHeight: "80px" }}>
+        {count === 0 ? (
+          <p className="text-muted py-4 text-center text-[11px]">{emptyText ?? "None"}</p>
+        ) : (
+          children
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main HomeTab
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -460,6 +501,7 @@ export function HomeTab({
   projectName,
   employeeMeta,
   onOpenSession,
+  onCloseSession,
 }: HomeTabProps) {
   const { workspaceMetadata, setSelectedWorkspace } = useWorkspaceContext();
   const ownUsage = useWorkspaceUsage(workspaceId);
@@ -470,13 +512,9 @@ export function HomeTab({
   // Child workspaces spawned by this workspace
   const childWorkspaces = useMemo(
     () =>
-      Array.from(workspaceMetadata.values())
-        .filter((ws) => ws.parentWorkspaceId === workspaceId)
-        .sort((a, b) => {
-          // Sort: running first, then queued, then done
-          const order: Record<string, number> = { running: 0, queued: 1, awaiting_report: 2, reported: 3 };
-          return (order[a.taskStatus ?? ""] ?? 4) - (order[b.taskStatus ?? ""] ?? 4);
-        }),
+      Array.from(workspaceMetadata.values()).filter(
+        (ws) => ws.parentWorkspaceId === workspaceId
+      ),
     [workspaceMetadata, workspaceId]
   );
 
@@ -486,22 +524,36 @@ export function HomeTab({
     [employeeMeta]
   );
 
-  // Aggregate stats (own workspace only — children shown individually)
-  const ownCost = getTotalCost(ownUsage.sessionTotal);
-  const ownTokens = ownUsage.totalTokens;
+  // Build kanban buckets
+  const kanban = useMemo(() => {
+    const active: KanbanItem[] = [];
+    const queued: KanbanItem[] = [];
+    const done: KanbanItem[] = [];
 
-  const runningAgents =
-    childWorkspaces.filter((ws) => ws.taskStatus === "running").length +
-    employeeEntries.filter(([, m]) => m.status === "running").length +
-    (ownState.loading ? 1 : 0);
+    for (const ws of childWorkspaces) {
+      const wsState_dummy_loading = false; // streaming state handled per-card
+      const status = deriveAgentStatus(ws.taskStatus, wsState_dummy_loading);
+      const col = wsToKanbanColumn(status);
+      const item: KanbanItem = { kind: "workspace", workspace: ws };
+      if (col === "active") active.push(item);
+      else if (col === "done") done.push(item);
+      else queued.push(item);
+    }
 
-  const doneAgents = childWorkspaces.filter(
-    (ws) => ws.taskStatus === "reported" || ws.taskStatus === "awaiting_report"
-  ).length;
+    for (const [sessionId, meta] of employeeEntries) {
+      const col = cliToKanbanColumn(meta.status);
+      const item: KanbanItem = { kind: "cli", sessionId, meta };
+      if (col === "active") active.push(item);
+      else if (col === "done") done.push(item);
+      else queued.push(item);
+    }
+
+    return { active, queued, done };
+  }, [childWorkspaces, employeeEntries]);
 
   const totalAgents = childWorkspaces.length + employeeEntries.length;
-
-  const hasActivity = childWorkspaces.length > 0 || employeeEntries.length > 0;
+  const ownCost = getTotalCost(ownUsage.sessionTotal);
+  const ownTokens = ownUsage.totalTokens;
 
   const handleOpenWorkspace = useCallback(
     (ws: FrontendWorkspaceMetadata) => {
@@ -510,11 +562,33 @@ export function HomeTab({
     [setSelectedWorkspace]
   );
 
+  const hasActivity = totalAgents > 0;
+
+  function renderItem(item: KanbanItem) {
+    if (item.kind === "workspace") {
+      return (
+        <WorkspaceKanbanCard
+          key={item.workspace.id}
+          workspace={item.workspace}
+          onOpen={handleOpenWorkspace}
+        />
+      );
+    }
+    return (
+      <CliKanbanCard
+        key={item.sessionId}
+        sessionId={item.sessionId}
+        meta={item.meta}
+        onOpen={onOpenSession}
+        onClose={onCloseSession}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
-      {/* Scrollable content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="mb-6 flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -524,15 +598,11 @@ export function HomeTab({
             <p className="text-muted mt-1 text-sm">
               <span className="font-medium">{projectName}</span>
               {currentWorkspace?.title && (
-                <>
-                  {" · "}
-                  <span>{currentWorkspace.title}</span>
-                </>
+                <> · <span>{currentWorkspace.title}</span></>
               )}
             </p>
           </div>
 
-          {/* Live indicator */}
           {ownState.loading && (
             <div className="flex items-center gap-1.5 rounded-full border border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/10 px-3 py-1.5">
               <span className="relative flex h-1.5 w-1.5">
@@ -544,8 +614,8 @@ export function HomeTab({
           )}
         </div>
 
-        {/* Hero stats */}
-        <div className="mb-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {/* ── Stats ── */}
+        <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard
             icon={<DollarSign className="h-4 w-4" />}
             label="Session Cost"
@@ -561,107 +631,72 @@ export function HomeTab({
           <StatCard
             icon={<Users className="h-4 w-4" />}
             label="Active Agents"
-            value={String(runningAgents)}
+            value={String(kanban.active.length)}
             sub={totalAgents > 0 ? `of ${totalAgents} total` : "none started"}
-            accent={runningAgents > 0}
+            accent={kanban.active.length > 0}
           />
           <StatCard
             icon={<CheckCircle2 className="h-4 w-4" />}
             label="Tasks Done"
-            value={String(doneAgents)}
-            sub={childWorkspaces.length > 0 ? `of ${childWorkspaces.length} tasks` : "no tasks yet"}
+            value={String(kanban.done.length)}
+            sub={totalAgents > 0 ? `of ${totalAgents} tasks` : "no tasks yet"}
           />
         </div>
 
-        {/* Agent hierarchy */}
-        <section className="mb-8">
-          <div className="mb-3 flex items-center gap-2">
-            <GitBranch className="text-muted h-4 w-4" />
-            <h2 className="text-foreground text-sm font-semibold">Agent Hierarchy</h2>
-            {childWorkspaces.length > 0 && (
-              <span className="bg-border text-muted rounded px-1.5 py-0.5 text-[10px] font-medium">
-                {childWorkspaces.length}
-              </span>
-            )}
+        {/* ── Orchestrator card ── */}
+        <div className="mb-6">
+          <OrchestratorCard
+            workspaceId={workspaceId}
+            workspaceName={workspaceName}
+            workspaceTitle={currentWorkspace?.title}
+          />
+        </div>
+
+        {/* ── Kanban board ── */}
+        {hasActivity ? (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+            <KanbanColumn
+              title="Active"
+              icon={<span className="relative flex h-2 w-2"><span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-exec-mode)] opacity-60" /><span className="relative inline-flex h-2 w-2 rounded-full bg-[var(--color-exec-mode)]" /></span>}
+              count={kanban.active.length}
+              accent="orange"
+              emptyText="No agents running"
+            >
+              {kanban.active.map(renderItem)}
+            </KanbanColumn>
+
+            <KanbanColumn
+              title="Queued"
+              icon={<Hourglass className="h-3.5 w-3.5" />}
+              count={kanban.queued.length}
+              accent="muted"
+              emptyText="Nothing waiting"
+            >
+              {kanban.queued.map(renderItem)}
+            </KanbanColumn>
+
+            <KanbanColumn
+              title="Done"
+              icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+              count={kanban.done.length}
+              accent="green"
+              emptyText="No completed tasks"
+            >
+              {kanban.done.map(renderItem)}
+            </KanbanColumn>
           </div>
-
-          {/* Tree */}
-          <div className="relative">
-            {/* Orchestrator node */}
-            <OrchestratorCard
-              workspaceId={workspaceId}
-              workspaceName={workspaceName}
-              workspaceTitle={currentWorkspace?.title}
-            />
-
-            {/* Child workspace nodes */}
-            {childWorkspaces.length > 0 && (
-              <div className="ml-6 mt-1">
-                {/* Vertical spine from orchestrator */}
-                <div
-                  className="relative"
-                  style={{ paddingLeft: "1rem" }}
-                >
-                  {childWorkspaces.map((ws, idx) => (
-                    <AgentWorkspaceCard
-                      key={ws.id}
-                      workspace={ws}
-                      isLast={idx === childWorkspaces.length - 1}
-                      depth={1}
-                      onOpen={handleOpenWorkspace}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Empty state */}
-            {childWorkspaces.length === 0 && (
-              <div className="border-border mt-3 rounded-lg border border-dashed p-6 text-center">
-                <Cpu className="text-muted mx-auto mb-2 h-6 w-6 opacity-40" />
-                <p className="text-muted text-xs">
-                  No agent tasks spawned yet. Ask PM Chat to delegate work to agents.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-
-        {/* CLI Agents section */}
-        {employeeEntries.length > 0 && (
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <Terminal className="text-muted h-4 w-4" />
-              <h2 className="text-foreground text-sm font-semibold">CLI Agents</h2>
-              <span className="bg-border text-muted rounded px-1.5 py-0.5 text-[10px] font-medium">
-                {employeeEntries.length}
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {employeeEntries.map(([sessionId, meta]) => (
-                <EmployeeCard
-                  key={sessionId}
-                  sessionId={sessionId}
-                  meta={meta}
-                  onOpen={onOpenSession}
-                />
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Empty overall state */}
-        {!hasActivity && (
+        ) : (
+          /* ── Empty state ── */
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-[var(--color-exec-mode)]/30 bg-[var(--color-exec-mode)]/10">
-              <LayoutDashboard className="text-[var(--color-exec-mode)] h-7 w-7 opacity-70" />
+              <Layers className="text-[var(--color-exec-mode)] h-7 w-7 opacity-70" />
             </div>
             <h3 className="text-foreground mb-1 text-base font-semibold">
               Team ready to deploy
             </h3>
             <p className="text-muted max-w-xs text-sm leading-relaxed">
-              Start a conversation in PM Chat. When agents are hired or tasks are delegated,
-              they'll appear here in real time.
+              Start a conversation in PM Chat. When agents are hired or tasks are
+              delegated, they'll appear here across three columns — Active, Queued, Done.
             </p>
           </div>
         )}
