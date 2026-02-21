@@ -462,6 +462,16 @@ export function getTerminalTitlesKey(workspaceId: string): string {
 }
 
 /**
+ * Get the localStorage key for in-progress terminal session closes per workspace.
+ * Maps sessionId -> timestamp (ms). Survives page reloads so the session-sync
+ * doesn't re-add a session that was closed but not yet fully torn down.
+ * Format: "main-area:closing-sessions:{workspaceId}"
+ */
+export function getClosingSessionsKey(workspaceId: string): string {
+  return `main-area:closing-sessions:${workspaceId}`;
+}
+
+/**
  * Get the localStorage key for unified Review search state per workspace
  * Stores: { input: string, useRegex: boolean, matchCase: boolean }
  * Format: "reviewSearchState:{workspaceId}"
