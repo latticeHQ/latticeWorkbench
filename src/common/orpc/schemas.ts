@@ -203,6 +203,7 @@ export {
   tokenizer,
   update,
   inference,
+  inferenceSetup,
   voice,
   window,
   workspace,
