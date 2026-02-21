@@ -213,16 +213,23 @@ export function MainArea({
         : CLI_AGENT_DEFINITIONS[slug as keyof typeof CLI_AGENT_DEFINITIONS]?.binaryNames[0] ?? slug;
 
       const label = isTerminal
-        ? "Terminal"
+        ? "Custom Agent"
         : (CLI_AGENT_DEFINITIONS[slug as keyof typeof CLI_AGENT_DEFINITIONS]?.displayName ?? slug);
 
-      const session = await createTerminalSession(api, workspaceId, {
-        initialCommand,
-        slug,
-        label,
-        // Spawn the agent binary directly — no shell wrapper so no echo/prompt visible
-        directExec: !isTerminal,
-      });
+      let session: { sessionId: string; workspaceId: string; cols: number; rows: number };
+      try {
+        session = await createTerminalSession(api, workspaceId, {
+          initialCommand,
+          slug,
+          label,
+          // Spawn the agent binary directly — no shell wrapper so no echo/prompt visible
+          directExec: !isTerminal,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        showAgentToast(`Failed to open ${label}: ${msg}`, { type: "error" });
+        return;
+      }
       const tabType = makeTerminalTabType(session.sessionId);
 
       sessionActions.registerSession(session.sessionId, slug, label);

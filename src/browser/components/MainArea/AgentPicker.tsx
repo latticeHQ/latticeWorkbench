@@ -7,7 +7,7 @@
  * While detection is in progress a subtle spinner is shown in the header.
  */
 import React from "react";
-import { Terminal, Loader2, RefreshCw, ExternalLink } from "lucide-react";
+import { Terminal, Loader2, RefreshCw, ExternalLink, Wrench } from "lucide-react";
 import { CLI_AGENT_DEFINITIONS } from "@/common/constants/cliAgents";
 import { CliAgentIcon } from "@/browser/components/CliAgentIcon";
 import { cn } from "@/common/lib/utils";
@@ -91,8 +91,8 @@ export function AgentPicker({ detectedSlugs, loading, onRefresh, onSelect, onClo
               <EmployeeRow
                 key="terminal"
                 slug="terminal"
-                displayName="Plain Terminal"
-                description="Open a bare shell"
+                displayName="Custom Agent"
+                description="Bare shell — install & run any CLI agent"
                 detected={true}
                 onSelect={handleSelect}
               />
@@ -164,7 +164,7 @@ function EmployeeRow({
         )}
       >
         {slug === "terminal" ? (
-          <Terminal size={14} />
+          <Wrench size={13} />
         ) : (
           <CliAgentIcon slug={slug} className="text-[14px]" />
         )}
