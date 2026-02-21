@@ -529,11 +529,11 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
           tabIndex={0}
           data-testid="message-window"
           data-loaded={!loading}
-          className="h-full overflow-x-hidden overflow-y-auto p-[15px] leading-[1.5] break-words whitespace-pre-wrap"
+          className="h-full overflow-x-hidden overflow-y-auto px-6 py-4 leading-[1.6] break-words whitespace-pre-wrap"
         >
           <div
             ref={innerRef}
-            className={cn("max-w-4xl mx-auto", deferredMessages.length === 0 && "h-full")}
+            className={cn("max-w-3xl mx-auto", deferredMessages.length === 0 && "h-full")}
           >
             {deferredMessages.length === 0 ? (
               <div className="text-placeholder flex h-full flex-1 flex-col items-center justify-center text-center [&_h3]:m-0 [&_h3]:mb-2.5 [&_h3]:text-base [&_h3]:font-medium [&_p]:m-0 [&_p]:text-[13px]">
