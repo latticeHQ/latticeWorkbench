@@ -159,7 +159,7 @@ function EmployeeRow({
         className={cn(
           "flex h-7 w-7 shrink-0 items-center justify-center rounded text-[14px]",
           detected === true
-            ? "bg-accent/10 text-accent"
+            ? "bg-[var(--color-exec-mode)]/10 text-[var(--color-exec-mode)]"
             : "text-foreground"
         )}
       >
@@ -175,7 +175,7 @@ function EmployeeRow({
         <div className="flex items-center gap-1.5">
           <span className="text-foreground text-[13px] font-medium leading-tight">{displayName}</span>
           {detected === true && (
-            <span className="bg-accent/10 text-accent rounded px-1 py-px text-[10px] font-medium leading-none">
+            <span className="bg-[var(--color-exec-mode)]/10 text-[var(--color-exec-mode)] rounded px-1 py-px text-[10px] font-medium leading-none">
               ready
             </span>
           )}

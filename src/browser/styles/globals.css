@@ -76,6 +76,9 @@
     --color-editing-mode-alpha: hsla(38 70% 50% / 0.08);
     --color-pending: hsl(30 100% 70%);
 
+    --color-success: hsl(142 52% 48%);        /* muted green — good on dark bg */
+    --color-success-text: hsl(142 52% 56%);
+
     --color-debug-mode: hsl(214 100% 64%);
     --color-debug-light: hsl(214 100% 76%);
     --color-debug-text: hsl(214 100% 80%);
@@ -359,6 +362,9 @@
   --color-exec-mode-light: hsl(24 85% 68%);
 
   --color-pending: hsl(30 100% 64%);
+
+  --color-success: hsl(142 38% 36%);         /* darker, warmer green for cream bg */
+  --color-success-text: hsl(142 38% 36%);
 
   --color-debug-mode: hsl(214 100% 56%);
   --color-debug-light: hsl(214 100% 68%);
