@@ -66,6 +66,7 @@ import {
 import { useLiveKit } from "@/browser/hooks/useLiveKit";
 import { LiveKitBar } from "./LiveKitBar";
 import { LiveKitVideoTile } from "./LiveKitVideoTile";
+import { useSettings } from "@/browser/contexts/SettingsContext";
 
 interface ChatPaneProps {
   workspaceId: string;
@@ -95,6 +96,7 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
     workspaceState,
   } = props;
   const { api } = useAPI();
+  const { open: openSettings } = useSettings();
   const { workspaceMetadata } = useWorkspaceContext();
   const chatAreaRef = useRef<HTMLDivElement>(null);
 
@@ -706,9 +708,7 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
         onEnd={liveKit.disconnect}
         onToggleMic={() => void liveKit.toggleMic()}
         onToggleCamera={() => void liveKit.toggleCamera()}
-        onOpenSettings={() => {
-          /* TODO: trigger settings modal open — for now shows tooltip */
-        }}
+        onOpenSettings={() => openSettings("providers")}
       />
 
       {/* Floating input card — padded from edges, no flush bottom bar */}
