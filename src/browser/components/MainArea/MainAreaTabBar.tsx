@@ -7,7 +7,8 @@
  * - Employee (agent) tabs show CliAgentIcon + label + close button
  * - "+" button opens AgentPicker to hire a new employee
  */
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Plus, Sparkles, Terminal, X } from "lucide-react";
 import { cn } from "@/common/lib/utils";
 import { isChatTab, isTerminalTab } from "@/browser/types/rightSidebar";
@@ -30,6 +31,8 @@ interface MainAreaTabBarProps {
   detectedSlugs?: Set<string>;
   /** True while CLI agent detection scan is still running */
   detectingAgents?: boolean;
+  /** Callback to re-scan for installed agents */
+  onRefreshAgents?: () => void;
   onSelectTab: (tab: TabType) => void;
   onCloseTab: (tab: TabType) => void;
   onHireEmployee: (slug: EmployeeSlug) => void;
@@ -41,6 +44,7 @@ export function MainAreaTabBar({
   employeeMeta,
   detectedSlugs,
   detectingAgents,
+  onRefreshAgents,
   onSelectTab,
   onCloseTab,
   onHireEmployee,
@@ -48,24 +52,42 @@ export function MainAreaTabBar({
   const [pickerOpen, setPickerOpen] = useState(false);
   const addButtonRef = useRef<HTMLButtonElement>(null);
 
+  const chatTab = tabs.find(isChatTab);
+  const agentTabs = tabs.filter((t) => !isChatTab(t));
+
   return (
-    <div className="border-border-light bg-sidebar relative flex items-center border-b">
-      {/* Scrollable tab list */}
-      <div className="flex min-w-0 flex-1 items-center overflow-x-auto">
-        {tabs.map((tab) => (
+    <div className="border-border-light bg-sidebar flex min-w-0 items-center border-b px-2 py-1.5">
+      {/* PM Chat — always pinned, never scrolls off */}
+      {chatTab && (
+        <Tab
+          tab={chatTab}
+          isActive={chatTab === activeTab}
+          employeeMeta={employeeMeta}
+          onSelect={() => onSelectTab(chatTab)}
+        />
+      )}
+
+      {/* Divider between pinned PM Chat and scrollable agent tabs */}
+      {agentTabs.length > 0 && (
+        <div className="bg-border-light mx-1.5 h-4 w-px shrink-0" />
+      )}
+
+      {/* Scrollable agent/terminal tabs */}
+      <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+        {agentTabs.map((tab) => (
           <Tab
             key={tab}
             tab={tab}
             isActive={tab === activeTab}
             employeeMeta={employeeMeta}
             onSelect={() => onSelectTab(tab)}
-            onClose={isChatTab(tab) ? undefined : () => onCloseTab(tab)}
+            onClose={() => onCloseTab(tab)}
           />
         ))}
       </div>
 
       {/* Hire employee (+) button */}
-      <div className="relative shrink-0 px-1">
+      <div className="relative shrink-0 pl-1">
         <button
           ref={addButtonRef}
           onClick={() => setPickerOpen((v) => !v)}
@@ -78,24 +100,16 @@ export function MainAreaTabBar({
           <Plus size={14} />
         </button>
 
-        {/* AgentPicker popover */}
+        {/* AgentPicker popover — viewport-aware positioning */}
         {pickerOpen && (
-          <>
-            {/* Backdrop */}
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setPickerOpen(false)}
-            />
-            {/* Picker panel */}
-            <div className="absolute top-full right-0 z-50 mt-1">
-              <AgentPicker
-                detectedSlugs={detectedSlugs}
-                loading={detectingAgents}
-                onSelect={onHireEmployee}
-                onClose={() => setPickerOpen(false)}
-              />
-            </div>
-          </>
+          <AgentPickerPopover
+            buttonRef={addButtonRef}
+            detectedSlugs={detectedSlugs}
+            detectingAgents={detectingAgents}
+            onRefreshAgents={onRefreshAgents}
+            onHireEmployee={onHireEmployee}
+            onClose={() => setPickerOpen(false)}
+          />
         )}
       </div>
     </div>
@@ -110,17 +124,76 @@ interface TabProps {
   onClose?: () => void;
 }
 
+/**
+ * Portalled popover for AgentPicker. Rendered into document.body so it's
+ * never clipped by parent overflow:hidden or CSS transforms. Positioned
+ * using the trigger button's bounding rect.
+ */
+function AgentPickerPopover({
+  buttonRef,
+  detectedSlugs,
+  detectingAgents,
+  onRefreshAgents,
+  onHireEmployee,
+  onClose,
+}: {
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
+  detectedSlugs?: Set<string>;
+  detectingAgents?: boolean;
+  onRefreshAgents?: () => void;
+  onHireEmployee: (slug: EmployeeSlug) => void;
+  onClose: () => void;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null);
+
+  useEffect(() => {
+    const btn = buttonRef.current;
+    if (!btn) return;
+    const rect = btn.getBoundingClientRect();
+    setPos({
+      top: rect.bottom + 4,
+      right: Math.max(8, window.innerWidth - rect.right),
+    });
+  }, [buttonRef]);
+
+  return createPortal(
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      {/* Picker panel — fixed position, max-height keeps it inside viewport */}
+      <div
+        ref={panelRef}
+        className="fixed z-50 flex flex-col overflow-hidden"
+        style={
+          pos
+            ? { top: pos.top, right: pos.right, maxHeight: `calc(100vh - ${pos.top + 8}px)` }
+            : { top: 0, right: 0, visibility: "hidden" }
+        }
+      >
+        <AgentPicker
+          detectedSlugs={detectedSlugs}
+          loading={detectingAgents}
+          onRefresh={onRefreshAgents}
+          onSelect={onHireEmployee}
+          onClose={onClose}
+        />
+      </div>
+    </>,
+    document.body
+  );
+}
+
 function Tab({ tab, isActive, employeeMeta, onSelect, onClose }: TabProps) {
   const { icon, label, statusBadge } = getTabDisplay(tab, employeeMeta);
 
   return (
     <div
       className={cn(
-        "group relative flex shrink-0 cursor-pointer items-center gap-1.5 border-r px-3 py-2 text-[12px] transition-colors",
-        "border-border-light",
+        "group relative flex h-7 shrink-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-md px-3 text-xs font-medium transition-all duration-150",
         isActive
-          ? "bg-dark text-foreground after:pointer-events-none after:bg-accent after:absolute after:bottom-0 after:left-0 after:right-0 after:h-[2px]"
-          : "text-muted hover:bg-hover hover:text-foreground"
+          ? "bg-hover text-foreground"
+          : "text-muted hover:bg-hover/50 hover:text-foreground"
       )}
       onClick={onSelect}
       role="tab"
