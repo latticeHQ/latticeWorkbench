@@ -17,7 +17,6 @@ interface UseAIViewKeybindsParams {
   showRetryBarrier: boolean;
   chatInputAPI: React.RefObject<ChatInputAPI | null>;
   jumpToBottom: () => void;
-  handleOpenTerminal: () => void;
   handleOpenInEditor: () => void;
   aggregator: StreamingMessageAggregator | undefined; // For compaction detection
   setEditingMessage: (editing: { id: string; content: string } | undefined) => void;
@@ -29,7 +28,6 @@ interface UseAIViewKeybindsParams {
  * - Esc (non-vim) or Ctrl+C (vim): Interrupt stream (always, regardless of selection)
  * - Ctrl+I: Focus chat input
  * - Ctrl+G: Jump to bottom
- * - Ctrl+T: Open terminal
  * - Ctrl+Shift+E: Open in editor
  * - Ctrl+C (during compaction in vim mode): Cancel compaction, restore command
  *
@@ -41,7 +39,6 @@ export function useAIViewKeybinds({
   showRetryBarrier,
   chatInputAPI,
   jumpToBottom,
-  handleOpenTerminal,
   handleOpenInEditor,
   aggregator,
   setEditingMessage,
@@ -101,15 +98,10 @@ export function useAIViewKeybinds({
         return;
       }
 
-      // Open in editor / terminal - work even in input fields (global feel, like TOGGLE_AGENT)
+      // Open in editor - works even in input fields (global feel, like TOGGLE_AGENT)
       if (matchesKeybind(e, KEYBINDS.OPEN_IN_EDITOR)) {
         e.preventDefault();
         handleOpenInEditor();
-        return;
-      }
-      if (matchesKeybind(e, KEYBINDS.OPEN_TERMINAL)) {
-        e.preventDefault();
-        handleOpenTerminal();
         return;
       }
 
@@ -137,7 +129,6 @@ export function useAIViewKeybinds({
     };
   }, [
     jumpToBottom,
-    handleOpenTerminal,
     handleOpenInEditor,
     workspaceId,
     canInterrupt,

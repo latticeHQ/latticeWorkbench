@@ -37,7 +37,6 @@ import {
   useWorkspaceStoreRaw,
   type WorkspaceState,
 } from "@/browser/stores/WorkspaceStore";
-import { WorkspaceHeader } from "./WorkspaceHeader";
 import type { FilePart } from "@/common/orpc/types";
 import type { DisplayedMessage } from "@/common/types/message";
 import type { RuntimeConfig } from "@/common/types/runtime";
@@ -72,8 +71,6 @@ interface ChatPaneProps {
   projectName: string;
   workspaceName: string;
   namedWorkspacePath: string;
-  leftSidebarCollapsed: boolean;
-  onToggleLeftSidebarCollapsed: () => void;
   runtimeConfig?: RuntimeConfig;
   status?: "creating";
   onOpenTerminal: (options?: TerminalSessionCreateOptions) => void;
@@ -90,8 +87,6 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
     projectName,
     workspaceName,
     namedWorkspacePath,
-    leftSidebarCollapsed,
-    onToggleLeftSidebarCollapsed,
     runtimeConfig,
     onOpenTerminal,
     workspaceState,
@@ -469,7 +464,6 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
     showRetryBarrier,
     chatInputAPI,
     jumpToBottom,
-    handleOpenTerminal: onOpenTerminal,
     handleOpenInEditor,
     aggregator,
     setEditingMessage,
@@ -521,18 +515,6 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
       ref={chatAreaRef}
       className="flex min-w-96 flex-1 flex-col overflow-hidden [@media(max-width:768px)]:max-h-full [@media(max-width:768px)]:w-full [@media(max-width:768px)]:min-w-0"
     >
-      <WorkspaceHeader
-        workspaceId={workspaceId}
-        projectName={projectName}
-        projectPath={projectPath}
-        workspaceName={workspaceName}
-        leftSidebarCollapsed={leftSidebarCollapsed}
-        onToggleLeftSidebarCollapsed={onToggleLeftSidebarCollapsed}
-        namedWorkspacePath={namedWorkspacePath}
-        runtimeConfig={runtimeConfig}
-        onOpenTerminal={onOpenTerminal}
-      />
-
       {/* Spacer for fixed mobile header - mobile-header-spacer adds padding-top on touch devices */}
       <div className="mobile-header-spacer relative flex-1 overflow-hidden">
         <div

@@ -10,7 +10,7 @@
  *   │  <ChatPane> or <TerminalView>  (keep-alive)      │
  *   └──────────────────────────────────────────────────┘
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/common/lib/utils";
 import { getMainAreaLayoutKey, getMainAreaEmployeeMetaKey } from "@/common/constants/storage";
 import { CLI_AGENT_DEFINITIONS } from "@/common/constants/cliAgents";
@@ -42,6 +42,7 @@ import type { EmployeeSlug } from "./AgentPicker";
 // Existing components
 import { ChatPane } from "@/browser/components/ChatPane";
 import { TerminalTab } from "@/browser/components/RightSidebar/TerminalTab";
+import { WorkspaceHeader } from "@/browser/components/WorkspaceHeader";
 
 import type { RuntimeConfig } from "@/common/types/runtime";
 import type { WorkspaceState } from "@/browser/stores/WorkspaceStore";
@@ -161,13 +162,17 @@ export function MainArea({
   addTerminalRef,
 }: MainAreaProps) {
   const { api } = useAPI();
-  const { detectedAgents, loading: detectingAgents } = useCliAgentDetection();
+  const { detectedAgents, loading: detectingAgents, refresh: refreshAgents } = useCliAgentDetection(workspaceId);
   const detectedSlugs = new Set(detectedAgents.map((a) => a.slug));
 
   const [layout, setLayout] = useState<RightSidebarLayoutState>(() => loadLayout(workspaceId));
   const [employeeMeta, setEmployeeMeta] = useState<Map<string, EmployeeMeta>>(
     () => loadEmployeeMeta(workspaceId)
   );
+
+  // Track sessions that are being closed so the session-sync effect doesn't
+  // re-add them before the backend has finished tearing down the PTY.
+  const closingSessionIds = useRef(new Set<string>());
 
   // Persist layout whenever it changes
   useEffect(() => {
@@ -215,9 +220,11 @@ export function MainArea({
         currentTerminalTabs.map(getTerminalSessionId).filter(Boolean)
       );
 
-      // Sessions that exist in backend but have no tab yet → restore them
+      // Sessions that exist in backend but have no tab yet → restore them.
+      // Exclude sessions that are in the process of being closed by the user
+      // (the backend may not have fully torn them down yet).
       const missingSessions = backendSessionIds.filter(
-        (sid) => !currentTerminalSessionIds.has(sid)
+        (sid) => !currentTerminalSessionIds.has(sid) && !closingSessionIds.current.has(sid)
       );
 
       // Tabs whose backend session is gone → split by whether we can relaunch them
@@ -396,35 +403,48 @@ export function MainArea({
     [api, workspaceId]
   );
 
-  // Expose plain terminal launch to WorkspaceShell via ref
+  // Expose plain terminal launch to WorkspaceShell via ref.
+  // Use a stable wrapper so the ref is never temporarily null during React
+  // re-renders (avoids parent's fallback path firing unexpectedly).
+  const addTerminalHandler = useCallback(
+    (options?: TerminalSessionCreateOptions) => {
+      if (!api) return;
+      void (async () => {
+        const session = await createTerminalSession(api, workspaceId, options);
+        const tabType = makeTerminalTabType(session.sessionId);
+        setEmployeeMeta((prev) => {
+          const next = new Map(prev);
+          const metaSlug = (options?.slug ?? "terminal") as EmployeeSlug;
+          const metaLabel = options?.label ?? "Terminal";
+          next.set(session.sessionId, { slug: metaSlug, label: metaLabel, status: "running" });
+          // Persist immediately so the label survives a fast page reload even if the
+          // async useEffect flush hasn't run yet.
+          saveEmployeeMeta(workspaceId, next);
+          return next;
+        });
+        setLayout((prev) => {
+          const withTab = addTabToFocusedTabset(prev, tabType);
+          return selectTabInFocusedTabset(withTab, tabType);
+        });
+      })();
+    },
+    [api, workspaceId]
+  );
+
+  const addTerminalHandlerRef = useRef(addTerminalHandler);
+  addTerminalHandlerRef.current = addTerminalHandler;
+
   useEffect(() => {
-    if (addTerminalRef) {
-      addTerminalRef.current = (options?: TerminalSessionCreateOptions) => {
-        if (!api) return;
-        void (async () => {
-          const session = await createTerminalSession(api, workspaceId, options);
-          const tabType = makeTerminalTabType(session.sessionId);
-          setEmployeeMeta((prev) => {
-            const next = new Map(prev);
-            const metaSlug = (options?.slug ?? "terminal") as EmployeeSlug;
-            const metaLabel = options?.label ?? "Terminal";
-            next.set(session.sessionId, { slug: metaSlug, label: metaLabel, status: "running" });
-            // Persist immediately so the label survives a fast page reload even if the
-            // async useEffect flush hasn't run yet.
-            saveEmployeeMeta(workspaceId, next);
-            return next;
-          });
-          setLayout((prev) => {
-            const withTab = addTabToFocusedTabset(prev, tabType);
-            return selectTabInFocusedTabset(withTab, tabType);
-          });
-        })();
-      };
-    }
-    return () => {
-      if (addTerminalRef) addTerminalRef.current = null;
+    if (!addTerminalRef) return;
+    addTerminalRef.current = (options?: TerminalSessionCreateOptions) => {
+      addTerminalHandlerRef.current(options);
     };
-  }, [api, workspaceId, addTerminalRef]);
+    return () => {
+      addTerminalRef.current = null;
+    };
+    // addTerminalRef is a stable useRef from parent — runs once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addTerminalRef]);
 
   // ── Tab selection ────────────────────────────────────────────────────────
   const handleSelectTab = useCallback((tab: TabType) => {
@@ -436,14 +456,26 @@ export function MainArea({
     (tab: TabType) => {
       const sessionId = getTerminalSessionId(tab);
       if (sessionId) {
+        // Mark as closing so session-sync doesn't re-add this tab while the
+        // backend is still tearing down the PTY process.
+        closingSessionIds.current.add(sessionId);
+
         setEmployeeMeta((prev) => {
           const next = new Map(prev);
           next.delete(sessionId);
           return next;
         });
-        // Clear disk-backed scrollback then close the PTY session
+        // Clear disk-backed scrollback then close the PTY session.
+        // Remove from closingSessionIds once the backend confirms the close.
         void api?.terminal.scrollback.clear({ sessionId }).catch(() => undefined);
-        void api?.terminal.close({ sessionId }).catch(() => undefined);
+        void api?.terminal
+          .close({ sessionId })
+          .catch(() => undefined)
+          .finally(() => {
+            // Give a short grace period before allowing re-add (in case
+            // session-sync runs immediately after the close resolves).
+            setTimeout(() => closingSessionIds.current.delete(sessionId), 2000);
+          });
       }
       setLayout((prev) => {
         const next = removeTabEverywhere(prev, tab);
@@ -490,7 +522,8 @@ export function MainArea({
     });
   }, []);
 
-  // ChatPane's onOpenTerminal — opens a plain terminal tab
+  // Opens a plain terminal in MainArea's own layout.
+  // Used by ChatPane's code-block "run in terminal" button (via MessageListContext).
   const handleOpenTerminal = useCallback(
     (options?: TerminalSessionCreateOptions) => {
       if (!api) return;
@@ -513,6 +546,18 @@ export function MainArea({
 
   return (
     <div className={cn("flex flex-1 flex-col overflow-hidden", className)}>
+      {/* Workspace header — sits above the tab bar */}
+      <WorkspaceHeader
+        workspaceId={workspaceId}
+        projectName={projectName}
+        projectPath={projectPath}
+        workspaceName={workspaceName}
+        leftSidebarCollapsed={leftSidebarCollapsed}
+        onToggleLeftSidebarCollapsed={onToggleLeftSidebarCollapsed}
+        namedWorkspacePath={workspacePath}
+        runtimeConfig={runtimeConfig}
+      />
+
       {/* Tab bar */}
       <MainAreaTabBar
         tabs={allTabs}
@@ -520,6 +565,7 @@ export function MainArea({
         employeeMeta={employeeMeta}
         detectedSlugs={detectedSlugs}
         detectingAgents={detectingAgents}
+        onRefreshAgents={refreshAgents}
         onSelectTab={handleSelectTab}
         onCloseTab={handleCloseTab}
         onHireEmployee={(slug) => void hireEmployee(slug)}
@@ -545,8 +591,6 @@ export function MainArea({
                   projectName={projectName}
                   workspaceName={workspaceName}
                   namedWorkspacePath={workspacePath}
-                  leftSidebarCollapsed={leftSidebarCollapsed}
-                  onToggleLeftSidebarCollapsed={onToggleLeftSidebarCollapsed}
                   runtimeConfig={runtimeConfig}
                   status={status}
                   onOpenTerminal={handleOpenTerminal}

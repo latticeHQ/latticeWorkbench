@@ -21,8 +21,6 @@ import { useWorkspaceSidebarState } from "@/browser/stores/WorkspaceStore";
 import { Button } from "@/browser/components/ui/button";
 import type { RuntimeConfig } from "@/common/types/runtime";
 import { useTutorial } from "@/browser/contexts/TutorialContext";
-import type { TerminalSessionCreateOptions } from "@/browser/utils/terminal";
-import { useOpenTerminal } from "@/browser/hooks/useOpenTerminal";
 import { useOpenInEditor } from "@/browser/hooks/useOpenInEditor";
 import { usePersistedState } from "@/browser/hooks/usePersistedState";
 import {
@@ -45,8 +43,6 @@ interface WorkspaceHeaderProps {
   runtimeConfig?: RuntimeConfig;
   leftSidebarCollapsed: boolean;
   onToggleLeftSidebarCollapsed: () => void;
-  /** Callback to open integrated terminal in sidebar (optional, falls back to popout) */
-  onOpenTerminal?: (options?: TerminalSessionCreateOptions) => void;
 }
 
 export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
@@ -58,10 +54,8 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   runtimeConfig,
   leftSidebarCollapsed,
   onToggleLeftSidebarCollapsed,
-  onOpenTerminal,
 }) => {
   const { api } = useAPI();
-  const openTerminalPopout = useOpenTerminal();
   const openInEditor = useOpenInEditor();
   const gitStatus = useGitStatus(workspaceId);
   const { canInterrupt, isStarting, awaitingUserQuestion, loadedSkills } =
@@ -92,17 +86,6 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
 
   // Popover state for notification settings (interactive on click)
   const [notificationPopoverOpen, setNotificationPopoverOpen] = useState(false);
-
-  const handleOpenTerminal = useCallback(() => {
-    // On mobile touch devices, always use popout since the right sidebar is hidden
-    const isMobileTouch = window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
-    if (onOpenTerminal && !isMobileTouch) {
-      onOpenTerminal();
-    } else {
-      // Fallback to popout if no integrated terminal callback provided or on mobile
-      void openTerminalPopout(workspaceId, runtimeConfig);
-    }
-  }, [workspaceId, openTerminalPopout, runtimeConfig, onOpenTerminal]);
 
   const handleOpenInEditor = useCallback(async () => {
     setEditorError(null);
@@ -174,7 +157,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
 
   // On Windows/Linux, the native window controls overlay the top-right of the app.
   // When the right sidebar is collapsed (20px), this header stretches underneath
-  // those controls and the MCP/editor/terminal buttons become unclickable.
+  // those controls and the MCP/editor buttons become unclickable.
   const titlebarRightInset = getTitlebarRightInset();
   const headerRightPadding =
     rightSidebarCollapsed && titlebarRightInset > 0 ? Math.max(0, titlebarRightInset - 20) : 0;
@@ -350,24 +333,6 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
           </TooltipTrigger>
           <TooltipContent side="bottom" align="center">
             Open in editor ({formatKeybind(KEYBINDS.OPEN_IN_EDITOR)})
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleOpenTerminal}
-              className="text-muted hover:text-foreground ml-1 h-6 w-6 shrink-0 [&_svg]:h-4 [&_svg]:w-4"
-              data-tutorial="terminal-button"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor">
-                <path d="M0 2.75C0 1.784.784 1 1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0114.25 15H1.75A1.75 1.75 0 010 13.25V2.75zm1.75-.25a.25.25 0 00-.25.25v10.5c0 .138.112.25.25.25h12.5a.25.25 0 00.25-.25V2.75a.25.25 0 00-.25-.25H1.75zM7.25 8a.75.75 0 01-.22.53l-2.25 2.25a.75.75 0 01-1.06-1.06L5.44 8 3.72 6.28a.75.75 0 111.06-1.06l2.25 2.25c.141.14.22.331.22.53zm1.5 1.5a.75.75 0 000 1.5h3a.75.75 0 000-1.5h-3z" />
-              </svg>
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" align="center">
-            New terminal ({formatKeybind(KEYBINDS.OPEN_TERMINAL)})
           </TooltipContent>
         </Tooltip>
       </div>

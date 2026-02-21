@@ -3,7 +3,6 @@ import React, { useCallback, useRef } from "react";
 import { cn } from "@/common/lib/utils";
 import { RIGHT_SIDEBAR_WIDTH_KEY } from "@/common/constants/storage";
 import { useResizableSidebar } from "@/browser/hooks/useResizableSidebar";
-import { useOpenTerminal } from "@/browser/hooks/useOpenTerminal";
 import { RightSidebar } from "./RightSidebar";
 import { PopoverError } from "./PopoverError";
 import type { RuntimeConfig } from "@/common/types/runtime";
@@ -63,28 +62,13 @@ export const WorkspaceShell: React.FC<WorkspaceShellProps> = (props) => {
 
   const { width: sidebarWidth, isResizing, startResize } = sidebar;
 
-  // addTerminalRef is wired to MainArea so keyboard shortcuts and mobile popout
-  // both land in the main area tab system
+  // addTerminalRef is wired to MainArea for employee (agent) terminal tabs via "+" button
   const addTerminalRef = useRef<((options?: TerminalSessionCreateOptions) => void) | null>(null);
   const openFileRef = useRef<((relativePath: string) => void) | null>(null);
 
   const handleOpenFile = useCallback((relativePath: string) => {
     openFileRef.current?.(relativePath);
   }, []);
-
-  const openTerminalPopout = useOpenTerminal();
-  const handleOpenTerminal = useCallback(
-    (options?: TerminalSessionCreateOptions) => {
-      // On mobile touch devices, always use popout since the right sidebar is hidden
-      const isMobileTouch = window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
-      if (isMobileTouch) {
-        void openTerminalPopout(props.workspaceId, props.runtimeConfig, options);
-      } else {
-        addTerminalRef.current?.(options);
-      }
-    },
-    [openTerminalPopout, props.workspaceId, props.runtimeConfig]
-  );
 
   const reviews = useReviews(props.workspaceId);
   const { addReview } = reviews;
