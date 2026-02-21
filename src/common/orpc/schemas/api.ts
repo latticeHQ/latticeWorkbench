@@ -247,7 +247,7 @@ export const AllAgentPreferencesSchema = z.record(z.string(), CliAgentPreference
 
 export const cliAgents = {
   detect: {
-    input: z.void(),
+    input: z.object({ workspaceId: z.string().optional() }).optional(),
     output: z.array(CliAgentDetectionResultSchema),
   },
   /**
