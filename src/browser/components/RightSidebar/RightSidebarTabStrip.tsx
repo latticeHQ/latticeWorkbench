@@ -204,6 +204,19 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
 
   const isDesktop = isDesktopMode();
 
+  // When collapsed, clicking any tab icon should also expand the sidebar
+  const expandingItems = items.map((item) =>
+    collapsed && onCollapseToggle
+      ? {
+          ...item,
+          onSelect: () => {
+            onCollapseToggle();
+            item.onSelect();
+          },
+        }
+      : item
+  );
+
   return (
     <div
       ref={setNodeRef}
@@ -218,7 +231,7 @@ export const RightSidebarTabStrip: React.FC<RightSidebarTabStripProps> = ({
     >
       {/* Tab buttons stacked vertically */}
       <div className="flex w-full flex-1 flex-col items-center gap-0.5">
-        {items.map((item, index) => (
+        {expandingItems.map((item, index) => (
           <SortableTab key={item.id} item={item} index={index} tabsetId={tabsetId} />
         ))}
       </div>
