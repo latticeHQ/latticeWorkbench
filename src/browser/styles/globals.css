@@ -468,6 +468,10 @@
   --color-error: hsl(0 68% 46%);
   --color-error-bg: hsl(0 82% 94%);
 
+  /* Terminal — light cream background in light mode */
+  --color-terminal-bg: #F0EDE6;
+  --color-terminal-fg: #1A1917;
+
   --color-input-bg: #FAF9F6;
   --color-input-text: #1A1917;
   --color-input-border: #CEC9C1;
