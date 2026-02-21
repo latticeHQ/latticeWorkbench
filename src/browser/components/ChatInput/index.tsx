@@ -1991,12 +1991,12 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           "relative flex flex-col gap-1",
           variant === "creation"
             ? "bg-separator w-full max-w-3xl rounded-lg border border-border-light px-6 py-5 shadow-lg"
-            : "bg-separator border-border-light border-t px-[15px] pt-[5px] pb-[max(15px,min(env(safe-area-inset-bottom,0px),40px))] mb-[calc(-1*min(env(safe-area-inset-bottom,0px),40px))]"
+            : "bg-sidebar border-border-light rounded-xl border px-4 pt-3 pb-3 shadow-[0_4px_24px_rgba(0,0,0,0.25)]"
         )}
         data-component="ChatInputSection"
         data-autofocus-state="done"
       >
-        <div className={cn("w-full", variant !== "creation" && "mx-auto max-w-4xl")}>
+        <div className={cn("w-full", variant !== "creation" && "mx-auto max-w-3xl")}>
           {/* Toasts (overlay) */}
           <div className="pointer-events-none absolute right-[15px] bottom-full left-[15px] z-[1000] mb-2 flex flex-col gap-2 [&>*]:pointer-events-auto">
             <ConnectionStatusToast wrap={false} />
