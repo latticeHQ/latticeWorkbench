@@ -1,6 +1,6 @@
 {
   "name": "lattice",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Lattice - runtime enforcement and identity infrastructure for autonomous ai agents",
   "author": "Lattice",
   "main": "dist/cli/index.js",
