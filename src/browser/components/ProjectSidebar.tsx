@@ -39,7 +39,7 @@ import { WorkspaceListItem, type WorkspaceSelection } from "./WorkspaceListItem"
 import { WorkspaceStatusIndicator } from "./WorkspaceStatusIndicator";
 import { RenameProvider } from "@/browser/contexts/WorkspaceRenameContext";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
-import { ChevronRight, CircleHelp, KeyRound } from "lucide-react";
+import { ChevronRight, CircleHelp, KeyRound, Sparkles } from "lucide-react";
 import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
 import { useWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
 import { usePopoverError } from "@/browser/hooks/usePopoverError";
@@ -277,6 +277,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
     removeSection,
     reorderSections,
     assignWorkspaceToSection,
+    seedDefaultSections,
   } = useProjectContext();
 
   // Theme for logo variant
@@ -682,6 +683,25 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                               <TooltipContent align="start">{projectPath}</TooltipContent>
                             </Tooltip>
                           </div>
+                          {/* Seed default sections — only shown when HQ has none */}
+                          {(!config.sections || config.sections.length === 0) && (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <button
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void seedDefaultSections(projectPath);
+                                  }}
+                                  aria-label={`Seed default agent-team sections for ${projectName}`}
+                                  data-project-path={projectPath}
+                                  className="text-muted-dark mr-1 flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[3px] border-none bg-transparent text-sm opacity-0 transition-all duration-200 hover:bg-purple-500/10 hover:text-purple-400"
+                                >
+                                  <Sparkles size={12} />
+                                </button>
+                              </TooltipTrigger>
+                              <TooltipContent align="end">Seed agent-team sections</TooltipContent>
+                            </Tooltip>
+                          )}
                           <Tooltip>
                             <TooltipTrigger asChild>
                               <button

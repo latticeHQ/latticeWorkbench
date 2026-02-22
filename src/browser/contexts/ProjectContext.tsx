@@ -65,6 +65,7 @@ export interface ProjectContext {
     workspaceId: string,
     sectionId: string | null
   ) => Promise<Result<void>>;
+  seedDefaultSections: (projectPath: string) => Promise<Result<SectionConfig[]>>;
 }
 
 const ProjectContext = createContext<ProjectContext | undefined>(undefined);
@@ -320,6 +321,18 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
+  const seedDefaultSections = useCallback(
+    async (projectPath: string): Promise<Result<SectionConfig[]>> => {
+      if (!api) return { success: false, error: "API not connected" };
+      const result = await api.projects.sections.seedDefaults({ projectPath });
+      if (result.success) {
+        await refreshProjects();
+      }
+      return result;
+    },
+    [api, refreshProjects]
+  );
+
   const value = useMemo<ProjectContext>(
     () => ({
       projects,
@@ -341,6 +354,7 @@ export function ProjectProvider(props: { children: ReactNode }) {
       removeSection,
       reorderSections,
       assignWorkspaceToSection,
+      seedDefaultSections,
     }),
     [
       projects,
@@ -360,6 +374,7 @@ export function ProjectProvider(props: { children: ReactNode }) {
       removeSection,
       reorderSections,
       assignWorkspaceToSection,
+      seedDefaultSections,
     ]
   );
 
