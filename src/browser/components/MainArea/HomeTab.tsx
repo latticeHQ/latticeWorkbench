@@ -563,15 +563,27 @@ export function HomeTab({
 
   const currentWorkspace = workspaceMetadata.get(workspaceId);
 
-  // Build sectionId → {name, color} lookup across ALL projects (robust to any project path)
-  const sectionLookup = useMemo(() => {
-    const map = new Map<string, { name: string; color: string }>();
+  // Build workspaceId → {name, color} lookup directly from ProjectConfig.workspaces
+  // (the canonical store for sectionId — more reliable than FrontendWorkspaceMetadata.sectionId)
+  const workspaceSectionMap = useMemo(() => {
+    const result = new Map<string, { name: string; color: string }>();
     for (const projectConfig of projects.values()) {
-      for (const s of projectConfig.sections ?? []) {
-        map.set(s.id, { name: s.name, color: resolveSectionColor(s.color) });
+      // Index sections by id for O(1) lookup
+      const sectionIndex = new Map(
+        (projectConfig.sections ?? []).map((s) => [
+          s.id,
+          { name: s.name, color: resolveSectionColor(s.color) },
+        ])
+      );
+      // Map each workspace id → its section
+      for (const ws of projectConfig.workspaces) {
+        if (ws.sectionId && ws.id) {
+          const section = sectionIndex.get(ws.sectionId);
+          if (section) result.set(ws.id, section);
+        }
       }
     }
-    return map;
+    return result;
   }, [projects]);
 
   // Child workspaces spawned by this workspace
@@ -631,14 +643,14 @@ export function HomeTab({
 
   function renderItem(item: KanbanItem) {
     if (item.kind === "workspace") {
-      // Resolve section: use the workspace's own sectionId, or inherit from
-      // its parent workspace (child/sub-agents aren't assigned sections directly)
-      const resolvedSectionId =
-        item.workspace.sectionId ??
+      // Look up section directly from ProjectConfig (authoritative source).
+      // Sub-agents don't carry sectionId themselves, so fall back to the
+      // parent workspace's section — they always share the same context.
+      const section =
+        workspaceSectionMap.get(item.workspace.id) ??
         (item.workspace.parentWorkspaceId
-          ? workspaceMetadata.get(item.workspace.parentWorkspaceId)?.sectionId
+          ? workspaceSectionMap.get(item.workspace.parentWorkspaceId)
           : undefined);
-      const section = resolvedSectionId ? sectionLookup.get(resolvedSectionId) : undefined;
       return (
         <WorkspaceKanbanCard
           key={item.workspace.id}
