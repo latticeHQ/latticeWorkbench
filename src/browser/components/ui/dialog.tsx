@@ -43,6 +43,12 @@ const DialogContent = React.forwardRef<
     maxWidth?: string;
     /** Maximum height of the dialog */
     maxHeight?: string;
+    /**
+     * Z-index for both the overlay backdrop and the dialog content (default: 1500).
+     * Raise this (e.g. 2100) when the dialog is rendered inside a panel that has
+     * its own elevated z-index — e.g. a dialog inside SettingsModal (z-2000).
+     */
+    zIndex?: number;
   }
 >(
   (
@@ -52,6 +58,7 @@ const DialogContent = React.forwardRef<
       showCloseButton = true,
       maxWidth,
       maxHeight,
+      zIndex = 1500,
       style,
       onEscapeKeyDown,
       ...props
@@ -59,7 +66,7 @@ const DialogContent = React.forwardRef<
     ref
   ) => (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay style={{ zIndex }} />
       <DialogPrimitive.Content
         ref={ref}
         onEscapeKeyDown={(e) => {
@@ -69,12 +76,12 @@ const DialogContent = React.forwardRef<
           onEscapeKeyDown?.(e);
         }}
         className={cn(
-          "bg-modal-bg border-border fixed top-[50%] left-[50%] z-[1500] grid w-[90%] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
+          "bg-modal-bg border-border fixed top-[50%] left-[50%] grid w-[90%] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%]",
           !maxWidth && "max-w-lg",
           maxHeight && "overflow-y-auto",
           className
         )}
-        style={{ ...(maxWidth && { maxWidth }), ...(maxHeight && { maxHeight }), ...style }}
+        style={{ zIndex, ...(maxWidth && { maxWidth }), ...(maxHeight && { maxHeight }), ...style }}
         {...props}
       >
         {children}
