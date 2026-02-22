@@ -39,7 +39,7 @@ const DEFAULT_AGENT_SECTIONS: Array<{ name: string; color: string }> = [
   { name: "Docs",      color: "#22d3ee" }, // Cyan    – documentation
   { name: "Deploy",    color: "#4ab5a7" }, // Teal    – CI/CD & release
   { name: "Monitor",   color: "#64748b" }, // Slate   – observability & feedback
-  { name: "Meta",      color: "#6b7280" }, // Gray    – learning & orchestration
+  { name: "Learning",  color: "#6b7280" }, // Gray    – learning & orchestration
 ];
 
 /**
