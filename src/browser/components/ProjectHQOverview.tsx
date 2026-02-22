@@ -59,6 +59,7 @@ const KNOWN_CLI = new Set(["claude-code","codex","gemini","github-copilot","kiro
 interface EdgeData {
   id: string; x1: number; y1: number; x2: number; y2: number;
   color: string; active: boolean; sameRow: boolean;
+  bothEmpty: boolean; // true when both endpoints have no workspaces
 }
 
 function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: number; height: number }) {
@@ -76,7 +77,7 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
           .hq-idle   { animation: hqDashIdle   3s   linear infinite; }
           .hq-active { animation: hqDashActive 0.8s linear infinite; }
         `}</style>
-        {edges.map(e => (
+        {edges.filter(e => !e.bothEmpty).map(e => (
           <marker key={`mk-${e.id}`} id={`mk-${e.id}`}
             markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse">
             <path
@@ -91,12 +92,25 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
       </defs>
 
       {edges.map(edge => {
-        const { x1, y1, x2, y2, active, color, sameRow } = edge;
+        const { x1, y1, x2, y2, active, color, sameRow, bothEmpty } = edge;
         const mx = (x1 + x2) / 2;
         const my = (y1 + y2) / 2;
         const d = sameRow
           ? `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
           : `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
+
+        // Both endpoints empty → render as a near-invisible ghost line, no animation
+        if (bothEmpty) {
+          return (
+            <path key={edge.id} d={d} fill="none"
+              stroke="hsl(var(--border))"
+              strokeWidth={0.75}
+              strokeOpacity={0.08}
+              strokeDasharray="2 9"
+              strokeLinecap="round"
+            />
+          );
+        }
 
         return (
           <g key={edge.id}>
@@ -321,46 +335,59 @@ function StageBox({
     return [...s].slice(0, 3);
   }, [workspaces]);
 
+  // Empty stages are fully desaturated / disabled — gray, no color accent
+  const borderStyle = isEmpty
+    ? "2px dashed rgba(120,120,120,0.22)"
+    : `2px dashed ${color}50`;
+  const bgStyle = isEmpty
+    ? `repeating-linear-gradient(-45deg, transparent, transparent 5px, rgba(128,128,128,0.025) 5px, rgba(128,128,128,0.025) 10px)`
+    : `${color}05`;
+
   return (
     <div
       ref={nodeRef}
-      // Always col-span-4 (3 per row in a 12-col grid).
-      // Sections with many workspaces can still be wider via the CSS below.
       className={cn(
         "col-span-12 sm:col-span-6 lg:col-span-4",
         "relative rounded-xl transition-all duration-200",
-        isEmpty && "opacity-50"
+        isEmpty && "opacity-35 grayscale"
       )}
       style={{
-        border: `2px dashed ${color}${isEmpty ? "35" : "50"}`,
-        background: isEmpty ? "transparent" : `${color}05`,
+        border: borderStyle,
+        background: bgStyle,
         boxShadow: active ? `0 0 0 1px ${color}22, 0 6px 20px ${color}10` : undefined,
         zIndex: 1,
+        pointerEvents: isEmpty ? "none" : undefined,
       }}
     >
       {/* Header */}
       <button
-        type="button" onClick={onToggle}
-        className="group/hdr flex w-full items-center gap-2 px-3 py-2 rounded-t-xl hover:bg-white/4 transition-colors cursor-pointer focus-visible:outline-none"
+        type="button" onClick={isEmpty ? undefined : onToggle}
+        className={cn(
+          "flex w-full items-center gap-2 px-3 py-2 rounded-t-xl focus-visible:outline-none",
+          !isEmpty && "group/hdr hover:bg-white/4 transition-colors cursor-pointer"
+        )}
         style={{ borderBottom: (collapsed || isEmpty) ? "none" : `1px dashed ${color}28` }}
+        tabIndex={isEmpty ? -1 : 0}
       >
         <span
           className="shrink-0 flex h-5 min-w-[20px] items-center justify-center rounded text-[9px] font-bold tabular-nums px-1"
-          style={{ background: `${color}20`, color }}
+          style={isEmpty
+            ? { background: "rgba(128,128,128,0.15)", color: "rgba(128,128,128,0.5)" }
+            : { background: `${color}20`, color }}
         >
           {stageIdx + 1}
         </span>
         <span
           className={cn(
             "flex-1 min-w-0 text-left text-[10px] font-bold uppercase tracking-[0.13em] truncate",
-            active ? "text-foreground" : isEmpty ? "text-foreground/35" : "text-foreground/60"
+            active ? "text-foreground" : isEmpty ? "text-foreground/30" : "text-foreground/60"
           )}
           style={active ? { color } : undefined}
         >
           {section.name}
         </span>
         {active && <LiveDot size="sm" />}
-        {cliIds.map(id => <CliAgentIcon key={id} slug={id} className="h-3 w-3 text-foreground/30 shrink-0" />)}
+        {!isEmpty && cliIds.map(id => <CliAgentIcon key={id} slug={id} className="h-3 w-3 text-foreground/30 shrink-0" />)}
         {!isEmpty && (
           <span
             className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold tabular-nums"
@@ -540,6 +567,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
         const toWs   = workspacesBySection.get(to.id)   ?? [];
         const active = fromWs.some(w => w.taskStatus === "running")
                     || toWs.some(w => w.taskStatus === "running");
+        const bothEmpty = fromWs.length === 0 && toWs.length === 0;
 
         // Same row when tops are within half a box height of each other
         const sameRow = Math.abs(fr.top - tr.top) < Math.max(fr.height, tr.height) * 0.5;
@@ -559,6 +587,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
           color: resolveSectionColor(from.color),
           active,
           sameRow,
+          bothEmpty,
         });
       }
       setEdges(newEdges);
