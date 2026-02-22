@@ -221,7 +221,7 @@ function ServiceNode({ ws, subAgents, accent, onOpen }: {
   const queued  = ws.taskStatus === "queued";
   const title   = ws.title ?? ws.name;
   const step    = classifyStep(ws.agentId);
-  const cost    = getTotalCost(usage.sessionTotal);
+  const cost    = getTotalCost(usage.sessionTotal) ?? 0;
   const tok     = usage.totalTokens;
 
   const sorted = useMemo(
@@ -350,26 +350,24 @@ function StageBox({
     return [...s].slice(0, 3);
   }, [workspaces]);
 
-  // Visual style: active = clean solid card, empty = disabled hatch
-  const emptyBorder  = "1px dashed rgba(120,120,120,0.2)";
-  const activeBorder = active ? `1px solid ${color}40` : "1px solid hsl(var(--border) / 0.35)";
+  // Visual style — each stage is a SOLID card so they stay visually distinct
   const bgStyle = isEmpty
-    ? `repeating-linear-gradient(-45deg, transparent, transparent 5px, rgba(128,128,128,0.02) 5px, rgba(128,128,128,0.02) 10px)`
-    : `${color}04`;
+    ? "transparent"
+    : active
+      ? `color-mix(in srgb, ${color} 6%, var(--background))`
+      : "hsl(var(--background-secondary) / 0.6)";
 
   return (
     <div
       ref={nodeRef}
       className={cn(
-        "relative rounded-xl transition-all duration-200 min-h-[110px]",
-        isEmpty && "opacity-30 grayscale",
-        !isEmpty && "hover:shadow-sm"
+        "relative rounded-xl transition-all duration-200 min-h-[100px]",
+        !isEmpty && "border border-border/30 shadow-sm",
+        isEmpty && "opacity-30 grayscale border border-dashed border-border/20"
       )}
       style={{
-        border: isEmpty ? emptyBorder : activeBorder,
         background: bgStyle,
-        boxShadow: active ? `0 0 0 2px ${color}18, 0 4px 16px ${color}08` : undefined,
-        zIndex: 1,
+        boxShadow: active ? `0 0 0 1px ${color}30, 0 4px 16px ${color}10` : undefined,
         pointerEvents: isEmpty ? "none" : undefined,
       }}
     >
