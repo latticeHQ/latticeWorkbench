@@ -311,8 +311,11 @@ info "Release created: $RELEASE_URL"
 # ── Update Homebrew cask ─────────────────────────────────────────────────────
 HOMEBREW_TAP_DIR=""
 # Check common locations for the tap checkout
+BREW_REPO="$(brew --repository 2>/dev/null || true)"
 for candidate in \
-  "$(brew --repository 2>/dev/null)/Library/Taps/latticehq/homebrew-lattice" \
+  "/opt/homebrew/Library/Taps/latticehq/homebrew-lattice" \
+  "/usr/local/Homebrew/Library/Taps/latticehq/homebrew-lattice" \
+  "${BREW_REPO}/Library/Taps/latticehq/homebrew-lattice" \
   "$HOME/workspace/sandbox/claude-code/agentHQ/latticeHomebrew" \
   "/tmp/latticeHomebrew"; do
   if [[ -f "$candidate/Casks/lattice-workbench.rb" ]]; then
