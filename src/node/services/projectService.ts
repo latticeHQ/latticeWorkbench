@@ -484,6 +484,44 @@ export class ProjectService {
   }
 
   /**
+   * Seed the default agent-team sections into a project that has none.
+   * Returns an error if the project already has sections.
+   */
+  async seedDefaultSections(projectPath: string): Promise<Result<SectionConfig[]>> {
+    try {
+      const config = this.config.loadConfigOrDefault();
+      const project = config.projects.get(projectPath);
+
+      if (!project) {
+        return Err(`Headquarter not found: ${projectPath}`);
+      }
+
+      if (project.sections && project.sections.length > 0) {
+        return Err("Headquarter already has sections");
+      }
+
+      const rawSections: SectionConfig[] = DEFAULT_AGENT_SECTIONS.map((s) => ({
+        id: randomBytes(4).toString("hex"),
+        name: s.name,
+        color: s.color,
+        nextId: null,
+      }));
+      for (let i = 0; i < rawSections.length - 1; i++) {
+        rawSections[i].nextId = rawSections[i + 1].id;
+      }
+
+      project.sections = rawSections;
+      config.projects.set(projectPath, project);
+      await this.config.saveConfig(config);
+
+      return Ok(rawSections);
+    } catch (error) {
+      log.error("Failed to seed default sections:", error);
+      return Err(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
    * Create a new section in a project.
    */
   async createSection(
