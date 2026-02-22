@@ -72,21 +72,25 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
     >
       <defs>
         <style>{`
-          @keyframes hqDashIdle   { to { stroke-dashoffset: -32; } }
-          @keyframes hqDashActive { to { stroke-dashoffset: -22; } }
-          .hq-idle   { animation: hqDashIdle   3s   linear infinite; }
-          .hq-active { animation: hqDashActive 0.8s linear infinite; }
+          @keyframes hqFlow   { to { stroke-dashoffset: -28; } }
+          @keyframes hqActive { to { stroke-dashoffset: -18; } }
+          .hq-flow   { animation: hqFlow   2.4s linear infinite; }
+          .hq-active { animation: hqActive 0.7s linear infinite; }
         `}</style>
-        {edges.filter(e => !e.bothEmpty).map(e => (
-          <marker key={`mk-${e.id}`} id={`mk-${e.id}`}
-            markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse">
-            <path
-              d="M1,1 L7,4 L1,7"
-              fill="none"
-              stroke={e.active ? e.color : "hsl(var(--border))"}
-              strokeWidth="1.2" strokeOpacity={e.active ? 0.85 : 0.35}
-              strokeLinecap="round" strokeLinejoin="round"
-            />
+
+        {/* Filled arrowhead — idle (gray) */}
+        <marker id="arr-idle" markerWidth="10" markerHeight="10"
+          refX="8" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+          <path d="M1,2 L8,5 L1,8 Z"
+            fill="rgba(160,160,168,0.65)" stroke="none" />
+        </marker>
+
+        {/* Filled arrowhead per active edge (colored) */}
+        {edges.filter(e => e.active).map(e => (
+          <marker key={`arr-${e.id}`} id={`arr-${e.id}`}
+            markerWidth="10" markerHeight="10"
+            refX="8" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+            <path d="M1,2 L8,5 L1,8 Z" fill={e.color} stroke="none" />
           </marker>
         ))}
       </defs>
@@ -99,14 +103,13 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
           ? `M ${x1} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${x2} ${y2}`
           : `M ${x1} ${y1} C ${x1} ${my}, ${x2} ${my}, ${x2} ${y2}`;
 
-        // Both endpoints empty → render as a near-invisible ghost line, no animation
+        // Ghost line between two empty stages — barely visible, no decoration
         if (bothEmpty) {
           return (
             <path key={edge.id} d={d} fill="none"
-              stroke="hsl(var(--border))"
-              strokeWidth={0.75}
-              strokeOpacity={0.08}
-              strokeDasharray="2 9"
+              stroke="rgba(160,160,168,0.18)"
+              strokeWidth={1}
+              strokeDasharray="3 10"
               strokeLinecap="round"
             />
           );
@@ -114,36 +117,42 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
 
         return (
           <g key={edge.id}>
-            {/* Glow halo — active only */}
+            {/* Active glow halo */}
             {active && (
-              <path d={d} fill="none" stroke={color} strokeWidth={10} strokeOpacity={0.08} />
+              <path d={d} fill="none" stroke={color} strokeWidth={12} strokeOpacity={0.07} />
             )}
-            {/* Static dashed trace */}
+
+            {/* Base track — always visible dashed line */}
             <path d={d} fill="none"
-              stroke={active ? color : "hsl(var(--border))"}
-              strokeWidth={active ? 1.5 : 1}
-              strokeOpacity={active ? 0.25 : 0.2}
-              strokeDasharray="6 5"
+              stroke={active ? color : "rgba(160,160,168,0.38)"}
+              strokeWidth={active ? 1.5 : 1.25}
+              strokeDasharray="7 5"
               strokeLinecap="round"
             />
-            {/* Animated flowing dashes */}
+
+            {/* Animated flow layer */}
             <path d={d} fill="none"
-              stroke={active ? color : "hsl(var(--border))"}
-              strokeWidth={active ? 2 : 1}
-              strokeOpacity={active ? 0.9 : 0.22}
-              strokeDasharray={active ? "10 8" : "5 12"}
+              stroke={active ? color : "rgba(160,160,168,0.55)"}
+              strokeWidth={active ? 2 : 1.5}
+              strokeDasharray={active ? "9 7" : "6 10"}
               strokeLinecap="round"
-              markerEnd={`url(#mk-${edge.id})`}
-              className={active ? "hq-active" : "hq-idle"}
+              markerEnd={active ? `url(#arr-${edge.id})` : "url(#arr-idle)"}
+              className={active ? "hq-active" : "hq-flow"}
             />
-            {/* Travelling dot */}
-            <circle
-              r={active ? 3.5 : 2}
-              fill={active ? color : "hsl(var(--border))"}
-              opacity={active ? 0.95 : 0.3}
-            >
-              <animateMotion dur={active ? "1.1s" : "4s"} repeatCount="indefinite" path={d} />
-            </circle>
+
+            {/* Source dot */}
+            <circle cx={x1} cy={y1} r={active ? 3.5 : 2.5}
+              fill={active ? color : "rgba(160,160,168,0.5)"}
+              stroke={active ? color : "rgba(160,160,168,0.3)"}
+              strokeWidth={active ? 0 : 1}
+            />
+
+            {/* Travelling dot — only when active */}
+            {active && (
+              <circle r={3} fill={color} opacity={0.9}>
+                <animateMotion dur="1s" repeatCount="indefinite" path={d} />
+              </circle>
+            )}
           </g>
         );
       })}
