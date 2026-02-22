@@ -496,12 +496,10 @@ function PhaseGroup({
         const isReversed  = phaseIdx % 2 === 1;
         const displaySecs = isReversed ? [...phaseSections].reverse() : phaseSections;
         return (
-        <div className={cn(
-          "grid gap-10 p-5 items-start",
-          displaySecs.length === 1 ? "grid-cols-1" :
-          displaySecs.length === 2 ? "grid-cols-2" :
-                                     "grid-cols-3"
-        )}>
+        <div
+          className="grid gap-10 p-5 items-start"
+          style={{ gridTemplateColumns: `repeat(${displaySecs.length}, minmax(160px, 260px))` }}
+        >
         {displaySecs.map((sec) => {
           // Always use the logical index so stage-number badges are sequential
           const logicalIdx = phaseSections.indexOf(sec);
