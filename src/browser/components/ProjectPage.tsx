@@ -264,7 +264,9 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
             </div>
             {/* Scrollable content area */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto w-full max-w-5xl px-4 py-6 flex flex-col gap-5">
+
+              {/* ── Constrained top section: wizard + banners ── */}
+              <div className="mx-auto w-full max-w-5xl px-4 pt-6 pb-3 flex flex-col gap-5">
 
                 {/* ── Git init banner ── */}
                 {isNonGitRepo && (
@@ -345,23 +347,26 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                     </>
                   )}
                 </div>
+              </div>
 
-                {/* ── HQ Pipeline Architecture (below the wizard) ── */}
-                <div className="flex flex-col gap-1">
-                  {/* Divider */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 border-t border-border/30" />
-                    <span className="text-[10px] font-medium text-muted/50 uppercase tracking-widest">
-                      Agent Network
-                    </span>
-                    <div className="flex-1 border-t border-border/30" />
-                  </div>
-                  <ProjectHQOverview
-                    projectPath={projectPath}
-                    projectName={projectName}
-                  />
+              {/* ── HQ Pipeline Architecture — full viewport width ── */}
+              <div className="w-full px-4 pb-4 flex flex-col gap-1">
+                {/* Divider */}
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="flex-1 border-t border-border/30" />
+                  <span className="text-[10px] font-medium text-muted/50 uppercase tracking-widest">
+                    Agent Network
+                  </span>
+                  <div className="flex-1 border-t border-border/30" />
                 </div>
+                <ProjectHQOverview
+                  projectPath={projectPath}
+                  projectName={projectName}
+                />
+              </div>
 
+              {/* ── Constrained bottom section: MCP + archived ── */}
+              <div className="mx-auto w-full max-w-5xl px-4 pb-6 flex flex-col gap-5">
                 {/* ── MCP overview ── */}
                 <ProjectMCPOverview projectPath={projectPath} />
 
@@ -380,6 +385,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                   />
                 )}
               </div>
+
             </div>
           </div>
         </ThinkingProvider>
