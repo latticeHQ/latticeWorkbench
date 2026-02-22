@@ -77,22 +77,35 @@ function WizardHeader(props: { stepIndex: number; totalSteps: number }) {
 function Card(props: {
   icon: React.ReactNode;
   title: string;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   className?: string;
+  compact?: boolean;
 }) {
   return (
     <div
-      className={`bg-background-secondary border-border-medium rounded-lg border p-3 ${
-        props.className ?? ""
-      }`}
+      className={`bg-background-secondary border-border-medium rounded-lg border ${
+        props.compact ? "p-2.5" : "p-3"
+      } ${props.className ?? ""}`}
     >
-      <div className="text-foreground flex items-center gap-2 text-sm font-medium">
-        <span className="bg-accent/10 text-accent inline-flex h-7 w-7 items-center justify-center rounded-md">
+      <div
+        className={`text-foreground flex items-center gap-2 font-medium ${
+          props.compact ? "text-xs" : "text-sm"
+        }`}
+      >
+        <span
+          className={`bg-accent/10 text-accent inline-flex items-center justify-center rounded-md ${
+            props.compact ? "h-6 w-6" : "h-7 w-7"
+          }`}
+        >
           {props.icon}
         </span>
         {props.title}
       </div>
-      <div className="text-muted mt-2 text-sm">{props.children}</div>
+      {props.children && (
+        <div className={`text-muted ${props.compact ? "mt-1.5 text-xs" : "mt-2 text-sm"}`}>
+          {props.children}
+        </div>
+      )}
     </div>
   );
 }
@@ -387,12 +400,15 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
             </Card>
 
             <Card icon={<Bot className="h-4 w-4" />} title="Quick shortcuts">
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <span>Agent picker</span>
-                <kbd className={KBD_CLASSNAME}>{agentPickerShortcut}</kbd>
-                <span className="text-muted mx-1">•</span>
-                <span>Cycle agent</span>
-                <kbd className={KBD_CLASSNAME}>{cycleAgentShortcut}</kbd>
+              <div className="mt-1.5 flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <span>Agent picker</span>
+                  <kbd className={KBD_CLASSNAME}>{agentPickerShortcut}</kbd>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Cycle agent</span>
+                  <kbd className={KBD_CLASSNAME}>{cycleAgentShortcut}</kbd>
+                </div>
               </div>
             </Card>
           </div>
@@ -416,25 +432,28 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
             a git worktree, run remotely over SSH, or use a per-workspace Docker container.
           </p>
 
-          <div className="mt-3 grid gap-2">
-            <Card icon={<LocalIcon size={14} />} title="Local">
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Card compact icon={<LocalIcon size={12} />} title="Local">
               Work directly in your project directory.
             </Card>
-            <Card icon={<WorktreeIcon size={14} />} title="Worktree">
-              Isolated git worktree under <code className="text-accent">~/.lattice/src</code>.
+            <Card compact icon={<WorktreeIcon size={12} />} title="Worktree">
+              Isolated git worktree under{" "}
+              <code className="text-accent">~/.lattice/src</code>.
             </Card>
-            <Card icon={<SSHIcon size={14} />} title="SSH">
+            <Card compact icon={<SSHIcon size={12} />} title="SSH">
               Remote clone and commands run on an SSH host.
             </Card>
-            <Card icon={<LatticeIcon size={14} />} title="Lattice (SSH)">
-              Use Lattice workspaces over SSH for a managed remote dev environment.
+            <Card compact icon={<LatticeIcon size={12} />} title="Lattice (SSH)">
+              Managed remote dev environment over SSH.
             </Card>
-            <Card icon={<DockerIcon size={14} />} title="Docker">
-              Isolated container per workspace.
+            <Card compact icon={<DockerIcon size={12} />} title="Docker" className="col-span-2">
+              Isolated container per workspace — sandboxed by default.
             </Card>
           </div>
 
-          <p className="mt-3">You can set a project default runtime in the workspace controls.</p>
+          <p className="mt-3 text-xs">
+            Set a project default runtime in the workspace controls.
+          </p>
         </>
       ),
     });
@@ -450,17 +469,18 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
             Configure them per project and optionally override per workspace.
           </p>
 
-          <div className="mt-3 grid gap-2">
-            <Card icon={<Server className="h-4 w-4" />} title="Headquarter config">
-              <code className="text-accent">.lattice/mcp.jsonc</code>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <Card compact icon={<Server className="h-3.5 w-3.5" />} title="Headquarter config">
+              <code className="text-accent text-[11px]">.lattice/mcp.jsonc</code>
             </Card>
-            <Card icon={<Server className="h-4 w-4" />} title="Workspace overrides">
-              <code className="text-accent">.lattice/mcp.local.jsonc</code>
+            <Card compact icon={<Server className="h-3.5 w-3.5" />} title="Workspace overrides">
+              <code className="text-accent text-[11px]">.lattice/mcp.local.jsonc</code>
             </Card>
           </div>
 
-          <p className="mt-3">
-            Manage servers in <span className="text-foreground">Settings → Headquarters</span> or via{" "}
+          <p className="mt-3 text-xs">
+            Manage servers in{" "}
+            <span className="text-foreground font-medium">Settings → Headquarters</span> or via{" "}
             <code className="text-accent">/mcp</code>.
           </p>
         </>
@@ -478,8 +498,8 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
             features.
           </p>
 
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-muted text-sm">Open command palette</span>
+          <div className="mt-3 flex items-center justify-between rounded-lg border border-border-medium bg-background-secondary px-3 py-2">
+            <span className="text-sm">Open command palette</span>
             <kbd className={KBD_CLASSNAME}>{commandPaletteShortcut}</kbd>
           </div>
 
