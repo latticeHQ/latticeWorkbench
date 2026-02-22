@@ -255,62 +255,41 @@ function ConnectedCard({
 
   return (
     <div className="bg-[#0a0a0a]">
-      {/* ── Visual panel (collapsible) ──────────────────────────────── */}
-      {panelOpen && (
-        // Fixed-height container — wave is always background, video sits on top
-        <div className="relative h-[144px] w-[256px]">
-          {/* Audio wave — always the background layer */}
-          <div className="absolute inset-0">
-            <AudioWaveVisualizer
-              audioTrack={remoteAudioTrack}
-              isSpeaking={isSpeaking}
-              className="opacity-80"
-            />
-          </div>
+      {/* ── Wave / video panel ───────────────────────────────────────────
+          expanded  → 144 px, video tile on top when camera/agent active
+          collapsed → 52 px, wave only (no video overlay, no controls) */}
+      <div
+        className="relative w-[256px] overflow-hidden transition-[height] duration-200"
+        style={{ height: panelOpen ? 144 : 52 }}
+      >
+        {/* Wave — always the base layer */}
+        <AudioWaveVisualizer
+          audioTrack={remoteAudioTrack}
+          isSpeaking={isSpeaking}
+          className={cn("absolute inset-0 w-full h-full", panelOpen ? "opacity-80" : "opacity-60")}
+        />
 
-          {/* Video tile — covers the wave once camera/agent tracks arrive */}
-          {hasVideo && (
-            <div className="absolute inset-0 z-10">
-              <LiveKitVideoTile
-                localVideoTrack={lk.localVideoTrack}
-                isMicOn={lk.isMicOn}
-                remoteParticipants={lk.remoteParticipants}
-              />
-            </div>
-          )}
+        {/* Video — covers wave when tracks are live (expanded only) */}
+        {panelOpen && hasVideo && (
+          <div className="absolute inset-0 z-10">
+            <LiveKitVideoTile
+              localVideoTrack={lk.localVideoTrack}
+              isMicOn={lk.isMicOn}
+              remoteParticipants={lk.remoteParticipants}
+            />
+          </div>
+        )}
+      </div>
 
-          {/* Gradient + controls overlay */}
-          <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-2.5 pb-2 pt-10">
-            <ControlsRow
-              lk={lk}
-              totalParticipants={totalParticipants}
-              panelOpen={panelOpen}
-              onTogglePanel={() => setPanelOpen(false)}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* ── Compact controls bar (panel collapsed) ──────────────────── */}
-      {!panelOpen && (
-        // Wave behind the controls so there's still visual feedback
-        <div className="relative h-10 w-[256px]">
-          <div className="absolute inset-0 opacity-50">
-            <AudioWaveVisualizer
-              audioTrack={remoteAudioTrack}
-              isSpeaking={isSpeaking}
-            />
-          </div>
-          <div className="absolute inset-0 flex items-center px-2.5">
-            <ControlsRow
-              lk={lk}
-              totalParticipants={totalParticipants}
-              panelOpen={panelOpen}
-              onTogglePanel={() => setPanelOpen(true)}
-            />
-          </div>
-        </div>
-      )}
+      {/* ── Controls row — always BELOW the wave/video, never overlapping ── */}
+      <div className="flex items-center gap-1.5 border-t border-white/[0.05] px-2.5 py-2">
+        <ControlsRow
+          lk={lk}
+          totalParticipants={totalParticipants}
+          panelOpen={panelOpen}
+          onTogglePanel={() => setPanelOpen((o) => !o)}
+        />
+      </div>
     </div>
   );
 }
