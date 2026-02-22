@@ -536,7 +536,7 @@ function MetricsBar({ totalMissions, activeMissions, totalSubAgents, stageCount,
   totalSubAgents: number; stageCount: number; cliIds: string[];
 }) {
   return (
-    <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 flex-wrap text-[10.5px]">
+    <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 flex-wrap text-[10.5px] w-fit mx-auto">
       <div className="flex items-center gap-2 shrink-0">
         <div className="h-6 w-6 flex items-center justify-center rounded-md border border-border/35 bg-background-secondary">
           <Layers className="h-3 w-3 text-muted/55" />
