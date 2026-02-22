@@ -35,10 +35,10 @@ export function LatticeSection() {
         if (info.state !== "available") {
           setAvailability("unavailable");
           setUnavailableReason(
-            info.state === "not_installed"
-              ? "Lattice CLI is not installed."
-              : info.state === "outdated"
-                ? `Lattice CLI is outdated (found ${info.version ?? "unknown"}, need ≥ ${info.minimumVersion ?? "0.7.0"}).`
+            info.state === "outdated"
+              ? `Lattice CLI is outdated (found ${info.version ?? "unknown"}, need ≥ ${info.minVersion ?? "0.7.0"}).`
+              : info.reason === "missing"
+                ? "Lattice CLI is not installed."
                 : "Lattice CLI is not available."
           );
           return;
