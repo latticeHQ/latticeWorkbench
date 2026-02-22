@@ -490,16 +490,22 @@ function PhaseGroup({
         )}
       </div>
 
-      {/* Stage boxes — 3-col grid */}
-      <div className={cn(
-        "grid gap-10 p-5 items-start",
-        phaseSections.length === 1 ? "grid-cols-1" :
-        phaseSections.length === 2 ? "grid-cols-2" :
+      {/* Stage boxes — snake layout: odd phases render R→L so stage N+1
+          lands directly below stage N in the same column               */}
+      {(() => {
+        const isReversed  = phaseIdx % 2 === 1;
+        const displaySecs = isReversed ? [...phaseSections].reverse() : phaseSections;
+        return (
+        <div className={cn(
+          "grid gap-10 p-5 items-start",
+          displaySecs.length === 1 ? "grid-cols-1" :
+          displaySecs.length === 2 ? "grid-cols-2" :
                                      "grid-cols-3"
-      )}>
-        {phaseSections.map((sec, secIdx) => {
-          // Find global stage index
-          const globalIdx = phaseIdx * PHASE_SIZE + secIdx;
+        )}>
+        {displaySecs.map((sec) => {
+          // Always use the logical index so stage-number badges are sequential
+          const logicalIdx = phaseSections.indexOf(sec);
+          const globalIdx  = phaseIdx * PHASE_SIZE + logicalIdx;
           return (
             <StageBox
               key={sec.id}
@@ -517,7 +523,9 @@ function PhaseGroup({
             />
           );
         })}
-      </div>
+        </div>
+        );
+      })()}
     </div>
   );
 }
