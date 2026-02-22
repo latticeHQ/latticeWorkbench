@@ -1990,7 +1990,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
         className={cn(
           "relative flex flex-col gap-1",
           variant === "creation"
-            ? "bg-separator w-full max-w-3xl rounded-lg border border-border-light px-6 py-5 shadow-lg"
+            ? "bg-card/30 w-full max-w-3xl rounded-xl border border-border/50 px-5 py-4 shadow-[0_8px_32px_rgba(0,0,0,0.35)]"
             : "bg-sidebar border-border-light rounded-xl border px-4 pt-3 pb-3 shadow-[0_4px_24px_rgba(0,0,0,0.25)]"
         )}
         data-component="ChatInputSection"
