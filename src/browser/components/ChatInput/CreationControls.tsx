@@ -183,13 +183,13 @@ function ProjectPickerDropdown(props: ProjectPickerDropdownProps) {
           disabled={props.disabled}
           data-testid="project-selector"
           className={cn(
-            "border-border-medium flex h-10 min-w-[200px] max-w-[380px] items-center gap-2 rounded-lg border px-3 text-sm font-medium",
-            "hover:bg-hover transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            "border-border/50 flex h-7 max-w-[260px] items-center gap-1.5 rounded-md border px-2 text-xs font-medium",
+            "bg-transparent hover:bg-hover/60 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
           )}
         >
-          <FolderOpen size={14} className="text-muted-foreground shrink-0" />
+          <FolderOpen size={12} className="text-muted-foreground shrink-0" />
           <span className="text-foreground truncate">{props.projectName}</span>
-          <ChevronDown size={12} className="text-muted-foreground ml-auto shrink-0 opacity-50" />
+          <ChevronDown size={10} className="text-muted-foreground ml-auto shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-[420px] p-0" sideOffset={4}>
@@ -276,7 +276,7 @@ function RuntimeDropdown(props: RuntimeButtonGroupProps) {
       <SelectTrigger
         aria-label="Select runtime"
         data-testid="runtime-selector"
-        className="border-border-medium h-10 w-auto min-w-[160px] gap-2 rounded-lg border px-3 text-sm font-medium shadow-none"
+        className="border-border/50 h-7 w-auto min-w-[110px] gap-1.5 rounded-md border px-2 text-xs font-medium shadow-none"
       >
         <SelectedIcon size={14} className="shrink-0" />
         <SelectValue placeholder="Select runtime" />
@@ -365,9 +365,9 @@ export function CreationControls(props: CreationControlsProps) {
   }, [nameState]);
 
   return (
-    <div className="mb-3 flex flex-col gap-3">
-      {/* Row 1: Workspace name */}
-      <div className="flex items-center gap-1" data-component="WorkspaceNameGroup">
+    <div className="mb-2.5 flex flex-col gap-2">
+      {/* Row 1: Workspace name + section (right-aligned) */}
+      <div className="flex items-center gap-1.5" data-component="WorkspaceNameGroup">
         <Tooltip>
           <TooltipTrigger asChild>
             <input
@@ -379,9 +379,9 @@ export function CreationControls(props: CreationControlsProps) {
               placeholder={nameState.isGenerating ? "Generating..." : "mission-name"}
               disabled={props.disabled}
               className={cn(
-                `border-border-medium focus:border-accent h-7 rounded-md
+                `focus:border-accent h-7 rounded-md
                  border border-transparent bg-transparent text-lg font-semibold
-                 field-sizing-content focus:border focus:bg-bg-dark focus:outline-none
+                 field-sizing-content focus:border focus:bg-black/20 focus:outline-none
                  disabled:opacity-50 max-w-[50vw] sm:max-w-[40vw] lg:max-w-[30vw]`,
                 nameState.autoGenerate ? "text-muted" : "text-foreground",
                 nameState.error && "border-red-500"
@@ -393,7 +393,7 @@ export function CreationControls(props: CreationControlsProps) {
           </TooltipContent>
         </Tooltip>
         {nameState.isGenerating ? (
-          <Loader2 className="text-accent h-3.5 w-3.5 shrink-0 animate-spin" />
+          <Loader2 className="text-accent h-3 w-3 shrink-0 animate-spin" />
         ) : (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -406,10 +406,10 @@ export function CreationControls(props: CreationControlsProps) {
               >
                 <Wand2
                   className={cn(
-                    "h-3.5 w-3.5 transition-colors",
+                    "h-3 w-3 transition-colors",
                     nameState.autoGenerate
                       ? "text-accent"
-                      : "text-muted-foreground opacity-50 hover:opacity-75"
+                      : "text-muted-foreground opacity-40 hover:opacity-70"
                   )}
                 />
               </button>
@@ -435,9 +435,9 @@ export function CreationControls(props: CreationControlsProps) {
         )}
       </div>
 
-      {/* Row 2: Headquarter + Runtime dropdowns */}
-      <div className="flex items-center gap-3" data-component="ProjectRuntimeRow">
-        {/* Headquarter selector - popover with full project list */}
+      {/* Row 2: All runtime controls in one compact strip */}
+      <div className="flex flex-wrap items-center gap-2" data-component="ProjectRuntimeRow">
+        {/* Headquarter selector */}
         <ProjectPickerDropdown
           projectPath={props.projectPath}
           projectName={props.projectName}
@@ -495,78 +495,74 @@ export function CreationControls(props: CreationControlsProps) {
           disabled={props.disabled}
           runtimeAvailabilityState={runtimeAvailabilityState}
         />
+
+        {/* Branch selector - inline with runtime row */}
+        {showTrunkBranchSelector && (
+          <div
+            className="flex items-center gap-1.5"
+            data-component="TrunkBranchGroup"
+            data-tutorial="trunk-branch"
+          >
+            <label htmlFor="trunk-branch" className="text-muted-foreground text-xs">
+              from
+            </label>
+            <Select
+              id="trunk-branch"
+              value={props.trunkBranch}
+              options={props.branches}
+              onChange={props.onTrunkBranchChange}
+              disabled={props.disabled}
+              className="h-7 max-w-[120px] text-xs"
+            />
+          </div>
+        )}
+
+        {/* SSH host - inline */}
+        {selectedRuntime.mode === "ssh" && !props.latticeProps?.enabled && (
+          <div className="flex items-center gap-1.5">
+            <label className="text-muted-foreground text-xs">host</label>
+            <input
+              type="text"
+              value={selectedRuntime.host}
+              onChange={(e) => onSelectedRuntimeChange({ mode: "ssh", host: e.target.value })}
+              placeholder="user@host"
+              disabled={props.disabled}
+              className={cn(
+                "bg-black/20 text-foreground border-border/50 focus:border-accent h-7 w-40 rounded-md border px-2 text-xs focus:outline-none disabled:opacity-50",
+                props.runtimeFieldError === "ssh" && "border-red-500"
+              )}
+            />
+          </div>
+        )}
+
+        {/* Docker image - inline */}
+        {selectedRuntime.mode === "docker" && (
+          <div className="flex items-center gap-1.5">
+            <label htmlFor="docker-image" className="text-muted-foreground text-xs">
+              image
+            </label>
+            <input
+              id="docker-image"
+              aria-label="Docker image"
+              type="text"
+              value={selectedRuntime.image}
+              onChange={(e) =>
+                onSelectedRuntimeChange({
+                  mode: "docker",
+                  image: e.target.value,
+                  shareCredentials: selectedRuntime.shareCredentials,
+                })
+              }
+              placeholder="node:20"
+              disabled={props.disabled}
+              className={cn(
+                "bg-black/20 text-foreground border-border/50 focus:border-accent h-7 w-40 rounded-md border px-2 text-xs focus:outline-none disabled:opacity-50",
+                props.runtimeFieldError === "docker" && "border-red-500"
+              )}
+            />
+          </div>
+        )}
       </div>
-
-      {/* Row 3: Runtime sub-options (branch, host, image) */}
-      {(showTrunkBranchSelector ||
-        (selectedRuntime.mode === "ssh" && !props.latticeProps?.enabled) ||
-        selectedRuntime.mode === "docker") && (
-        <div className="flex flex-wrap items-center gap-3">
-          {showTrunkBranchSelector && (
-            <div
-              className="flex items-center gap-2"
-              data-component="TrunkBranchGroup"
-              data-tutorial="trunk-branch"
-            >
-              <label htmlFor="trunk-branch" className="text-muted-foreground text-xs">
-                from
-              </label>
-              <Select
-                id="trunk-branch"
-                value={props.trunkBranch}
-                options={props.branches}
-                onChange={props.onTrunkBranchChange}
-                disabled={props.disabled}
-                className="h-7 max-w-[140px]"
-              />
-            </div>
-          )}
-
-          {selectedRuntime.mode === "ssh" && !props.latticeProps?.enabled && (
-            <div className="flex items-center gap-2">
-              <label className="text-muted-foreground text-xs">host</label>
-              <input
-                type="text"
-                value={selectedRuntime.host}
-                onChange={(e) => onSelectedRuntimeChange({ mode: "ssh", host: e.target.value })}
-                placeholder="user@host"
-                disabled={props.disabled}
-                className={cn(
-                  "bg-bg-dark text-foreground border-border-medium focus:border-accent h-7 w-48 rounded-md border px-2 text-sm focus:outline-none disabled:opacity-50",
-                  props.runtimeFieldError === "ssh" && "border-red-500"
-                )}
-              />
-            </div>
-          )}
-
-          {selectedRuntime.mode === "docker" && (
-            <div className="flex items-center gap-2">
-              <label htmlFor="docker-image" className="text-muted-foreground text-xs">
-                image
-              </label>
-              <input
-                id="docker-image"
-                aria-label="Docker image"
-                type="text"
-                value={selectedRuntime.image}
-                onChange={(e) =>
-                  onSelectedRuntimeChange({
-                    mode: "docker",
-                    image: e.target.value,
-                    shareCredentials: selectedRuntime.shareCredentials,
-                  })
-                }
-                placeholder="node:20"
-                disabled={props.disabled}
-                className={cn(
-                  "bg-bg-dark text-foreground border-border-medium focus:border-accent h-7 w-48 rounded-md border px-2 text-sm focus:outline-none disabled:opacity-50",
-                  props.runtimeFieldError === "docker" && "border-red-500"
-                )}
-              />
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Docker credential sharing */}
       {selectedRuntime.mode === "docker" && (
