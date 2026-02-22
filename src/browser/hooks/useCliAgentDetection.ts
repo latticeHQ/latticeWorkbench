@@ -5,7 +5,7 @@ import {
   CLI_AGENT_SLUGS,
   type CliAgentDefinition,
 } from "@/common/constants/cliAgents";
-import type { CliAgentDetectionResult } from "@/common/orpc/types";
+import type { CliAgentDetectionResult, CliAgentPreferences } from "@/common/orpc/types";
 
 /**
  * Build the default (pre-detection) list of all known agents.
@@ -53,6 +53,14 @@ export function useCliAgentDetection(workspaceId?: string) {
   );
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // User preferences (enabled/disabled per agent) — default to all enabled
+  const [preferences, setPreferences] = useState<Record<string, CliAgentPreferences>>({});
+
+  useEffect(() => {
+    if (!api) return;
+    void api.cliAgents.getPreferences().then(setPreferences).catch(() => {});
+  }, [api, refreshKey]);
 
   useEffect(() => {
     if (!api) return;
@@ -108,7 +116,10 @@ export function useCliAgentDetection(workspaceId?: string) {
   }, []);
 
   const agents = [...agentMap.values()];
-  const detectedAgents = agents.filter((a) => a.detected);
+  // Only include detected agents that haven't been explicitly disabled by the user
+  const detectedAgents = agents.filter(
+    (a) => a.detected && preferences[a.slug]?.enabled !== false
+  );
   const missingAgents = agents.filter((a) => !a.detected);
 
   return { agents, detectedAgents, missingAgents, loading, refresh };
