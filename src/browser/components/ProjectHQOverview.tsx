@@ -689,8 +689,14 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
 
         let x1: number, y1: number, x2: number, y2: number;
         if (sameRow) {
-          x1 = fr.right  - cr.left; y1 = fr.top + fr.height / 2 - cr.top;
-          x2 = tr.left   - cr.left; y2 = tr.top + tr.height / 2 - cr.top;
+          // Pick the GAP-side edges: L→R uses right→left, R→L uses left→right
+          const fromCx = fr.left + fr.width  / 2;
+          const toCx   = tr.left + tr.width  / 2;
+          const ltr    = fromCx < toCx;
+          x1 = (ltr ? fr.right : fr.left)  - cr.left;
+          x2 = (ltr ? tr.left  : tr.right) - cr.left;
+          y1 = fr.top + fr.height / 2 - cr.top;
+          y2 = tr.top + tr.height / 2 - cr.top;
         } else {
           x1 = fr.left + fr.width  / 2 - cr.left; y1 = fr.bottom - cr.top;
           x2 = tr.left + tr.width  / 2 - cr.left; y2 = tr.top    - cr.top;
