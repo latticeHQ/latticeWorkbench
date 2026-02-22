@@ -100,11 +100,11 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
         if (sameRow) {
           d = `M ${x1} ${y1} C ${x1 + dx * 0.4} ${y1}, ${x2 - dx * 0.4} ${y2}, ${x2} ${y2}`;
         } else if (isWrapAround) {
-          const rx = width + 28;
+          const rx = x1 + 60; // tight hook — 60px past source box, not canvas edge
           const midY = (y1 + y2) / 2;
           d = `M ${x1} ${y1}` +
-              ` C ${x1 + 30} ${y1}, ${rx} ${midY - dy * 0.2}, ${rx} ${midY}` +
-              ` C ${rx} ${midY + dy * 0.2}, ${x2 - 30} ${y2}, ${x2} ${y2}`;
+              ` C ${rx} ${y1}, ${rx} ${midY - dy * 0.2}, ${rx} ${midY}` +
+              ` C ${rx} ${midY + dy * 0.2}, ${x2 - 20} ${y2}, ${x2} ${y2}`;
         } else {
           d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.5}, ${x2} ${y2 - dy * 0.5}, ${x2} ${y2}`;
         }
@@ -452,7 +452,7 @@ function PhaseGroup({
 
   return (
     <div className={cn(
-      "rounded-xl overflow-hidden transition-all duration-200",
+      "rounded-xl overflow-hidden transition-all duration-200 max-w-5xl",
       phaseActive
         ? "border border-border/50 shadow-sm"
         : "border border-border/25"
@@ -490,7 +490,7 @@ function PhaseGroup({
 
       {/* Stage boxes — 3-col grid */}
       <div className={cn(
-        "grid gap-5 p-5 items-start",
+        "grid gap-10 p-5 items-start",
         phaseSections.length === 1 ? "grid-cols-1" :
         phaseSections.length === 2 ? "grid-cols-2" :
                                      "grid-cols-3"
