@@ -68,8 +68,9 @@ export function LiveKitSection() {
       const saves: Promise<unknown>[] = [];
 
       if (wsUrl !== savedRef.current.wsUrl && wsUrl.trim()) {
+        // Store as "baseUrl" — this is the key getConfig() exposes back as lk.baseUrl
         saves.push(
-          api.providers.setProviderConfig({ provider: "livekit", keyPath: ["wsUrl"], value: wsUrl.trim() })
+          api.providers.setProviderConfig({ provider: "livekit", keyPath: ["baseUrl"], value: wsUrl.trim() })
         );
       }
       if (apiKey !== savedRef.current.apiKey && apiKey.trim() && !apiKey.startsWith("•")) {
