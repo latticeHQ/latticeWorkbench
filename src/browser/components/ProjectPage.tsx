@@ -266,7 +266,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
             <div className="min-h-0 flex-1 overflow-y-auto">
 
               {/* ── Constrained top section: wizard + banners ── */}
-              <div className="mx-auto w-full max-w-5xl px-4 pt-6 pb-3 flex flex-col gap-5">
+              <div className="mx-auto w-full max-w-2xl px-4 pt-6 pb-3 flex flex-col gap-5">
 
                 {/* ── Git init banner ── */}
                 {isNonGitRepo && (
@@ -350,14 +350,12 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
               </div>
 
               {/* ── HQ Pipeline Architecture — full viewport width ── */}
-              <div className="w-full px-4 pb-4 flex flex-col gap-1">
-                {/* Divider */}
-                <div className="flex items-center gap-3 mb-1">
-                  <div className="flex-1 border-t border-border/30" />
-                  <span className="text-[10px] font-medium text-muted/50 uppercase tracking-widest">
+              <div className="w-full px-4 pb-4 flex flex-col gap-2">
+                {/* Centred label — no full-width lines */}
+                <div className="flex justify-center">
+                  <span className="text-[10px] font-medium text-muted/40 uppercase tracking-widest">
                     Agent Network
                   </span>
-                  <div className="flex-1 border-t border-border/30" />
                 </div>
                 <ProjectHQOverview
                   projectPath={projectPath}
