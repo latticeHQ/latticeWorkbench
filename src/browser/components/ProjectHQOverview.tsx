@@ -7,12 +7,12 @@
  * Active connections glow + have a fast-moving dot.
  */
 import React, {
-  useMemo, useCallback, useState, useRef, useLayoutEffect,
+  useMemo, useCallback, useState, useEffect, useRef, useLayoutEffect,
 } from "react";
 import { cn } from "@/common/lib/utils";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
 import { useWorkspaceContext, toWorkspaceSelection } from "@/browser/contexts/WorkspaceContext";
-import { useWorkspaceSidebarState, useWorkspaceUsage } from "@/browser/stores/WorkspaceStore";
+import { useWorkspaceSidebarState, useWorkspaceUsage, useWorkspaceStoreRaw } from "@/browser/stores/WorkspaceStore";
 import { resolveSectionColor } from "@/common/constants/ui";
 import { sortSectionsByLinkedList } from "@/common/utils/sections";
 import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
@@ -197,6 +197,58 @@ function SubStepRow({ ws, isLast, accent }: {
              : done ? <CheckCircle2 className="h-2.5 w-2.5 text-[var(--color-success)] shrink-0" />
                     : <span className="h-1.5 w-1.5 rounded-full bg-muted/15 shrink-0 block" />}
     </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage / phase cost rollup badge — subscribes to N workspace usage stores
+// ─────────────────────────────────────────────────────────────────────────────
+function StageCostBadge({
+  workspaces, color,
+}: {
+  workspaces: FrontendWorkspaceMetadata[];
+  color?: string;
+}) {
+  const store = useWorkspaceStoreRaw();
+
+  const [costData, setCostData] = useState(() => {
+    let cost = 0; let tokens = 0;
+    for (const ws of workspaces) {
+      const u = store.getWorkspaceUsage(ws.id);
+      cost += getTotalCost(u.sessionTotal) ?? 0;
+      tokens += u.totalTokens;
+    }
+    return { cost, tokens };
+  });
+
+  useEffect(() => {
+    if (workspaces.length === 0) { setCostData({ cost: 0, tokens: 0 }); return; }
+    const compute = () => {
+      let cost = 0; let tokens = 0;
+      for (const ws of workspaces) {
+        const u = store.getWorkspaceUsage(ws.id);
+        cost += getTotalCost(u.sessionTotal) ?? 0;
+        tokens += u.totalTokens;
+      }
+      setCostData(prev =>
+        prev.cost === cost && prev.tokens === tokens ? prev : { cost, tokens }
+      );
+    };
+    compute();
+    const unsubs = workspaces.map(ws => store.subscribeUsage(ws.id, compute));
+    return () => { unsubs.forEach(fn => fn()); };
+  }, [store, workspaces]);
+
+  if (costData.cost <= 0) return null;
+
+  return (
+    <span
+      className="shrink-0 flex items-center gap-0.5 text-[8px] tabular-nums font-medium"
+      style={{ color: color ? `${color}65` : "rgba(120,120,140,0.6)" }}
+    >
+      <DollarSign className="h-1.5 w-1.5" />
+      {formatCostWithDollar(costData.cost)}
+    </span>
   );
 }
 
@@ -399,6 +451,7 @@ function StageBox({
             {workspaces.length}
           </span>
         )}
+        {!isEmpty && <StageCostBadge workspaces={workspaces} color={color} />}
         {!isEmpty && (
           <span className="shrink-0 text-muted/25 group-hover/hdr:text-muted/55 transition-colors">
             {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -446,6 +499,10 @@ function PhaseGroup({
   const phaseHasContent = phaseSections.some(
     s => (workspacesBySection.get(s.id) ?? []).length > 0
   );
+  const phaseWorkspaces = useMemo(
+    () => phaseSections.flatMap(s => workspacesBySection.get(s.id) ?? []),
+    [phaseSections, workspacesBySection]
+  );
   // Derive a phase label from section names
   const phaseNames = phaseSections.map(s => s.name);
   const phaseSubtitle = phaseNames.length <= 2
@@ -483,10 +540,15 @@ function PhaseGroup({
           {phaseSubtitle}
         </span>
         {phaseActive && <LiveDot size="sm" />}
-        {phaseHasContent && !phaseActive && (
-          <span className="text-[8px] text-muted/30 ml-auto">
-            {phaseSections.reduce((sum, s) => sum + (workspacesBySection.get(s.id) ?? []).length, 0)} missions
-          </span>
+        {phaseHasContent && (
+          <div className="ml-auto flex items-center gap-2">
+            {!phaseActive && (
+              <span className="text-[8px] text-muted/30">
+                {phaseSections.reduce((sum, s) => sum + (workspacesBySection.get(s.id) ?? []).length, 0)} missions
+              </span>
+            )}
+            <StageCostBadge workspaces={phaseWorkspaces} />
+          </div>
         )}
       </div>
 
@@ -531,9 +593,10 @@ function PhaseGroup({
 // ─────────────────────────────────────────────────────────────────────────────
 // Metrics bar
 // ─────────────────────────────────────────────────────────────────────────────
-function MetricsBar({ totalMissions, activeMissions, totalSubAgents, stageCount, cliIds }: {
+function MetricsBar({ totalMissions, activeMissions, totalSubAgents, stageCount, cliIds, workspaces }: {
   totalMissions: number; activeMissions: number;
   totalSubAgents: number; stageCount: number; cliIds: string[];
+  workspaces: FrontendWorkspaceMetadata[];
 }) {
   return (
     <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 flex-wrap text-[10.5px] w-fit mx-auto">
@@ -564,6 +627,7 @@ function MetricsBar({ totalMissions, activeMissions, totalSubAgents, stageCount,
       <span className="text-muted/45 shrink-0">
         <strong className="text-foreground/65">{stageCount}</strong> stages
       </span>
+      <StageCostBadge workspaces={workspaces} />
       {cliIds.length > 0 && (
         <>
           <div className="w-px h-4 bg-border/25 shrink-0 ml-auto" />
@@ -737,6 +801,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
         totalSubAgents={totalSubAgents}
         stageCount={sections.length}
         cliIds={allCliIds}
+        workspaces={rootWorkspaces}
       />
 
       {/* Full pipeline canvas — Gantt-style phase rows + SVG connections */}
