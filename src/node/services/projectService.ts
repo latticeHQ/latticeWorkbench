@@ -25,6 +25,23 @@ import * as path from "path";
 import { getLatticeProjectsDir } from "@/common/constants/paths";
 import { expandTilde } from "@/node/runtime/tildeExpansion";
 
+// ── Default agent-team sections ────────────────────────────────────────────
+// Seeded automatically when a new HQ (project) is created.
+// Maps to the 10 end-to-end lifecycle stages of a parallel AI agent team.
+// IDs are assigned at runtime; nextId links are wired in create().
+const DEFAULT_AGENT_SECTIONS: Array<{ name: string; color: string }> = [
+  { name: "Intake",    color: "#d465a5" }, // Pink    – requirements & triage
+  { name: "Discovery", color: "#5a9bd4" }, // Blue    – codebase exploration
+  { name: "Planning",  color: "#d9b836" }, // Yellow  – architecture & design
+  { name: "Build",     color: "#4caf7c" }, // Green   – code generation
+  { name: "Test",      color: "#e5853a" }, // Orange  – testing & validation
+  { name: "Review",    color: "#e54545" }, // Red     – QA & code review
+  { name: "Docs",      color: "#22d3ee" }, // Cyan    – documentation
+  { name: "Deploy",    color: "#4ab5a7" }, // Teal    – CI/CD & release
+  { name: "Monitor",   color: "#64748b" }, // Slate   – observability & feedback
+  { name: "Meta",      color: "#6b7280" }, // Gray    – learning & orchestration
+];
+
 /**
  * List directory contents for the DirectoryPickerModal.
  * Returns a FileTreeNode where:
@@ -140,7 +157,18 @@ export class ProjectService {
       // Create the directory if it doesn't exist (like mkdir -p)
       await fsPromises.mkdir(normalizedPath, { recursive: true });
 
-      const projectConfig: ProjectConfig = { workspaces: [] };
+      // Build default sections with linked-list ordering
+      const rawSections: SectionConfig[] = DEFAULT_AGENT_SECTIONS.map((s) => ({
+        id: randomBytes(4).toString("hex"),
+        name: s.name,
+        color: s.color,
+        nextId: null,
+      }));
+      for (let i = 0; i < rawSections.length - 1; i++) {
+        rawSections[i].nextId = rawSections[i + 1].id;
+      }
+
+      const projectConfig: ProjectConfig = { workspaces: [], sections: rawSections };
       config.projects.set(normalizedPath, projectConfig);
       await this.config.saveConfig(config);
 
