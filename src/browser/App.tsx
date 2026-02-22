@@ -61,6 +61,8 @@ import { useFeatureFlags } from "./contexts/FeatureFlagsContext";
 import { UILayoutsProvider, useUILayouts } from "@/browser/contexts/UILayoutsContext";
 import { FeatureFlagsProvider } from "./contexts/FeatureFlagsContext";
 import { ExperimentsProvider } from "./contexts/ExperimentsContext";
+import { LiveKitProvider } from "./contexts/LiveKitContext";
+import { GlobalLiveKitOverlay } from "./components/GlobalLiveKitOverlay";
 import { getWorkspaceSidebarKey } from "./utils/workspace";
 import { WindowsToolchainBanner } from "./components/WindowsToolchainBanner";
 import { RosettaBanner } from "./components/RosettaBanner";
@@ -929,6 +931,8 @@ function AppInner() {
           }}
         />
         <SettingsModal />
+        {/* Global LiveKit floating overlay — visible on all pages */}
+        <GlobalLiveKitOverlay />
       </div>
     </>
   );
@@ -944,7 +948,9 @@ function App() {
               <SplashScreenProvider>
                 <TutorialProvider>
                   <CommandRegistryProvider>
-                    <AppInner />
+                    <LiveKitProvider>
+                      <AppInner />
+                    </LiveKitProvider>
                   </CommandRegistryProvider>
                 </TutorialProvider>
               </SplashScreenProvider>
