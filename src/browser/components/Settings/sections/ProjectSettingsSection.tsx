@@ -664,10 +664,7 @@ export const ProjectSettingsSection: React.FC = () => {
                           )}
                         </div>
                       ) : (
-                        <p
-                          className="text-muted mt-0.5 truncate font-mono text-xs"
-                          title={serverDisplayValue(entry)}
-                        >
+                        <p className="text-muted mt-0.5 break-words font-mono text-xs">
                           {serverDisplayValue(entry)}
                         </p>
                       )}
