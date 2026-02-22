@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect } from "react";
-import { Menu, Settings, Terminal, Plus } from "lucide-react";
+import { Menu, Settings, Terminal } from "lucide-react";
 import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
 import { cn } from "@/common/lib/utils";
 import { AgentProvider } from "@/browser/contexts/AgentContext";
@@ -264,31 +264,15 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
             </div>
             {/* Scrollable content area */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-              <div className="mx-auto w-full max-w-5xl px-4 py-6 flex flex-col gap-6">
-
-                {/* ── HQ Hierarchy (primary view) ── */}
-                <ProjectHQOverview
-                  projectPath={projectPath}
-                  projectName={projectName}
-                />
+              <div className="mx-auto w-full max-w-5xl px-4 py-6 flex flex-col gap-5">
 
                 {/* ── Git init banner ── */}
                 {isNonGitRepo && (
                   <GitInitBanner projectPath={projectPath} onSuccess={handleGitInitSuccess} />
                 )}
 
-                {/* ── New Mission creation panel ── */}
+                {/* ── New Mission wizard (always on top) ── */}
                 <div className="flex flex-col gap-3">
-                  {/* Section divider with label */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 border-t border-border/40" />
-                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted uppercase tracking-widest">
-                      <Plus className="h-3 w-3" />
-                      New Mission
-                    </span>
-                    <div className="flex-1 border-t border-border/40" />
-                  </div>
-
                   {/* Show agent setup prompt when no agents detected, otherwise show ChatInput */}
                   {!agentsLoading && !hasAgents ? (
                     <div
@@ -360,6 +344,22 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                       />
                     </>
                   )}
+                </div>
+
+                {/* ── HQ Pipeline Architecture (below the wizard) ── */}
+                <div className="flex flex-col gap-1">
+                  {/* Divider */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 border-t border-border/30" />
+                    <span className="text-[10px] font-medium text-muted/50 uppercase tracking-widest">
+                      Agent Network
+                    </span>
+                    <div className="flex-1 border-t border-border/30" />
+                  </div>
+                  <ProjectHQOverview
+                    projectPath={projectPath}
+                    projectName={projectName}
+                  />
                 </div>
 
                 {/* ── MCP overview ── */}
