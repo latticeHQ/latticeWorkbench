@@ -350,25 +350,25 @@ function StageBox({
     return [...s].slice(0, 3);
   }, [workspaces]);
 
-  // Empty stages are fully desaturated / disabled — gray, no color accent
-  const borderStyle = isEmpty
-    ? "2px dashed rgba(120,120,120,0.22)"
-    : `2px dashed ${color}50`;
+  // Visual style: active = clean solid card, empty = disabled hatch
+  const emptyBorder  = "1px dashed rgba(120,120,120,0.2)";
+  const activeBorder = active ? `1px solid ${color}40` : "1px solid hsl(var(--border) / 0.35)";
   const bgStyle = isEmpty
-    ? `repeating-linear-gradient(-45deg, transparent, transparent 5px, rgba(128,128,128,0.025) 5px, rgba(128,128,128,0.025) 10px)`
-    : `${color}05`;
+    ? `repeating-linear-gradient(-45deg, transparent, transparent 5px, rgba(128,128,128,0.02) 5px, rgba(128,128,128,0.02) 10px)`
+    : `${color}04`;
 
   return (
     <div
       ref={nodeRef}
       className={cn(
-        "relative rounded-xl transition-all duration-200 h-full min-h-[110px]",
-        isEmpty && "opacity-35 grayscale"
+        "relative rounded-xl transition-all duration-200 min-h-[110px]",
+        isEmpty && "opacity-30 grayscale",
+        !isEmpty && "hover:shadow-sm"
       )}
       style={{
-        border: borderStyle,
+        border: isEmpty ? emptyBorder : activeBorder,
         background: bgStyle,
-        boxShadow: active ? `0 0 0 1px ${color}22, 0 6px 20px ${color}10` : undefined,
+        boxShadow: active ? `0 0 0 2px ${color}18, 0 4px 16px ${color}08` : undefined,
         zIndex: 1,
         pointerEvents: isEmpty ? "none" : undefined,
       }}
@@ -380,7 +380,7 @@ function StageBox({
           "flex w-full items-center gap-2.5 px-4 py-3 rounded-t-xl focus-visible:outline-none",
           !isEmpty && "group/hdr hover:bg-white/4 transition-colors cursor-pointer"
         )}
-        style={{ borderBottom: (collapsed || isEmpty) ? "none" : `1px dashed ${color}28` }}
+        style={{ borderBottom: (collapsed || isEmpty) ? "none" : "1px solid hsl(var(--border) / 0.2)" }}
         tabIndex={isEmpty ? -1 : 0}
       >
         <span
@@ -422,7 +422,7 @@ function StageBox({
         <div className="p-3">
           <div
             className="grid gap-2"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 280px))" }}
           >
             {workspaces.map(ws => (
               <ServiceNode
@@ -561,7 +561,7 @@ function PhaseGroup({
       </div>
 
       {/* Stage boxes — 12-col grid with dynamic column allocation */}
-      <div className="grid grid-cols-12 gap-4 p-4">
+      <div className="grid grid-cols-12 gap-4 p-4 items-start">
         {phaseSections.map((sec, secIdx) => {
           const globalIdx = phaseIdx * PHASE_SIZE + secIdx;
           const span      = colSpans[secIdx] ?? 4;
