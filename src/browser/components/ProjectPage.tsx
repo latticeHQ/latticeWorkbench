@@ -321,6 +321,19 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                   )}
                 </button>
               ))}
+
+              {/* Settings gear — right-aligned */}
+              <div className="ml-auto">
+                <button
+                  type="button"
+                  onClick={() => settings.openProjectSettings(projectPath)}
+                  title="Project settings"
+                  aria-label="Open project settings"
+                  className="text-muted hover:text-foreground flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-white/8"
+                >
+                  <Settings size={13} />
+                </button>
+              </div>
             </div>
 
             {/* ── Tab content ── */}
