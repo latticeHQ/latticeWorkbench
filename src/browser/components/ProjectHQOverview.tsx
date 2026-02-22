@@ -71,27 +71,20 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
       style={{ zIndex: 0, overflow: "visible" }}
     >
       <defs>
-        <style>{`
-          @keyframes hqFlow   { to { stroke-dashoffset: -24; } }
-          @keyframes hqActive { to { stroke-dashoffset: -16; } }
-          .hq-flow   { animation: hqFlow   2s linear infinite; }
-          .hq-active { animation: hqActive 0.6s linear infinite; }
-        `}</style>
-
         {/* Arrowhead — idle */}
         <marker id="arr-idle"
-          markerWidth="7" markerHeight="7" refX="6" refY="3.5"
+          markerWidth="8" markerHeight="8" refX="7" refY="4"
           orient="auto-start-reverse">
-          <path d="M0.5,0.5 L6,3.5 L0.5,6.5 Z"
-            fill="rgba(150,150,158,0.7)" stroke="none" />
+          <path d="M1,1 L7,4 L1,7 Z"
+            fill="rgba(150,150,158,0.55)" stroke="none" />
         </marker>
 
         {/* Arrowhead — per active edge (section color) */}
         {edges.filter(e => e.active).map(e => (
           <marker key={`arr-${e.id}`} id={`arr-${e.id}`}
-            markerWidth="7" markerHeight="7" refX="6" refY="3.5"
+            markerWidth="8" markerHeight="8" refX="7" refY="4"
             orient="auto-start-reverse">
-            <path d="M0.5,0.5 L6,3.5 L0.5,6.5 Z"
+            <path d="M1,1 L7,4 L1,7 Z"
               fill={e.color} stroke="none" />
           </marker>
         ))}
@@ -102,15 +95,12 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
         const dy = y2 - y1;
         const dx = x2 - x1;
 
-        // Cross-phase wrap-around: last col → first col of next phase row
-        // Route via the left margin so the arrow doesn't cut through boxes
         const isWrapAround = !sameRow && (x1 - x2) > width * 0.15;
         let d: string;
         if (sameRow) {
           d = `M ${x1} ${y1} C ${x1 + dx * 0.4} ${y1}, ${x2 - dx * 0.4} ${y2}, ${x2} ${y2}`;
         } else if (isWrapAround) {
-          // J-curve routing: exit right side, arc down, enter left side
-          const rx = width + 28; // right margin outside canvas
+          const rx = width + 28;
           const midY = (y1 + y2) / 2;
           d = `M ${x1} ${y1}` +
               ` C ${x1 + 30} ${y1}, ${rx} ${midY - dy * 0.2}, ${rx} ${midY}` +
@@ -119,13 +109,12 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
           d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.5}, ${x2} ${y2 - dy * 0.5}, ${x2} ${y2}`;
         }
 
-        // Ghost — both endpoints empty
+        // Ghost — both endpoints empty: barely visible, no arrow
         if (bothEmpty) {
           return (
             <path key={edge.id} d={d} fill="none"
-              stroke="rgba(150,150,158,0.15)"
+              stroke="rgba(150,150,158,0.12)"
               strokeWidth={1}
-              strokeDasharray="2 10"
               strokeLinecap="round"
             />
           );
@@ -135,23 +124,21 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
           <g key={edge.id}>
             {/* Active glow */}
             {active && (
-              <path d={d} fill="none" stroke={color} strokeWidth={8} strokeOpacity={0.08} />
+              <path d={d} fill="none" stroke={color} strokeWidth={10} strokeOpacity={0.07} />
             )}
 
-            {/* Single animated dashed connector */}
+            {/* Solid connector line + arrow */}
             <path d={d} fill="none"
-              stroke={active ? color : "rgba(150,150,158,0.5)"}
+              stroke={active ? color : "rgba(150,150,158,0.45)"}
               strokeWidth={active ? 1.75 : 1.25}
-              strokeDasharray={active ? "8 6" : "6 8"}
               strokeLinecap="round"
               markerEnd={active ? `url(#arr-${edge.id})` : "url(#arr-idle)"}
-              className={active ? "hq-active" : "hq-flow"}
             />
 
             {/* Travelling dot — active only */}
             {active && (
-              <circle r={2.5} fill={color} opacity={0.85}>
-                <animateMotion dur="0.9s" repeatCount="indefinite" path={d} />
+              <circle r={2.5} fill={color} opacity={0.9}>
+                <animateMotion dur="1.1s" repeatCount="indefinite" path={d} />
               </circle>
             )}
           </g>
@@ -503,7 +490,7 @@ function PhaseGroup({
 
       {/* Stage boxes — 3-col grid */}
       <div className={cn(
-        "grid gap-3 p-3 items-start",
+        "grid gap-5 p-5 items-start",
         phaseSections.length === 1 ? "grid-cols-1" :
         phaseSections.length === 2 ? "grid-cols-2" :
                                      "grid-cols-3"
@@ -723,7 +710,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
 
   return (
     <div
-      className="flex flex-col gap-3 w-full"
+      className="flex flex-col gap-4 w-full"
       style={{
         backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.022) 1px, transparent 1px)",
         backgroundSize: "22px 22px",
@@ -745,7 +732,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
           <ConnectionCanvas edges={edges} width={canvasSize.w} height={canvasSize.h} />
 
           {/* Phase rows */}
-          <div className="flex flex-col gap-2" style={{ position: "relative", zIndex: 1 }}>
+          <div className="flex flex-col gap-4" style={{ position: "relative", zIndex: 1 }}>
             {phases.map((phaseSections, phaseIdx) => (
               <PhaseGroup
                 key={phaseIdx}
