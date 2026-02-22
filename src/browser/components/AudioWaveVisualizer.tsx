@@ -121,12 +121,26 @@ export function AudioWaveVisualizer({
     };
   }, [isSpeaking]);
 
+  // Keep canvas drawing-buffer in sync with its CSS display size.
+  // Without this the canvas intrinsic height (144) overrides h-full in compact mode.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ro = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const { width, height } = entry.contentRect;
+      if (canvas.width !== width) canvas.width = width;
+      if (canvas.height !== height) canvas.height = height;
+    });
+    ro.observe(canvas);
+    return () => ro.disconnect();
+  }, []);
+
   return (
     <canvas
       ref={canvasRef}
-      width={256}
-      height={144}
       className={cn("w-full h-full", className)}
+      // No width/height attrs — let CSS + ResizeObserver control the buffer size
     />
   );
 }
