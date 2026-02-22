@@ -239,89 +239,84 @@ function ServiceNode({ ws, subAgents, accent, onOpen }: {
       onClick={() => onOpen(ws)}
       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onOpen(ws); }}
       className={cn(
-        "group/sn relative flex flex-col rounded-xl border cursor-pointer select-none overflow-hidden",
-        "transition-all duration-150 border-border/40 bg-background/60",
-        "hover:border-border hover:bg-background hover:shadow-lg hover:shadow-black/15",
-        live    && "border-[var(--color-exec-mode)]/45 bg-[var(--color-exec-mode)]/5 shadow-sm",
-        waiting && "border-amber-400/40",
-        done    && "opacity-55",
+        "group/sn relative flex flex-col rounded-lg border cursor-pointer select-none overflow-hidden",
+        "transition-all duration-150 border-border/40 bg-background/55",
+        "hover:border-border hover:bg-background hover:shadow-md hover:shadow-black/25",
+        live    && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/4 shadow-sm",
+        waiting && "border-amber-400/35",
+        done    && "opacity-50",
         queued  && "opacity-70"
       )}
     >
-      <div className="h-[3px] w-full shrink-0" style={{
+      <div className="h-[2.5px] w-full shrink-0" style={{
         background: live ? "var(--color-exec-mode)" : waiting ? "#f59e0b" : done ? "var(--color-success)" : accent,
-        opacity: done ? 0.3 : live ? 1 : 0.7,
+        opacity: done ? 0.3 : live ? 1 : 0.65,
       }} />
-      <div className="flex flex-col gap-2 p-3.5">
-        {/* Title row */}
-        <div className="flex items-start gap-2.5 min-w-0">
+      <div className="flex flex-col gap-1 p-2">
+        <div className="flex items-start gap-1.5 min-w-0">
           <div className={cn(
-            "shrink-0 mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg border text-base",
+            "shrink-0 mt-0.5 flex h-6 w-6 items-center justify-center rounded-md border text-sm",
             live ? "border-[var(--color-exec-mode)]/30 bg-[var(--color-exec-mode)]/12"
-                 : "border-border/35 bg-background-secondary/70"
+                 : "border-border/35 bg-background-secondary/60"
           )}>{step.icon}</div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-start gap-1.5 min-w-0">
-              <span className="flex-1 min-w-0 text-sm font-semibold text-foreground leading-snug">
+            <div className="flex items-start gap-1 min-w-0">
+              <span className="flex-1 min-w-0 text-[10.5px] font-semibold text-foreground leading-tight">
                 {live
                   ? <Shimmer colorClass="var(--color-foreground)" className="block truncate">{title}</Shimmer>
                   : <span className="block truncate">{title}</span>}
               </span>
-              <span className="shrink-0 mt-1">
+              <span className="shrink-0 mt-0.5">
                 {live    ? <LiveDot size="sm" /> :
-                 done    ? <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" /> :
-                 waiting ? <span className="h-2 w-2 rounded-full bg-amber-400 block" /> :
-                 queued  ? <span className="h-2 w-2 rounded-full border border-muted/40 block" /> :
-                           <span className="h-2 w-2 rounded-full bg-muted/15 block" />}
+                 done    ? <CheckCircle2 className="h-2.5 w-2.5 text-[var(--color-success)]" /> :
+                 waiting ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400 block" /> :
+                 queued  ? <span className="h-1.5 w-1.5 rounded-full border border-muted/40 block" /> :
+                           <span className="h-1.5 w-1.5 rounded-full bg-muted/12 block" />}
               </span>
             </div>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
               {ws.agentId && KNOWN_CLI.has(ws.agentId) && (
-                <span className="flex items-center gap-1 text-[9px] text-foreground/40 font-mono">
-                  <CliAgentIcon slug={ws.agentId} className="h-3 w-3" />{ws.agentId}
+                <span className="flex items-center gap-0.5 text-[8px] text-foreground/35 font-mono">
+                  <CliAgentIcon slug={ws.agentId} className="h-2.5 w-2.5" />{ws.agentId}
                 </span>
               )}
               {ws.agentId && !KNOWN_CLI.has(ws.agentId) && (
-                <span className="text-[9px] text-foreground/30 font-mono">{ws.agentId}</span>
+                <span className="text-[8px] text-foreground/30 font-mono">{ws.agentId}</span>
               )}
               {activeSubMeta && (
-                <span className="ml-auto text-[9px] text-[var(--color-exec-mode)] font-medium">
+                <span className="ml-auto text-[8px] text-[var(--color-exec-mode)]">
                   {activeSubMeta.icon} {activeSubMeta.label}
                 </span>
               )}
             </div>
           </div>
         </div>
-
-        {/* Stats row */}
         {(cost > 0 || tok > 0 || ws.createdAt) && (
-          <div className="flex items-center gap-3 flex-wrap pt-0.5">
-            {cost > 0 && <span className="text-[10px] text-muted/55 flex items-center gap-1"><DollarSign className="h-2.5 w-2.5" />{formatCostWithDollar(cost)}</span>}
-            {tok > 0  && <span className="text-[10px] text-muted/55 flex items-center gap-1"><Zap className="h-2.5 w-2.5" />{formatTokens(tok)}</span>}
+          <div className="flex items-center gap-2 flex-wrap">
+            {cost > 0 && <span className="text-[8px] text-muted/50 flex items-center gap-0.5"><DollarSign className="h-1.5 w-1.5" />{formatCostWithDollar(cost)}</span>}
+            {tok > 0  && <span className="text-[8px] text-muted/50 flex items-center gap-0.5"><Zap className="h-1.5 w-1.5" />{formatTokens(tok)}</span>}
             {ws.createdAt && (
-              <span className="text-[10px] text-muted/35 flex items-center gap-1 ml-auto">
-                <Clock className="h-2.5 w-2.5" />
+              <span className="text-[8px] text-muted/30 flex items-center gap-0.5 ml-auto">
+                <Clock className="h-1.5 w-1.5" />
                 {new Date(ws.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             )}
           </div>
         )}
-
-        {/* Sub-agents */}
         {sorted.length > 0 && (
-          <div className="border-t pt-2 flex flex-col gap-0.5" style={{ borderColor: `${accent}20` }}>
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <Users className="h-2.5 w-2.5 text-muted/35" />
-              <span className="text-[9px] text-muted/40 font-medium">{sorted.length} sub-agent{sorted.length !== 1 ? "s" : ""}</span>
+          <div className="border-t pt-1.5 flex flex-col gap-0" style={{ borderColor: `${accent}18` }}>
+            <div className="flex items-center gap-1 mb-1">
+              <Users className="h-2 w-2 text-muted/35" />
+              <span className="text-[8px] text-muted/35">{sorted.length} agent{sorted.length !== 1 ? "s" : ""}</span>
             </div>
             {sorted.slice(0, 5).map((s, i) => (
               <SubStepRow key={s.id} ws={s} isLast={i === sorted.length - 1} accent={accent} />
             ))}
-            {sorted.length > 5 && <span className="text-[9px] text-muted/30 pl-7">+{sorted.length - 5} more</span>}
+            {sorted.length > 5 && <span className="text-[8px] text-muted/30 pl-6">+{sorted.length - 5} more</span>}
           </div>
         )}
       </div>
-      <ArrowRight className="absolute right-2 top-2 h-3.5 w-3.5 text-[var(--color-exec-mode)] opacity-0 group-hover/sn:opacity-55 transition-opacity" />
+      <ArrowRight className="absolute right-1.5 top-1.5 h-3 w-3 text-[var(--color-exec-mode)] opacity-0 group-hover/sn:opacity-60 transition-opacity" />
     </div>
   );
 }
@@ -350,24 +345,26 @@ function StageBox({
     return [...s].slice(0, 3);
   }, [workspaces]);
 
-  // Visual style — each stage is a SOLID card so they stay visually distinct
+  // Empty stages are fully desaturated / disabled — gray, no color accent
+  const borderStyle = isEmpty
+    ? "2px dashed rgba(120,120,120,0.22)"
+    : `2px dashed ${color}50`;
   const bgStyle = isEmpty
-    ? "transparent"
-    : active
-      ? `color-mix(in srgb, ${color} 6%, var(--background))`
-      : "hsl(var(--background-secondary) / 0.6)";
+    ? `repeating-linear-gradient(-45deg, transparent, transparent 5px, rgba(128,128,128,0.025) 5px, rgba(128,128,128,0.025) 10px)`
+    : `${color}05`;
 
   return (
     <div
       ref={nodeRef}
       className={cn(
-        "relative rounded-xl transition-all duration-200 min-h-[100px]",
-        !isEmpty && "border border-border/30 shadow-sm",
-        isEmpty && "opacity-30 grayscale border border-dashed border-border/20"
+        "relative rounded-xl transition-all duration-200",
+        isEmpty && "opacity-35 grayscale"
       )}
       style={{
+        border: borderStyle,
         background: bgStyle,
-        boxShadow: active ? `0 0 0 1px ${color}30, 0 4px 16px ${color}10` : undefined,
+        boxShadow: active ? `0 0 0 1px ${color}22, 0 6px 20px ${color}10` : undefined,
+        zIndex: 1,
         pointerEvents: isEmpty ? "none" : undefined,
       }}
     >
@@ -375,10 +372,10 @@ function StageBox({
       <button
         type="button" onClick={isEmpty ? undefined : onToggle}
         className={cn(
-          "flex w-full items-center gap-2.5 px-4 py-3 rounded-t-xl focus-visible:outline-none",
+          "flex w-full items-center gap-2 px-3 py-2 rounded-t-xl focus-visible:outline-none",
           !isEmpty && "group/hdr hover:bg-white/4 transition-colors cursor-pointer"
         )}
-        style={{ borderBottom: (collapsed || isEmpty) ? "none" : "1px solid hsl(var(--border) / 0.2)" }}
+        style={{ borderBottom: (collapsed || isEmpty) ? "none" : `1px dashed ${color}28` }}
         tabIndex={isEmpty ? -1 : 0}
       >
         <span
@@ -391,7 +388,7 @@ function StageBox({
         </span>
         <span
           className={cn(
-            "flex-1 min-w-0 text-left text-[11px] font-bold uppercase tracking-[0.13em] truncate",
+            "flex-1 min-w-0 text-left text-[10px] font-bold uppercase tracking-[0.13em] truncate",
             active ? "text-foreground" : isEmpty ? "text-foreground/30" : "text-foreground/60"
           )}
           style={active ? { color } : undefined}
@@ -417,10 +414,10 @@ function StageBox({
 
       {/* Content — only shown when has workspaces and not collapsed */}
       {!isEmpty && !collapsed && (
-        <div className="p-3">
+        <div className="p-2">
           <div
-            className="grid gap-2"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(200px, 280px))" }}
+            className="grid gap-1.5"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
           >
             {workspaces.map(ws => (
               <ServiceNode
@@ -441,9 +438,6 @@ function StageBox({
 // ─────────────────────────────────────────────────────────────────────────────
 const PHASE_SIZE = 3;
 
-// Min cols per empty stage in a 12-col phase grid (by phase size)
-const EMPTY_COLS_BY_SIZE: Record<number, number> = { 1: 12, 2: 4, 3: 2 };
-
 function PhaseGroup({
   phaseIdx, phaseSections, workspacesBySection, childrenByParent,
   onOpen, collapsed, toggle, nodeRefs,
@@ -457,67 +451,14 @@ function PhaseGroup({
   toggle: (id: string) => void;
   nodeRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
 }) {
-  const phaseWsCounts = useMemo(
-    () => phaseSections.map(s => (workspacesBySection.get(s.id) ?? []).length),
-    [phaseSections, workspacesBySection]
-  );
-  const totalWs    = phaseWsCounts.reduce((a, b) => a + b, 0);
-  const allEmpty   = totalWs === 0;
   const phaseActive = phaseSections.some(
     s => (workspacesBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
   );
-
-  // Dynamic 12-col spans: active stages absorb the columns freed by empty stages
-  const colSpans: number[] = useMemo(() => {
-    const n       = phaseSections.length;
-    const emptyCols = EMPTY_COLS_BY_SIZE[n] ?? 2;
-    const numEmpty  = phaseWsCounts.filter(c => c === 0).length;
-    const numActive = n - numEmpty;
-    return phaseWsCounts.map(c => {
-      if (numActive === 0) return Math.floor(12 / n);
-      if (c === 0)         return emptyCols;
-      return Math.floor((12 - numEmpty * emptyCols) / numActive);
-    });
-  }, [phaseSections.length, phaseWsCounts]);
-
-  // ── All-empty phase → compact single-line strip ──────────────────────────
-  if (allEmpty) {
-    return (
-      <div className="rounded-lg border border-border/12 overflow-hidden bg-muted/3">
-        <div className="flex items-center gap-3 px-4 py-1.5">
-          <span className="text-[8px] font-black uppercase tracking-[0.2em] text-foreground/18 shrink-0">
-            P{phaseIdx + 1}
-          </span>
-          <div className="w-px h-3 bg-border/20 shrink-0" />
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            {phaseSections.map((sec, secIdx) => {
-              const globalIdx = phaseIdx * PHASE_SIZE + secIdx;
-              return (
-                <div
-                  key={sec.id}
-                  ref={el => {
-                    if (el) nodeRefs.current.set(sec.id, el);
-                    else    nodeRefs.current.delete(sec.id);
-                  }}
-                  className="flex items-center gap-1.5 opacity-35"
-                >
-                  <span className="h-3.5 min-w-[14px] flex items-center justify-center rounded bg-muted/20 text-[7px] font-bold text-foreground/40 px-0.5">
-                    {globalIdx + 1}
-                  </span>
-                  <span className="text-[8px] uppercase tracking-[0.1em] text-foreground/28">
-                    {sec.name}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Phase with content → full phase container ─────────────────────────────
-  const phaseNames   = phaseSections.map(s => s.name);
+  const phaseHasContent = phaseSections.some(
+    s => (workspacesBySection.get(s.id) ?? []).length > 0
+  );
+  // Derive a phase label from section names
+  const phaseNames = phaseSections.map(s => s.name);
   const phaseSubtitle = phaseNames.length <= 2
     ? phaseNames.join(" & ")
     : `${phaseNames[0]} · ${phaseNames[1]} · ${phaseNames[2]}`;
@@ -525,60 +466,66 @@ function PhaseGroup({
   return (
     <div className={cn(
       "rounded-xl overflow-hidden transition-all duration-200",
-      phaseActive ? "border border-border/50 shadow-sm" : "border border-border/25"
+      phaseActive
+        ? "border border-border/50 shadow-sm"
+        : "border border-border/25"
     )}>
       {/* Phase header band */}
       <div className={cn(
-        "flex items-center gap-3 px-5 py-3 border-b",
+        "flex items-center gap-3 px-4 py-2 border-b",
         phaseActive ? "bg-muted/12 border-border/30" : "bg-muted/6 border-border/15"
       )}>
         <span className={cn(
-          "shrink-0 flex h-6 w-6 items-center justify-center rounded text-[10px] font-black",
+          "shrink-0 flex h-5 w-5 items-center justify-center rounded text-[9px] font-black",
           phaseActive ? "bg-foreground/12 text-foreground/70" : "bg-muted/15 text-foreground/30"
         )}>
           {phaseIdx + 1}
         </span>
         <span className={cn(
-          "text-[10px] font-black uppercase tracking-[0.18em]",
-          phaseActive ? "text-foreground/60" : "text-foreground/28"
+          "text-[9px] font-black uppercase tracking-[0.18em]",
+          phaseActive ? "text-foreground/55" : "text-foreground/25"
         )}>
           Phase {phaseIdx + 1}
         </span>
         <span className={cn(
-          "text-[10px] hidden sm:block",
-          phaseActive ? "text-foreground/38" : "text-foreground/20"
+          "text-[9px] hidden sm:block",
+          phaseActive ? "text-foreground/35" : "text-foreground/18"
         )}>
           {phaseSubtitle}
         </span>
         {phaseActive && <LiveDot size="sm" />}
-        {!phaseActive && (
+        {phaseHasContent && !phaseActive && (
           <span className="text-[8px] text-muted/30 ml-auto">
-            {totalWs} mission{totalWs !== 1 ? "s" : ""}
+            {phaseSections.reduce((sum, s) => sum + (workspacesBySection.get(s.id) ?? []).length, 0)} missions
           </span>
         )}
       </div>
 
-      {/* Stage boxes — 12-col grid with dynamic column allocation */}
-      <div className="grid grid-cols-12 gap-4 p-4 items-start">
+      {/* Stage boxes — 3-col grid */}
+      <div className={cn(
+        "grid gap-3 p-3 items-start",
+        phaseSections.length === 1 ? "grid-cols-1" :
+        phaseSections.length === 2 ? "grid-cols-2" :
+                                     "grid-cols-3"
+      )}>
         {phaseSections.map((sec, secIdx) => {
+          // Find global stage index
           const globalIdx = phaseIdx * PHASE_SIZE + secIdx;
-          const span      = colSpans[secIdx] ?? 4;
           return (
-            <div key={sec.id} className={`col-span-${span}`}>
-              <StageBox
-                section={sec}
-                workspaces={workspacesBySection.get(sec.id) ?? []}
-                childrenByParent={childrenByParent}
-                onOpen={onOpen}
-                stageIdx={globalIdx}
-                collapsed={collapsed.has(sec.id)}
-                onToggle={() => toggle(sec.id)}
-                nodeRef={el => {
-                  if (el) nodeRefs.current.set(sec.id, el);
-                  else    nodeRefs.current.delete(sec.id);
-                }}
-              />
-            </div>
+            <StageBox
+              key={sec.id}
+              section={sec}
+              workspaces={workspacesBySection.get(sec.id) ?? []}
+              childrenByParent={childrenByParent}
+              onOpen={onOpen}
+              stageIdx={globalIdx}
+              collapsed={collapsed.has(sec.id)}
+              onToggle={() => toggle(sec.id)}
+              nodeRef={el => {
+                if (el) nodeRefs.current.set(sec.id, el);
+                else    nodeRefs.current.delete(sec.id);
+              }}
+            />
           );
         })}
       </div>
@@ -793,12 +740,12 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
 
       {/* Full pipeline canvas — Gantt-style phase rows + SVG connections */}
       {sections.length > 0 && (
-        <div ref={canvasRef} className="relative" style={{ paddingRight: 40 }}>
+        <div ref={canvasRef} className="relative">
           {/* SVG animated connections — rendered above everything */}
           <ConnectionCanvas edges={edges} width={canvasSize.w} height={canvasSize.h} />
 
           {/* Phase rows */}
-          <div className="flex flex-col gap-3" style={{ position: "relative", zIndex: 1 }}>
+          <div className="flex flex-col gap-2" style={{ position: "relative", zIndex: 1 }}>
             {phases.map((phaseSections, phaseIdx) => (
               <PhaseGroup
                 key={phaseIdx}
