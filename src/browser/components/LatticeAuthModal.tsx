@@ -161,10 +161,14 @@ export function LatticeAuthModal({
     setPhase("url-input");
   }, []);
 
-  // Modal cannot be dismissed without action
-  const handleOpenChange = useCallback(() => {
-    // Do nothing - must complete or skip
-  }, []);
+  // Allow dismissal by clicking outside (treats it as "Skip") so the settings X button
+  // is never permanently blocked by this dialog's backdrop overlay.
+  const handleOpenChange = useCallback(
+    (open: boolean) => {
+      if (!open) onSkip();
+    },
+    [onSkip]
+  );
 
   const descriptionText = (() => {
     switch (phase) {
@@ -183,7 +187,7 @@ export function LatticeAuthModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogContent showCloseButton={false} className="max-w-md">
+      <DialogContent showCloseButton={false} className="max-w-md" zIndex={2100}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <LogIn className="size-5" />

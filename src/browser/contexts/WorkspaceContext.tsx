@@ -727,6 +727,9 @@ export function WorkspaceProvider(props: WorkspaceProviderProps) {
         return;
       }
 
+      // Pre-set the project tab to "workspace" (New Mission) so ProjectPage opens
+      // on the right tab when the + button is clicked in the sidebar.
+      updatePersistedState(`projectTab:${projectPath}`, "workspace");
       navigateToProject(projectPath, sectionId);
     },
     [navigateToProject, navigateToWorkspace, workspaceMetadata]
