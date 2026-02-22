@@ -13,20 +13,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  ChevronDown,
+  ChevronUp,
   GripHorizontal,
   Loader2,
   Mic,
   MicOff,
   PhoneOff,
   Radio,
-  User,
   Video,
   VideoOff,
 } from "lucide-react";
+import { Track } from "livekit-client";
+import type { RemoteAudioTrack } from "livekit-client";
 import { cn } from "@/common/lib/utils";
 import { useLiveKitContext } from "@/browser/contexts/LiveKitContext";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { LiveKitVideoTile } from "./LiveKitVideoTile";
+import { AudioWaveVisualizer } from "./AudioWaveVisualizer";
 
 const CARD_W = 256;
 // Distance from the right viewport edge (clears the right icon strip ~28px)
@@ -230,31 +234,83 @@ function ConnectedCard({
   lk: ReturnType<typeof useLiveKitContext>;
   hasVideo: boolean;
 }) {
+  // Show/hide the visual panel (video + wave). Starts expanded.
+  const [panelOpen, setPanelOpen] = useState(true);
   const totalParticipants = lk.remoteParticipants.length + 1;
 
+  // Pull the agent's remote audio track for the wave visualizer
+  const remoteAudioTrack = lk.remoteParticipants
+    .flatMap((p) => Array.from(p.audioTrackPublications.values()))
+    .find(
+      (pub) =>
+        pub.isSubscribed &&
+        pub.track &&
+        pub.source === Track.Source.Microphone
+    )
+    ?.track as RemoteAudioTrack | undefined ?? null;
+
+  // Heuristic: if remote track exists and PCM amplitude > threshold → speaking
+  // (good enough without a full VAD — the wave amplitude does the rest visually)
+  const isSpeaking = remoteAudioTrack !== null;
+
   return (
-    // Video panel always renders — placeholder shown when no tracks
-    <div className="relative bg-[#0a0a0a]">
-      {hasVideo ? (
-        <LiveKitVideoTile
-          localVideoTrack={lk.localVideoTrack}
-          isMicOn={lk.isMicOn}
-          remoteParticipants={lk.remoteParticipants}
-        />
-      ) : (
-        /* Placeholder: agent avatar area while no video is published */
-        <div className="flex h-[144px] w-[256px] flex-col items-center justify-center gap-2">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06]">
-            <User size={18} className="text-white/25" />
+    <div className="bg-[#0a0a0a]">
+      {/* ── Visual panel (collapsible) ──────────────────────────────── */}
+      {panelOpen && (
+        // Fixed-height container — wave is always background, video sits on top
+        <div className="relative h-[144px] w-[256px]">
+          {/* Audio wave — always the background layer */}
+          <div className="absolute inset-0">
+            <AudioWaveVisualizer
+              audioTrack={remoteAudioTrack}
+              isSpeaking={isSpeaking}
+              className="opacity-80"
+            />
           </div>
-          <span className="text-[10px] text-white/20">No video</span>
+
+          {/* Video tile — covers the wave once camera/agent tracks arrive */}
+          {hasVideo && (
+            <div className="absolute inset-0 z-10">
+              <LiveKitVideoTile
+                localVideoTrack={lk.localVideoTrack}
+                isMicOn={lk.isMicOn}
+                remoteParticipants={lk.remoteParticipants}
+              />
+            </div>
+          )}
+
+          {/* Gradient + controls overlay */}
+          <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-2.5 pb-2 pt-10">
+            <ControlsRow
+              lk={lk}
+              totalParticipants={totalParticipants}
+              panelOpen={panelOpen}
+              onTogglePanel={() => setPanelOpen(false)}
+            />
+          </div>
         </div>
       )}
 
-      {/* Gradient overlay — controls always sit on top of the video/placeholder */}
-      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent px-2.5 pb-2 pt-10">
-        <ControlsRow lk={lk} totalParticipants={totalParticipants} />
-      </div>
+      {/* ── Compact controls bar (panel collapsed) ──────────────────── */}
+      {!panelOpen && (
+        // Wave behind the controls so there's still visual feedback
+        <div className="relative h-10 w-[256px]">
+          <div className="absolute inset-0 opacity-50">
+            <AudioWaveVisualizer
+              audioTrack={remoteAudioTrack}
+              isSpeaking={isSpeaking}
+            />
+          </div>
+          <div className="absolute inset-0 flex items-center px-2.5">
+            <ControlsRow
+              lk={lk}
+              totalParticipants={totalParticipants}
+              panelOpen={panelOpen}
+              onTogglePanel={() => setPanelOpen(true)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -264,9 +320,13 @@ function ConnectedCard({
 function ControlsRow({
   lk,
   totalParticipants,
+  panelOpen,
+  onTogglePanel,
 }: {
   lk: ReturnType<typeof useLiveKitContext>;
   totalParticipants: number;
+  panelOpen: boolean;
+  onTogglePanel: () => void;
 }) {
   return (
     <div className="flex items-center gap-1.5">
@@ -279,9 +339,7 @@ function ControlsRow({
       </span>
 
       {/* Participant count */}
-      <span className="text-[10px] text-white/50">
-        {totalParticipants}p
-      </span>
+      <span className="text-[10px] text-white/50">{totalParticipants}p</span>
 
       <div className="flex-1" />
 
@@ -301,6 +359,15 @@ function ControlsRow({
         title={lk.isCameraOn ? "Camera off" : "Camera on"}
       >
         {lk.isCameraOn ? <Video size={11} /> : <VideoOff size={11} />}
+      </RoundIconBtn>
+
+      {/* Collapse / expand panel */}
+      <RoundIconBtn
+        active={false}
+        onClick={onTogglePanel}
+        title={panelOpen ? "Voice only" : "Show video panel"}
+      >
+        {panelOpen ? <ChevronDown size={11} /> : <ChevronUp size={11} />}
       </RoundIconBtn>
 
       {/* End */}
