@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect } from "react";
-import { Menu, Settings, Terminal } from "lucide-react";
+import { Menu, Settings, Terminal, Plus } from "lucide-react";
 import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
 import { cn } from "@/common/lib/utils";
 import { AgentProvider } from "@/browser/contexts/AgentContext";
@@ -26,6 +26,7 @@ import {
 import { Button } from "@/browser/components/ui/button";
 import { isDesktopMode } from "@/browser/hooks/useDesktopTitlebar";
 import { useSettings } from "@/browser/contexts/SettingsContext";
+import { ProjectHQOverview } from "./ProjectHQOverview";
 
 interface ProjectPageProps {
   projectPath: string;
@@ -263,13 +264,31 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
             </div>
             {/* Scrollable content area */}
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {/* Main content - vertically centered with reduced gaps */}
-              <div className="flex min-h-[50vh] flex-col items-center justify-center px-4 py-6">
-                <div className="flex w-full max-w-3xl flex-col gap-4">
-                  {/* Git init banner - shown above ChatInput when not a git repo */}
-                  {isNonGitRepo && (
-                    <GitInitBanner projectPath={projectPath} onSuccess={handleGitInitSuccess} />
-                  )}
+              <div className="mx-auto w-full max-w-5xl px-4 py-6 flex flex-col gap-6">
+
+                {/* ── HQ Hierarchy (primary view) ── */}
+                <ProjectHQOverview
+                  projectPath={projectPath}
+                  projectName={projectName}
+                />
+
+                {/* ── Git init banner ── */}
+                {isNonGitRepo && (
+                  <GitInitBanner projectPath={projectPath} onSuccess={handleGitInitSuccess} />
+                )}
+
+                {/* ── New Mission creation panel ── */}
+                <div className="flex flex-col gap-3">
+                  {/* Section divider with label */}
+                  <div className="flex items-center gap-3">
+                    <div className="flex-1 border-t border-border/40" />
+                    <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted uppercase tracking-widest">
+                      <Plus className="h-3 w-3" />
+                      New Mission
+                    </span>
+                    <div className="flex-1 border-t border-border/40" />
+                  </div>
+
                   {/* Show agent setup prompt when no agents detected, otherwise show ChatInput */}
                   {!agentsLoading && !hasAgents ? (
                     <div
@@ -301,9 +320,9 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                           onDismiss={handleDismissAgentsInit}
                         />
                       )}
-                      {/* Detected agents bar - compact icon carousel */}
+                      {/* Detected agents bar */}
                       {hasAgents && (
-                        <div className="text-muted-foreground flex items-center justify-center gap-2 py-1.5 text-sm">
+                        <div className="text-muted-foreground flex items-center justify-center gap-2 py-1 text-sm">
                           <span className="inline-flex items-center gap-1.5 rounded border border-border/50 px-2 py-1 text-sm">
                             {detectedAgents.slice(0, 5).map((agent) => (
                               <CliAgentWithIcon
@@ -329,7 +348,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                           </button>
                         </div>
                       )}
-                      {/* ChatInput for workspace creation - includes section selector */}
+                      {/* ChatInput for workspace creation */}
                       <ChatInput
                         variant="creation"
                         projectPath={projectPath}
@@ -342,34 +361,25 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                     </>
                   )}
                 </div>
-              </div>
 
-              {/* MCP servers: overview between creation and archived workspaces */}
-              <div className="flex justify-center px-4 pb-4">
-                <div className="w-full max-w-3xl">
-                  <ProjectMCPOverview projectPath={projectPath} />
-                </div>
-              </div>
+                {/* ── MCP overview ── */}
+                <ProjectMCPOverview projectPath={projectPath} />
 
-              {/* Archived workspaces: separate section below centered area */}
-              {archivedWorkspaces.length > 0 && (
-                <div className="flex justify-center px-4 pb-4">
-                  <div className="w-full max-w-3xl">
-                    <ArchivedWorkspaces
-                      projectPath={projectPath}
-                      projectName={projectName}
-                      workspaces={archivedWorkspaces}
-                      onWorkspacesChanged={() => {
-                        // Refresh archived list after unarchive/delete
-                        if (!api) return;
-                        void api.workspace.list({ archived: true }).then((all) => {
-                          setArchivedWorkspaces(all.filter((w) => w.projectPath === projectPath));
-                        });
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
+                {/* ── Archived workspaces ── */}
+                {archivedWorkspaces.length > 0 && (
+                  <ArchivedWorkspaces
+                    projectPath={projectPath}
+                    projectName={projectName}
+                    workspaces={archivedWorkspaces}
+                    onWorkspacesChanged={() => {
+                      if (!api) return;
+                      void api.workspace.list({ archived: true }).then((all) => {
+                        setArchivedWorkspaces(all.filter((w) => w.projectPath === projectPath));
+                      });
+                    }}
+                  />
+                )}
+              </div>
             </div>
           </div>
         </ThinkingProvider>
