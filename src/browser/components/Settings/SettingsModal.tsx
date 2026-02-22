@@ -91,7 +91,7 @@ const BASE_SECTIONS: SettingsSection[] = [
  * Read the persisted right-sidebar width so the settings panel slides into
  * the same visual slot as the right sidebar (no jarring size mismatch).
  */
-function readSidebarWidth(min = 380): number {
+function readSidebarWidth(min = 480): number {
   const raw = localStorage.getItem(RIGHT_SIDEBAR_WIDTH_KEY);
   const parsed = raw ? parseInt(raw, 10) : 400;
   const n = isNaN(parsed) ? 400 : parsed;
