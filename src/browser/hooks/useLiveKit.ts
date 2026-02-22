@@ -16,6 +16,7 @@ import {
   RoomEvent,
   LocalVideoTrack,
   RemoteParticipant,
+  RemoteTrack,
   Track,
   RoomConnectOptions,
 } from "livekit-client";
@@ -156,6 +157,25 @@ export function useLiveKit({ api, onAgentMessage }: UseLiveKitOptions): UseLiveK
             if (participant === room.localParticipant) {
               if (pub.track?.source === Track.Source.Microphone) setIsMicOn(true);
             }
+          })
+          // ── Remote audio/video track subscription ──────────────────
+          // Audio tracks must be explicitly attached to an element to play.
+          // track.attach() creates an <audio> element, appends it to <body>,
+          // and starts playback automatically — this is how the agent TTS is heard.
+          // Video track subscriptions trigger a re-render so LiveKitVideoTile
+          // picks up the new RemoteParticipant video publications.
+          .on(RoomEvent.TrackSubscribed, (track: RemoteTrack) => {
+            if (track.kind === Track.Kind.Audio) {
+              // attach() returns (and appends to body) a new <audio autoplay> element
+              track.attach();
+            }
+            // Re-render so remote video tiles (avatar) appear immediately
+            syncParticipants(room);
+          })
+          .on(RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => {
+            // Detach all elements associated with this track to release resources
+            track.detach();
+            syncParticipants(room);
           });
 
         // 4. Register RPC handler for agent → workbench messages
