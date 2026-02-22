@@ -51,6 +51,8 @@ interface WorkspaceHeaderProps {
   onHireEmployee: (slug: EmployeeSlug) => void;
   /** Set of detected/installed agent slugs */
   detectedSlugs?: Set<string>;
+  /** Set of installed-but-user-disabled agent slugs */
+  disabledSlugs?: Set<string>;
   /** True while agent detection scan is running */
   detectingAgents?: boolean;
   /** Callback to re-scan for installed agents */
@@ -68,6 +70,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
   onToggleLeftSidebarCollapsed,
   onHireEmployee,
   detectedSlugs,
+  disabledSlugs,
   detectingAgents,
   onRefreshAgents,
 }) => {
@@ -381,6 +384,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             <HeaderAgentPickerPopover
               buttonRef={addButtonRef}
               detectedSlugs={detectedSlugs}
+              disabledSlugs={disabledSlugs}
               detectingAgents={detectingAgents}
               onRefreshAgents={onRefreshAgents}
               onHireEmployee={onHireEmployee}
@@ -411,6 +415,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
 function HeaderAgentPickerPopover({
   buttonRef,
   detectedSlugs,
+  disabledSlugs,
   detectingAgents,
   onRefreshAgents,
   onHireEmployee,
@@ -418,6 +423,7 @@ function HeaderAgentPickerPopover({
 }: {
   buttonRef: React.RefObject<HTMLButtonElement | null>;
   detectedSlugs?: Set<string>;
+  disabledSlugs?: Set<string>;
   detectingAgents?: boolean;
   onRefreshAgents?: () => void;
   onHireEmployee: (slug: EmployeeSlug) => void;
@@ -452,6 +458,7 @@ function HeaderAgentPickerPopover({
       >
         <AgentPicker
           detectedSlugs={detectedSlugs}
+          disabledSlugs={disabledSlugs}
           loading={detectingAgents}
           onRefresh={onRefreshAgents}
           onSelect={onHireEmployee}

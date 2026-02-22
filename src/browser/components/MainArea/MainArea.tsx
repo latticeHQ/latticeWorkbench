@@ -179,7 +179,7 @@ export function MainArea({
   addTerminalRef,
 }: MainAreaProps) {
   const { api } = useAPI();
-  const { detectedAgents, loading: detectingAgents, refresh: refreshAgents } = useCliAgentDetection(workspaceId);
+  const { detectedAgents, disabledSlugs, loading: detectingAgents, refresh: refreshAgents } = useCliAgentDetection(workspaceId);
   const detectedSlugs = new Set(detectedAgents.map((a) => a.slug));
 
   const [layout, setLayout] = useState<RightSidebarLayoutState>(() => loadLayout(workspaceId));
@@ -370,6 +370,7 @@ export function MainArea({
         runtimeConfig={runtimeConfig}
         onHireEmployee={(slug) => void hireEmployee(slug)}
         detectedSlugs={detectedSlugs}
+        disabledSlugs={disabledSlugs}
         detectingAgents={detectingAgents}
         onRefreshAgents={refreshAgents}
       />
