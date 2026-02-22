@@ -398,11 +398,15 @@ function CliKanbanCard({
   meta,
   onOpen,
   onClose,
+  sectionName,
+  sectionColor,
 }: {
   sessionId: string;
   meta: EmployeeMeta;
   onOpen?: (sessionId: string) => void;
   onClose?: (sessionId: string) => void;
+  sectionName?: string;
+  sectionColor?: string;
 }) {
   const isRunning = meta.status === "running";
   const isDone = meta.status === "done";
@@ -447,7 +451,18 @@ function CliKanbanCard({
         )}
         <div className="min-w-0 flex-1">
           <span className="text-foreground block truncate text-xs font-semibold">{meta.label}</span>
-          <CopyableSessionId sessionId={sessionId} />
+          <div className="flex items-center gap-1.5">
+            <CopyableSessionId sessionId={sessionId} />
+            {sectionName && (
+              <span className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none text-white/40">
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: sectionColor ?? "#6b7280" }}
+                />
+                <span className="truncate max-w-[80px]">{sectionName}</span>
+              </span>
+            )}
+          </div>
         </div>
         {onOpen && (
           <ArrowRight className="h-3 w-3 shrink-0 text-[var(--color-exec-mode)] opacity-0 transition-opacity group-hover/cli:opacity-100" />
@@ -657,6 +672,8 @@ export function HomeTab({
         />
       );
     }
+    // CLI sessions run under the current workspace — inherit its section
+    const cliSection = resolveSection(workspaceId);
     return (
       <CliKanbanCard
         key={item.sessionId}
@@ -664,6 +681,8 @@ export function HomeTab({
         meta={item.meta}
         onOpen={onOpenSession}
         onClose={onCloseSession}
+        sectionName={cliSection?.name}
+        sectionColor={cliSection?.color}
       />
     );
   }
