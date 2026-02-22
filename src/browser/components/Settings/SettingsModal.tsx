@@ -232,6 +232,10 @@ export function SettingsModal() {
         "shadow-[-6px_0_24px_rgba(0,0,0,0.15)]",
         // Slide in from the right on mount — no overlay, no modal backdrop
         "animate-in slide-in-from-right duration-300 ease-in-out",
+        // Override Electron's titlebar-drag region — the entire settings panel is
+        // interactive, so clicks must reach React event handlers (not be swallowed
+        // by the OS window-drag region that spans the top of the window).
+        "titlebar-no-drag",
       )}
       style={{ width: panelWidth }}
     >
