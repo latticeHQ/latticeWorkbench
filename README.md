@@ -6,6 +6,9 @@
 
 **Build agents. Test agents. Monitor agents. One tool.**
 
+[![Latest Release](https://img.shields.io/github/v/release/latticeHQ/latticeWorkbench?style=flat-square&label=latest)](https://github.com/latticeHQ/latticeWorkbench/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
+
 </div>
 
 ## Part of the Lattice Ecosystem
@@ -19,16 +22,41 @@ Lattice is **Agent Headquarters** — the open-source runtime where AI agents ge
 | **Workbench** (this repo)                                       | Agent IDE & operations console — multi-model chat, monitoring, desktop/web/CLI | You are here                                                       |
 | [**Registry**](https://github.com/latticeHQ/lattice-registry)   | Community ecosystem — templates, modules, presets for Docker/K8s/AWS/GCP/Azure | [latticeRegistry](https://github.com/latticeHQ/lattice-registry)   |
 
-```
-brew install latticehq/lattice/lattice
-
-```
-
 <div align="center">
   <img src="docs/img/lattice-headquarters.png" alt="Lattice: The Open-Source Headquarters for AI Agent Governance" width="100%" />
 </div>
 
+## Download
+
+**[→ Latest Release: v0.1.1](https://github.com/latticeHQ/latticeWorkbench/releases/latest)**
+
+| Platform | Architecture | Installer |
+| -------- | ------------ | --------- |
+| macOS | Apple Silicon (arm64) | `.dmg` |
+| macOS | Intel (x64) | `.dmg` |
+| Windows | arm64 | `.exe` |
+| Windows | x64 | `.exe` |
+| Linux | arm64 | `.AppImage` |
+| Linux | x86_64 | `.AppImage` |
+
+All installers are available on the [Releases page](https://github.com/latticeHQ/latticeWorkbench/releases).
+
+Or install via Homebrew (macOS / Linux):
+
+```bash
+brew install latticehq/lattice/lattice
+```
+
 ## Features
+
+### Project HQ — Your Agent Command Center
+
+The Project HQ is the top-level view of everything happening across your agent fleet, organized into four tabs:
+
+- **Agent Net** — Live pipeline canvas showing all agent missions as nodes. Connections animate during active tool calls. Costs and token usage roll up per stage, per phase, and across the entire project in real time.
+- **New Mission** — Guided wizard for spinning up new agent workspaces: pick runtime mode, select model, choose agent type, configure MCP tools, and launch.
+- **MCP Servers** — Visual management of all Model Context Protocol servers for the project. Enable/disable, inspect tools, test connections.
+- **Archived** — Browse and restore completed or archived workspaces.
 
 ### For Building Agents
 
@@ -43,9 +71,9 @@ brew install latticehq/lattice/lattice
 
 ### For Operating Agents
 
-- **Real-time monitoring** of all agent sessions across workspaces
+- **Live pipeline canvas**: Visual graph of all running missions with animated connections and live status indicators
+- **Real-time cost tracking**: Token usage and spend roll up per stage, per pipeline phase, and across the whole project — updated as agents run
 - **Conversation history** and tool execution replay
-- **Token usage and cost tracking** across all providers
 - **Agent configuration** and permission management
 - **Git divergence visualization** for workspace-level code review
 
@@ -97,7 +125,6 @@ Lattice Workbench is licensed under [MIT](./LICENSE).
 
 Your agents. Your models. Your rules. Your infrastructure.
 
-`brew install latticehq/lattice/lattice
-`
+`brew install latticehq/lattice/lattice`
 
 </div>
