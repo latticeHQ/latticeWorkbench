@@ -221,7 +221,9 @@ export function SettingsModal() {
       aria-modal="false"
       className={cn(
         // Position: hugs the right edge, spans full viewport height
-        "fixed inset-y-0 right-0 z-[1500]",
+        // z-[2000] keeps the settings panel above standard dialog overlays (z-1500),
+        // e.g. the onboarding splash overlay which renders after children in the DOM.
+        "fixed inset-y-0 right-0 z-[2000]",
         // Two-column row layout (nav + content)
         "flex flex-row overflow-hidden",
         // Warm sidebar background with left divider
