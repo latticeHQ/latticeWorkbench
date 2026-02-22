@@ -454,6 +454,10 @@ export const projects = {
       }),
       output: ResultSchema(z.void(), z.string()),
     },
+    seedDefaults: {
+      input: z.object({ projectPath: z.string() }),
+      output: ResultSchema(z.array(SectionConfigSchema), z.string()),
+    },
   },
 };
 

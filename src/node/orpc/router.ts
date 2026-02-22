@@ -1112,6 +1112,12 @@ export const router = (authToken?: string) => {
             }
             return result;
           }),
+        seedDefaults: t
+          .input(schemas.projects.sections.seedDefaults.input)
+          .output(schemas.projects.sections.seedDefaults.output)
+          .handler(({ context, input }) =>
+            context.projectService.seedDefaultSections(input.projectPath)
+          ),
       },
     },
     nameGeneration: {
