@@ -71,6 +71,11 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
       style={{ zIndex: 0, overflow: "visible" }}
     >
       <defs>
+        <style>{`
+          @keyframes hqActive { to { stroke-dashoffset: -13; } }
+          .hq-active { animation: hqActive 0.7s linear infinite; }
+        `}</style>
+
         {/* Arrowhead — idle */}
         <marker id="arr-idle"
           markerWidth="8" markerHeight="8" refX="7" refY="4"
@@ -127,12 +132,14 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
               <path d={d} fill="none" stroke={color} strokeWidth={10} strokeOpacity={0.07} />
             )}
 
-            {/* Solid connector line + arrow */}
+            {/* Dashed connector line + arrow */}
             <path d={d} fill="none"
               stroke={active ? color : "rgba(150,150,158,0.45)"}
               strokeWidth={active ? 1.75 : 1.25}
+              strokeDasharray={active ? "8 5" : "5 7"}
               strokeLinecap="round"
               markerEnd={active ? `url(#arr-${edge.id})` : "url(#arr-idle)"}
+              className={active ? "hq-active" : undefined}
             />
 
             {/* Travelling dot — active only */}
@@ -401,19 +408,14 @@ function StageBox({
 
       {/* Content — only shown when has workspaces and not collapsed */}
       {!isEmpty && !collapsed && (
-        <div className="p-2">
-          <div
-            className="grid gap-1.5"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}
-          >
-            {workspaces.map(ws => (
-              <ServiceNode
-                key={ws.id} ws={ws}
-                subAgents={childrenByParent.get(ws.id) ?? []}
-                accent={color} onOpen={onOpen}
-              />
-            ))}
-          </div>
+        <div className="p-2 flex flex-col gap-2">
+          {workspaces.map(ws => (
+            <ServiceNode
+              key={ws.id} ws={ws}
+              subAgents={childrenByParent.get(ws.id) ?? []}
+              accent={color} onOpen={onOpen}
+            />
+          ))}
         </div>
       )}
     </div>
@@ -452,7 +454,7 @@ function PhaseGroup({
 
   return (
     <div className={cn(
-      "rounded-xl overflow-hidden transition-all duration-200 max-w-5xl",
+      "rounded-xl overflow-hidden transition-all duration-200",
       phaseActive
         ? "border border-border/50 shadow-sm"
         : "border border-border/25"
