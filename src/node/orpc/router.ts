@@ -2120,9 +2120,9 @@ export const router = (authToken?: string) => {
         .output(schemas.livekit.getToken.output)
         .handler(async ({ context, input }) => {
           const cfg = (context.config.loadProvidersConfig() ?? {}).livekit as
-            | { apiKey?: string; apiSecret?: string; wsUrl?: string }
+            | { apiKey?: string; apiSecret?: string; baseUrl?: string }
             | undefined;
-          if (!cfg?.apiKey || !cfg?.apiSecret || !cfg?.wsUrl) {
+          if (!cfg?.apiKey || !cfg?.apiSecret || !cfg?.baseUrl) {
             return {
               success: false as const,
               error: "LiveKit is not configured. Add your credentials in Settings → Providers.",
@@ -2140,7 +2140,7 @@ export const router = (authToken?: string) => {
             canSubscribe: true,
           });
           const token = await at.toJwt();
-          return { success: true as const, data: { token, wsUrl: cfg.wsUrl } };
+          return { success: true as const, data: { token, wsUrl: cfg.baseUrl } };
         }),
     },
     experiments: {
