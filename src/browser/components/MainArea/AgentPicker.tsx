@@ -17,6 +17,8 @@ export type EmployeeSlug = keyof typeof CLI_AGENT_DEFINITIONS | "terminal";
 interface AgentPickerProps {
   /** Set of agent slugs that are detected/installed on the system */
   detectedSlugs?: Set<string>;
+  /** Set of agent slugs that are installed but disabled in Settings > Providers */
+  disabledSlugs?: Set<string>;
   /** True while the detection scan is still running */
   loading?: boolean;
   /** Callback to re-scan for installed agents */
@@ -42,7 +44,7 @@ const AGENT_SECTIONS: Array<{ label: string; slugs: EmployeeSlug[] }> = [
   },
 ];
 
-export function AgentPicker({ detectedSlugs, loading, onRefresh, onSelect, onClose, className }: AgentPickerProps) {
+export function AgentPicker({ detectedSlugs, disabledSlugs, loading, onRefresh, onSelect, onClose, className }: AgentPickerProps) {
   const handleSelect = (slug: EmployeeSlug) => {
     onSelect(slug);
     onClose();
@@ -113,6 +115,7 @@ export function AgentPicker({ detectedSlugs, loading, onRefresh, onSelect, onClo
               if (!def) return null;
 
               const detected = !loading && detectedSlugs ? detectedSlugs.has(slug) : undefined;
+              const isDisabled = !loading && disabledSlugs ? disabledSlugs.has(slug) : false;
 
               return (
                 <EmployeeRow
@@ -121,6 +124,7 @@ export function AgentPicker({ detectedSlugs, loading, onRefresh, onSelect, onClo
                   displayName={def.displayName}
                   description={def.description}
                   detected={detected}
+                  userDisabled={isDisabled}
                   installUrl={def.installUrl}
                   onSelect={handleSelect}
                 />
@@ -138,6 +142,8 @@ interface EmployeeRowProps {
   displayName: string;
   description: string;
   detected: boolean | undefined;
+  /** True when the agent is installed but the user has disabled it in Settings > Providers */
+  userDisabled?: boolean;
   installUrl?: string;
   onSelect: (slug: EmployeeSlug) => void;
 }
@@ -147,6 +153,7 @@ function EmployeeRow({
   displayName,
   description,
   detected,
+  userDisabled = false,
   installUrl,
   onSelect,
 }: EmployeeRowProps) {
@@ -155,7 +162,7 @@ function EmployeeRow({
       onClick={() => onSelect(slug)}
       className={cn(
         "group hover:bg-hover flex w-full cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
-        detected === false && "opacity-60 hover:opacity-100"
+        (detected === false || userDisabled) && "opacity-60 hover:opacity-100"
       )}
       role="button"
       tabIndex={0}
@@ -170,7 +177,7 @@ function EmployeeRow({
       <span
         className={cn(
           "flex h-7 w-7 shrink-0 items-center justify-center rounded text-[14px]",
-          detected === true
+          detected === true && !userDisabled
             ? "bg-[var(--color-exec-mode)]/10 text-[var(--color-exec-mode)]"
             : "text-foreground"
         )}
@@ -186,17 +193,22 @@ function EmployeeRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span className="text-foreground text-[13px] font-medium leading-tight">{displayName}</span>
-          {detected === true && (
+          {detected === true && !userDisabled && (
             <span className="bg-[var(--color-exec-mode)]/10 text-[var(--color-exec-mode)] rounded px-1 py-px text-[10px] font-medium leading-none">
               ready
+            </span>
+          )}
+          {userDisabled && (
+            <span className="rounded bg-muted/20 px-1 py-px text-[10px] font-medium leading-none text-muted">
+              disabled
             </span>
           )}
         </div>
         <p className="text-muted truncate text-[11px] leading-tight">{description}</p>
       </div>
 
-      {/* Install link — only visible on hover for uninstalled agents */}
-      {detected === false && installUrl && (
+      {/* Install link — only for truly uninstalled agents (not disabled ones) */}
+      {detected === false && !userDisabled && installUrl && (
         <a
           href={installUrl}
           target="_blank"
