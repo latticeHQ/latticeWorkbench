@@ -563,28 +563,31 @@ export function HomeTab({
 
   const currentWorkspace = workspaceMetadata.get(workspaceId);
 
-  // Build workspaceId → {name, color} lookup directly from ProjectConfig.workspaces
-  // (the canonical store for sectionId — more reliable than FrontendWorkspaceMetadata.sectionId)
-  const workspaceSectionMap = useMemo(() => {
-    const result = new Map<string, { name: string; color: string }>();
+  // Flat sectionId → {name, color} from all projects
+  const sectionInfoMap = useMemo(() => {
+    const map = new Map<string, { name: string; color: string }>();
     for (const projectConfig of projects.values()) {
-      // Index sections by id for O(1) lookup
-      const sectionIndex = new Map(
-        (projectConfig.sections ?? []).map((s) => [
-          s.id,
-          { name: s.name, color: resolveSectionColor(s.color) },
-        ])
-      );
-      // Map each workspace id → its section
-      for (const ws of projectConfig.workspaces) {
-        if (ws.sectionId && ws.id) {
-          const section = sectionIndex.get(ws.sectionId);
-          if (section) result.set(ws.id, section);
-        }
+      for (const s of projectConfig.sections ?? []) {
+        map.set(s.id, { name: s.name, color: resolveSectionColor(s.color) });
       }
     }
-    return result;
+    return map;
   }, [projects]);
+
+  // Walk up the parent chain in workspaceMetadata until a sectionId is found.
+  // Child/sub-agent workspaces are not assigned sections directly; they inherit
+  // from whichever ancestor workspace IS in a section.
+  const resolveSection = useCallback(
+    (wsId: string, depth = 0): { name: string; color: string } | undefined => {
+      if (depth > 5) return undefined; // guard against loops
+      const ws = workspaceMetadata.get(wsId);
+      if (!ws) return undefined;
+      if (ws.sectionId) return sectionInfoMap.get(ws.sectionId);
+      if (ws.parentWorkspaceId) return resolveSection(ws.parentWorkspaceId, depth + 1);
+      return undefined;
+    },
+    [workspaceMetadata, sectionInfoMap]
+  );
 
   // Child workspaces spawned by this workspace
   const childWorkspaces = useMemo(
@@ -643,14 +646,7 @@ export function HomeTab({
 
   function renderItem(item: KanbanItem) {
     if (item.kind === "workspace") {
-      // Look up section directly from ProjectConfig (authoritative source).
-      // Sub-agents don't carry sectionId themselves, so fall back to the
-      // parent workspace's section — they always share the same context.
-      const section =
-        workspaceSectionMap.get(item.workspace.id) ??
-        (item.workspace.parentWorkspaceId
-          ? workspaceSectionMap.get(item.workspace.parentWorkspaceId)
-          : undefined);
+      const section = resolveSection(item.workspace.id);
       return (
         <WorkspaceKanbanCard
           key={item.workspace.id}
