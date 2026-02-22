@@ -40,7 +40,6 @@ import { WorkspaceStatusIndicator } from "./WorkspaceStatusIndicator";
 import { RenameProvider } from "@/browser/contexts/WorkspaceRenameContext";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
 import { ChevronRight, CircleHelp, KeyRound, Sparkles } from "lucide-react";
-import { resolveSectionColor } from "@/common/constants/ui";
 import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
 import { useWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
 import { usePopoverError } from "@/browser/hooks/usePopoverError";
@@ -805,27 +804,20 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                               const renderWorkspace = (
                                 metadata: FrontendWorkspaceMetadata,
                                 sectionId?: string
-                              ) => {
-                                const section = sectionId
-                                  ? sections.find((s) => s.id === sectionId)
-                                  : undefined;
-                                return (
-                                  <WorkspaceListItem
-                                    key={metadata.id}
-                                    metadata={metadata}
-                                    projectPath={projectPath}
-                                    projectName={projectName}
-                                    isSelected={selectedWorkspace?.workspaceId === metadata.id}
-                                    isArchiving={archivingWorkspaceIds.has(metadata.id)}
-                                    onSelectWorkspace={handleSelectWorkspace}
-                                    onArchiveWorkspace={handleArchiveWorkspace}
-                                    depth={depthByWorkspaceId[metadata.id] ?? 0}
-                                    sectionId={sectionId}
-                                    sectionName={section?.name}
-                                    sectionColor={section ? resolveSectionColor(section.color) : undefined}
-                                  />
-                                );
-                              };
+                              ) => (
+                                <WorkspaceListItem
+                                  key={metadata.id}
+                                  metadata={metadata}
+                                  projectPath={projectPath}
+                                  projectName={projectName}
+                                  isSelected={selectedWorkspace?.workspaceId === metadata.id}
+                                  isArchiving={archivingWorkspaceIds.has(metadata.id)}
+                                  onSelectWorkspace={handleSelectWorkspace}
+                                  onArchiveWorkspace={handleArchiveWorkspace}
+                                  depth={depthByWorkspaceId[metadata.id] ?? 0}
+                                  sectionId={sectionId}
+                                />
+                              );
 
                               // Render age tiers for a list of workspaces
                               const renderAgeTiers = (

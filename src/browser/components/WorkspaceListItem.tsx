@@ -34,10 +34,6 @@ export interface WorkspaceListItemProps {
   depth?: number;
   /** Section ID this workspace belongs to (for drag-drop targeting) */
   sectionId?: string;
-  /** Section display name — rendered as a small label on the card */
-  sectionName?: string;
-  /** Section resolved hex color — used for the label dot */
-  sectionColor?: string;
   // Event handlers
   onSelectWorkspace: (selection: WorkspaceSelection) => void;
   onArchiveWorkspace: (workspaceId: string, button: HTMLElement) => Promise<void>;
@@ -51,8 +47,6 @@ const WorkspaceListItemInner: React.FC<WorkspaceListItemProps> = ({
   isArchiving,
   depth,
   sectionId,
-  sectionName,
-  sectionColor,
   onSelectWorkspace,
   onArchiveWorkspace,
 }) => {
@@ -313,25 +307,14 @@ const WorkspaceListItemInner: React.FC<WorkspaceListItemProps> = ({
             )}
           </div>
           {!isCreating && (
-            <div className="flex min-w-0 items-center justify-between gap-1.5">
-              <div className="min-w-0 flex-1">
-                {isArchiving ? (
-                  <div className="text-muted flex min-w-0 items-center gap-1.5 text-xs">
-                    <ArchiveIcon className="h-3 w-3 shrink-0" />
-                    <span className="min-w-0 truncate">Archiving...</span>
-                  </div>
-                ) : (
-                  <WorkspaceStatusIndicator workspaceId={workspaceId} />
-                )}
-              </div>
-              {sectionName && (
-                <span className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-px text-[10px] leading-none text-white/35 transition-colors hover:text-white/55">
-                  <span
-                    className="h-1.5 w-1.5 rounded-full shrink-0"
-                    style={{ backgroundColor: sectionColor ?? "#6b7280" }}
-                  />
-                  <span className="truncate max-w-[72px]">{sectionName}</span>
-                </span>
+            <div className="min-w-0">
+              {isArchiving ? (
+                <div className="text-muted flex min-w-0 items-center gap-1.5 text-xs">
+                  <ArchiveIcon className="h-3 w-3 shrink-0" />
+                  <span className="min-w-0 truncate">Archiving...</span>
+                </div>
+              ) : (
+                <WorkspaceStatusIndicator workspaceId={workspaceId} />
               )}
             </div>
           )}

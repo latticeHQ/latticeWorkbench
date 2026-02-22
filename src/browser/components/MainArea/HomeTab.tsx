@@ -9,6 +9,8 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { cn } from "@/common/lib/utils";
 import { useWorkspaceContext, toWorkspaceSelection } from "@/browser/contexts/WorkspaceContext";
+import { useProjectContext } from "@/browser/contexts/ProjectContext";
+import { resolveSectionColor } from "@/common/constants/ui";
 import {
   useWorkspaceUsage,
   useWorkspaceState,
@@ -257,9 +259,13 @@ function OrchestratorCard({
 function WorkspaceKanbanCard({
   workspace,
   onOpen,
+  sectionName,
+  sectionColor,
 }: {
   workspace: FrontendWorkspaceMetadata;
   onOpen?: (workspace: FrontendWorkspaceMetadata) => void;
+  sectionName?: string;
+  sectionColor?: string;
 }) {
   const usage = useWorkspaceUsage(workspace.id);
   const wsState = useWorkspaceState(workspace.id);
@@ -300,10 +306,21 @@ function WorkspaceKanbanCard({
         </div>
       </div>
 
-      {/* Agent ID */}
-      {workspace.agentId && (
-        <span className="text-muted mt-1 block text-[10px]">{workspace.agentId}</span>
-      )}
+      {/* Agent ID + section badge */}
+      <div className="mt-1 flex items-center justify-between gap-2">
+        {workspace.agentId && (
+          <span className="text-muted truncate text-[10px]">{workspace.agentId}</span>
+        )}
+        {sectionName && (
+          <span className="flex shrink-0 items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] leading-none text-white/40">
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: sectionColor ?? "#6b7280" }}
+            />
+            <span className="truncate max-w-[80px]">{sectionName}</span>
+          </span>
+        )}
+      </div>
 
       {/* Activity */}
       {currentActivity && (
@@ -540,10 +557,23 @@ export function HomeTab({
   onCloseSession,
 }: HomeTabProps) {
   const { workspaceMetadata, setSelectedWorkspace } = useWorkspaceContext();
+  const { projects } = useProjectContext();
   const ownUsage = useWorkspaceUsage(workspaceId);
   const ownState = useWorkspaceState(workspaceId);
 
   const currentWorkspace = workspaceMetadata.get(workspaceId);
+
+  // Build sectionId → {name, color} lookup for this project's sections
+  const sectionLookup = useMemo(() => {
+    const map = new Map<string, { name: string; color: string }>();
+    const projectPath = currentWorkspace?.projectPath;
+    if (!projectPath) return map;
+    const projectConfig = projects.get(projectPath);
+    for (const s of projectConfig?.sections ?? []) {
+      map.set(s.id, { name: s.name, color: resolveSectionColor(s.color) });
+    }
+    return map;
+  }, [projects, currentWorkspace?.projectPath]);
 
   // Child workspaces spawned by this workspace
   const childWorkspaces = useMemo(
@@ -602,11 +632,16 @@ export function HomeTab({
 
   function renderItem(item: KanbanItem) {
     if (item.kind === "workspace") {
+      const section = item.workspace.sectionId
+        ? sectionLookup.get(item.workspace.sectionId)
+        : undefined;
       return (
         <WorkspaceKanbanCard
           key={item.workspace.id}
           workspace={item.workspace}
           onOpen={handleOpenWorkspace}
+          sectionName={section?.name}
+          sectionColor={section?.color}
         />
       );
     }
@@ -629,7 +664,7 @@ export function HomeTab({
           <div>
             <div className="flex items-center gap-2">
               <LayoutDashboard className="text-[var(--color-exec-mode)] h-5 w-5" />
-              <h1 className="text-foreground text-xl font-bold">Team Dashboard</h1>
+              <h1 className="text-foreground text-xl font-bold">Workspace Dashboard</h1>
             </div>
             <p className="text-muted mt-1 text-sm">
               <span className="font-medium">{projectName}</span>
