@@ -2115,6 +2115,19 @@ export const router = (authToken?: string) => {
         }),
     },
     livekit: {
+      getConfig: t
+        .input(schemas.livekit.getConfig.input)
+        .output(schemas.livekit.getConfig.output)
+        .handler(({ context }) => {
+          const cfg = (context.config.loadProvidersConfig() ?? {}).livekit as
+            | { apiKey?: string; apiSecret?: string; baseUrl?: string }
+            | undefined;
+          return {
+            baseUrl: cfg?.baseUrl ?? null,
+            apiKeySet: Boolean(cfg?.apiKey),
+            apiSecretSet: Boolean(cfg?.apiSecret),
+          };
+        }),
       getToken: t
         .input(schemas.livekit.getToken.input)
         .output(schemas.livekit.getToken.output)

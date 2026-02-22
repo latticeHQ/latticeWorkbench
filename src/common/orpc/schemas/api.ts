@@ -1325,6 +1325,14 @@ export const voice = {
 // ─── LiveKit ────────────────────────────────────────────────────────
 
 export const livekit = {
+  getConfig: {
+    input: z.void(),
+    output: z.object({
+      baseUrl: z.string().nullable(),
+      apiKeySet: z.boolean(),
+      apiSecretSet: z.boolean(),
+    }),
+  },
   getToken: {
     input: z.object({ roomName: z.string(), identity: z.string() }),
     output: ResultSchema(

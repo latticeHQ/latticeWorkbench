@@ -37,12 +37,11 @@ export function LiveKitSection() {
 
   useEffect(() => {
     if (!api) return;
-    void api.providers.getConfig().then((config) => {
-      const lk = config.livekit as
-        | { apiKeySet?: boolean; baseUrl?: string; [k: string]: unknown }
-        | undefined;
-      const url = (lk?.baseUrl as string | undefined) ?? "";
-      const key = lk?.apiKeySet ? "••••••••••••••••" : "";
+    // Use dedicated livekit.getConfig — providers.getConfig() only returns SUPPORTED_PROVIDERS
+    // (CLI agent slugs) and never includes "livekit".
+    void api.livekit.getConfig().then((cfg) => {
+      const url = cfg.baseUrl ?? "";
+      const key = cfg.apiKeySet ? "••••••••••••••••" : "";
       setWsUrl(url);
       setApiKey(key);
       setApiSecret("");

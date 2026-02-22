@@ -111,9 +111,8 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
   const [isLiveKitConfigured, setIsLiveKitConfigured] = useState(false);
   useEffect(() => {
     if (!api) return;
-    void api.providers.getConfig().then((cfg) => {
-      const lk = cfg.livekit;
-      setIsLiveKitConfigured(Boolean(lk?.apiKeySet && lk?.baseUrl));
+    void api.livekit.getConfig().then((cfg) => {
+      setIsLiveKitConfigured(Boolean(cfg.apiKeySet && cfg.baseUrl));
     });
   }, [api]);
 
