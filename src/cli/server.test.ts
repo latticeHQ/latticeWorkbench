@@ -85,6 +85,7 @@ async function createTestServer(): Promise<TestServerHandle> {
     signingService: services.signingService,
     latticeService: services.latticeService,
     inferenceService: services.inferenceService,
+    inferenceSetupService: services.inferenceSetupService,
     channelService: services.channelService,
     channelSessionRouter: services.channelSessionRouter,
     browserSessionManager: services.browserSessionManager,
