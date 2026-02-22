@@ -1,12 +1,13 @@
 /**
- * LiveKitVideoTile — floating self-video tile shown when camera is active.
+ * LiveKitVideoTile — unified video panel for the LiveKit overlay card.
  *
- * Renders a small 160×90 video element in the bottom-right corner of its
- * positioning parent. Attaches the local LiveKit video track directly to the
- * <video> element using the LiveKit SDK's track.attach() API.
+ * Layout:
+ * - Remote (agent avatar) fills the full panel as the primary view.
+ * - Local self-view is a small PiP overlaid in the bottom-left corner.
+ * - When no remote video, local self-view fills the panel.
+ * - Returns null when no video at all.
  *
- * Also renders remote participant video tiles above the self-view when remote
- * participants have published video (e.g. an avatar agent).
+ * Positioning is handled by the parent (GlobalLiveKitOverlay), not this component.
  */
 
 import React, { useEffect, useRef } from "react";
@@ -19,7 +20,6 @@ interface LiveKitVideoTileProps {
   localVideoTrack: LocalVideoTrack | null;
   isMicOn: boolean;
   remoteParticipants: RemoteParticipant[];
-  /** Extra className for the outer wrapper */
   className?: string;
 }
 
@@ -29,64 +29,89 @@ export function LiveKitVideoTile({
   remoteParticipants,
   className,
 }: LiveKitVideoTileProps) {
-  // Collect remote video tracks (e.g., avatar agent publishing video)
   const remoteVideoPublications = remoteParticipants.flatMap((p) =>
     Array.from(p.videoTrackPublications.values()).filter(
-      (pub) =>
-        pub.isSubscribed && pub.track && pub.source === Track.Source.Camera
+      (pub) => pub.isSubscribed && pub.track && pub.source === Track.Source.Camera
     )
   );
 
-  const hasAnyVideo = localVideoTrack || remoteVideoPublications.length > 0;
-  if (!hasAnyVideo) return null;
+  const hasRemote = remoteVideoPublications.length > 0;
+  const hasLocal = localVideoTrack !== null;
+
+  if (!hasRemote && !hasLocal) return null;
 
   return (
-    <div
-      className={cn(
-        "pointer-events-none absolute bottom-16 right-3 z-20 flex flex-col items-end gap-1.5",
-        className
+    // Panel wrapper — 16:9 at 256 wide; parent handles rounded corners
+    <div className={cn("relative w-[256px] overflow-hidden", className)}>
+      {/* ── Primary video ────────────────────────────────────────────
+          Remote (agent avatar) takes priority; local fills when alone. */}
+      {hasRemote ? (
+        <RemoteVideoPanel publication={remoteVideoPublications[0]} />
+      ) : (
+        <LocalVideoPanel track={localVideoTrack!} />
       )}
-    >
-      {/* Remote participant video tiles (e.g., avatar) */}
-      {remoteVideoPublications.map((pub) => (
-        <RemoteVideoTile key={pub.trackSid} trackSid={pub.trackSid} publication={pub} />
-      ))}
 
-      {/* Self-view (local camera) */}
-      {localVideoTrack && (
-        <div className="pointer-events-auto relative overflow-hidden rounded-lg shadow-lg">
-          <LocalVideoElement track={localVideoTrack} />
+      {/* ── PiP self-view ────────────────────────────────────────────
+          Shown in bottom-left corner when remote video is the primary. */}
+      {hasRemote && hasLocal && (
+        <div className="absolute bottom-2 left-2 overflow-hidden rounded-lg shadow-lg ring-1 ring-white/20">
+          <LocalVideoPip track={localVideoTrack!} />
           {!isMicOn && (
-            <div className="absolute bottom-1.5 right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/60">
-              <MicOff size={10} className="text-white" />
+            <div className="absolute bottom-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-black/70">
+              <MicOff size={8} className="text-white" />
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Mute badge on local-only view ───────────────────────────── */}
+      {!hasRemote && !isMicOn && (
+        <div className="absolute bottom-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-black/70">
+          <MicOff size={10} className="text-white" />
         </div>
       )}
     </div>
   );
 }
 
-// ── Self-view video element ──────────────────────────────────────────────────
+// ── Remote: full-panel video (256 × 144) ──────────────────────────────────
 
-function LocalVideoElement({ track }: { track: LocalVideoTrack }) {
+function RemoteVideoPanel({ publication }: { publication: RemoteTrackPublication }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el || !publication.track) return;
+    const videoEl = publication.track.attach(el);
+    return () => { if (publication.track) publication.track.detach(videoEl); };
+  }, [publication.track]);
+
+  return (
+    <video
+      ref={videoRef}
+      className="h-[144px] w-[256px] object-cover"
+      autoPlay
+      playsInline
+    />
+  );
+}
+
+// ── Local: full-panel (when no remote) ───────────────────────────────────
+
+function LocalVideoPanel({ track }: { track: LocalVideoTrack }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const el = videoRef.current;
     if (!el) return;
-
     const videoEl = track.attach(el) as HTMLVideoElement;
-
-    return () => {
-      track.detach(videoEl);
-    };
+    return () => { track.detach(videoEl); };
   }, [track]);
 
   return (
     <video
       ref={videoRef}
-      className="h-[90px] w-[160px] rounded-lg object-cover"
+      className="h-[144px] w-[256px] object-cover"
       autoPlay
       muted
       playsInline
@@ -94,38 +119,25 @@ function LocalVideoElement({ track }: { track: LocalVideoTrack }) {
   );
 }
 
-// ── Remote video tile ────────────────────────────────────────────────────────
+// ── Local: small PiP overlay (80 × 45) ────────────────────────────────────
 
-function RemoteVideoTile({
-  trackSid,
-  publication,
-}: {
-  trackSid: string;
-  publication: RemoteTrackPublication;
-}) {
+function LocalVideoPip({ track }: { track: LocalVideoTrack }) {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const el = videoRef.current;
-    if (!el || !publication.track) return;
-
-    const videoEl = publication.track.attach(el);
-
-    return () => {
-      if (publication.track) {
-        publication.track.detach(videoEl);
-      }
-    };
-  }, [publication.track, trackSid]);
+    if (!el) return;
+    const videoEl = track.attach(el) as HTMLVideoElement;
+    return () => { track.detach(videoEl); };
+  }, [track]);
 
   return (
-    <div className="pointer-events-auto overflow-hidden rounded-lg shadow-lg">
-      <video
-        ref={videoRef}
-        className="h-[90px] w-[160px] rounded-lg object-cover"
-        autoPlay
-        playsInline
-      />
-    </div>
+    <video
+      ref={videoRef}
+      className="h-[45px] w-[80px] object-cover"
+      autoPlay
+      muted
+      playsInline
+    />
   );
 }

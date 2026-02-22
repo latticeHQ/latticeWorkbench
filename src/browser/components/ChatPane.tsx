@@ -63,10 +63,7 @@ import {
   useBackgroundBashActions,
   useBackgroundBashError,
 } from "@/browser/contexts/BackgroundBashContext";
-import { useLiveKit } from "@/browser/hooks/useLiveKit";
-import { LiveKitBar } from "./LiveKitBar";
-import { LiveKitVideoTile } from "./LiveKitVideoTile";
-import { useSettings } from "@/browser/contexts/SettingsContext";
+import { useLiveKitContext } from "@/browser/contexts/LiveKitContext";
 
 interface ChatPaneProps {
   workspaceId: string;
@@ -96,7 +93,6 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
     workspaceState,
   } = props;
   const { api } = useAPI();
-  const { open: openSettings } = useSettings();
   const { workspaceMetadata } = useWorkspaceContext();
   const chatAreaRef = useRef<HTMLDivElement>(null);
 
@@ -107,21 +103,14 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
   const { autoBackgroundOnSend } = useBackgroundBashActions();
   const { clearError: clearBackgroundBashError } = useBackgroundBashError();
 
-  // ── LiveKit voice/video ─────────────────────────────────────────────
-  const [isLiveKitConfigured, setIsLiveKitConfigured] = useState(false);
+  // ── LiveKit — register this workspace as the active room ────────────
+  // The global LiveKitProvider + GlobalLiveKitOverlay handle all UI.
+  // ChatPane just tells the context which room to connect to.
+  const { setActiveRoom } = useLiveKitContext();
   useEffect(() => {
-    if (!api) return;
-    void api.livekit.getConfig().then((cfg) => {
-      setIsLiveKitConfigured(Boolean(cfg.apiKeySet && cfg.baseUrl));
-    });
-  }, [api]);
-
-  const liveKit = useLiveKit({ api });
-
-  const handleLiveKitStart = useCallback(() => {
-    void liveKit.connect(workspaceId, "user");
-  }, [liveKit, workspaceId]);
-
+    setActiveRoom(workspaceId);
+    // Don't clear on unmount — lets user navigate away while staying in session
+  }, [setActiveRoom, workspaceId]);
   // ── End LiveKit ─────────────────────────────────────────────────────
 
   const meta = workspaceMetadata.get(workspaceId);
@@ -687,28 +676,7 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
           </button>
         )}
 
-        {/* LiveKit floating video tile (self-view + remote video) */}
-        <LiveKitVideoTile
-          localVideoTrack={liveKit.localVideoTrack}
-          isMicOn={liveKit.isMicOn}
-          remoteParticipants={liveKit.remoteParticipants}
-        />
       </div>
-
-      {/* LiveKit voice/video control bar */}
-      <LiveKitBar
-        state={liveKit.state}
-        error={liveKit.error}
-        isMicOn={liveKit.isMicOn}
-        isCameraOn={liveKit.isCameraOn}
-        remoteParticipants={liveKit.remoteParticipants}
-        isConfigured={isLiveKitConfigured}
-        onStart={handleLiveKitStart}
-        onEnd={liveKit.disconnect}
-        onToggleMic={() => void liveKit.toggleMic()}
-        onToggleCamera={() => void liveKit.toggleCamera()}
-        onOpenSettings={() => openSettings("providers")}
-      />
 
       {/* Floating input card — padded from edges, no flush bottom bar */}
       <div className="px-4 pb-4 pt-1">

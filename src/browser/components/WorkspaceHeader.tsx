@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bell, BellOff, Menu, Pencil, Plus, Server } from "lucide-react";
+import { Bell, BellOff, Loader2, Menu, Pencil, Plus, Radio, Server } from "lucide-react";
+import { useLiveKitContext } from "@/browser/contexts/LiveKitContext";
 import { CUSTOM_EVENTS } from "@/common/constants/events";
 import { cn } from "@/common/lib/utils";
 
@@ -338,6 +339,7 @@ export const WorkspaceHeader: React.FC<WorkspaceHeaderProps> = ({
             Configure MCP servers for this workspace
           </TooltipContent>
         </Tooltip>
+        <LiveKitHeaderButton />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -458,5 +460,77 @@ function HeaderAgentPickerPopover({
       </div>
     </>,
     document.body
+  );
+}
+
+// ── LiveKit header button ──────────────────────────────────────────────────
+// Compact icon that lives alongside Bell / MCP / Pencil / Plus.
+// - Disconnected → muted Radio icon, click starts session
+// - Connecting   → spinning loader
+// - Connected    → green pulsing Radio icon, click ends session
+// - Error        → danger-coloured Radio icon, click retries
+
+function LiveKitHeaderButton() {
+  const lk = useLiveKitContext();
+
+  const { icon, label, colorClass, onClick } = (() => {
+    switch (lk.state) {
+      case "connecting":
+        return {
+          icon: <Loader2 className="h-4 w-4 animate-spin" />,
+          label: "Connecting to LiveKit…",
+          colorClass: "text-muted",
+          onClick: undefined,
+        };
+      case "connected":
+        return {
+          icon: (
+            <span className="relative flex items-center justify-center">
+              <Radio className="h-4 w-4" />
+              <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--color-success)]" />
+            </span>
+          ),
+          label: "Live session active — click to end",
+          colorClass: "text-[var(--color-success)]",
+          onClick: lk.disconnect,
+        };
+      case "error":
+        return {
+          icon: <Radio className="h-4 w-4" />,
+          label: `LiveKit error — click to retry: ${lk.error ?? ""}`,
+          colorClass: "text-[var(--color-danger)]",
+          onClick: lk.onStart,
+        };
+      default:
+        return {
+          icon: <Radio className="h-4 w-4" />,
+          label: "Start Voice/Video Session",
+          colorClass: "text-muted hover:text-foreground",
+          onClick: lk.activeRoomName ? lk.onStart : undefined,
+        };
+    }
+  })();
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={!onClick}
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-none transition-colors",
+            "hover:bg-hover disabled:opacity-40 disabled:cursor-default",
+            colorClass
+          )}
+          aria-label={label}
+        >
+          {icon}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="center">
+        {label}
+      </TooltipContent>
+    </Tooltip>
   );
 }

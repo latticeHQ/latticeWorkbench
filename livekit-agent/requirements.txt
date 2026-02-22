@@ -1,2 +1,8 @@
+# Core — STT (Deepgram) + LLM + TTS (OpenAI) + VAD (Silero)
 livekit-agents[deepgram,openai,silero]~=1.3
+
+# Optional: Anam avatar (talking-head video rendered by agent)
+# Uncomment the line below and set ANAM_API_KEY in .env to enable avatar video.
+# livekit-agents[anam]~=1.3
+
 python-dotenv
