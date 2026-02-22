@@ -357,7 +357,7 @@ function StageBox({
     <div
       ref={nodeRef}
       className={cn(
-        "relative rounded-xl transition-all duration-200",
+        "relative rounded-xl transition-all duration-200 h-full min-h-[64px]",
         isEmpty && "opacity-35 grayscale"
       )}
       style={{
@@ -438,6 +438,9 @@ function StageBox({
 // ─────────────────────────────────────────────────────────────────────────────
 const PHASE_SIZE = 3;
 
+// Min cols per empty stage in a 12-col phase grid (by phase size)
+const EMPTY_COLS_BY_SIZE: Record<number, number> = { 1: 12, 2: 4, 3: 2 };
+
 function PhaseGroup({
   phaseIdx, phaseSections, workspacesBySection, childrenByParent,
   onOpen, collapsed, toggle, nodeRefs,
@@ -451,14 +454,67 @@ function PhaseGroup({
   toggle: (id: string) => void;
   nodeRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
 }) {
+  const phaseWsCounts = useMemo(
+    () => phaseSections.map(s => (workspacesBySection.get(s.id) ?? []).length),
+    [phaseSections, workspacesBySection]
+  );
+  const totalWs    = phaseWsCounts.reduce((a, b) => a + b, 0);
+  const allEmpty   = totalWs === 0;
   const phaseActive = phaseSections.some(
     s => (workspacesBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
   );
-  const phaseHasContent = phaseSections.some(
-    s => (workspacesBySection.get(s.id) ?? []).length > 0
-  );
-  // Derive a phase label from section names
-  const phaseNames = phaseSections.map(s => s.name);
+
+  // Dynamic 12-col spans: active stages absorb the columns freed by empty stages
+  const colSpans: number[] = useMemo(() => {
+    const n       = phaseSections.length;
+    const emptyCols = EMPTY_COLS_BY_SIZE[n] ?? 2;
+    const numEmpty  = phaseWsCounts.filter(c => c === 0).length;
+    const numActive = n - numEmpty;
+    return phaseWsCounts.map(c => {
+      if (numActive === 0) return Math.floor(12 / n);
+      if (c === 0)         return emptyCols;
+      return Math.floor((12 - numEmpty * emptyCols) / numActive);
+    });
+  }, [phaseSections.length, phaseWsCounts]);
+
+  // ── All-empty phase → compact single-line strip ──────────────────────────
+  if (allEmpty) {
+    return (
+      <div className="rounded-lg border border-border/12 overflow-hidden bg-muted/3">
+        <div className="flex items-center gap-3 px-4 py-1.5">
+          <span className="text-[8px] font-black uppercase tracking-[0.2em] text-foreground/18 shrink-0">
+            P{phaseIdx + 1}
+          </span>
+          <div className="w-px h-3 bg-border/20 shrink-0" />
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            {phaseSections.map((sec, secIdx) => {
+              const globalIdx = phaseIdx * PHASE_SIZE + secIdx;
+              return (
+                <div
+                  key={sec.id}
+                  ref={el => {
+                    if (el) nodeRefs.current.set(sec.id, el);
+                    else    nodeRefs.current.delete(sec.id);
+                  }}
+                  className="flex items-center gap-1.5 opacity-35"
+                >
+                  <span className="h-3.5 min-w-[14px] flex items-center justify-center rounded bg-muted/20 text-[7px] font-bold text-foreground/40 px-0.5">
+                    {globalIdx + 1}
+                  </span>
+                  <span className="text-[8px] uppercase tracking-[0.1em] text-foreground/28">
+                    {sec.name}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Phase with content → full phase container ─────────────────────────────
+  const phaseNames   = phaseSections.map(s => s.name);
   const phaseSubtitle = phaseNames.length <= 2
     ? phaseNames.join(" & ")
     : `${phaseNames[0]} · ${phaseNames[1]} · ${phaseNames[2]}`;
@@ -466,9 +522,7 @@ function PhaseGroup({
   return (
     <div className={cn(
       "rounded-xl overflow-hidden transition-all duration-200",
-      phaseActive
-        ? "border border-border/50 shadow-sm"
-        : "border border-border/25"
+      phaseActive ? "border border-border/50 shadow-sm" : "border border-border/25"
     )}>
       {/* Phase header band */}
       <div className={cn(
@@ -494,38 +548,34 @@ function PhaseGroup({
           {phaseSubtitle}
         </span>
         {phaseActive && <LiveDot size="sm" />}
-        {phaseHasContent && !phaseActive && (
+        {!phaseActive && (
           <span className="text-[8px] text-muted/30 ml-auto">
-            {phaseSections.reduce((sum, s) => sum + (workspacesBySection.get(s.id) ?? []).length, 0)} missions
+            {totalWs} mission{totalWs !== 1 ? "s" : ""}
           </span>
         )}
       </div>
 
-      {/* Stage boxes — 3-col grid */}
-      <div className={cn(
-        "grid gap-3 p-3 items-start",
-        phaseSections.length === 1 ? "grid-cols-1" :
-        phaseSections.length === 2 ? "grid-cols-2" :
-                                     "grid-cols-3"
-      )}>
+      {/* Stage boxes — 12-col grid with dynamic column allocation */}
+      <div className="grid grid-cols-12 gap-3 p-3">
         {phaseSections.map((sec, secIdx) => {
-          // Find global stage index
           const globalIdx = phaseIdx * PHASE_SIZE + secIdx;
+          const span      = colSpans[secIdx] ?? 4;
           return (
-            <StageBox
-              key={sec.id}
-              section={sec}
-              workspaces={workspacesBySection.get(sec.id) ?? []}
-              childrenByParent={childrenByParent}
-              onOpen={onOpen}
-              stageIdx={globalIdx}
-              collapsed={collapsed.has(sec.id)}
-              onToggle={() => toggle(sec.id)}
-              nodeRef={el => {
-                if (el) nodeRefs.current.set(sec.id, el);
-                else    nodeRefs.current.delete(sec.id);
-              }}
-            />
+            <div key={sec.id} className={`col-span-${span}`}>
+              <StageBox
+                section={sec}
+                workspaces={workspacesBySection.get(sec.id) ?? []}
+                childrenByParent={childrenByParent}
+                onOpen={onOpen}
+                stageIdx={globalIdx}
+                collapsed={collapsed.has(sec.id)}
+                onToggle={() => toggle(sec.id)}
+                nodeRef={el => {
+                  if (el) nodeRefs.current.set(sec.id, el);
+                  else    nodeRefs.current.delete(sec.id);
+                }}
+              />
+            </div>
           );
         })}
       </div>
@@ -740,7 +790,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
 
       {/* Full pipeline canvas — Gantt-style phase rows + SVG connections */}
       {sections.length > 0 && (
-        <div ref={canvasRef} className="relative">
+        <div ref={canvasRef} className="relative" style={{ paddingRight: 40 }}>
           {/* SVG animated connections — rendered above everything */}
           <ConnectionCanvas edges={edges} width={canvasSize.w} height={canvasSize.h} />
 
