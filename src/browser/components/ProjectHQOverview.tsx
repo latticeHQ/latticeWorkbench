@@ -454,7 +454,7 @@ function PhaseGroup({
 
   return (
     <div className={cn(
-      "rounded-xl overflow-hidden transition-all duration-200",
+      "w-fit mx-auto rounded-xl overflow-hidden transition-all duration-200",
       phaseActive
         ? "border border-border/50 shadow-sm"
         : "border border-border/25"
