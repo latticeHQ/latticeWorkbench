@@ -497,7 +497,7 @@ function PhaseGroup({
         const displaySecs = isReversed ? [...phaseSections].reverse() : phaseSections;
         return (
         <div
-          className="grid gap-10 p-5 items-start"
+          className="grid gap-10 p-5 items-start justify-center"
           style={{ gridTemplateColumns: `repeat(${displaySecs.length}, minmax(160px, 260px))` }}
         >
         {displaySecs.map((sec) => {
