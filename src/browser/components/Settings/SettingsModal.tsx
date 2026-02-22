@@ -17,7 +17,6 @@ import { useSettings } from "@/browser/contexts/SettingsContext";
 import { useExperimentValue } from "@/browser/hooks/useExperiments";
 import { EXPERIMENT_IDS } from "@/common/constants/experiments";
 import { cn } from "@/common/lib/utils";
-import { RIGHT_SIDEBAR_WIDTH_KEY } from "@/common/constants/storage";
 import { GeneralSection } from "./sections/GeneralSection";
 import { ProvidersSection } from "./sections/ProvidersSection";
 import { System1Section } from "./sections/System1Section";
@@ -86,17 +85,6 @@ const BASE_SECTIONS: SettingsSection[] = [
     component: KeybindsSection,
   },
 ];
-
-/**
- * Read the persisted right-sidebar width so the settings panel slides into
- * the same visual slot as the right sidebar (no jarring size mismatch).
- */
-function readSidebarWidth(min = 480): number {
-  const raw = localStorage.getItem(RIGHT_SIDEBAR_WIDTH_KEY);
-  const parsed = raw ? parseInt(raw, 10) : 400;
-  const n = isNaN(parsed) ? 400 : parsed;
-  return Math.max(min, n);
-}
 
 /**
  * Settings panel rendered inline inside the right sidebar tab area.
@@ -170,13 +158,6 @@ export function SettingsModal() {
   const { isOpen, close, activeSection, setActiveSection } = useSettings();
   const system1Enabled = useExperimentValue(EXPERIMENT_IDS.SYSTEM_1);
 
-  // Capture sidebar width once when the panel opens to avoid layout jumps
-  // while the panel is visible.
-  const [panelWidth, setPanelWidth] = React.useState(400);
-  React.useEffect(() => {
-    if (isOpen) setPanelWidth(readSidebarWidth());
-  }, [isOpen]);
-
   // Guard: if system1 experiment is turned off mid-session, reset to first section
   React.useEffect(() => {
     if (!system1Enabled && activeSection === "system1") {
@@ -218,37 +199,30 @@ export function SettingsModal() {
     <div
       role="dialog"
       aria-label="Settings"
-      aria-modal="false"
+      aria-modal="true"
       className={cn(
-        // Position: hugs the right edge, spans full viewport height
-        // z-[2000] keeps the settings panel above standard dialog overlays (z-1500),
-        // e.g. the onboarding splash overlay which renders after children in the DOM.
-        "fixed inset-y-0 right-0 z-[2000]",
-        // Two-column row layout (nav + content)
+        // Full viewport — covers the entire window like VS Code settings
+        "fixed inset-0 z-[2000]",
+        // Two-column layout: nav sidebar + content
         "flex flex-row overflow-hidden",
-        // Warm sidebar background with left divider
-        "bg-sidebar border-l border-border",
-        // Subtle depth shadow toward the main content area
-        "shadow-[-6px_0_24px_rgba(0,0,0,0.15)]",
-        // Slide in from the right on mount — no overlay, no modal backdrop
-        "animate-in slide-in-from-right duration-300 ease-in-out",
-        // Override Electron's titlebar-drag region — the entire settings panel is
-        // interactive, so clicks must reach React event handlers (not be swallowed
-        // by the OS window-drag region that spans the top of the window).
+        // Base background
+        "bg-sidebar",
+        // Fade in on mount
+        "animate-in fade-in duration-200 ease-in-out",
+        // Override Electron's titlebar-drag region so all clicks reach React
         "titlebar-no-drag",
       )}
-      style={{ width: panelWidth }}
     >
       {/* ── Left nav ──────────────────────────────────────────── */}
-      <div className="flex w-[148px] shrink-0 flex-col border-r border-border">
-        {/* "SETTINGS" label row — same height as WorkspaceHeader toolbar rows */}
-        <div className="flex h-10 shrink-0 items-center px-4 border-b border-border">
-          <span className="text-[10px] font-semibold tracking-[0.12em] uppercase text-muted select-none">
+      <div className="flex w-[200px] shrink-0 flex-col border-r border-border">
+        {/* "SETTINGS" label row */}
+        <div className="flex h-10 shrink-0 items-center border-b border-border px-5">
+          <span className="select-none text-[10px] font-semibold uppercase tracking-[0.12em] text-muted">
             Settings
           </span>
         </div>
 
-        <nav className="flex flex-1 flex-col overflow-y-auto py-1" aria-label="Settings sections">
+        <nav className="flex flex-1 flex-col overflow-y-auto py-2" aria-label="Settings sections">
           {sections.map((section) => {
             const isActive = section.id === activeSection;
             return (
@@ -257,10 +231,10 @@ export function SettingsModal() {
                 onClick={() => setActiveSection(section.id)}
                 aria-current={isActive ? "page" : undefined}
                 className={cn(
-                  "flex w-full items-center gap-2.5 border-l-2 py-[7px] pl-[14px] pr-3 text-left text-[11px] transition-all duration-150",
+                  "flex w-full items-center gap-2.5 border-l-2 py-[7px] pl-[18px] pr-4 text-left text-[12px] transition-all duration-150",
                   isActive
-                    ? "border-l-accent bg-gradient-to-r from-accent/[0.10] to-transparent text-foreground font-medium"
-                    : "border-l-transparent text-muted hover:bg-hover/70 hover:text-foreground hover:translate-x-[1px]"
+                    ? "border-l-accent bg-gradient-to-r from-accent/[0.10] to-transparent font-medium text-foreground"
+                    : "border-l-transparent text-muted hover:translate-x-[1px] hover:bg-hover/70 hover:text-foreground"
                 )}
               >
                 {section.icon}
@@ -273,8 +247,8 @@ export function SettingsModal() {
 
       {/* ── Content panel ─────────────────────────────────────── */}
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden bg-modal-bg">
-        {/* Header row — same height as nav header */}
-        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
+        {/* Header row */}
+        <div className="flex h-10 shrink-0 items-center justify-between border-b border-border px-6">
           <span className="text-[13px] font-medium text-foreground">{currentSection.label}</span>
           <button
             onClick={close}
@@ -289,9 +263,11 @@ export function SettingsModal() {
           </button>
         </div>
 
-        {/* Scrollable section content */}
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          <SectionComponent />
+        {/* Scrollable section content — max-width keeps long lines readable */}
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          <div className="mx-auto max-w-2xl">
+            <SectionComponent />
+          </div>
         </div>
       </div>
     </div>,
