@@ -1,16 +1,19 @@
 /**
- * ProjectHQOverview — Layered pipeline architecture dashboard.
+ * ProjectHQOverview — 2-D AWS-architecture-diagram canvas.
  *
- * Visualizes the agent network as a multi-layer pipeline:
- *   Sections → pipeline LAYERS  (each shown as a full-width band)
- *   Workspaces → parallel WORKTREES (side-by-side cards inside each layer)
- *   Sub-agents → PIPELINE STEPS (Explorer → Planner → Coder → Tester)
+ * Visual metaphor:
+ *   Sections  →  VPC / Availability-Zone containers
+ *                (dashed colored borders, variable width)
+ *   Workspaces → Service-node cards inside each container
+ *   Sub-agents → nested micro-cards / step rows
  *
- * All nodes are clickable:
- *   • Click worktree card  → navigate into that workspace
- *   • Click layer header   → collapse / expand
- *
- * No SVG. Pure CSS + React state.
+ * Layout:
+ *   • 12-column CSS grid — sections span 3/4/6/8/12 cols
+ *     based on how many workspaces they hold, so the canvas
+ *     feels 2-D: narrow sections sit side-by-side, wide ones
+ *     take full rows — a dynamic mixture of both axes.
+ *   • No SVG. Pure CSS + React state.
+ *   • Click workspace → navigate.  Click section header → collapse.
  */
 import React, { useMemo, useCallback, useState } from "react";
 import { cn } from "@/common/lib/utils";
@@ -29,11 +32,12 @@ import {
   Clock,
   DollarSign,
   Zap,
+  Users,
   ChevronDown,
   ChevronRight,
-  ArrowDown,
-  Layers,
   Activity,
+  Layers,
+  ArrowRight,
 } from "lucide-react";
 import { Shimmer } from "./ai-elements/shimmer";
 import {
@@ -44,348 +48,297 @@ import { formatTokens } from "@/common/utils/tokens/tokenMeterUtils";
 import { CliAgentIcon } from "./CliAgentIcon";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pipeline step classification
+// Pipeline step classifier
 // ─────────────────────────────────────────────────────────────────────────────
 
-interface PipelineStep {
-  order: number;
-  icon: string;
-  label: string;
-}
+interface StepMeta { order: number; icon: string; label: string }
 
-function classifyPipelineStep(agentId?: string): PipelineStep {
+function classifyStep(agentId?: string): StepMeta {
   if (!agentId) return { order: 99, icon: "🤖", label: "Agent" };
   const id = agentId.toLowerCase();
-
-  if (id.includes("explor"))   return { order: 0, icon: "🔍", label: "Explorer" };
-  if (id.includes("research")) return { order: 0, icon: "📚", label: "Researcher" };
-  if (id.includes("plan"))     return { order: 1, icon: "📐", label: "Planner" };
-  if (id.includes("arch"))     return { order: 1, icon: "🏗️", label: "Architect" };
-  if (id.includes("cod"))      return { order: 2, icon: "✍️",  label: "Coder" };
-  if (id.includes("build"))    return { order: 2, icon: "🔨", label: "Builder" };
-  if (id.includes("impl"))     return { order: 2, icon: "⚙️",  label: "Implementer" };
-  if (id.includes("exec"))     return { order: 2, icon: "⚡", label: "Executor" };
-  if (id.includes("test"))     return { order: 3, icon: "🧪", label: "Tester" };
-  if (id.includes("review"))   return { order: 4, icon: "👁️",  label: "Reviewer" };
-  if (id.includes("qa"))       return { order: 4, icon: "🛡️",  label: "QA" };
-  if (id.includes("fix"))      return { order: 3, icon: "🔧", label: "Fixer" };
-  if (id.includes("deploy"))   return { order: 5, icon: "🚀", label: "Deployer" };
-
-  // CLI providers — treat as executor
-  if (id.includes("claude"))   return { order: 2, icon: "✦",  label: "Claude" };
-  if (id.includes("gemini"))   return { order: 2, icon: "✧",  label: "Gemini" };
-  if (id.includes("codex") || id.includes("openai")) return { order: 2, icon: "⬡", label: "Codex" };
-
+  if (id.includes("explor"))  return { order: 0, icon: "🔍", label: "Explorer" };
+  if (id.includes("research"))return { order: 0, icon: "📚", label: "Researcher" };
+  if (id.includes("plan"))    return { order: 1, icon: "📐", label: "Planner" };
+  if (id.includes("arch"))    return { order: 1, icon: "🏗️",  label: "Architect" };
+  if (id.includes("cod"))     return { order: 2, icon: "✍️",  label: "Coder" };
+  if (id.includes("build"))   return { order: 2, icon: "🔨", label: "Builder" };
+  if (id.includes("exec"))    return { order: 2, icon: "⚡", label: "Executor" };
+  if (id.includes("impl"))    return { order: 2, icon: "⚙️",  label: "Implementer" };
+  if (id.includes("test"))    return { order: 3, icon: "🧪", label: "Tester" };
+  if (id.includes("review"))  return { order: 4, icon: "👁️",  label: "Reviewer" };
+  if (id.includes("qa"))      return { order: 4, icon: "🛡️",  label: "QA" };
+  if (id.includes("fix"))     return { order: 3, icon: "🔧", label: "Fixer" };
+  if (id.includes("deploy"))  return { order: 5, icon: "🚀", label: "Deployer" };
+  if (id.includes("claude"))  return { order: 2, icon: "✦",  label: "Claude" };
+  if (id.includes("gemini"))  return { order: 2, icon: "✧",  label: "Gemini" };
+  if (id.includes("codex"))   return { order: 2, icon: "⬡",  label: "Codex" };
   return { order: 99, icon: "🤖", label: agentId };
 }
 
-const KNOWN_CLI_SLUGS = new Set([
-  "claude-code", "codex", "gemini", "github-copilot", "kiro",
-]);
+const KNOWN_CLI = new Set(["claude-code","codex","gemini","github-copilot","kiro"]);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Column-span helper  (12-col grid)
+// ─────────────────────────────────────────────────────────────────────────────
+//  0-1 workspaces → span 3   (quarter)
+//  2   workspaces → span 4   (third)
+//  3   workspaces → span 6   (half)
+//  4-5 workspaces → span 8   (two-thirds)
+//  6+  workspaces → span 12  (full row)
+
+function colSpanClass(count: number): string {
+  if (count <= 1) return "col-span-12 sm:col-span-6 lg:col-span-3";
+  if (count === 2) return "col-span-12 sm:col-span-6 lg:col-span-4";
+  if (count === 3) return "col-span-12 sm:col-span-12 lg:col-span-6";
+  if (count <= 5)  return "col-span-12 lg:col-span-8";
+  return "col-span-12";
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Live pulse dot
 // ─────────────────────────────────────────────────────────────────────────────
 
 function LiveDot({ size = "md" }: { size?: "sm" | "md" }) {
-  const sz = size === "sm" ? "h-1.5 w-1.5" : "h-2 w-2";
+  const s = size === "sm" ? "h-1.5 w-1.5" : "h-2 w-2";
   return (
-    <span className={cn("relative flex shrink-0", sz)}>
+    <span className={cn("relative flex shrink-0", s)}>
       <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--color-exec-mode)] opacity-60" />
-      <span className={cn("relative inline-flex rounded-full bg-[var(--color-exec-mode)]", sz)} />
+      <span className={cn("relative inline-flex rounded-full bg-[var(--color-exec-mode)]", s)} />
     </span>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pipeline step row inside a worktree card
+// Sub-agent step micro-row (inside workspace card)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function StepRow({
+function SubStepRow({
   ws,
   isLast,
-  layerColor,
+  accent,
 }: {
   ws: FrontendWorkspaceMetadata;
   isLast: boolean;
-  layerColor: string;
+  accent: string;
 }) {
   const state = useWorkspaceSidebarState(ws.id);
-  const step = classifyPipelineStep(ws.agentId);
-  const isStreaming = state.canInterrupt || state.isStarting;
-  const isDone = ws.taskStatus === "reported";
-  const isQueued = ws.taskStatus === "queued";
+  const step  = classifyStep(ws.agentId);
+  const live  = state.canInterrupt || state.isStarting;
+  const done  = ws.taskStatus === "reported";
 
   return (
-    <div className={cn("flex items-center gap-2 relative", !isLast && "pb-0.5")}>
-      {/* Vertical connector */}
+    <div className="flex items-center gap-1.5 relative py-[2px]">
+      {/* connector line */}
       {!isLast && (
         <div
-          className="absolute left-[9px] top-4 w-px bottom-0"
-          style={{ background: `${layerColor}25` }}
+          className="absolute left-[8px] top-4 w-px bottom-0 -z-0"
+          style={{ background: `${accent}20` }}
         />
       )}
-
-      {/* Step icon circle */}
+      {/* icon circle */}
       <div
         className={cn(
-          "relative z-10 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border text-[9px] leading-none",
-          isStreaming
-            ? "border-[var(--color-exec-mode)]/60 bg-[var(--color-exec-mode)]/15 shadow-[0_0_6px_var(--color-exec-mode)/30]"
-            : isDone
-              ? "border-[var(--color-success)]/40 bg-[var(--color-success)]/10"
-              : "border-border/50 bg-background/60"
+          "relative z-10 h-4 w-4 shrink-0 flex items-center justify-center rounded-full border text-[8px] leading-none",
+          live ? "border-[var(--color-exec-mode)]/50 bg-[var(--color-exec-mode)]/15"
+               : done ? "border-[var(--color-success)]/35 bg-[var(--color-success)]/8"
+                      : "border-border/40 bg-background/50"
         )}
       >
         {step.icon}
       </div>
-
-      {/* Step label + status */}
-      <div className="flex flex-1 min-w-0 items-center gap-1.5">
-        <span
-          className={cn(
-            "text-[9.5px] font-medium truncate",
-            isStreaming ? "text-foreground" : isDone ? "text-foreground/55" : "text-foreground/45"
-          )}
-        >
-          {step.label}
-        </span>
-
-        {ws.agentId && KNOWN_CLI_SLUGS.has(ws.agentId) && (
-          <CliAgentIcon slug={ws.agentId} className="h-2.5 w-2.5 text-foreground/30 shrink-0" />
-        )}
-
-        {/* Status indicator */}
-        <span className="ml-auto shrink-0">
-          {isStreaming ? (
-            <LiveDot size="sm" />
-          ) : isDone ? (
-            <CheckCircle2 className="h-2.5 w-2.5 text-[var(--color-success)]" />
-          ) : isQueued ? (
-            <span className="h-1.5 w-1.5 rounded-full border border-muted/40 block" />
-          ) : (
-            <span className="h-1.5 w-1.5 rounded-full bg-muted/15 block" />
-          )}
-        </span>
-      </div>
+      {/* label */}
+      <span className={cn(
+        "flex-1 min-w-0 text-[9px] truncate",
+        live ? "text-foreground/90 font-medium" : done ? "text-foreground/45" : "text-foreground/40"
+      )}>
+        {step.label}
+      </span>
+      {/* status */}
+      {live  ? <LiveDot size="sm" /> :
+       done  ? <CheckCircle2 className="h-2.5 w-2.5 text-[var(--color-success)] shrink-0" /> :
+               <span className="h-1.5 w-1.5 rounded-full bg-muted/15 shrink-0 block" />}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Worktree card (one workspace + its pipeline steps)
+// Workspace service-node card
 // ─────────────────────────────────────────────────────────────────────────────
 
-function WorktreeCard({
+function ServiceNode({
   ws,
   subAgents,
-  layerColor,
+  accent,
   onOpen,
 }: {
   ws: FrontendWorkspaceMetadata;
   subAgents: FrontendWorkspaceMetadata[];
-  layerColor: string;
+  accent: string;
   onOpen: (ws: FrontendWorkspaceMetadata) => void;
 }) {
   const state = useWorkspaceSidebarState(ws.id);
   const usage = useWorkspaceUsage(ws.id);
 
-  const isStreaming = state.canInterrupt || state.isStarting;
-  const isAwaiting = !isStreaming && state.awaitingUserQuestion;
-  const isDone = ws.taskStatus === "reported";
-  const isQueued = ws.taskStatus === "queued";
+  const live    = state.canInterrupt || state.isStarting;
+  const waiting = !live && state.awaitingUserQuestion;
+  const done    = ws.taskStatus === "reported";
+  const queued  = ws.taskStatus === "queued";
 
   const title = ws.title ?? ws.name;
-  const cost = getTotalCost(usage.sessionTotal);
-  const tokens = usage.totalTokens;
+  const step  = classifyStep(ws.agentId);
+  const cost  = getTotalCost(usage.sessionTotal);
+  const tok   = usage.totalTokens;
 
-  // Sort sub-agents by pipeline order
-  const sortedSteps = useMemo(
-    () =>
-      [...subAgents].sort(
-        (a, b) => classifyPipelineStep(a.agentId).order - classifyPipelineStep(b.agentId).order
-      ),
+  const sorted = useMemo(
+    () => [...subAgents].sort(
+      (a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order
+    ),
     [subAgents]
   );
 
-  // Active pipeline step — derived from taskStatus (no hook needed)
-  const activeStepWs = sortedSteps.find((s) => s.taskStatus === "running");
-  const activePipelineStep = activeStepWs
-    ? classifyPipelineStep(activeStepWs.agentId)
-    : null;
+  const activeSubWs = sorted.find((s) => s.taskStatus === "running");
+  const activeSubStep = activeSubWs ? classifyStep(activeSubWs.agentId) : null;
 
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={() => onOpen(ws)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onOpen(ws);
-      }}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") onOpen(ws); }}
       className={cn(
-        "group/wt relative flex flex-col rounded-lg border cursor-pointer select-none",
-        "w-52 min-w-[208px] shrink-0 overflow-hidden",
+        "group/sn relative flex flex-col rounded-lg border cursor-pointer select-none overflow-hidden",
         "transition-all duration-150",
-        "border-border/45 bg-background/60",
-        "hover:border-border hover:bg-background hover:shadow-lg hover:shadow-black/20",
-        isStreaming && [
-          "border-[var(--color-exec-mode)]/35",
-          "bg-[var(--color-exec-mode)]/3",
-          "shadow-sm shadow-[var(--color-exec-mode)]/10",
-        ],
-        isAwaiting && "border-amber-400/30",
-        isDone && "opacity-50"
+        "border-border/40 bg-background/55",
+        "hover:border-border hover:bg-background hover:shadow-md hover:shadow-black/25",
+        live    && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/4 shadow-sm shadow-[var(--color-exec-mode)]/12",
+        waiting && "border-amber-400/35",
+        done    && "opacity-50",
+        queued  && "opacity-70"
       )}
     >
       {/* Top accent bar */}
       <div
-        className="h-[2px] w-full shrink-0"
+        className="h-[2.5px] w-full shrink-0"
         style={{
-          background: isStreaming
-            ? "var(--color-exec-mode)"
-            : isAwaiting
-              ? "#f59e0b"
-              : isDone
-                ? "var(--color-success)"
-                : layerColor,
-          opacity: isDone ? 0.3 : isStreaming ? 1 : 0.6,
+          background: live    ? "var(--color-exec-mode)"
+                     : waiting ? "#f59e0b"
+                     : done    ? "var(--color-success)"
+                     : accent,
+          opacity: done ? 0.35 : live ? 1 : 0.65,
         }}
       />
 
-      {/* Card header */}
-      <div className="px-2.5 pt-2 pb-1.5">
-        {/* Title */}
+      <div className="flex flex-col gap-1 p-2">
+        {/* Step icon + title row */}
         <div className="flex items-start gap-1.5 min-w-0">
-          <span className="flex-1 min-w-0 text-[10.5px] font-semibold text-foreground leading-snug">
-            {isStreaming ? (
-              <Shimmer colorClass="var(--color-foreground)" className="block truncate">
-                {title}
-              </Shimmer>
-            ) : (
-              <span className="block truncate">{title}</span>
+          {/* Service icon */}
+          <div
+            className={cn(
+              "shrink-0 mt-0.5 flex h-6 w-6 items-center justify-center rounded-md border text-sm",
+              live    ? "border-[var(--color-exec-mode)]/30 bg-[var(--color-exec-mode)]/12"
+                      : "border-border/35 bg-background-secondary/60"
             )}
-          </span>
-          {/* Status */}
-          <span className="shrink-0 mt-0.5">
-            {isStreaming ? (
-              <LiveDot size="sm" />
-            ) : isDone ? (
-              <CheckCircle2 className="h-2.5 w-2.5 text-[var(--color-success)]" />
-            ) : isAwaiting ? (
-              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 block" />
-            ) : isQueued ? (
-              <span className="h-1.5 w-1.5 rounded-full border border-muted/50 block" />
-            ) : (
-              <span className="h-1.5 w-1.5 rounded-full bg-muted/15 block" />
-            )}
-          </span>
+          >
+            {step.icon}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start gap-1 min-w-0">
+              <span className="flex-1 min-w-0 text-[10.5px] font-semibold text-foreground leading-tight">
+                {live
+                  ? <Shimmer colorClass="var(--color-foreground)" className="block truncate">{title}</Shimmer>
+                  : <span className="block truncate">{title}</span>}
+              </span>
+              {/* Status dot */}
+              <span className="shrink-0 mt-0.5">
+                {live    ? <LiveDot size="sm" /> :
+                 done    ? <CheckCircle2 className="h-2.5 w-2.5 text-[var(--color-success)]" /> :
+                 waiting ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400 block" /> :
+                 queued  ? <span className="h-1.5 w-1.5 rounded-full border border-muted/40 block" /> :
+                           <span className="h-1.5 w-1.5 rounded-full bg-muted/12 block" />}
+              </span>
+            </div>
+
+            {/* agentId / active step */}
+            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+              {ws.agentId && KNOWN_CLI.has(ws.agentId) && (
+                <span className="flex items-center gap-0.5 text-[8px] text-foreground/35 font-mono">
+                  <CliAgentIcon slug={ws.agentId} className="h-2.5 w-2.5" />
+                  {ws.agentId}
+                </span>
+              )}
+              {ws.agentId && !KNOWN_CLI.has(ws.agentId) && (
+                <span className="text-[8px] text-foreground/30 font-mono">{ws.agentId}</span>
+              )}
+              {activeSubStep && (
+                <span className="ml-auto text-[8px] text-[var(--color-exec-mode)]">
+                  {activeSubStep.icon} {activeSubStep.label}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
 
-        {/* CLI agent + active step */}
-        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-          {ws.agentId && KNOWN_CLI_SLUGS.has(ws.agentId) && (
-            <span className="flex items-center gap-0.5 text-[8.5px] text-foreground/40 font-mono">
-              <CliAgentIcon slug={ws.agentId} className="h-2.5 w-2.5" />
-              {ws.agentId}
-            </span>
-          )}
-          {ws.agentId && !KNOWN_CLI_SLUGS.has(ws.agentId) && (
-            <span className="text-[8.5px] text-foreground/35 font-mono">{ws.agentId}</span>
-          )}
-          {activePipelineStep && (
-            <span className="text-[8.5px] text-[var(--color-exec-mode)] ml-auto">
-              {activePipelineStep.icon} {activePipelineStep.label}
-            </span>
-          )}
-        </div>
-
-        {/* Cost + tokens */}
-        {(cost > 0 || tokens > 0) && (
-          <div className="flex items-center gap-2 mt-1">
+        {/* Metrics row */}
+        {(cost > 0 || tok > 0 || ws.createdAt) && (
+          <div className="flex items-center gap-2 flex-wrap">
             {cost > 0 && (
-              <span className="text-[8.5px] text-muted/50 flex items-center gap-0.5">
-                <DollarSign className="h-2 w-2" />{formatCostWithDollar(cost)}
+              <span className="text-[8px] text-muted/50 flex items-center gap-0.5">
+                <DollarSign className="h-1.5 w-1.5" />{formatCostWithDollar(cost)}
               </span>
             )}
-            {tokens > 0 && (
-              <span className="text-[8.5px] text-muted/50 flex items-center gap-0.5">
-                <Zap className="h-2 w-2" />{formatTokens(tokens)}
+            {tok > 0 && (
+              <span className="text-[8px] text-muted/50 flex items-center gap-0.5">
+                <Zap className="h-1.5 w-1.5" />{formatTokens(tok)}
               </span>
             )}
             {ws.createdAt && (
-              <span className="text-[8px] text-muted/30 ml-auto flex items-center gap-0.5">
+              <span className="text-[8px] text-muted/30 flex items-center gap-0.5 ml-auto">
                 <Clock className="h-1.5 w-1.5" />
                 {new Date(ws.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             )}
           </div>
         )}
+
+        {/* Sub-agent pipeline steps */}
+        {sorted.length > 0 && (
+          <div
+            className="border-t pt-1.5 flex flex-col gap-0"
+            style={{ borderColor: `${accent}18` }}
+          >
+            <div className="flex items-center gap-1 mb-1">
+              <Users className="h-2 w-2 text-muted/35" />
+              <span className="text-[8px] text-muted/35">
+                {sorted.length} agent{sorted.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+            {sorted.slice(0, 5).map((s, i) => (
+              <SubStepRow key={s.id} ws={s} isLast={i === sorted.length - 1} accent={accent} />
+            ))}
+            {sorted.length > 5 && (
+              <span className="text-[8px] text-muted/30 pl-6">+{sorted.length - 5} more</span>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Pipeline steps */}
-      {sortedSteps.length > 0 && (
-        <div
-          className="mx-2.5 mb-2 border-t pt-2 flex flex-col gap-0.5"
-          style={{ borderColor: `${layerColor}20` }}
-        >
-          {sortedSteps.map((step, i) => (
-            <StepRow
-              key={step.id}
-              ws={step}
-              isLast={i === sortedSteps.length - 1}
-              layerColor={layerColor}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* No sub-agents: show single self-step */}
-      {sortedSteps.length === 0 && ws.agentId && (
-        <div
-          className="mx-2.5 mb-2 border-t pt-2"
-          style={{ borderColor: `${layerColor}20` }}
-        >
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                "flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border text-[9px]",
-                isStreaming
-                  ? "border-[var(--color-exec-mode)]/50 bg-[var(--color-exec-mode)]/12"
-                  : "border-border/40 bg-background/50"
-              )}
-            >
-              {classifyPipelineStep(ws.agentId).icon}
-            </div>
-            <span className="text-[9.5px] text-foreground/40 truncate">
-              {classifyPipelineStep(ws.agentId).label}
-            </span>
-            <span className="ml-auto shrink-0">
-              {isStreaming ? (
-                <LiveDot size="sm" />
-              ) : isDone ? (
-                <CheckCircle2 className="h-2.5 w-2.5 text-[var(--color-success)]" />
-              ) : (
-                <span className="h-1.5 w-1.5 rounded-full bg-muted/15 block" />
-              )}
-            </span>
-          </div>
-        </div>
-      )}
+      {/* Navigate hint */}
+      <ArrowRight className="absolute right-1.5 top-1.5 h-3 w-3 text-[var(--color-exec-mode)] opacity-0 group-hover/sn:opacity-60 transition-opacity" />
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Layer band — one full-width pipeline layer
+// Availability-zone / VPC group container  (one section)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function LayerBand({
+function ZoneGroup({
   section,
   workspaces,
   childrenByParent,
   onOpen,
-  stageIndex,
-  totalStages,
+  stageIdx,
   collapsed,
   onToggle,
 }: {
@@ -393,121 +346,111 @@ function LayerBand({
   workspaces: FrontendWorkspaceMetadata[];
   childrenByParent: Map<string, FrontendWorkspaceMetadata[]>;
   onOpen: (ws: FrontendWorkspaceMetadata) => void;
-  stageIndex: number;
-  totalStages: number;
+  stageIdx: number;
   collapsed: boolean;
   onToggle: () => void;
 }) {
-  const color = resolveSectionColor(section.color);
-  const hasActive = workspaces.some((ws) => ws.taskStatus === "running");
-  const isEmpty = workspaces.length === 0;
+  const color   = resolveSectionColor(section.color);
+  const active  = workspaces.some((w) => w.taskStatus === "running");
+  const empty   = workspaces.length === 0;
 
-  // Unique CLI agents used in this layer
-  const cliAgents = useMemo(() => {
-    const ids = new Set<string>();
-    for (const ws of workspaces) {
-      if (ws.agentId && KNOWN_CLI_SLUGS.has(ws.agentId)) ids.add(ws.agentId);
-    }
-    return Array.from(ids).slice(0, 4);
+  const cliIds = useMemo(() => {
+    const s = new Set<string>();
+    workspaces.forEach((w) => { if (w.agentId && KNOWN_CLI.has(w.agentId)) s.add(w.agentId); });
+    return [...s].slice(0, 3);
   }, [workspaces]);
 
   return (
     <div
       className={cn(
-        "rounded-xl overflow-hidden border transition-all duration-200",
-        isEmpty && "opacity-40"
+        colSpanClass(workspaces.length),
+        "relative rounded-xl transition-all duration-200",
+        empty && "opacity-40"
       )}
       style={{
-        borderColor: `${color}30`,
-        borderLeftWidth: 3,
-        borderLeftColor: color,
-        background: `linear-gradient(135deg, ${color}06 0%, transparent 60%)`,
-        boxShadow: hasActive ? `0 0 0 1px ${color}18, 0 4px 20px ${color}08` : undefined,
+        border: `2px dashed ${color}45`,
+        background: `${color}04`,
+        boxShadow: active ? `0 0 0 1px ${color}20, 0 8px 24px ${color}08` : undefined,
       }}
     >
-      {/* ── Layer header ── */}
+      {/* ── Floating zone label (top-left, AWS-style) ── */}
       <button
         type="button"
         onClick={onToggle}
         className={cn(
-          "group/lhdr w-full flex items-center gap-2.5 px-4 py-2.5 text-left",
-          "hover:bg-white/4 active:bg-white/6 transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          "group/zlbl flex w-full items-center gap-2 px-3 py-2 rounded-t-xl",
+          "hover:bg-white/4 active:bg-white/6 transition-colors cursor-pointer",
+          "focus-visible:outline-none"
         )}
-        style={{ borderBottom: collapsed ? "none" : `1px solid ${color}18` }}
+        style={{ borderBottom: collapsed ? "none" : `1px dashed ${color}30` }}
       >
-        {/* Stage index badge */}
+        {/* Stage number */}
         <span
-          className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold tabular-nums"
-          style={{ background: `${color}20`, color }}
+          className="shrink-0 flex h-5 min-w-[20px] items-center justify-center rounded text-[9px] font-bold tabular-nums px-1"
+          style={{ background: `${color}25`, color }}
         >
-          {stageIndex + 1}
+          {stageIdx + 1}
         </span>
 
         {/* Section name */}
         <span
           className={cn(
-            "flex-1 min-w-0 text-[11px] font-bold uppercase tracking-[0.12em] truncate",
-            hasActive ? "text-foreground" : "text-foreground/60"
+            "flex-1 min-w-0 text-left text-[10px] font-bold uppercase tracking-[0.13em] truncate",
+            active ? "text-foreground" : "text-foreground/55"
           )}
-          style={hasActive ? { color } : undefined}
+          style={active ? { color } : undefined}
         >
           {section.name}
         </span>
 
         {/* Active pulse */}
-        {hasActive && <LiveDot size="sm" />}
+        {active && <LiveDot size="sm" />}
 
-        {/* CLI agent icons */}
-        {cliAgents.length > 0 && (
-          <div className="flex items-center gap-1 shrink-0">
-            {cliAgents.map((id) => (
-              <CliAgentIcon
-                key={id}
-                slug={id}
-                className="h-3 w-3 text-foreground/40"
-              />
-            ))}
-          </div>
-        )}
+        {/* CLI icons */}
+        {cliIds.map((id) => (
+          <CliAgentIcon key={id} slug={id} className="h-3 w-3 text-foreground/35 shrink-0" />
+        ))}
 
-        {/* Workspace count */}
+        {/* Count */}
         {workspaces.length > 0 && (
           <span
-            className="shrink-0 rounded px-1.5 py-0.5 text-[9.5px] font-semibold tabular-nums"
-            style={{ background: `${color}15`, color }}
+            className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold tabular-nums"
+            style={{ background: `${color}18`, color }}
           >
             {workspaces.length}
           </span>
         )}
 
-        {/* Collapse chevron */}
-        <span className="shrink-0 text-muted/35 group-hover/lhdr:text-muted/60 transition-colors">
-          {collapsed ? (
-            <ChevronRight className="h-3.5 w-3.5" />
-          ) : (
-            <ChevronDown className="h-3.5 w-3.5" />
-          )}
+        {/* Chevron */}
+        <span className="shrink-0 text-muted/30 group-hover/zlbl:text-muted/60 transition-colors">
+          {collapsed
+            ? <ChevronRight className="h-3 w-3" />
+            : <ChevronDown className="h-3 w-3" />}
         </span>
       </button>
 
-      {/* ── Worktree row ── */}
+      {/* ── Service node grid ── */}
       {!collapsed && (
-        <div className="px-3 py-2.5 overflow-x-auto">
-          {isEmpty ? (
-            <div className="flex items-center justify-center py-4">
-              <span className="text-[10px]" style={{ color: `${color}30` }}>
-                — no missions in this stage —
+        <div className="p-2.5">
+          {empty ? (
+            <div className="flex items-center justify-center py-5">
+              <span className="text-[9.5px]" style={{ color: `${color}30` }}>
+                — no missions —
               </span>
             </div>
           ) : (
-            <div className="flex gap-2.5 pb-1">
+            <div
+              className="grid gap-2"
+              style={{
+                gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))",
+              }}
+            >
               {workspaces.map((ws) => (
-                <WorktreeCard
+                <ServiceNode
                   key={ws.id}
                   ws={ws}
                   subAgents={childrenByParent.get(ws.id) ?? []}
-                  layerColor={color}
+                  accent={color}
                   onOpen={onOpen}
                 />
               ))}
@@ -520,96 +463,64 @@ function LayerBand({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Flow arrow between layers
+// Top metrics bar
 // ─────────────────────────────────────────────────────────────────────────────
 
-function LayerConnector({ fromColor, toColor }: { fromColor: string; toColor: string }) {
-  return (
-    <div className="flex flex-col items-center py-0.5 gap-0" aria-hidden>
-      <div
-        className="w-px h-3"
-        style={{
-          background: `linear-gradient(to bottom, ${fromColor}40, ${toColor}40)`,
-        }}
-      />
-      <ArrowDown
-        className="h-3 w-3"
-        style={{ color: toColor, opacity: 0.4 }}
-        strokeWidth={1.5}
-      />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Metrics strip — aggregate observability
-// ─────────────────────────────────────────────────────────────────────────────
-
-function MetricsStrip({
+function MetricsBar({
   totalMissions,
   activeMissions,
   totalSubAgents,
   stageCount,
-  agentIds,
+  cliIds,
 }: {
   totalMissions: number;
   activeMissions: number;
   totalSubAgents: number;
   stageCount: number;
-  agentIds: string[];
+  cliIds: string[];
 }) {
   return (
-    <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 text-[10.5px] flex-wrap">
-      {/* HQ icon + title */}
+    <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 flex-wrap text-[10.5px]">
       <div className="flex items-center gap-2 shrink-0">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md border border-border/40 bg-background-secondary">
-          <Layers className="h-3 w-3 text-muted/60" />
+        <div className="h-6 w-6 flex items-center justify-center rounded-md border border-border/35 bg-background-secondary">
+          <Layers className="h-3 w-3 text-muted/55" />
         </div>
-        <div>
-          <span className="text-foreground/50 text-[9px] font-bold uppercase tracking-widest">
-            HQ Network
-          </span>
-        </div>
+        <span className="text-foreground/40 text-[9px] font-bold uppercase tracking-widest">
+          Agent Network
+        </span>
       </div>
 
-      <div className="w-px h-4 bg-border/30 shrink-0" />
+      <div className="w-px h-4 bg-border/25 shrink-0" />
 
-      {/* Active indicator */}
       {activeMissions > 0 ? (
         <span className="flex items-center gap-1.5 text-[var(--color-exec-mode)] font-semibold shrink-0">
-          <LiveDot size="sm" />
-          {activeMissions} running
+          <LiveDot size="sm" />{activeMissions} running
         </span>
       ) : (
-        <span className="flex items-center gap-1.5 text-muted/40 shrink-0">
-          <Activity className="h-3 w-3" />
-          idle
+        <span className="flex items-center gap-1.5 text-muted/35 shrink-0">
+          <Activity className="h-3 w-3" />idle
         </span>
       )}
 
-      {/* Stats */}
-      <span className="text-muted/50 shrink-0">
-        <strong className="text-foreground/70">{totalMissions}</strong> missions
+      <span className="text-muted/45 shrink-0">
+        <strong className="text-foreground/65">{totalMissions}</strong> missions
       </span>
       {totalSubAgents > 0 && (
-        <span className="text-muted/50 shrink-0">
-          <strong className="text-foreground/70">{totalSubAgents}</strong> sub-agents
+        <span className="text-muted/45 shrink-0">
+          <strong className="text-foreground/65">{totalSubAgents}</strong> sub-agents
         </span>
       )}
-      <span className="text-muted/50 shrink-0">
-        <strong className="text-foreground/70">{stageCount}</strong> stages
+      <span className="text-muted/45 shrink-0">
+        <strong className="text-foreground/65">{stageCount}</strong> zones
       </span>
 
-      {/* CLI agent icons */}
-      {agentIds.length > 0 && (
+      {cliIds.length > 0 && (
         <>
-          <div className="w-px h-4 bg-border/30 shrink-0 ml-auto" />
-          <div className="flex items-center gap-1.5 shrink-0">
-            {agentIds.map((id) =>
-              KNOWN_CLI_SLUGS.has(id) ? (
-                <CliAgentIcon key={id} slug={id} className="h-3.5 w-3.5 text-foreground/40" />
-              ) : null
-            )}
+          <div className="w-px h-4 bg-border/25 shrink-0 ml-auto" />
+          <div className="flex items-center gap-2 shrink-0">
+            {cliIds.map((id) => (
+              <CliAgentIcon key={id} slug={id} className="h-3.5 w-3.5 text-foreground/35" />
+            ))}
           </div>
         </>
       )}
@@ -621,7 +532,13 @@ function MetricsStrip({
 // Main export
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ProjectHQOverview({ projectPath, projectName: _projectName }: { projectPath: string; projectName: string }) {
+export function ProjectHQOverview({
+  projectPath,
+  projectName: _projectName,
+}: {
+  projectPath: string;
+  projectName: string;
+}) {
   const { projects } = useProjectContext();
   const { workspaceMetadata, setSelectedWorkspace } = useWorkspaceContext();
 
@@ -631,7 +548,6 @@ export function ProjectHQOverview({ projectPath, projectName: _projectName }: { 
     [projectConfig]
   );
 
-  // Live workspaces for this project (non-archived)
   const projectWorkspaces = useMemo(
     () =>
       Array.from(workspaceMetadata.values()).filter(
@@ -645,7 +561,6 @@ export function ProjectHQOverview({ projectPath, projectName: _projectName }: { 
     [projectWorkspaces]
   );
 
-  // Build root vs children hierarchy
   const { rootWorkspaces, childrenByParent } = useMemo(() => {
     const roots: FrontendWorkspaceMetadata[] = [];
     const childMap = new Map<string, FrontendWorkspaceMetadata[]>();
@@ -661,7 +576,6 @@ export function ProjectHQOverview({ projectPath, projectName: _projectName }: { 
     return { rootWorkspaces: roots, childrenByParent: childMap };
   }, [projectWorkspaces, projectWsIds]);
 
-  // Group root workspaces by section
   const workspacesBySection = useMemo(() => {
     const map = new Map<string | null, FrontendWorkspaceMetadata[]>();
     for (const ws of rootWorkspaces) {
@@ -673,28 +587,21 @@ export function ProjectHQOverview({ projectPath, projectName: _projectName }: { 
     return map;
   }, [rootWorkspaces]);
 
-  // Aggregate stats
-  const activeMissions = rootWorkspaces.filter((ws) => ws.taskStatus === "running").length;
-  const totalSubAgents = Array.from(childrenByParent.values()).reduce(
-    (s, a) => s + a.length,
-    0
-  );
-  const allCliAgentIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const ws of rootWorkspaces) {
-      if (ws.agentId && KNOWN_CLI_SLUGS.has(ws.agentId)) ids.add(ws.agentId);
-    }
-    return Array.from(ids);
+  const activeMissions = rootWorkspaces.filter((w) => w.taskStatus === "running").length;
+  const totalSubAgents = [...childrenByParent.values()].reduce((s, a) => s + a.length, 0);
+
+  const allCliIds = useMemo(() => {
+    const s = new Set<string>();
+    rootWorkspaces.forEach((w) => { if (w.agentId && KNOWN_CLI.has(w.agentId)) s.add(w.agentId); });
+    return [...s];
   }, [rootWorkspaces]);
 
-  // Collapsed sections
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const toggleSection = useCallback((id: string) => {
-    setCollapsedSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggle = useCallback((id: string) => {
+    setCollapsed((p) => {
+      const n = new Set(p);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
     });
   }, []);
 
@@ -703,87 +610,82 @@ export function ProjectHQOverview({ projectPath, projectName: _projectName }: { 
     [setSelectedWorkspace]
   );
 
-  // Nothing to show
   if (rootWorkspaces.length === 0 && sections.length === 0) return null;
 
   const unsectioned = workspacesBySection.get(null) ?? [];
 
   return (
-    <div className="flex flex-col gap-2 w-full">
-
-      {/* ── Metrics strip ── */}
-      <MetricsStrip
+    <div
+      className="flex flex-col gap-3 w-full"
+      style={{
+        backgroundImage:
+          "radial-gradient(circle, rgba(255,255,255,0.025) 1px, transparent 1px)",
+        backgroundSize: "22px 22px",
+      }}
+    >
+      {/* ── Metrics bar ── */}
+      <MetricsBar
         totalMissions={rootWorkspaces.length}
         activeMissions={activeMissions}
         totalSubAgents={totalSubAgents}
         stageCount={sections.length}
-        agentIds={allCliAgentIds}
+        cliIds={allCliIds}
       />
 
-      {/* ── Pipeline layers ── */}
+      {/* ── 2-D zone grid ── */}
       {sections.length > 0 && (
-        <div className="flex flex-col gap-0">
-          {sections.map((section, i) => {
-            const prevColor = i > 0 ? resolveSectionColor(sections[i - 1]!.color) : resolveSectionColor(section.color);
-            const thisColor = resolveSectionColor(section.color);
-            return (
-              <React.Fragment key={section.id}>
-                {i > 0 && (
-                  <LayerConnector fromColor={prevColor} toColor={thisColor} />
-                )}
-                <LayerBand
-                  section={section}
-                  workspaces={workspacesBySection.get(section.id) ?? []}
-                  childrenByParent={childrenByParent}
-                  onOpen={handleOpen}
-                  stageIndex={i}
-                  totalStages={sections.length}
-                  collapsed={collapsedSections.has(section.id)}
-                  onToggle={() => toggleSection(section.id)}
-                />
-              </React.Fragment>
-            );
-          })}
+        <div className="grid grid-cols-12 gap-3 items-start">
+          {sections.map((sec, i) => (
+            <ZoneGroup
+              key={sec.id}
+              section={sec}
+              workspaces={workspacesBySection.get(sec.id) ?? []}
+              childrenByParent={childrenByParent}
+              onOpen={handleOpen}
+              stageIdx={i}
+              collapsed={collapsed.has(sec.id)}
+              onToggle={() => toggle(sec.id)}
+            />
+          ))}
         </div>
       )}
 
-      {/* ── Unsectioned workspaces ── */}
+      {/* ── Unsectioned ── */}
       {unsectioned.length > 0 && (
-        <>
-          {sections.length > 0 && (
-            <LayerConnector fromColor="#6b7280" toColor="#6b7280" />
-          )}
-          <div className="rounded-xl border border-border/25 overflow-hidden" style={{ borderLeftWidth: 3, borderLeftColor: "#6b7280" }}>
-            <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ borderBottom: "1px solid rgba(107,114,128,0.15)" }}>
-              <span className="flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold bg-muted/15 text-muted/60">?</span>
-              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-foreground/50">
-                Unsectioned
-              </span>
-              <span className="rounded px-1.5 py-0.5 text-[9.5px] font-semibold bg-muted/10 text-muted/50 ml-auto">
-                {unsectioned.length}
-              </span>
-            </div>
-            <div className="px-3 py-2.5 overflow-x-auto">
-              <div className="flex gap-2.5 pb-1">
-                {unsectioned.map((ws) => (
-                  <WorktreeCard
-                    key={ws.id}
-                    ws={ws}
-                    subAgents={childrenByParent.get(ws.id) ?? []}
-                    layerColor="#6b7280"
-                    onOpen={handleOpen}
-                  />
-                ))}
-              </div>
-            </div>
+        <div
+          className="col-span-12 rounded-xl"
+          style={{ border: "2px dashed rgba(107,114,128,0.3)", background: "rgba(107,114,128,0.02)" }}
+        >
+          <div
+            className="flex items-center gap-2.5 px-3 py-2"
+            style={{ borderBottom: "1px dashed rgba(107,114,128,0.2)" }}
+          >
+            <span className="h-5 w-5 flex items-center justify-center rounded bg-muted/12 text-[9px] font-bold text-muted/50">?</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-foreground/45 flex-1">
+              Unsectioned
+            </span>
+            <span className="text-[9px] font-semibold text-muted/40 bg-muted/10 px-1.5 py-0.5 rounded">
+              {unsectioned.length}
+            </span>
           </div>
-        </>
+          <div className="p-2.5 grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))" }}>
+            {unsectioned.map((ws) => (
+              <ServiceNode
+                key={ws.id}
+                ws={ws}
+                subAgents={childrenByParent.get(ws.id) ?? []}
+                accent="#6b7280"
+                onOpen={handleOpen}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
       {/* ── Empty state ── */}
       {rootWorkspaces.length === 0 && sections.length > 0 && (
-        <p className="text-center text-[10.5px] text-muted/30 pt-1 pb-2">
-          No missions yet — use the wizard above to dispatch the first one ↑
+        <p className="text-center text-[10.5px] text-muted/30 py-2">
+          No missions yet — dispatch one with the wizard above ↑
         </p>
       )}
     </div>
