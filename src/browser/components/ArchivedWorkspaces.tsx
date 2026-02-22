@@ -35,6 +35,7 @@ interface ArchivedWorkspacesProps {
   workspaces: FrontendWorkspaceMetadata[];
   /** Called after a workspace is unarchived or deleted to refresh the list */
   onWorkspacesChanged?: () => void;
+  className?: string;
 }
 
 interface BulkOperationState {
@@ -205,6 +206,7 @@ export const ArchivedWorkspaces: React.FC<ArchivedWorkspacesProps> = ({
   projectName: _projectName,
   workspaces,
   onWorkspacesChanged,
+  className,
 }) => {
   const [isExpanded, setIsExpanded] = usePersistedState(
     `archivedWorkspacesExpanded:${_projectPath}`,
@@ -527,7 +529,7 @@ export const ArchivedWorkspaces: React.FC<ArchivedWorkspacesProps> = ({
         <BulkProgressModal operation={bulkOperation} onClose={() => setBulkOperation(null)} />
       )}
 
-      <div className="border-border rounded-lg border">
+      <div className={cn("border-border rounded-lg border", className)}>
         {/* Header with bulk actions */}
         <div className="flex items-center gap-2 px-4 py-3">
           <button

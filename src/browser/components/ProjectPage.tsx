@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useState, useEffect } from "react";
-import { Menu, Settings, Terminal } from "lucide-react";
+import { Menu, Settings, Terminal, Network, Plus, Server } from "lucide-react";
 import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
 import { cn } from "@/common/lib/utils";
 import { AgentProvider } from "@/browser/contexts/AgentContext";
@@ -27,6 +27,9 @@ import { Button } from "@/browser/components/ui/button";
 import { isDesktopMode } from "@/browser/hooks/useDesktopTitlebar";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { ProjectHQOverview } from "./ProjectHQOverview";
+import { ArchiveIcon } from "./icons/ArchiveIcon";
+
+type ProjectTab = "pipeline" | "workspace" | "mcp" | "archived";
 
 interface ProjectPageProps {
   projectPath: string;
@@ -51,7 +54,7 @@ function archivedListsEqual(
 
 /**
  * Headquarter page shown when a project is selected but no workspace is active.
- * Combines workspace creation with archived workspaces view.
+ * Tab-based layout: Agent Net | New Mission | MCP | Archived
  */
 export const ProjectPage: React.FC<ProjectPageProps> = ({
   projectPath,
@@ -76,20 +79,22 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
   const hasAgents = detectedAgents.length > 0;
   const shouldShowAgentsInitBanner = !agentsLoading && hasAgents && showAgentsInitNudge;
 
+  // Active tab — persisted per project
+  const [activeTab, setActiveTab] = usePersistedState<ProjectTab>(
+    `projectTab:${projectPath}`,
+    "pipeline"
+  );
+
   // Git repository state for the banner
   const [branchesLoaded, setBranchesLoaded] = useState(false);
-  const [hasBranches, setHasBranches] = useState(true); // Assume git repo until proven otherwise
+  const [hasBranches, setHasBranches] = useState(true);
   const [branchRefreshKey, setBranchRefreshKey] = useState(0);
 
-  // Load branches to determine if this is a git repository.
-  // Uses local cancelled flag (not ref) to handle StrictMode double-renders correctly.
   useEffect(() => {
     if (!api) return;
     let cancelled = false;
 
     (async () => {
-      // Don't reset branchesLoaded - it starts false, becomes true after first load.
-      // This keeps banner mounted during refetch so success message stays visible.
       try {
         const result = await api.projects.listBranches({ projectPath });
         if (cancelled) return;
@@ -97,7 +102,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
       } catch (err) {
         console.error("Failed to load branches:", err);
         if (cancelled) return;
-        setHasBranches(true); // On error, don't show banner
+        setHasBranches(true);
       } finally {
         if (!cancelled) {
           setBranchesLoaded(true);
@@ -112,12 +117,11 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
 
   const isNonGitRepo = branchesLoaded && !hasBranches;
 
-  // Trigger branch refetch after git init to verify it worked
   const handleGitInitSuccess = useCallback(() => {
     setBranchRefreshKey((k) => k + 1);
   }, []);
 
-  // Track archived workspaces in a ref; only update state when the list actually changes
+  // Track archived workspaces
   const archivedMapRef = useRef<Map<string, FrontendWorkspaceMetadata>>(new Map());
 
   const syncArchivedState = useCallback(() => {
@@ -125,7 +129,6 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
     setArchivedWorkspaces((prev) => (archivedListsEqual(prev, next) ? prev : next));
   }, []);
 
-  // Fetch archived workspaces for this project on mount
   useEffect(() => {
     if (!api) return;
     let cancelled = false;
@@ -148,7 +151,6 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
     };
   }, [api, projectPath, syncArchivedState]);
 
-  // Subscribe to metadata events to reactively update archived list
   useEffect(() => {
     if (!api) return;
     const controller = new AbortController();
@@ -160,9 +162,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
           if (controller.signal.aborted) break;
 
           const meta = event.metadata;
-          // Only care about workspaces in this project
           if (meta && meta.projectPath !== projectPath) continue;
-          // For deletions, check if it was in our map (i.e., was in this project)
           if (!meta && !archivedMapRef.current.has(event.workspaceId)) continue;
 
           const isArchived = meta && isWorkspaceArchived(meta.archivedAt, meta.unarchivedAt);
@@ -192,10 +192,8 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
   }, [setShowAgentsInitNudge]);
 
   const handleRunAgentsInit = useCallback(() => {
-    // Switch project-scope mode to exec.
     updatePersistedState(getAgentIdKey(getProjectScopeId(projectPath)), "exec");
 
-    // Run the /init skill and start the creation chat.
     if (chatInputRef.current) {
       chatInputRef.current.restoreText("/init");
       requestAnimationFrame(() => {
@@ -223,9 +221,6 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
       return;
     }
 
-    // Auto-focus the prompt once when entering the creation screen.
-    // Defensive: avoid re-focusing on unrelated re-renders (e.g. workspace list updates),
-    // which can move the user's caret.
     if (didAutoFocusRef.current) {
       return;
     }
@@ -233,13 +228,49 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
     api.focus();
   }, []);
 
+  const refreshArchived = useCallback(() => {
+    if (!api) return;
+    void api.workspace.list({ archived: true }).then((all) => {
+      setArchivedWorkspaces(all.filter((w) => w.projectPath === projectPath));
+    });
+  }, [api, projectPath]);
+
+  // Tab definitions
+  const tabs: Array<{
+    id: ProjectTab;
+    label: string;
+    icon: React.ReactNode;
+    badge?: number;
+  }> = [
+    {
+      id: "pipeline",
+      label: "Agent Net",
+      icon: <Network size={13} />,
+    },
+    {
+      id: "workspace",
+      label: "New Mission",
+      icon: <Plus size={13} />,
+    },
+    {
+      id: "mcp",
+      label: "MCP",
+      icon: <Server size={13} />,
+    },
+    {
+      id: "archived",
+      label: "Archived",
+      icon: <ArchiveIcon className="h-3 w-3" />,
+      badge: archivedWorkspaces.length > 0 ? archivedWorkspaces.length : undefined,
+    },
+  ];
+
   return (
     <AgentProvider projectPath={projectPath}>
       <ProviderOptionsProvider>
         <ThinkingProvider projectPath={projectPath}>
-          {/* Flex container to fill parent space */}
           <div className="bg-dark flex flex-1 flex-col overflow-hidden">
-            {/* Draggable header bar - matches WorkspaceHeader for consistency */}
+            {/* ── Title bar ── */}
             <div
               className={cn(
                 "bg-sidebar border-border-light mobile-sticky-header flex shrink-0 items-center border-b px-2 [@media(max-width:768px)]:h-auto [@media(max-width:768px)]:py-2",
@@ -262,121 +293,153 @@ export const ProjectPage: React.FC<ProjectPageProps> = ({
                 </Button>
               )}
             </div>
-            {/* Scrollable content area */}
+
+            {/* ── Tab strip ── */}
+            <div className="bg-sidebar border-border-light flex shrink-0 items-center gap-0.5 border-b px-3">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    "relative flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors",
+                    activeTab === tab.id
+                      ? "text-foreground"
+                      : "text-muted hover:text-foreground/70"
+                  )}
+                >
+                  {tab.icon}
+                  {tab.label}
+                  {tab.badge !== undefined && (
+                    <span className="text-muted bg-white/8 rounded px-1 py-0.5 text-[10px] tabular-nums">
+                      {tab.badge}
+                    </span>
+                  )}
+                  {/* Active indicator */}
+                  {activeTab === tab.id && (
+                    <span className="bg-accent absolute right-2 bottom-0 left-2 h-[2px] rounded-t-sm" />
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* ── Tab content ── */}
             <div className="min-h-0 flex-1 overflow-y-auto">
 
-              {/* ── Constrained top section: wizard + banners ── */}
-              <div className="mx-auto w-full max-w-2xl px-4 pt-4 pb-2 flex flex-col gap-3">
-
-                {/* ── Git init banner ── */}
-                {isNonGitRepo && (
-                  <GitInitBanner projectPath={projectPath} onSuccess={handleGitInitSuccess} />
-                )}
-
-                {/* ── New Mission wizard (always on top) ── */}
-                <div className="flex flex-col gap-3">
-                  {/* Show agent setup prompt when no agents detected, otherwise show ChatInput */}
-                  {!agentsLoading && !hasAgents ? (
-                    <div
-                      className="border-border bg-card/50 flex flex-col items-center justify-center gap-4 rounded-lg border p-8 text-center"
-                      data-testid="configure-agents-prompt"
-                    >
-                      <div className="bg-primary/10 flex h-12 w-12 items-center justify-center rounded-full">
-                        <Terminal className="text-primary h-6 w-6" />
-                      </div>
-                      <div className="space-y-2">
-                        <h2 className="text-foreground text-lg font-semibold">
-                          No Providers Detected
-                        </h2>
-                        <p className="text-muted-foreground max-w-sm text-sm">
-                          Install at least one provider (like Claude Code, Codex, or Gemini) to
-                          start a workspace.
-                        </p>
-                      </div>
-                      <Button onClick={() => settings.open("providers")} className="gap-2">
-                        <Settings className="h-4 w-4" />
-                        Install Providers
-                      </Button>
-                    </div>
-                  ) : (
-                    <>
-                      {shouldShowAgentsInitBanner && (
-                        <AgentsInitBanner
-                          onRunInit={handleRunAgentsInit}
-                          onDismiss={handleDismissAgentsInit}
-                        />
-                      )}
-                      {/* Detected agents bar */}
-                      {hasAgents && (
-                        <div className="text-muted-foreground flex items-center justify-center gap-2 py-1 text-sm">
-                          <span className="inline-flex items-center gap-1.5 rounded border border-border/50 px-2 py-1 text-sm">
-                            {detectedAgents.slice(0, 5).map((agent) => (
-                              <CliAgentWithIcon
-                                key={agent.slug}
-                                slug={agent.slug}
-                                displayName=""
-                                iconClassName="h-3.5 w-3.5"
-                              />
-                            ))}
-                            {detectedAgents.length > 5 && (
-                              <span className="text-muted text-xs">
-                                +{detectedAgents.length - 5}
-                              </span>
-                            )}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => settings.open("providers")}
-                            className="text-muted-foreground/70 hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
-                          >
-                            <Settings className="h-3 w-3" />
-                            <span>Agents</span>
-                          </button>
-                        </div>
-                      )}
-                      {/* ChatInput for workspace creation */}
-                      <ChatInput
-                        variant="creation"
-                        projectPath={projectPath}
-                        projectName={projectName}
-                        pendingSectionId={pendingSectionId}
-                        onProviderConfig={onProviderConfig}
-                        onReady={handleChatReady}
-                        onWorkspaceCreated={onWorkspaceCreated}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {/* ── HQ Pipeline Architecture — full viewport width ── */}
-              <div className="w-full px-4 pb-2">
-                <ProjectHQOverview
-                  projectPath={projectPath}
-                  projectName={projectName}
-                />
-              </div>
-
-              {/* ── Constrained bottom section: MCP + archived ── */}
-              <div className="mx-auto w-full max-w-2xl px-4 pb-4 flex flex-col gap-3">
-                {/* ── MCP overview ── */}
-                <ProjectMCPOverview projectPath={projectPath} />
-
-                {/* ── Archived workspaces ── */}
-                {archivedWorkspaces.length > 0 && (
-                  <ArchivedWorkspaces
+              {/* ── Agent Net ── */}
+              {activeTab === "pipeline" && (
+                <div className="w-full px-4 py-4">
+                  <ProjectHQOverview
                     projectPath={projectPath}
                     projectName={projectName}
-                    workspaces={archivedWorkspaces}
-                    onWorkspacesChanged={() => {
-                      if (!api) return;
-                      void api.workspace.list({ archived: true }).then((all) => {
-                        setArchivedWorkspaces(all.filter((w) => w.projectPath === projectPath));
-                      });
-                    }}
                   />
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* ── New Mission ── */}
+              {activeTab === "workspace" && (
+                <div className="flex min-h-[50vh] flex-col items-center justify-center px-4 py-6">
+                  <div className="flex w-full max-w-2xl flex-col gap-4">
+                    {isNonGitRepo && (
+                      <GitInitBanner projectPath={projectPath} onSuccess={handleGitInitSuccess} />
+                    )}
+                    {!agentsLoading && !hasAgents ? (
+                      <div
+                        className="border-border bg-card/50 flex flex-col items-center justify-center gap-4 rounded-lg border p-8 text-center"
+                        data-testid="configure-agents-prompt"
+                      >
+                        <div className="bg-primary/10 flex h-12 w-12 items-center justify-center rounded-full">
+                          <Terminal className="text-primary h-6 w-6" />
+                        </div>
+                        <div className="space-y-2">
+                          <h2 className="text-foreground text-lg font-semibold">
+                            No Providers Detected
+                          </h2>
+                          <p className="text-muted-foreground max-w-sm text-sm">
+                            Install at least one provider (like Claude Code, Codex, or Gemini) to
+                            start a workspace.
+                          </p>
+                        </div>
+                        <Button onClick={() => settings.open("providers")} className="gap-2">
+                          <Settings className="h-4 w-4" />
+                          Install Providers
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        {shouldShowAgentsInitBanner && (
+                          <AgentsInitBanner
+                            onRunInit={handleRunAgentsInit}
+                            onDismiss={handleDismissAgentsInit}
+                          />
+                        )}
+                        {hasAgents && (
+                          <div className="text-muted-foreground flex items-center justify-center gap-2 py-1 text-sm">
+                            <span className="inline-flex items-center gap-1.5 rounded border border-border/50 px-2 py-1 text-sm">
+                              {detectedAgents.slice(0, 5).map((agent) => (
+                                <CliAgentWithIcon
+                                  key={agent.slug}
+                                  slug={agent.slug}
+                                  displayName=""
+                                  iconClassName="h-3.5 w-3.5"
+                                />
+                              ))}
+                              {detectedAgents.length > 5 && (
+                                <span className="text-muted text-xs">
+                                  +{detectedAgents.length - 5}
+                                </span>
+                              )}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => settings.open("providers")}
+                              className="text-muted-foreground/70 hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
+                            >
+                              <Settings className="h-3 w-3" />
+                              <span>Agents</span>
+                            </button>
+                          </div>
+                        )}
+                        <ChatInput
+                          variant="creation"
+                          projectPath={projectPath}
+                          projectName={projectName}
+                          pendingSectionId={pendingSectionId}
+                          onProviderConfig={onProviderConfig}
+                          onReady={handleChatReady}
+                          onWorkspaceCreated={onWorkspaceCreated}
+                        />
+                      </>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* ── MCP ── */}
+              {activeTab === "mcp" && (
+                <div className="mx-auto w-full max-w-2xl px-4 py-6">
+                  <ProjectMCPOverview projectPath={projectPath} />
+                </div>
+              )}
+
+              {/* ── Archived ── */}
+              {activeTab === "archived" && (
+                <div className="mx-auto w-full max-w-2xl px-4 py-6">
+                  {archivedWorkspaces.length > 0 ? (
+                    <ArchivedWorkspaces
+                      projectPath={projectPath}
+                      projectName={projectName}
+                      workspaces={archivedWorkspaces}
+                      onWorkspacesChanged={refreshArchived}
+                    />
+                  ) : (
+                    <div className="text-muted flex flex-col items-center gap-2 py-16 text-center text-sm">
+                      <ArchiveIcon className="h-8 w-8 opacity-30" />
+                      <p>No archived workspaces yet.</p>
+                    </div>
+                  )}
+                </div>
+              )}
 
             </div>
           </div>

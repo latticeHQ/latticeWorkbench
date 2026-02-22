@@ -4,9 +4,11 @@ import type { MCPServerInfo } from "@/common/types/mcp";
 import { useAPI } from "@/browser/contexts/API";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { Button } from "@/browser/components/ui/button";
+import { cn } from "@/common/lib/utils";
 
 interface ProjectMCPOverviewProps {
   projectPath: string;
+  className?: string;
 }
 
 export const ProjectMCPOverview: React.FC<ProjectMCPOverviewProps> = (props) => {
@@ -55,7 +57,7 @@ export const ProjectMCPOverview: React.FC<ProjectMCPOverviewProps> = (props) => 
   const remainingCount = enabledServerNames.length - shownServerNames.length;
 
   return (
-    <div className="border-border rounded-lg border">
+    <div className={cn("border-border rounded-lg border", props.className)}>
       <div className="flex items-start gap-3 px-4 py-3">
         <Server className="text-muted mt-0.5 h-4 w-4" />
 
