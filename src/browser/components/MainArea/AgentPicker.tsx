@@ -159,14 +159,19 @@ function EmployeeRow({
 }: EmployeeRowProps) {
   return (
     <div
-      onClick={() => onSelect(slug)}
+      onClick={() => { if (!userDisabled) onSelect(slug); }}
       className={cn(
-        "group hover:bg-hover flex w-full cursor-pointer items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
-        (detected === false || userDisabled) && "opacity-60 hover:opacity-100"
+        "group flex w-full items-center gap-2.5 px-3 py-1.5 text-left transition-colors",
+        userDisabled
+          ? "cursor-not-allowed opacity-50"
+          : "hover:bg-hover cursor-pointer opacity-100",
+        detected === false && !userDisabled && "opacity-60 hover:opacity-100"
       )}
       role="button"
-      tabIndex={0}
+      tabIndex={userDisabled ? -1 : 0}
+      title={userDisabled ? "Enable in Settings → Providers" : undefined}
       onKeyDown={(e) => {
+        if (userDisabled) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           onSelect(slug);
