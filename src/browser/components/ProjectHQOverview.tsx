@@ -101,10 +101,23 @@ function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: 
         const { x1, y1, x2, y2, active, color, sameRow, bothEmpty } = edge;
         const dy = y2 - y1;
         const dx = x2 - x1;
-        // Same-row: horizontal S-curve. Cross-row: vertical arc staying tight to src/tgt.
-        const d = sameRow
-          ? `M ${x1} ${y1} C ${x1 + dx * 0.45} ${y1}, ${x2 - dx * 0.45} ${y2}, ${x2} ${y2}`
-          : `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.5}, ${x2} ${y2 - dy * 0.5}, ${x2} ${y2}`;
+
+        // Cross-phase wrap-around: last col → first col of next phase row
+        // Route via the left margin so the arrow doesn't cut through boxes
+        const isWrapAround = !sameRow && (x1 - x2) > width * 0.15;
+        let d: string;
+        if (sameRow) {
+          d = `M ${x1} ${y1} C ${x1 + dx * 0.4} ${y1}, ${x2 - dx * 0.4} ${y2}, ${x2} ${y2}`;
+        } else if (isWrapAround) {
+          // J-curve routing: exit right side, arc down, enter left side
+          const rx = width + 28; // right margin outside canvas
+          const midY = (y1 + y2) / 2;
+          d = `M ${x1} ${y1}` +
+              ` C ${x1 + 30} ${y1}, ${rx} ${midY - dy * 0.2}, ${rx} ${midY}` +
+              ` C ${rx} ${midY + dy * 0.2}, ${x2 - 30} ${y2}, ${x2} ${y2}`;
+        } else {
+          d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.5}, ${x2} ${y2 - dy * 0.5}, ${x2} ${y2}`;
+        }
 
         // Ghost — both endpoints empty
         if (bothEmpty) {
@@ -344,7 +357,6 @@ function StageBox({
     <div
       ref={nodeRef}
       className={cn(
-        "col-span-12 sm:col-span-6 lg:col-span-4",
         "relative rounded-xl transition-all duration-200",
         isEmpty && "opacity-35 grayscale"
       )}
@@ -417,6 +429,106 @@ function StageBox({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase group — wraps 3 stages with a phase header band (Gantt-style)
+// ─────────────────────────────────────────────────────────────────────────────
+const PHASE_SIZE = 3;
+
+function PhaseGroup({
+  phaseIdx, phaseSections, workspacesBySection, childrenByParent,
+  onOpen, collapsed, toggle, nodeRefs,
+}: {
+  phaseIdx: number;
+  phaseSections: SectionConfig[];
+  workspacesBySection: Map<string | null, FrontendWorkspaceMetadata[]>;
+  childrenByParent: Map<string, FrontendWorkspaceMetadata[]>;
+  onOpen: (ws: FrontendWorkspaceMetadata) => void;
+  collapsed: Set<string>;
+  toggle: (id: string) => void;
+  nodeRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
+}) {
+  const phaseActive = phaseSections.some(
+    s => (workspacesBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
+  );
+  const phaseHasContent = phaseSections.some(
+    s => (workspacesBySection.get(s.id) ?? []).length > 0
+  );
+  // Derive a phase label from section names
+  const phaseNames = phaseSections.map(s => s.name);
+  const phaseSubtitle = phaseNames.length <= 2
+    ? phaseNames.join(" & ")
+    : `${phaseNames[0]} · ${phaseNames[1]} · ${phaseNames[2]}`;
+
+  return (
+    <div className={cn(
+      "rounded-xl overflow-hidden transition-all duration-200",
+      phaseActive
+        ? "border border-border/50 shadow-sm"
+        : "border border-border/25"
+    )}>
+      {/* Phase header band */}
+      <div className={cn(
+        "flex items-center gap-3 px-4 py-2 border-b",
+        phaseActive ? "bg-muted/12 border-border/30" : "bg-muted/6 border-border/15"
+      )}>
+        <span className={cn(
+          "shrink-0 flex h-5 w-5 items-center justify-center rounded text-[9px] font-black",
+          phaseActive ? "bg-foreground/12 text-foreground/70" : "bg-muted/15 text-foreground/30"
+        )}>
+          {phaseIdx + 1}
+        </span>
+        <span className={cn(
+          "text-[9px] font-black uppercase tracking-[0.18em]",
+          phaseActive ? "text-foreground/55" : "text-foreground/25"
+        )}>
+          Phase {phaseIdx + 1}
+        </span>
+        <span className={cn(
+          "text-[9px] hidden sm:block",
+          phaseActive ? "text-foreground/35" : "text-foreground/18"
+        )}>
+          {phaseSubtitle}
+        </span>
+        {phaseActive && <LiveDot size="sm" />}
+        {phaseHasContent && !phaseActive && (
+          <span className="text-[8px] text-muted/30 ml-auto">
+            {phaseSections.reduce((sum, s) => sum + (workspacesBySection.get(s.id) ?? []).length, 0)} missions
+          </span>
+        )}
+      </div>
+
+      {/* Stage boxes — 3-col grid */}
+      <div className={cn(
+        "grid gap-3 p-3 items-start",
+        phaseSections.length === 1 ? "grid-cols-1" :
+        phaseSections.length === 2 ? "grid-cols-2" :
+                                     "grid-cols-3"
+      )}>
+        {phaseSections.map((sec, secIdx) => {
+          // Find global stage index
+          const globalIdx = phaseIdx * PHASE_SIZE + secIdx;
+          return (
+            <StageBox
+              key={sec.id}
+              section={sec}
+              workspaces={workspacesBySection.get(sec.id) ?? []}
+              childrenByParent={childrenByParent}
+              onOpen={onOpen}
+              stageIdx={globalIdx}
+              collapsed={collapsed.has(sec.id)}
+              onToggle={() => toggle(sec.id)}
+              nodeRef={el => {
+                if (el) nodeRefs.current.set(sec.id, el);
+                else    nodeRefs.current.delete(sec.id);
+              }}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -516,6 +628,15 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
     }
     return map;
   }, [rootWorkspaces]);
+
+  // Group sections into phases of PHASE_SIZE
+  const phases = useMemo(() => {
+    const result: SectionConfig[][] = [];
+    for (let i = 0; i < sections.length; i += PHASE_SIZE) {
+      result.push(sections.slice(i, i + PHASE_SIZE));
+    }
+    return result;
+  }, [sections]);
 
   const activeMissions = rootWorkspaces.filter(w => w.taskStatus === "running").length;
   const totalSubAgents = [...childrenByParent.values()].reduce((s, a) => s + a.length, 0);
@@ -617,31 +738,25 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
         cliIds={allCliIds}
       />
 
-      {/* Full pipeline canvas — ALL sections + SVG connections */}
+      {/* Full pipeline canvas — Gantt-style phase rows + SVG connections */}
       {sections.length > 0 && (
         <div ref={canvasRef} className="relative">
-          {/* SVG animated dashed connections (z-index 0, below cards) */}
+          {/* SVG animated connections — rendered above everything */}
           <ConnectionCanvas edges={edges} width={canvasSize.w} height={canvasSize.h} />
 
-          {/* Stage grid — 3 per row (col-span-4 each in 12-col grid) */}
-          <div
-            className="grid grid-cols-12 gap-3 items-start"
-            style={{ position: "relative", zIndex: 1 }}
-          >
-            {sections.map((sec, i) => (
-              <StageBox
-                key={sec.id}
-                section={sec}
-                workspaces={workspacesBySection.get(sec.id) ?? []}
+          {/* Phase rows */}
+          <div className="flex flex-col gap-2" style={{ position: "relative", zIndex: 1 }}>
+            {phases.map((phaseSections, phaseIdx) => (
+              <PhaseGroup
+                key={phaseIdx}
+                phaseIdx={phaseIdx}
+                phaseSections={phaseSections}
+                workspacesBySection={workspacesBySection}
                 childrenByParent={childrenByParent}
                 onOpen={handleOpen}
-                stageIdx={i}
-                collapsed={collapsed.has(sec.id)}
-                onToggle={() => toggle(sec.id)}
-                nodeRef={el => {
-                  if (el) nodeRefs.current.set(sec.id, el);
-                  else    nodeRefs.current.delete(sec.id);
-                }}
+                collapsed={collapsed}
+                toggle={toggle}
+                nodeRefs={nodeRefs}
               />
             ))}
           </div>
