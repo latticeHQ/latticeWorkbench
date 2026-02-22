@@ -116,11 +116,16 @@ export function useCliAgentDetection(workspaceId?: string) {
   }, []);
 
   const agents = [...agentMap.values()];
-  // Only include detected agents that haven't been explicitly disabled by the user
+  // Agents installed but explicitly disabled by the user in Settings > Providers
+  const disabledAgents = agents.filter(
+    (a) => a.detected && preferences[a.slug]?.enabled === false
+  );
+  // Only include detected agents that haven't been explicitly disabled
   const detectedAgents = agents.filter(
     (a) => a.detected && preferences[a.slug]?.enabled !== false
   );
   const missingAgents = agents.filter((a) => !a.detected);
+  const disabledSlugs = new Set(disabledAgents.map((a) => a.slug));
 
-  return { agents, detectedAgents, missingAgents, loading, refresh };
+  return { agents, detectedAgents, disabledAgents, disabledSlugs, missingAgents, loading, refresh };
 }
