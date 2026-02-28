@@ -107,6 +107,8 @@ export class ProviderService {
         bearerToken?: string;
         accessKeyId?: string;
         secretAccessKey?: string;
+        /** Claude Code-only: execution mode (proxy, agentic, streaming). */
+        claudeCodeMode?: unknown;
         /** Persisted provider toggle: only `false` is stored; missing means enabled. */
         enabled?: unknown;
         /** OpenAI-only: stored Codex OAuth tokens (never sent to frontend). */
@@ -181,6 +183,14 @@ export class ProviderService {
           accessKeyIdSet: !!config.accessKeyId,
           secretAccessKeySet: !!config.secretAccessKey,
         };
+      }
+
+      // Claude Code-specific fields
+      if (provider === "claude-code") {
+        const ccMode = config.claudeCodeMode;
+        if (ccMode === "proxy" || ccMode === "agentic" || ccMode === "streaming") {
+          providerInfo.claudeCodeMode = ccMode;
+        }
       }
 
       // Compute isConfigured using shared utility (checks config + env vars).
