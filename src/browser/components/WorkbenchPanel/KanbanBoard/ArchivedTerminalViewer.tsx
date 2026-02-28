@@ -59,8 +59,8 @@ export function ArchivedTerminalViewer(props: ArchivedTerminalViewerProps) {
         if (!containerEl) return;
 
         const styles = getComputedStyle(document.documentElement);
-        const terminalBg = styles.getPropertyValue("--color-terminal-bg").trim() || "#0D0D0D";
-        const terminalFg = styles.getPropertyValue("--color-terminal-fg").trim() || "#d4d4d4";
+        const terminalBg = styles.getPropertyValue("--color-terminal-bg").trim() || "#0C0F1A";
+        const terminalFg = styles.getPropertyValue("--color-terminal-fg").trim() || "#E2E4EB";
 
         const fontConfig = readPersistedState<TerminalFontConfig>(
           TERMINAL_FONT_CONFIG_KEY,
