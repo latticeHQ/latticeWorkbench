@@ -1,5 +1,5 @@
 /**
- * Lattice SDK — Server management, updates, signing, lattice, experiments (29 functions)
+ * Lattice SDK — Server management, updates, signing, lattice, experiments (34 functions)
  */
 
 import type { RouterClient } from "@orpc/server";
@@ -56,3 +56,19 @@ export async function getTelemetryStatus(c: RouterClient<AppRouter>) { return c.
 // Experiments
 export async function getExperiments(c: RouterClient<AppRouter>) { return c.experiments.getAll(); }
 export async function reloadExperiments(c: RouterClient<AppRouter>) { return c.experiments.reload(); }
+
+// UI Layouts
+export async function getUiLayouts(c: RouterClient<AppRouter>) { return c.uiLayouts.getAll(); }
+export async function saveUiLayouts(c: RouterClient<AppRouter>, layouts: Parameters<typeof c.uiLayouts.saveAll>[0]) { return c.uiLayouts.saveAll(layouts); }
+
+// Lattice identity
+export async function latticeWhoami(c: RouterClient<AppRouter>) { return c.lattice.whoami(); }
+export async function latticeLogin(c: RouterClient<AppRouter>, url: string, sessionToken: string) { return c.lattice.login({ url, sessionToken }); }
+
+// Telemetry control
+export async function setTelemetryEnabled(c: RouterClient<AppRouter>, enabled: boolean) {
+  return c.telemetry.setEnabled({ enabled } as Parameters<typeof c.telemetry.setEnabled>[0]);
+}
+
+// Inference
+export async function getInferenceStatus(c: RouterClient<AppRouter>) { return c.inference.getStatus(); }

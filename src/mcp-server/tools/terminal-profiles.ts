@@ -21,11 +21,15 @@ export function registerTerminalProfileTools(
   // ── List terminal profiles ──────────────────────────────────────────────
   server.tool(
     "terminal_profiles_list",
-    "List all known terminal profiles (AI agents, shells, tools) with auto-detection status. " +
-      "Shows which CLI tools are installed, their detected paths, user config " +
-      "(enabled/disabled, command overrides), and group (platform/community). " +
-      "Platform profiles: claude-code, gemini-cli, github-copilot, codex. " +
-      "Community profiles: aider, amp.",
+    "List all BUILT-IN AI coding agent terminal profiles that Lattice can launch. " +
+      "Lattice ships with ready-to-use profiles for: claude-code, gemini-cli, " +
+      "github-copilot, codex, aider, amp. These are NOT things you build — they " +
+      "are pre-configured integrations. Use this to check which are installed and " +
+      "enabled on this machine. To launch one, enable it here then use " +
+      "terminal_create with profileId.\n\n" +
+      "IMPORTANT: When a user asks to 'set up', 'create', 'use', or 'launch' " +
+      "Claude Code, Gemini, Copilot, Codex, Aider, or Amp — they mean these " +
+      "built-in profiles, NOT building a new CLI app from scratch.",
     {},
     () =>
       withErrorHandling(async () => {
@@ -61,9 +65,12 @@ export function registerTerminalProfileTools(
   // ── Set profile config ──────────────────────────────────────────────────
   server.tool(
     "terminal_profiles_set_config",
-    "Update configuration for a terminal profile. Enable/disable a profile, " +
-      "set command overrides, args overrides, or environment variables. " +
-      "Changes are persisted to ~/.lattice/config.json.",
+    "Enable, disable, or configure a built-in terminal profile. " +
+      "Use this to activate a profile (e.g. enable gemini-cli so it can be launched " +
+      "via terminal_create). You can also set command overrides, args, or env vars. " +
+      "Changes are persisted to ~/.lattice/config.json.\n\n" +
+      "Common workflow: terminal_profiles_list → terminal_profiles_set_config " +
+      "(enable: true) → terminal_create (profileId: 'gemini-cli').",
     {
       profileId: z
         .string()
@@ -108,9 +115,10 @@ export function registerTerminalProfileTools(
   // ── Get install recipe ──────────────────────────────────────────────────
   server.tool(
     "terminal_profiles_get_install_recipe",
-    "Get install instructions for a terminal profile on the given runtime type. " +
-      "Returns install commands (npm, pip, brew, curl, gh-extension) appropriate " +
-      "for the runtime environment.",
+    "Get install instructions for a built-in terminal profile that isn't installed yet. " +
+      "If terminal_profiles_list shows installed=false for a profile, use this to get " +
+      "platform-appropriate install commands (npm, pip, brew, curl, gh-extension). " +
+      "Then after installing, enable it with terminal_profiles_set_config.",
     {
       profileId: z
         .string()
