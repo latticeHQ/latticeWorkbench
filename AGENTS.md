@@ -65,9 +65,38 @@ m3/worktree-aider-update-deps
 
 ## Commit Messages
 
-- Use conventional commit style: `feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`
-- Keep the subject line under 72 characters
+Every agent commit **must** follow this format:
+
+```
+({branch-name}) :: {type}({scope}): {description}
+```
+
+| Segment        | Description                                          |
+|----------------|------------------------------------------------------|
+| `(branch-name)`| Full branch name in parentheses — traces the origin  |
+| `::`           | Separator between branch tag and conventional commit  |
+| `type`         | Conventional commit type                              |
+| `scope`        | Optional component/area affected                      |
+| `description`  | Short imperative summary                              |
+
+### Conventional Types
+
+`feat:`, `fix:`, `chore:`, `refactor:`, `docs:`, `test:`, `style:`, `perf:`
+
+### Examples
+
+```
+(m4/worktree-claude-minion-ui-revamp) :: style(theme): revamp to Minion design language
+(m4/worktree-codex-fix-login-redirect) :: fix(auth): prevent redirect loop on expired session
+(i9/worktree-claude-refactor-api-layer) :: refactor(api): extract shared middleware
+(m3/worktree-aider-update-deps) :: chore(deps): bump vite to v7.2
+```
+
+### Rules
+
+- Keep the subject line concise
 - Add `Co-Authored-By` trailer for the agent that wrote the code
+- Body should explain **what** and **why**, list affected files for large changes
 
 ## Workflow
 
