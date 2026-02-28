@@ -1095,6 +1095,65 @@ export function ProvidersSection() {
                       {" · "}
                       <code className="bg-background-tertiary rounded px-1 py-0.5">cc:haiku</code>
                     </div>
+
+                    {/* Execution mode selector */}
+                    <div className="pt-1">
+                      <label className="text-foreground block text-xs font-medium">
+                        Execution Mode
+                      </label>
+                      <p className="text-muted mb-1.5 text-xs">
+                        Controls how Claude Code handles tool calls.
+                      </p>
+                      <ToggleGroup
+                        type="single"
+                        value={
+                          (config?.["claude-code"] as Record<string, unknown> | undefined)
+                            ?.claudeCodeMode as string ?? "agentic"
+                        }
+                        onValueChange={(next) => {
+                          if (!api || !next) return;
+                          if (
+                            next !== "proxy" &&
+                            next !== "agentic" &&
+                            next !== "streaming"
+                          )
+                            return;
+                          void api.providers.setProviderConfig({
+                            provider: "claude-code",
+                            keyPath: ["claudeCodeMode"],
+                            value: next,
+                          });
+                          updateOptimistically("claude-code", {
+                            claudeCodeMode: next as "proxy" | "agentic" | "streaming",
+                          });
+                        }}
+                        className="h-9"
+                      >
+                        <ToggleGroupItem
+                          value="agentic"
+                          className="h-7 px-3 text-[13px]"
+                        >
+                          Agentic
+                        </ToggleGroupItem>
+                        <ToggleGroupItem
+                          value="streaming"
+                          className="h-7 px-3 text-[13px]"
+                        >
+                          Streaming
+                        </ToggleGroupItem>
+                        <ToggleGroupItem
+                          value="proxy"
+                          className="h-7 px-3 text-[13px]"
+                        >
+                          Proxy
+                        </ToggleGroupItem>
+                      </ToggleGroup>
+                      <p className="text-muted mt-1 text-[11px]">
+                        <strong>Agentic:</strong> CLI handles tools via MCP.{" "}
+                        <strong>Streaming:</strong> Lattice intercepts tool calls.{" "}
+                        <strong>Proxy:</strong> Text-only, no tools.
+                      </p>
+                    </div>
                   </div>
                 )}
 

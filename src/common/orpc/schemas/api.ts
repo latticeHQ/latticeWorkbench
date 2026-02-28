@@ -208,6 +208,8 @@ export const ProviderConfigInfoSchema = z.object({
   codexOauthDefaultAuth: z.enum(["oauth", "apiKey"]).optional(),
   /** AWS-specific fields (only present for bedrock provider) */
   aws: AWSCredentialStatusSchema.optional(),
+  /** Claude Code-only: execution mode (proxy, agentic, streaming) */
+  claudeCodeMode: z.enum(["proxy", "agentic", "streaming"]).optional(),
 });
 
 export const ProvidersConfigMapSchema = z.record(z.string(), ProviderConfigInfoSchema);
