@@ -54,7 +54,7 @@ describe("agents.list plan requirements", () => {
     const branchName = generateBranchName("agents-plan-requires");
     const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath: repoPath,
       branchName,
       trunkBranch,
@@ -65,15 +65,15 @@ describe("agents.list plan requirements", () => {
       throw new Error("Failed to create workspace");
     }
 
-    const workspaceId = createResult.metadata.id;
-    const workspaceName = createResult.metadata.name;
+    const minionId = createResult.metadata.id;
+    const minionName = createResult.metadata.name;
     const projectName = createResult.metadata.projectName;
 
-    const planPath = expandTilde(getPlanFilePath(workspaceName, projectName));
+    const planPath = expandTilde(getPlanFilePath(minionName, projectName));
 
     try {
       // No plan file yet -> orchestrator is discoverable but not selectable.
-      const listNoPlan = await env.orpc.agents.list({ workspaceId });
+      const listNoPlan = await env.orpc.agents.list({ minionId });
       const orchestratorNoPlan = listNoPlan.find((a) => a.id === "orchestrator");
       expect(orchestratorNoPlan).toBeTruthy();
       expect(orchestratorNoPlan?.uiSelectable).toBe(false);
@@ -82,7 +82,7 @@ describe("agents.list plan requirements", () => {
       await fs.mkdir(path.dirname(planPath), { recursive: true });
       await fs.writeFile(planPath, "");
 
-      const listEmptyPlan = await env.orpc.agents.list({ workspaceId });
+      const listEmptyPlan = await env.orpc.agents.list({ minionId });
       const orchestratorEmptyPlan = listEmptyPlan.find((a) => a.id === "orchestrator");
       expect(orchestratorEmptyPlan).toBeTruthy();
       expect(orchestratorEmptyPlan?.uiSelectable).toBe(false);
@@ -90,7 +90,7 @@ describe("agents.list plan requirements", () => {
       // Once plan file is non-empty, orchestrator becomes selectable.
       await fs.writeFile(planPath, "# Plan\n");
 
-      const listWithPlan = await env.orpc.agents.list({ workspaceId });
+      const listWithPlan = await env.orpc.agents.list({ minionId });
       const orchestratorWithPlan = listWithPlan.find((a) => a.id === "orchestrator");
       expect(orchestratorWithPlan).toBeTruthy();
       expect(orchestratorWithPlan?.uiSelectable).toBe(true);
@@ -102,7 +102,7 @@ describe("agents.list plan requirements", () => {
         // ignore
       }
 
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 30_000);
 });

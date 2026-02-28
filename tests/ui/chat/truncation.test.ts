@@ -86,7 +86,7 @@ describe("Chat truncation UI", () => {
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
       const branchName = generateBranchName("ui-truncation");
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -170,7 +170,7 @@ describe("Chat truncation UI", () => {
 
       if (workspaceId) {
         try {
-          await env.orpc.workspace.remove({ workspaceId, options: { force: true } });
+          await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } });
         } catch {
           // Best effort cleanup.
         }

@@ -2,8 +2,8 @@ import type { IpcRenderer } from "electron";
 import type {
   FilePart,
   SendMessageOptions,
-  WorkspaceChatMessage,
-  WorkspaceInitEvent,
+  MinionChatMessage,
+  MinionInitEvent,
 } from "@/common/orpc/types";
 import { isInitStart, isInitOutput, isInitEnd } from "@/common/orpc/types";
 
@@ -19,7 +19,7 @@ export {
 import { createStreamCollector } from "./streamCollector";
 import type { Result } from "../../src/common/types/result";
 import type { SendMessageError } from "../../src/common/types/errors";
-import type { FrontendWorkspaceMetadata } from "../../src/common/types/workspace";
+import type { FrontendMinionMetadata } from "../../src/common/types/minion";
 import * as path from "path";
 import * as os from "os";
 import * as fs from "fs/promises";
@@ -31,8 +31,8 @@ import type { RuntimeConfig } from "../../src/common/types/runtime";
 import type { OrpcTestClient } from "./orpcTestClient";
 import { KNOWN_MODELS } from "../../src/common/constants/knownModels";
 import type { ToolPolicy } from "../../src/common/utils/tools/toolPolicy";
-import type { WorkspaceSendMessageOutput } from "@/common/orpc/schemas";
-import { WORKSPACE_DEFAULTS } from "@/constants/workspaceDefaults";
+import type { MinionSendMessageOutput } from "@/common/orpc/schemas";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
 import { HistoryService } from "../../src/node/services/historyService";
 import { createLatticeMessage } from "../../src/common/types/message";
 
@@ -74,7 +74,7 @@ export function resolveOrpcClient(source: OrpcSource): OrpcTestClient {
     return source.orpc;
   }
 
-  if ("workspace" in source) {
+  if ("minion" in source) {
     return source;
   }
 
@@ -121,7 +121,7 @@ const DEFAULT_PROVIDER = KNOWN_MODELS.SONNET.provider;
 
 export async function sendMessage(
   source: OrpcSource,
-  workspaceId: string,
+  minionId: string,
   message: string,
   options?: SendMessageOptionsWithAgentFallback & { fileParts?: FilePart[] }
 ): Promise<Result<void, SendMessageError>> {
@@ -129,17 +129,17 @@ export async function sendMessage(
 
   // options is now required by the oRPC schema; build with defaults if not provided
   const resolvedOptions: SendMessageOptions & { fileParts?: FilePart[] } = {
-    model: options?.model ?? WORKSPACE_DEFAULTS.model,
+    model: options?.model ?? MINION_DEFAULTS.model,
     // Keep integration helper sends deterministic: default to exec so tests exercise
     // provider/model behavior directly instead of Auto routing.
     agentId: options?.agentId ?? "exec",
     ...options,
   };
 
-  let result: WorkspaceSendMessageOutput;
+  let result: MinionSendMessageOutput;
   try {
-    result = await client.workspace.sendMessage({
-      workspaceId,
+    result = await client.minion.sendMessage({
+      minionId,
       message,
       options: resolvedOptions,
     });
@@ -178,14 +178,14 @@ export async function sendMessage(
  */
 export async function sendMessageWithModel(
   source: OrpcSource,
-  workspaceId: string,
+  minionId: string,
   message: string,
   modelId: string = DEFAULT_MODEL_ID,
   options?: SendMessageWithModelOptions
 ): Promise<Result<void, SendMessageError>> {
   const resolvedModel = modelId.includes(":") ? modelId : modelString(DEFAULT_PROVIDER, modelId);
 
-  return sendMessage(source, workspaceId, message, {
+  return sendMessage(source, minionId, message, {
     ...options,
     model: resolvedModel,
   });
@@ -201,7 +201,7 @@ export async function createWorkspace(
   trunkBranch?: string,
   runtimeConfig?: RuntimeConfig
 ): Promise<
-  { success: true; metadata: FrontendWorkspaceMetadata } | { success: false; error: string }
+  { success: true; metadata: FrontendMinionMetadata } | { success: false; error: string }
 > {
   const resolvedTrunk =
     typeof trunkBranch === "string" && trunkBranch.trim().length > 0
@@ -209,7 +209,7 @@ export async function createWorkspace(
       : await detectDefaultTrunkBranch(projectPath);
 
   const client = resolveOrpcClient(source);
-  return client.workspace.create({
+  return client.minion.create({
     projectPath,
     branchName,
     trunkBranch: resolvedTrunk,
@@ -222,11 +222,11 @@ export async function createWorkspace(
  */
 export async function clearHistory(
   source: OrpcSource,
-  workspaceId: string,
+  minionId: string,
   percentage?: number
 ): Promise<Result<void, string>> {
   const client = resolveOrpcClient(source);
-  return (await client.workspace.truncateHistory({ workspaceId, percentage })) as Result<
+  return (await client.minion.truncateHistory({ minionId, percentage })) as Result<
     void,
     string
   >;
@@ -243,10 +243,10 @@ export async function createWorkspaceWithInit(
   runtimeConfig?: RuntimeConfig,
   waitForInit: boolean = false,
   isSSH: boolean = false
-): Promise<{ workspaceId: string; workspacePath: string; cleanup: () => Promise<void> }> {
+): Promise<{ minionId: string; workspacePath: string; cleanup: () => Promise<void> }> {
   const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
-  const result = await env.orpc.workspace.create({
+  const result = await env.orpc.minion.create({
     projectPath,
     branchName,
     trunkBranch,
@@ -257,14 +257,14 @@ export async function createWorkspaceWithInit(
     throw new Error(`Failed to create workspace: ${result.error}`);
   }
 
-  const workspaceId = result.metadata.id;
-  const workspacePath = result.metadata.namedWorkspacePath;
+  const minionId = result.metadata.id;
+  const workspacePath = result.metadata.namedMinionPath;
 
   // Wait for init hook to complete if requested
   if (waitForInit) {
     const initTimeout = isSSH ? SSH_INIT_WAIT_MS : INIT_HOOK_WAIT_MS;
 
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
     try {
       await collector.waitForEvent("init-end", initTimeout);
@@ -280,10 +280,10 @@ export async function createWorkspaceWithInit(
   }
 
   const cleanup = async () => {
-    await env.orpc.workspace.remove({ workspaceId });
+    await env.orpc.minion.remove({ minionId });
   };
 
-  return { workspaceId, workspacePath, cleanup };
+  return { minionId, workspacePath, cleanup };
 }
 
 /**
@@ -292,13 +292,13 @@ export async function createWorkspaceWithInit(
  */
 export async function sendMessageAndWait(
   env: TestEnvironment,
-  workspaceId: string,
+  minionId: string,
   message: string,
   model: string,
   toolPolicy?: ToolPolicy,
   timeoutMs: number = STREAM_TIMEOUT_LOCAL_MS
-): Promise<WorkspaceChatMessage[]> {
-  const collector = createStreamCollector(env.orpc, workspaceId);
+): Promise<MinionChatMessage[]> {
+  const collector = createStreamCollector(env.orpc, minionId);
   collector.start();
 
   try {
@@ -312,8 +312,8 @@ export async function sendMessageAndWait(
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Send message
-    const result = await env.orpc.workspace.sendMessage({
-      workspaceId,
+    const result = await env.orpc.minion.sendMessage({
+      minionId: minionId,
       message,
       options: {
         model,
@@ -345,7 +345,7 @@ export { StreamCollector as EventCollector } from "./streamCollector";
  * Create an event collector for a workspace.
  *
  * MIGRATION NOTE: Tests should migrate to using StreamCollector directly:
- *   const collector = createStreamCollector(env.orpc, workspaceId);
+ *   const collector = createStreamCollector(env.orpc, minionId);
  *   collector.start();
  *   ... test code ...
  *   collector.stop();
@@ -355,20 +355,20 @@ export { StreamCollector as EventCollector } from "./streamCollector";
  */
 export function createEventCollector(
   firstArg: OrpcTestClient | Array<{ channel: string; data: unknown }>,
-  workspaceId: string
+  minionId: string
 ) {
   const { createStreamCollector } = require("./streamCollector");
 
   // Check if firstArg is an OrpcTestClient (has workspace.onChat method)
-  if (firstArg && typeof firstArg === "object" && "workspace" in firstArg) {
-    return createStreamCollector(firstArg as OrpcTestClient, workspaceId);
+  if (firstArg && typeof firstArg === "object" && "minion" in firstArg) {
+    return createStreamCollector(firstArg as OrpcTestClient, minionId);
   }
 
   // Legacy signature - throw helpful error directing to new pattern
   throw new Error(
-    `createEventCollector(sentEvents, workspaceId) is deprecated.\n` +
+    `createEventCollector(sentEvents, minionId) is deprecated.\n` +
       `Use the new pattern:\n` +
-      `  const collector = createStreamCollector(env.orpc, workspaceId);\n` +
+      `  const collector = createStreamCollector(env.orpc, minionId);\n` +
       `  collector.start();\n` +
       `  ... test code ...\n` +
       `  collector.stop();`
@@ -438,10 +438,10 @@ export async function waitForFileExists(filePath: string, timeoutMs = 5000): Pro
  */
 export async function waitForInitComplete(
   env: import("./setup").TestEnvironment,
-  workspaceId: string,
+  minionId: string,
   timeoutMs = 5000
-): Promise<WorkspaceInitEvent[]> {
-  const collector = createStreamCollector(env.orpc, workspaceId);
+): Promise<MinionInitEvent[]> {
+  const collector = createStreamCollector(env.orpc, minionId);
   collector.start();
 
   try {
@@ -454,7 +454,7 @@ export async function waitForInitComplete(
       .getEvents()
       .filter(
         (msg) => isInitStart(msg) || isInitOutput(msg) || isInitEnd(msg)
-      ) as WorkspaceInitEvent[];
+      ) as MinionInitEvent[];
 
     // Check if init succeeded (exitCode === 0)
     const exitCode = (initEndEvent as { exitCode?: number }).exitCode;
@@ -481,10 +481,10 @@ export async function waitForInitComplete(
  */
 export async function collectInitEvents(
   env: import("./setup").TestEnvironment,
-  workspaceId: string,
+  minionId: string,
   timeoutMs = 5000
-): Promise<WorkspaceInitEvent[]> {
-  return waitForInitComplete(env, workspaceId, timeoutMs);
+): Promise<MinionInitEvent[]> {
+  return waitForInitComplete(env, minionId, timeoutMs);
 }
 
 /**
@@ -494,10 +494,10 @@ export async function collectInitEvents(
  */
 export async function waitForInitEnd(
   env: import("./setup").TestEnvironment,
-  workspaceId: string,
+  minionId: string,
   timeoutMs = 5000
-): Promise<WorkspaceInitEvent[]> {
-  const collector = createStreamCollector(env.orpc, workspaceId);
+): Promise<MinionInitEvent[]> {
+  const collector = createStreamCollector(env.orpc, minionId);
   collector.start();
 
   try {
@@ -509,7 +509,7 @@ export async function waitForInitEnd(
       .getEvents()
       .filter(
         (msg) => isInitStart(msg) || isInitOutput(msg) || isInitEnd(msg)
-      ) as WorkspaceInitEvent[];
+      ) as MinionInitEvent[];
   } finally {
     collector.stop();
   }
@@ -520,9 +520,9 @@ export async function waitForInitEnd(
  */
 export async function readChatHistory(
   tempDir: string,
-  workspaceId: string
+  minionId: string
 ): Promise<Array<{ role: string; parts: Array<{ type: string; [key: string]: unknown }> }>> {
-  const historyPath = path.join(tempDir, "sessions", workspaceId, "chat.jsonl");
+  const historyPath = path.join(tempDir, "sessions", minionId, "chat.jsonl");
   const historyContent = await fs.readFile(historyPath, "utf-8");
   return historyContent
     .trim()
@@ -647,13 +647,13 @@ export async function cleanupTempGitRepo(repoPath: string): Promise<void> {
  * populate history without making API calls. Real application code should
  * NEVER bypass IPC like this.
  *
- * @param workspaceId - Workspace to populate
+ * @param minionId - Workspace to populate
  * @param config - Config instance for HistoryService
  * @param options - Configuration for history size
  * @returns Promise that resolves when history is built
  */
 export async function buildLargeHistory(
-  workspaceId: string,
+  minionId: string,
   config: { getSessionDir: (id: string) => string },
   options: {
     messageSize?: number;
@@ -676,7 +676,7 @@ export async function buildLargeHistory(
     const role = isUser ? "user" : "assistant";
     const message = createLatticeMessage(`history-msg-${i}`, role, largeText, {});
 
-    const result = await historyService.appendToHistory(workspaceId, message);
+    const result = await historyService.appendToHistory(minionId, message);
     if (!result.success) {
       throw new Error(`Failed to append message ${i} to history: ${result.error}`);
     }

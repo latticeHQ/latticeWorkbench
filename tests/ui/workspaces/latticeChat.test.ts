@@ -15,7 +15,7 @@ import { cleanupTempGitRepo, createTempGitRepo, generateBranchName } from "../..
 
 import { detectDefaultTrunkBranch } from "@/node/git";
 import { getLatticeHelpChatProjectPath } from "@/node/constants/latticeChat";
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 
 import { installDom } from "../dom";
 import { renderApp } from "../renderReviewPanel";
@@ -48,7 +48,7 @@ describe("Chat with Lattice system workspace (UI)", () => {
       await view.waitForReady();
       await waitForWorkspaceChatToRender(view.container);
 
-      expect(window.location.pathname).toBe(`/workspace/${LATTICE_HELP_CHAT_WORKSPACE_ID}`);
+      expect(window.location.pathname).toBe(`/workspace/${LATTICE_HELP_CHAT_MINION_ID}`);
       expect(view.queryByText("Welcome to Lattice")).toBeNull();
 
       // On first boot, the lattice-chat workspace should seed a synthetic welcome message.
@@ -76,7 +76,7 @@ describe("Chat with Lattice system workspace (UI)", () => {
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
       const branchName = generateBranchName("lattice-chat-ui");
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -110,7 +110,7 @@ describe("Chat with Lattice system workspace (UI)", () => {
 
       await waitFor(
         () => {
-          expect(window.location.pathname).toBe(`/workspace/${LATTICE_HELP_CHAT_WORKSPACE_ID}`);
+          expect(window.location.pathname).toBe(`/workspace/${LATTICE_HELP_CHAT_MINION_ID}`);
         },
         { timeout: 10_000 }
       );
@@ -123,7 +123,7 @@ describe("Chat with Lattice system workspace (UI)", () => {
 
       for (const workspaceId of workspaceIdToRemove) {
         try {
-          await env.orpc.workspace.remove({ workspaceId, options: { force: true } });
+          await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } });
         } catch {
           // Best effort.
         }
@@ -159,7 +159,7 @@ describe("Chat with Lattice system workspace (UI)", () => {
       // it's accessed via the Lattice logo / help icon in the header. Verify no workspace
       // row exists for it (which means no Archive button by design).
       expect(
-        view.container.querySelector(`[data-workspace-id="${LATTICE_HELP_CHAT_WORKSPACE_ID}"]`)
+        view.container.querySelector(`[data-workspace-id="${LATTICE_HELP_CHAT_MINION_ID}"]`)
       ).toBeNull();
 
       // Ctrl+N should not redirect to /project when lattice-chat is selected.
@@ -168,7 +168,7 @@ describe("Chat with Lattice system workspace (UI)", () => {
       });
 
       await new Promise((r) => setTimeout(r, 200));
-      expect(window.location.pathname).toBe(`/workspace/${LATTICE_HELP_CHAT_WORKSPACE_ID}`);
+      expect(window.location.pathname).toBe(`/workspace/${LATTICE_HELP_CHAT_MINION_ID}`);
     } finally {
       await cleanupView(view, cleanupDom);
       await cleanupTestEnvironment(env);

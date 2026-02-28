@@ -4,11 +4,11 @@
 
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { FrontendWorkspaceMetadata, GitStatus } from "@/common/types/workspace";
+import type { FrontendMinionMetadata, GitStatus } from "@/common/types/minion";
 import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
-import { TUTORIAL_STATE_KEY, WORKSPACE_DRAFTS_BY_PROJECT_KEY } from "@/common/constants/storage";
+import { TUTORIAL_STATE_KEY, MINION_DRAFTS_BY_PROJECT_KEY } from "@/common/constants/storage";
 import type { RenderedApp } from "./renderReviewPanel";
-import { workspaceStore } from "@/browser/stores/WorkspaceStore";
+import { minionStore } from "@/browser/stores/MinionStore";
 import { useGitStatusStoreRaw } from "@/browser/stores/GitStatusStore";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -105,7 +105,7 @@ export async function assertRefreshButtonHasLastRefreshInfo(
  * This triggers the RefreshController's schedule() without requiring actual AI calls.
  */
 export function simulateFileModifyingToolEnd(workspaceId: string): void {
-  workspaceStore.simulateFileModifyingToolEnd(workspaceId);
+  minionStore.simulateFileModifyingToolEnd(workspaceId);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -118,7 +118,7 @@ export function simulateFileModifyingToolEnd(workspaceId: string): void {
  */
 export async function setupWorkspaceView(
   view: RenderedApp,
-  metadata: FrontendWorkspaceMetadata,
+  metadata: FrontendMinionMetadata,
   workspaceId: string
 ): Promise<void> {
   await view.waitForReady();
@@ -160,8 +160,8 @@ export async function setupWorkspaceView(
   // registration via syncWorkspaces and activation via useLayoutEffect, but
   // in happy-dom tests these may not have completed by the time the test
   // asserts on transcript content. Both calls are idempotent.
-  workspaceStore.addWorkspace(metadata);
-  workspaceStore.setActiveWorkspaceId(workspaceId);
+  minionStore.addMinion(metadata);
+  minionStore.setActiveMinionId(workspaceId);
 }
 
 /**
@@ -284,7 +284,7 @@ export async function addProjectViaUI(view: RenderedApp, projectPath: string): P
 
 export function getWorkspaceDraftIds(projectPath: string): string[] {
   const parsedDrafts = readPersistedState<Record<string, { draftId: string }[]>>(
-    WORKSPACE_DRAFTS_BY_PROJECT_KEY,
+    MINION_DRAFTS_BY_PROJECT_KEY,
     {}
   );
   const draftsForProject = parsedDrafts[projectPath] ?? [];

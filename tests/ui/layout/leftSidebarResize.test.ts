@@ -35,7 +35,7 @@ describeIntegration("LeftSidebar (UI)", () => {
   });
 
   test("drag-resize updates width and persists value", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       // Start expanded.

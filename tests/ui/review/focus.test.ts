@@ -24,7 +24,7 @@ describeIntegration("ReviewPanel focus (UI + ORPC)", () => {
   });
 
   test("Cmd/Ctrl+2 focuses the review panel so j/k navigation works without clicking", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({

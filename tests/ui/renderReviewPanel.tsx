@@ -2,12 +2,12 @@ import { render, type RenderResult, waitFor } from "@testing-library/react";
 
 import { AppLoader } from "@/browser/components/AppLoader";
 import type { APIClient } from "@/browser/contexts/API";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 
 interface RenderReviewPanelParams {
   apiClient: APIClient;
   /** Metadata for the workspace to select (optional - app can render without a workspace) */
-  metadata?: FrontendWorkspaceMetadata;
+  metadata?: FrontendMinionMetadata;
 }
 
 export interface RenderedApp extends RenderResult {

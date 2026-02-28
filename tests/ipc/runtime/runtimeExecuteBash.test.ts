@@ -37,7 +37,7 @@ import {
 import type { RuntimeConfig } from "../../../src/common/types/runtime";
 import { sshConnectionPool } from "../../../src/node/runtime/sshConnectionPool";
 import { ssh2ConnectionPool } from "../../../src/node/runtime/SSH2ConnectionPool";
-import type { WorkspaceChatMessage } from "../../../src/common/orpc/types";
+import type { MinionChatMessage } from "../../../src/common/orpc/types";
 import type { ToolPolicy } from "../../../src/common/utils/tools/toolPolicy";
 
 // Tool policy: Only allow the bash tool.
@@ -46,7 +46,7 @@ const BASH_ONLY: ToolPolicy = [{ regex_match: "bash", action: "require" }];
 /**
  * Collect tool outputs from stream events
  */
-function collectToolOutputs(events: WorkspaceChatMessage[], toolName: string): string {
+function collectToolOutputs(events: MinionChatMessage[], toolName: string): string {
   return events
     .filter(
       (event) =>
@@ -67,7 +67,7 @@ function collectToolOutputs(events: WorkspaceChatMessage[], toolName: string): s
  * Calculate tool execution duration from captured events.
  * Returns duration in milliseconds, or -1 if events not found.
  */
-function getToolDuration(events: WorkspaceChatMessage[], toolName: string): number {
+function getToolDuration(events: MinionChatMessage[], toolName: string): number {
   const startEvent = events.find(
     (e) => "type" in e && e.type === "tool-call-start" && "toolName" in e && e.toolName === toolName
   ) as { toolCallId?: string; timestamp?: number } | undefined;
@@ -172,7 +172,7 @@ describeIntegration("Runtime Bash Execution", () => {
             // Create workspace
             const branchName = generateBranchName("bash-simple");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -185,7 +185,7 @@ describeIntegration("Runtime Bash Execution", () => {
               // Ask AI to run a simple command
               const events = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 'Use the bash tool with args: { script: "echo Hello World", timeout_secs: 30, run_in_background: false, display_name: "echo-hello" }. Do not spawn a sub-agent.',
                 HAIKU_MODEL,
                 BASH_ONLY,
@@ -242,7 +242,7 @@ describeIntegration("Runtime Bash Execution", () => {
             // Create workspace
             const branchName = generateBranchName("bash-env");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -255,7 +255,7 @@ describeIntegration("Runtime Bash Execution", () => {
               // Ask AI to run command that sets and uses env var
               const events = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 'Use the bash tool with args: { script: "export TEST_VAR=test123 && echo Value:$TEST_VAR", timeout_secs: 30, run_in_background: false, display_name: "env-var" }. Do not spawn a sub-agent.',
                 HAIKU_MODEL,
                 BASH_ONLY,
@@ -318,7 +318,7 @@ describeIntegration("Runtime Bash Execution", () => {
             // Create workspace
             const branchName = generateBranchName("bash-stdin");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -333,7 +333,7 @@ describeIntegration("Runtime Bash Execution", () => {
               // Regression test for: https://github.com/latticeHQ/latticeWorkbench/issues/503
               const events = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 'Use the bash tool with args: { script: "echo testdata > /tmp/test.txt && cat /tmp/test.txt | grep test", timeout_secs: 30, run_in_background: false, display_name: "stdin-grep" }. Do not spawn a sub-agent.',
                 HAIKU_MODEL,
                 BASH_ONLY,
@@ -398,7 +398,7 @@ describeIntegration("Runtime Bash Execution", () => {
             // Create workspace
             const branchName = generateBranchName("bash-grep-head");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -412,7 +412,7 @@ describeIntegration("Runtime Bash Execution", () => {
               // This is a regression test for the bash hang issue
               const events = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 'Use the bash tool with args: { script: "for i in {1..1000}; do echo \"terminal bench line $i\" >> testfile.txt; done && grep -n \"terminal bench\" testfile.txt | head -n 200", timeout_secs: 60, run_in_background: false, display_name: "grep-head" }. Do not spawn a sub-agent.',
                 HAIKU_MODEL,
                 BASH_ONLY,

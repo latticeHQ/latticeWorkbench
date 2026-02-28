@@ -45,8 +45,8 @@ describe("Queued messages during stream start", () => {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
 
-    const workspaceId = result.metadata.id;
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const minionId = result.metadata.id;
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
 
     try {
@@ -54,8 +54,8 @@ describe("Queued messages during stream start", () => {
 
       const gatedMessage = buildMockStreamStartGateMessage("First message");
       const aiService = env.services.aiService;
-      const session = env.services.workspaceService.getOrCreateSession(workspaceId);
-      const firstSendPromise = sendMessageWithModel(env, workspaceId, gatedMessage, HAIKU_MODEL);
+      const session = env.services.minionService.getOrCreateSession(minionId);
+      const firstSendPromise = sendMessageWithModel(env, minionId, gatedMessage, HAIKU_MODEL);
       let firstSendResolved = false;
       void firstSendPromise.then(() => {
         firstSendResolved = true;
@@ -76,7 +76,7 @@ describe("Queued messages during stream start", () => {
       }
 
       const sawStartingWindow = await waitFor(() => {
-        return session.isPreparingTurn() && !aiService.isStreaming(workspaceId);
+        return session.isPreparingTurn() && !aiService.isStreaming(minionId);
       }, 5000);
       if (!sawStartingWindow) {
         throw new Error("Stream never entered starting window before follow-up could queue");
@@ -95,12 +95,12 @@ describe("Queued messages during stream start", () => {
 
       const secondSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "Second message",
         HAIKU_MODEL
       );
 
-      aiService.releaseMockStreamStartGate(workspaceId);
+      aiService.releaseMockStreamStartGate(minionId);
       expect(secondSendResult.success).toBe(true);
 
       await collector.waitForEvent("stream-start", 15000);
@@ -116,7 +116,7 @@ describe("Queued messages during stream start", () => {
         throw new Error("Second stream never started after queued message release");
       }
 
-      const promptResult = aiService.debugGetLastMockPrompt(workspaceId);
+      const promptResult = aiService.debugGetLastMockPrompt(minionId);
       if (!promptResult.success || !promptResult.data) {
         throw new Error("Mock prompt snapshot missing after queued stream start");
       }
@@ -171,7 +171,7 @@ describe("Queued messages during stream start", () => {
       expect(firstSendResult.success).toBe(true);
     } finally {
       collector.stop();
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 35000);
 });

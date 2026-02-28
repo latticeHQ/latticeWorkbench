@@ -12,13 +12,10 @@ import {
 } from "lucide-react";
 
 import { createEditKeyHandler } from "@/browser/utils/ui/keybinds";
-import { getBrowserBackendBaseUrl } from "@/browser/utils/backendBaseUrl";
-import type { ProvidersConfigMap } from "@/common/orpc/types";
 import type { ProviderName } from "@/common/constants/providers";
 import { usePolicy } from "@/browser/contexts/PolicyContext";
 import { getAllowedProvidersForUi } from "@/browser/utils/policyUi";
 import { ProviderWithIcon } from "@/browser/components/ProviderIcon";
-import { getStoredAuthToken } from "@/browser/components/AuthTokenModal";
 import { useAPI } from "@/browser/contexts/API";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { useProvidersConfig } from "@/browser/hooks/useProvidersConfig";
@@ -49,18 +46,6 @@ interface CodexOauthDeviceFlow {
   flowId: string;
   userCode: string;
   verifyUrl: string;
-}
-
-interface OAuthMessage {
-  type?: unknown;
-  state?: unknown;
-  ok?: unknown;
-  error?: unknown;
-}
-
-function getServerAuthToken(): string | null {
-  const urlToken = new URLSearchParams(window.location.search).get("token")?.trim();
-  return urlToken?.length ? urlToken : getStoredAuthToken();
 }
 
 interface FieldConfig {
@@ -159,15 +144,6 @@ export function ProvidersSection() {
 
   const { api } = useAPI();
   const { config, refresh, updateOptimistically } = useProvidersConfig();
-
-  const backendBaseUrl = getBrowserBackendBaseUrl();
-  const backendOrigin = (() => {
-    try {
-      return new URL(backendBaseUrl).origin;
-    } catch {
-      return window.location.origin;
-    }
-  })();
 
   const isDesktop = !!window.api;
 

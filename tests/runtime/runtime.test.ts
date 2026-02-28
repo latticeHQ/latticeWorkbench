@@ -984,7 +984,7 @@ describeIntegration("Runtime integration tests", () => {
         );
 
         // Rename the workspace
-        const result = await runtime.renameWorkspace(projectPath, "worktree-1", "worktree-renamed");
+        const result = await runtime.renameMinion(projectPath, "worktree-1", "worktree-renamed");
 
         expect(result.success).toBe(true);
         if (result.success) {
@@ -1021,7 +1021,7 @@ describeIntegration("Runtime integration tests", () => {
         const projectPath = `/some/path/${projectName}`;
 
         // Try to rename a directory that doesn't exist
-        const result = await runtime.renameWorkspace(projectPath, "non-existent", "new-name");
+        const result = await runtime.renameMinion(projectPath, "non-existent", "new-name");
 
         expect(result.success).toBe(false);
         if (!result.success) {
@@ -1079,17 +1079,17 @@ describeIntegration("Runtime integration tests", () => {
           logComplete(_exitCode: number) {},
         };
 
-        const forkResult = await runtime.forkWorkspace({
+        const forkResult = await runtime.forkMinion({
           projectPath,
-          sourceWorkspaceName,
-          newWorkspaceName,
+          sourceMinionName: sourceWorkspaceName,
+          newMinionName: newWorkspaceName,
           initLogger,
         });
 
         expect(forkResult.success).toBe(true);
         if (!forkResult.success) return;
 
-        expect(forkResult.workspacePath).toBe(newWorkspacePath);
+        expect(forkResult.minionPath).toBe(newWorkspacePath);
         expect(forkResult.sourceBranch).toBe("feature");
 
         const newBranchCheck = await execBuffered(
@@ -1130,7 +1130,7 @@ describeIntegration("Runtime integration tests", () => {
           projectPath,
           branchName: newWorkspaceName,
           trunkBranch: "feature",
-          workspacePath: newWorkspacePath,
+          minionPath: newWorkspacePath,
           initLogger,
         });
         expect(initResult.success).toBe(true);
@@ -1166,7 +1166,7 @@ describeIntegration("Runtime integration tests", () => {
         expect(beforeCheck.stdout.trim()).toBe("exists");
 
         // Delete the workspace (force=true since it's not a git repo)
-        const result = await runtime.deleteWorkspace(projectPath, "worktree-delete-test", true);
+        const result = await runtime.deleteMinion(projectPath, "worktree-delete-test", true);
 
         expect(result.success).toBe(true);
         if (result.success) {
@@ -1194,7 +1194,7 @@ describeIntegration("Runtime integration tests", () => {
         const projectPath = `/some/path/${projectName}`;
 
         // Try to delete a workspace that doesn't exist
-        const result = await runtime.deleteWorkspace(projectPath, "non-existent", false);
+        const result = await runtime.deleteMinion(projectPath, "non-existent", false);
 
         // Should be idempotent - return success for non-existent workspaces
         expect(result.success).toBe(true);
@@ -1266,16 +1266,16 @@ describeIntegration("Runtime integration tests", () => {
         expect(sourceCheck.stdout.trim()).toBe("exists");
 
         // 3. Fork the workspace — should use the fast worktree path.
-        const forkResult = await runtime.forkWorkspace({
+        const forkResult = await runtime.forkMinion({
           projectPath,
-          sourceWorkspaceName: "source",
-          newWorkspaceName,
+          sourceMinionName: "source",
+          newMinionName: newWorkspaceName,
           initLogger: noopInitLogger,
         });
 
         expect(forkResult.success).toBe(true);
         if (!forkResult.success) return;
-        expect(forkResult.workspacePath).toBe(newWorkspacePath);
+        expect(forkResult.minionPath).toBe(newWorkspacePath);
         expect(forkResult.sourceBranch).toBe("source");
 
         // 4. Verify the forked workspace is a worktree (.git is a file, not directory).
@@ -1350,10 +1350,10 @@ describeIntegration("Runtime integration tests", () => {
         expect(baseCheck.stdout.trim()).toBe("missing");
 
         // Fork should use the legacy cp -R -P path.
-        const forkResult = await runtime.forkWorkspace({
+        const forkResult = await runtime.forkMinion({
           projectPath,
-          sourceWorkspaceName: "legacy-source",
-          newWorkspaceName,
+          sourceMinionName: "legacy-source",
+          newMinionName: newWorkspaceName,
           initLogger: noopInitLogger,
         });
 
@@ -1440,10 +1440,10 @@ describeIntegration("Runtime integration tests", () => {
 
         // 3. Fork the legacy workspace — should fall back to cp since "only-on-legacy"
         //    doesn't exist in the base repo.
-        const forkResult = await runtime.forkWorkspace({
+        const forkResult = await runtime.forkMinion({
           projectPath,
-          sourceWorkspaceName: "legacy-ws",
-          newWorkspaceName,
+          sourceMinionName: "legacy-ws",
+          newMinionName: newWorkspaceName,
           initLogger: noopInitLogger,
         });
 
@@ -1516,7 +1516,7 @@ describeIntegration("Runtime integration tests", () => {
         expect(beforeCheck.stdout.trim()).toBe("worktree");
 
         // Delete the workspace.
-        const deleteResult = await runtime.deleteWorkspace(
+        const deleteResult = await runtime.deleteMinion(
           projectPath,
           workspaceName,
           true // force
@@ -1567,7 +1567,7 @@ describeIntegration("Runtime integration tests", () => {
           { cwd: "/home/testuser", timeout: 30 }
         );
 
-        const deleteResult = await runtime.deleteWorkspace(projectPath, "legacy-ws", true);
+        const deleteResult = await runtime.deleteMinion(projectPath, "legacy-ws", true);
         expect(deleteResult.success).toBe(true);
 
         const afterCheck = await execBuffered(
@@ -1619,7 +1619,7 @@ describeIntegration("Runtime integration tests", () => {
         );
 
         // Rename the workspace.
-        const result = await runtime.renameWorkspace(projectPath, "old-name", "new-name");
+        const result = await runtime.renameMinion(projectPath, "old-name", "new-name");
 
         expect(result.success).toBe(true);
         if (!result.success) return;
@@ -1714,11 +1714,11 @@ describeIntegration("Runtime integration tests", () => {
         try {
           // initWorkspace triggers syncProjectToRemote (since workspace doesn't exist yet),
           // which creates the base repo, bundles the local project, and imports refs.
-          const initResult = await runtime.initWorkspace({
+          const initResult = await runtime.initMinion({
             projectPath: localProjectPath,
             branchName,
             trunkBranch: "main",
-            workspacePath,
+            minionPath: workspacePath,
             initLogger: noopInitLogger,
           });
           // Show the error message if initWorkspace failed — don't just say true/false.
@@ -1799,11 +1799,11 @@ describeIntegration("Runtime integration tests", () => {
         );
 
         // 1. Init workspace A — creates the base repo, syncs bundle, creates worktree.
-        const initA = await runtime.initWorkspace({
+        const initA = await runtime.initMinion({
           projectPath: localProjectPath,
           branchName: wsAName,
           trunkBranch: "main",
-          workspacePath: wsAPath,
+          minionPath: wsAPath,
           initLogger: noopInitLogger,
         });
         if (!initA.success) {
@@ -1821,11 +1821,11 @@ describeIntegration("Runtime integration tests", () => {
         // 2. Init workspace B — re-syncs the bundle (which includes refs/heads/ws-a).
         //    Before the staging namespace fix, this failed with:
         //    "refusing to fetch into branch 'refs/heads/ws-a' checked out at '<wsAPath>'"
-        const initB = await runtime.initWorkspace({
+        const initB = await runtime.initMinion({
           projectPath: localProjectPath,
           branchName: wsBName,
           trunkBranch: "main",
-          workspacePath: wsBPath,
+          minionPath: wsBPath,
           initLogger: noopInitLogger,
         });
         if (!initB.success) {
@@ -1896,7 +1896,7 @@ describeIntegration("Runtime integration tests", () => {
 
           try {
             // Create workspace
-            const createResult = await runtime.createWorkspace({
+            const createResult = await runtime.createMinion({
               projectPath,
               branchName: workspaceName,
               trunkBranch: "main",
@@ -1912,7 +1912,7 @@ describeIntegration("Runtime integration tests", () => {
               projectPath,
               branchName: workspaceName,
               trunkBranch: "main",
-              workspacePath: createResult.workspacePath!,
+              minionPath: createResult.minionPath!,
               initLogger: noopInitLogger,
             });
             expect(initResult.success).toBe(true);
@@ -1926,7 +1926,7 @@ describeIntegration("Runtime integration tests", () => {
             expect(inspectResult.stdout.trim()).toBe("true");
 
             // Delete workspace
-            const deleteResult = await runtime.deleteWorkspace(projectPath, workspaceName, true);
+            const deleteResult = await runtime.deleteMinion(projectPath, workspaceName, true);
             expect(deleteResult.success).toBe(true);
 
             // Verify container no longer exists
@@ -1951,7 +1951,7 @@ describeIntegration("Runtime integration tests", () => {
         const runtime = new DockerRuntime({ image: "ubuntu:22.04" });
 
         // Try to delete a workspace that doesn't exist
-        const result = await runtime.deleteWorkspace(projectPath, "non-existent", false);
+        const result = await runtime.deleteMinion(projectPath, "non-existent", false);
 
         // Should be idempotent - return success for non-existent containers
         expect(result.success).toBe(true);
@@ -1984,20 +1984,20 @@ describeIntegration("Runtime integration tests", () => {
               `docker exec ${sourceContainerName} bash -c "cd /src && git init -b ${sourceWorkspaceName} && git config user.email test@test.com && git config user.name Test && echo root > root.txt && git add root.txt && git commit -m root && git checkout -b feature && echo feature > feature.txt && git add feature.txt && git commit -m feature"`
             );
 
-            const forkResult = await runtime.forkWorkspace({
+            const forkResult = await runtime.forkMinion({
               projectPath,
-              sourceWorkspaceName,
-              newWorkspaceName,
+              sourceMinionName: sourceWorkspaceName,
+              newMinionName: newWorkspaceName,
               initLogger: noopInitLogger,
             });
 
             expect(forkResult.success).toBe(true);
             if (!forkResult.success) return;
 
-            expect(forkResult.workspacePath).toBe("/src");
+            expect(forkResult.minionPath).toBe("/src");
             expect(forkResult.sourceBranch).toBe("feature");
 
-            if (!forkResult.workspacePath || !forkResult.sourceBranch) {
+            if (!forkResult.minionPath || !forkResult.sourceBranch) {
               throw new Error(
                 "Expected successful Docker fork to include workspacePath and sourceBranch"
               );
@@ -2031,7 +2031,7 @@ describeIntegration("Runtime integration tests", () => {
               projectPath,
               branchName: newWorkspaceName,
               trunkBranch: forkResult.sourceBranch,
-              workspacePath: forkResult.workspacePath,
+              minionPath: forkResult.minionPath,
               initLogger: noopInitLogger,
             });
             expect(initResult.success).toBe(true);
@@ -2087,7 +2087,7 @@ describeIntegration("Runtime integration tests", () => {
               projectPath,
               branchName: workspaceName,
               trunkBranch: "main",
-              workspacePath: "/src",
+              minionPath: "/src",
               initLogger,
             });
 
@@ -2151,7 +2151,7 @@ describeIntegration("Runtime integration tests", () => {
               projectPath,
               branchName: workspaceName,
               trunkBranch: "main",
-              workspacePath: "/src",
+              minionPath: "/src",
               initLogger: noopInitLogger,
             });
 
@@ -2242,10 +2242,10 @@ describeIntegration("Runtime integration tests", () => {
           logComplete(_exitCode: number) {},
         };
 
-        const forkResult = await runtime.forkWorkspace({
+        const forkResult = await runtime.forkMinion({
           projectPath,
-          sourceWorkspaceName,
-          newWorkspaceName,
+          sourceMinionName: sourceWorkspaceName,
+          newMinionName: newWorkspaceName,
           initLogger,
         });
 
@@ -2260,8 +2260,8 @@ describeIntegration("Runtime integration tests", () => {
           forkResult.forkedRuntimeConfig?.type === "ssh" &&
           forkResult.sourceRuntimeConfig?.type === "ssh"
         ) {
-          expect(forkResult.forkedRuntimeConfig.lattice?.existingWorkspace).toBe(true);
-          expect(forkResult.sourceRuntimeConfig.lattice?.existingWorkspace).toBe(true);
+          expect(forkResult.forkedRuntimeConfig.lattice?.existingMinion).toBe(true);
+          expect(forkResult.sourceRuntimeConfig.lattice?.existingMinion).toBe(true);
         } else {
           throw new Error("Expected SSH runtime configs with lattice field");
         }
@@ -2271,11 +2271,11 @@ describeIntegration("Runtime integration tests", () => {
         const { LatticeSSHRuntime } = await import("@/node/runtime/LatticeSSHRuntime");
         const { LatticeService } = await import("@/node/services/latticeService");
 
-        // Track whether createWorkspace was called
-        let createWorkspaceCalled = false;
+        // Track whether createMinion was called
+        let createMinionCalled = false;
         const mockLatticeService = {
-          createWorkspace: async function* () {
-            createWorkspaceCalled = true;
+          createMinion: async function* () {
+            createMinionCalled = true;
             yield "should not happen";
           },
           ensureSSHConfig: async () => {
@@ -2333,10 +2333,10 @@ describeIntegration("Runtime integration tests", () => {
         };
 
         // Fork the workspace
-        const forkResult = await runtime.forkWorkspace({
+        const forkResult = await runtime.forkMinion({
           projectPath,
-          sourceWorkspaceName,
-          newWorkspaceName,
+          sourceMinionName: sourceWorkspaceName,
+          newMinionName: newWorkspaceName,
           initLogger,
         });
         expect(forkResult.success).toBe(true);
@@ -2347,13 +2347,13 @@ describeIntegration("Runtime integration tests", () => {
           projectPath,
           branchName: newWorkspaceName,
           trunkBranch: sourceWorkspaceName,
-          workspacePath: forkedWorkspacePath,
+          minionPath: forkedWorkspacePath,
           initLogger,
         });
 
-        // The key assertion: createWorkspace should NOT have been called
-        // because forkWorkspace() should have set existingWorkspace=true
-        expect(createWorkspaceCalled).toBe(false);
+        // The key assertion: createMinion should NOT have been called
+        // because forkMinion() should have set existingWorkspace=true
+        expect(createMinionCalled).toBe(false);
       }, 60000);
     });
   });

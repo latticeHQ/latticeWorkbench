@@ -22,7 +22,7 @@ describeIntegration("truncateHistory", () => {
   test.concurrent(
     "should truncate 50% of chat history and verify context is updated",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         const historyService = new HistoryService(env.config);
 
@@ -40,18 +40,18 @@ describeIntegration("truncateHistory", () => {
 
         // Append messages to history
         for (const msg of messages) {
-          const result = await historyService.appendToHistory(workspaceId, msg);
+          const result = await historyService.appendToHistory(minionId, msg);
           expect(result.success).toBe(true);
         }
 
         // Setup collector for delete message verification
-        const deleteCollector = createStreamCollector(env.orpc, workspaceId);
+        const deleteCollector = createStreamCollector(env.orpc, minionId);
         deleteCollector.start();
 
         // Truncate 50% of history
         const client = resolveOrpcClient(env);
-        const truncateResult = await client.workspace.truncateHistory({
-          workspaceId,
+        const truncateResult = await client.minion.truncateHistory({
+          minionId,
           percentage: 0.5,
         });
         expect(truncateResult.success).toBe(true);
@@ -66,14 +66,14 @@ describeIntegration("truncateHistory", () => {
         expect(deleteMsg.historySequences.length).toBeGreaterThan(0);
 
         // Setup collector for verification message
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
 
         // Send a message asking AI to repeat the word from the beginning
         // This should fail or return "I don't know" because context was truncated
         const result = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "What was the word I asked you to remember at the beginning? Reply with just the word or 'I don't know'."
         );
 
@@ -108,7 +108,7 @@ describeIntegration("truncateHistory", () => {
   test.concurrent(
     "should truncate 100% of chat history and verify context is cleared",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         const historyService = new HistoryService(env.config);
 
@@ -123,18 +123,18 @@ describeIntegration("truncateHistory", () => {
 
         // Append messages to history
         for (const msg of messages) {
-          const result = await historyService.appendToHistory(workspaceId, msg);
+          const result = await historyService.appendToHistory(minionId, msg);
           expect(result.success).toBe(true);
         }
 
         // Setup collector for delete message verification
-        const deleteCollector = createStreamCollector(env.orpc, workspaceId);
+        const deleteCollector = createStreamCollector(env.orpc, minionId);
         deleteCollector.start();
 
         // Truncate 100% of history (full clear)
         const client = resolveOrpcClient(env);
-        const truncateResult = await client.workspace.truncateHistory({
-          workspaceId,
+        const truncateResult = await client.minion.truncateHistory({
+          minionId,
           percentage: 1.0,
         });
         expect(truncateResult.success).toBe(true);
@@ -149,14 +149,14 @@ describeIntegration("truncateHistory", () => {
         expect(deleteMsg.historySequences.length).toBe(messages.length);
 
         // Setup collector for verification message
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
 
         // Send a message asking AI to repeat the word from the beginning
         // This should definitely fail since all history was cleared
         const result = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "What was the word I asked you to remember? Reply with just the word or 'I don't know'."
         );
 
@@ -199,8 +199,8 @@ describeIntegration("truncateHistory", () => {
   test.concurrent(
     "should block truncate during active stream and require Esc first",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       try {
         const historyService = new HistoryService(env.config);
@@ -213,14 +213,14 @@ describeIntegration("truncateHistory", () => {
         ];
 
         for (const msg of messages) {
-          const result = await historyService.appendToHistory(workspaceId, msg);
+          const result = await historyService.appendToHistory(minionId, msg);
           expect(result.success).toBe(true);
         }
 
         // Start a long-running stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           'Use bash to run: for i in {1..60}; do sleep 0.5; done && echo done. Set display_name="truncate-stream" and timeout_secs=120. Do not spawn a sub-agent.',
           modelString("anthropic", "claude-sonnet-4-5"),
           {
@@ -233,8 +233,8 @@ describeIntegration("truncateHistory", () => {
 
         // Try to truncate during active stream - should be blocked
         const client = resolveOrpcClient(env);
-        const truncateResultWhileStreaming = await client.workspace.truncateHistory({
-          workspaceId,
+        const truncateResultWhileStreaming = await client.minion.truncateHistory({
+          minionId,
           percentage: 1.0,
         });
         expect(truncateResultWhileStreaming.success).toBe(false);

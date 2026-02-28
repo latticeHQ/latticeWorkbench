@@ -43,7 +43,7 @@ describeIntegration("Plan Commands Integration", () => {
       const branchName = generateBranchName("plan-no-file");
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -52,17 +52,17 @@ describeIntegration("Plan Commands Integration", () => {
       expect(createResult.success).toBe(true);
       if (!createResult.success) throw new Error("Failed to create workspace");
 
-      const workspaceId = createResult.metadata.id;
+      const minionId = createResult.metadata.id;
 
       try {
-        const result = await env.orpc.workspace.getPlanContent({ workspaceId });
+        const result = await env.orpc.minion.getPlanContent({ minionId });
 
         expect(result.success).toBe(false);
         if (!result.success) {
           expect(result.error).toContain("not found");
         }
       } finally {
-        await env.orpc.workspace.remove({ workspaceId });
+        await env.orpc.minion.remove({ minionId });
       }
     }, 30000);
 
@@ -70,7 +70,7 @@ describeIntegration("Plan Commands Integration", () => {
       const branchName = generateBranchName("plan-with-file");
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -79,13 +79,13 @@ describeIntegration("Plan Commands Integration", () => {
       expect(createResult.success).toBe(true);
       if (!createResult.success) throw new Error("Failed to create workspace");
 
-      const workspaceId = createResult.metadata.id;
-      const workspaceName = createResult.metadata.name;
+      const minionId = createResult.metadata.id;
+      const minionName = createResult.metadata.name;
       const projectName = createResult.metadata.projectName;
 
       try {
         // Create a plan file
-        const planPath = getPlanFilePath(workspaceName, projectName);
+        const planPath = getPlanFilePath(minionName, projectName);
         const expandedPlanPath = expandTilde(planPath);
         const planDir = path.dirname(expandedPlanPath);
         await fs.mkdir(planDir, { recursive: true });
@@ -93,7 +93,7 @@ describeIntegration("Plan Commands Integration", () => {
         const planContent = "# Test Plan\n\n## Step 1\n\nDo something\n\n## Step 2\n\nDo more";
         await fs.writeFile(expandedPlanPath, planContent);
 
-        const result = await env.orpc.workspace.getPlanContent({ workspaceId });
+        const result = await env.orpc.minion.getPlanContent({ minionId });
 
         expect(result.success).toBe(true);
         if (result.success) {
@@ -103,7 +103,7 @@ describeIntegration("Plan Commands Integration", () => {
           expect(result.data.path).not.toContain("~");
         }
       } finally {
-        await env.orpc.workspace.remove({ workspaceId });
+        await env.orpc.minion.remove({ minionId });
       }
     }, 30000);
 
@@ -111,7 +111,7 @@ describeIntegration("Plan Commands Integration", () => {
       const branchName = generateBranchName("plan-empty");
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -120,19 +120,19 @@ describeIntegration("Plan Commands Integration", () => {
       expect(createResult.success).toBe(true);
       if (!createResult.success) throw new Error("Failed to create workspace");
 
-      const workspaceId = createResult.metadata.id;
-      const workspaceName = createResult.metadata.name;
+      const minionId = createResult.metadata.id;
+      const minionName = createResult.metadata.name;
       const projectName = createResult.metadata.projectName;
 
       try {
         // Create an empty plan file
-        const planPath = getPlanFilePath(workspaceName, projectName);
+        const planPath = getPlanFilePath(minionName, projectName);
         const expandedPlanPath = expandTilde(planPath);
         const planDir = path.dirname(expandedPlanPath);
         await fs.mkdir(planDir, { recursive: true });
         await fs.writeFile(expandedPlanPath, "");
 
-        const result = await env.orpc.workspace.getPlanContent({ workspaceId });
+        const result = await env.orpc.minion.getPlanContent({ minionId });
 
         // Empty file should still be returned (not an error)
         expect(result.success).toBe(true);
@@ -140,7 +140,7 @@ describeIntegration("Plan Commands Integration", () => {
           expect(result.data.content).toBe("");
         }
       } finally {
-        await env.orpc.workspace.remove({ workspaceId });
+        await env.orpc.minion.remove({ minionId });
       }
     }, 30000);
   });
@@ -150,7 +150,7 @@ describeIntegration("Plan Commands Integration", () => {
       const branchName = generateBranchName("start-here-delete-plan");
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -159,13 +159,13 @@ describeIntegration("Plan Commands Integration", () => {
       expect(createResult.success).toBe(true);
       if (!createResult.success) throw new Error("Failed to create workspace");
 
-      const workspaceId = createResult.metadata.id;
-      const workspaceName = createResult.metadata.name;
+      const minionId = createResult.metadata.id;
+      const minionName = createResult.metadata.name;
       const projectName = createResult.metadata.projectName;
 
       try {
         // Create a plan file at the canonical path
-        const planPath = getPlanFilePath(workspaceName, projectName);
+        const planPath = getPlanFilePath(minionName, projectName);
         const expandedPlanPath = expandTilde(planPath);
         await fs.mkdir(path.dirname(expandedPlanPath), { recursive: true });
         await fs.writeFile(expandedPlanPath, "# Test Plan\n");
@@ -177,8 +177,8 @@ describeIntegration("Plan Commands Integration", () => {
           { timestamp: Date.now(), compacted: true }
         );
 
-        const replaceResult = await env.orpc.workspace.replaceChatHistory({
-          workspaceId,
+        const replaceResult = await env.orpc.minion.replaceChatHistory({
+          minionId,
           summaryMessage,
           deletePlanFile: true,
         });
@@ -189,10 +189,10 @@ describeIntegration("Plan Commands Integration", () => {
         await expect(fs.stat(expandedPlanPath)).rejects.toThrow();
 
         // And the plan content API should report it missing
-        const getPlanResult = await env.orpc.workspace.getPlanContent({ workspaceId });
+        const getPlanResult = await env.orpc.minion.getPlanContent({ minionId });
         expect(getPlanResult.success).toBe(false);
       } finally {
-        await env.orpc.workspace.remove({ workspaceId });
+        await env.orpc.minion.remove({ minionId });
       }
     }, 30000);
 
@@ -200,7 +200,7 @@ describeIntegration("Plan Commands Integration", () => {
       const branchName = generateBranchName("start-here-preserve-agent-id");
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -209,7 +209,7 @@ describeIntegration("Plan Commands Integration", () => {
       expect(createResult.success).toBe(true);
       if (!createResult.success) throw new Error("Failed to create workspace");
 
-      const workspaceId = createResult.metadata.id;
+      const minionId = createResult.metadata.id;
 
       try {
         const summaryMessage = createLatticeMessage(
@@ -219,14 +219,14 @@ describeIntegration("Plan Commands Integration", () => {
           { timestamp: Date.now(), compacted: true, agentId: "plan" }
         );
 
-        const replaceResult = await env.orpc.workspace.replaceChatHistory({
-          workspaceId,
+        const replaceResult = await env.orpc.minion.replaceChatHistory({
+          minionId,
           summaryMessage,
         });
 
         expect(replaceResult.success).toBe(true);
 
-        const chatHistoryPath = path.join(env.config.getSessionDir(workspaceId), "chat.jsonl");
+        const chatHistoryPath = path.join(env.config.getSessionDir(minionId), "chat.jsonl");
         const data = await fs.readFile(chatHistoryPath, "utf-8");
         const firstLine = data
           .split("\n")
@@ -237,7 +237,7 @@ describeIntegration("Plan Commands Integration", () => {
         const historyEntry = JSON.parse(firstLine!) as { metadata?: { agentId?: string } };
         expect(historyEntry.metadata?.agentId).toBe("plan");
       } finally {
-        await env.orpc.workspace.remove({ workspaceId });
+        await env.orpc.minion.remove({ minionId });
       }
     }, 30000);
   });
@@ -246,7 +246,7 @@ describeIntegration("Plan Commands Integration", () => {
     const branchName = generateBranchName("start-here-append-boundary");
     const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath: repoPath,
       branchName,
       trunkBranch,
@@ -255,7 +255,7 @@ describeIntegration("Plan Commands Integration", () => {
     expect(createResult.success).toBe(true);
     if (!createResult.success) throw new Error("Failed to create workspace");
 
-    const workspaceId = createResult.metadata.id;
+    const minionId = createResult.metadata.id;
 
     try {
       const legacySummary = createLatticeMessage(
@@ -268,8 +268,8 @@ describeIntegration("Plan Commands Integration", () => {
         }
       );
 
-      const initialReplaceResult = await env.orpc.workspace.replaceChatHistory({
-        workspaceId,
+      const initialReplaceResult = await env.orpc.minion.replaceChatHistory({
+        minionId,
         summaryMessage: legacySummary,
       });
       expect(initialReplaceResult.success).toBe(true);
@@ -288,10 +288,10 @@ describeIntegration("Plan Commands Integration", () => {
         }
       );
 
-      const chatHistoryPath = path.join(env.config.getSessionDir(workspaceId), "chat.jsonl");
+      const chatHistoryPath = path.join(env.config.getSessionDir(minionId), "chat.jsonl");
       await fs.appendFile(
         chatHistoryPath,
-        JSON.stringify({ ...malformedBoundaryMessage, workspaceId }) + "\n"
+        JSON.stringify({ ...malformedBoundaryMessage, minionId }) + "\n"
       );
 
       const appendSummary = createLatticeMessage(
@@ -305,8 +305,8 @@ describeIntegration("Plan Commands Integration", () => {
         }
       );
 
-      const appendResult = await env.orpc.workspace.replaceChatHistory({
-        workspaceId,
+      const appendResult = await env.orpc.minion.replaceChatHistory({
+        minionId,
         summaryMessage: appendSummary,
         mode: "append-compaction-boundary",
       });
@@ -341,7 +341,7 @@ describeIntegration("Plan Commands Integration", () => {
       // Legacy summary contributes epoch 1; malformed boundary must be ignored.
       expect(appendedEntry?.metadata?.compactionEpoch).toBe(2);
     } finally {
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 30000);
 
@@ -350,7 +350,7 @@ describeIntegration("Plan Commands Integration", () => {
       const branchName = generateBranchName("plan-open-test");
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -359,20 +359,20 @@ describeIntegration("Plan Commands Integration", () => {
       expect(createResult.success).toBe(true);
       if (!createResult.success) throw new Error("Failed to create workspace");
 
-      const workspaceId = createResult.metadata.id;
-      const workspaceName = createResult.metadata.name;
+      const minionId = createResult.metadata.id;
+      const minionName = createResult.metadata.name;
       const projectName = createResult.metadata.projectName;
 
       try {
         // Create a plan file
-        const planPath = getPlanFilePath(workspaceName, projectName);
+        const planPath = getPlanFilePath(minionName, projectName);
         const planDir = path.dirname(planPath);
         await fs.mkdir(planDir, { recursive: true });
         await fs.writeFile(planPath, "# Test Plan");
 
         // Try to open with a non-existent custom editor
         const result = await env.orpc.general.openInEditor({
-          workspaceId,
+          minionId,
           targetPath: planPath,
           editorConfig: {
             editor: "custom",
@@ -386,7 +386,7 @@ describeIntegration("Plan Commands Integration", () => {
           expect(result.error).toContain("not found");
         }
       } finally {
-        await env.orpc.workspace.remove({ workspaceId });
+        await env.orpc.minion.remove({ minionId });
       }
     }, 30000);
 
@@ -394,7 +394,7 @@ describeIntegration("Plan Commands Integration", () => {
       // Note: Built-in editors (vscode/cursor/zed) are now opened via deep links
       // on the frontend, so the backend API only handles custom editors.
       const result = await env.orpc.general.openInEditor({
-        workspaceId: "nonexistent-workspace-id",
+        minionId: "nonexistent-workspace-id",
         targetPath: "/some/path",
         editorConfig: {
           editor: "custom",

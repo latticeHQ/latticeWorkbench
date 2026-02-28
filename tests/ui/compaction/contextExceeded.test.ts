@@ -35,7 +35,7 @@ describeIntegration("Context exceeded compaction suggestion (UI)", () => {
   });
 
   test("auto-compacts when a higher-context model is available", async () => {
-    await withSharedWorkspace("openai", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("openai", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       await setupProviders(env, { xai: { apiKey: "dummy" } });
@@ -56,8 +56,8 @@ describeIntegration("Context exceeded compaction suggestion (UI)", () => {
           { timeout: 10_000 }
         );
 
-        await env.orpc.workspace.sendMessage({
-          workspaceId,
+        await env.orpc.minion.sendMessage({
+          minionId: workspaceId,
           message: "Trigger context error",
           options: {
             model: KNOWN_MODELS.GPT.id,
@@ -88,7 +88,7 @@ describeIntegration("Context exceeded compaction suggestion (UI)", () => {
   }, 45_000);
 
   test("auto-compacts with the configured compaction model when context is exceeded", async () => {
-    await withSharedWorkspace("openai", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("openai", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       await setupProviders(env, { anthropic: { apiKey: "dummy" }, xai: { apiKey: "dummy" } });
@@ -111,8 +111,8 @@ describeIntegration("Context exceeded compaction suggestion (UI)", () => {
           { timeout: 10_000 }
         );
 
-        await env.orpc.workspace.sendMessage({
-          workspaceId,
+        await env.orpc.minion.sendMessage({
+          minionId: workspaceId,
           message: "Trigger context error",
           options: {
             model: KNOWN_MODELS.GPT.id,

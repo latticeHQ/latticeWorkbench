@@ -49,7 +49,7 @@ describeIntegration("compaction 1M context retry", () => {
   test(
     "should auto-retry compaction with 1M context when exceeding 200k default limit",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         const historyService = new HistoryService(env.config);
 
@@ -71,14 +71,14 @@ describeIntegration("compaction 1M context retry", () => {
             buildFillerText(charsPerMessage),
             {}
           );
-          const r1 = await historyService.appendToHistory(workspaceId, userMsg);
+          const r1 = await historyService.appendToHistory(minionId, userMsg);
           expect(r1.success).toBe(true);
-          const r2 = await historyService.appendToHistory(workspaceId, assistantMsg);
+          const r2 = await historyService.appendToHistory(minionId, assistantMsg);
           expect(r2.success).toBe(true);
         }
 
         // Set up stream collector
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
 
         const opusModel = `anthropic:${KNOWN_MODELS.OPUS.providerModelId}`;
@@ -86,8 +86,8 @@ describeIntegration("compaction 1M context retry", () => {
         // Send compaction request — use the same pattern as production /compact.
         // Crucially, do NOT enable 1M context in providerOptions; the retry should add it.
         const client = resolveOrpcClient(env);
-        const sendResult = await client.workspace.sendMessage({
-          workspaceId,
+        const sendResult = await client.minion.sendMessage({
+          minionId,
           message:
             "Please provide a detailed summary of this conversation. " +
             "Capture all key decisions, context, and open questions.",

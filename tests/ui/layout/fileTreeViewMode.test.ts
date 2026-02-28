@@ -2,7 +2,7 @@ import "../dom";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 
 import { shouldRunIntegrationTests } from "../../testUtils";
-import { STORAGE_KEYS } from "@/constants/workspaceDefaults";
+import { STORAGE_KEYS } from "@/constants/minionDefaults";
 import { REVIEW_FILE_TREE_VIEW_MODE_KEY } from "@/common/constants/storage";
 import { updatePersistedState } from "@/browser/hooks/usePersistedState";
 import {
@@ -30,15 +30,15 @@ describeIntegration("ReviewPanel FileTree view mode (UI + ORPC)", () => {
   });
 
   test("Flat mode shows file names with a truncated parent path (no directories)", async () => {
-    await withSharedWorkspaceNoProvider(async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspaceNoProvider(async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       // Force HEAD so the diff reflects the working tree.
       updatePersistedState(STORAGE_KEYS.reviewDiffBase(workspaceId), "HEAD");
       updatePersistedState(REVIEW_FILE_TREE_VIEW_MODE_KEY, "structured");
 
-      const bashRes = await env.orpc.workspace.executeBash({
-        workspaceId,
+      const bashRes = await env.orpc.minion.executeBash({
+        minionId: workspaceId,
         script: "mkdir -p a/b && echo 'x' > a/b/c.ts && git add a/b/c.ts",
       });
       expect(bashRes.success).toBe(true);

@@ -6,18 +6,18 @@ import {
 } from "../../src/node/acp/configOptions";
 import type { ORPCClient } from "../../src/node/acp/serverConnection";
 
-interface WorkspaceAiSettings {
+interface MinionAiSettings {
   model: string;
   thinkingLevel: "off" | "low" | "medium" | "high" | "xhigh" | "max";
 }
 
-interface WorkspaceState {
+interface MinionState {
   agentId: string;
-  aiSettings: WorkspaceAiSettings;
-  aiSettingsByAgent: Record<string, WorkspaceAiSettings>;
+  aiSettings: MinionAiSettings;
+  aiSettingsByAgent: Record<string, MinionAiSettings>;
 }
 
-type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["workspace"]["getInfo"]>>>;
+type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["minion"]["getInfo"]>>>;
 
 type AgentDescriptor = Awaited<ReturnType<ORPCClient["agents"]["list"]>>[number];
 
@@ -28,7 +28,7 @@ const DEFAULT_AGENT_DESCRIPTORS: Awaited<ReturnType<ORPCClient["agents"]["list"]
     name: "Exec",
     description: "Implement changes in the repository",
     uiSelectable: true,
-    subagentRunnable: true,
+    sidekickRunnable: true,
   },
   {
     id: "plan",
@@ -36,7 +36,7 @@ const DEFAULT_AGENT_DESCRIPTORS: Awaited<ReturnType<ORPCClient["agents"]["list"]
     name: "Plan",
     description: "Create a plan before coding",
     uiSelectable: true,
-    subagentRunnable: true,
+    sidekickRunnable: true,
   },
   {
     id: "ask",
@@ -44,7 +44,7 @@ const DEFAULT_AGENT_DESCRIPTORS: Awaited<ReturnType<ORPCClient["agents"]["list"]
     name: "Ask",
     description: "Delegate questions to Explore sub-agents and synthesize an answer.",
     uiSelectable: true,
-    subagentRunnable: false,
+    sidekickRunnable: false,
   },
   {
     id: "auto",
@@ -52,7 +52,7 @@ const DEFAULT_AGENT_DESCRIPTORS: Awaited<ReturnType<ORPCClient["agents"]["list"]
     name: "Auto",
     description: "Automatically selects the best agent for your task",
     uiSelectable: true,
-    subagentRunnable: false,
+    sidekickRunnable: false,
   },
   {
     id: "explore",
@@ -60,50 +60,50 @@ const DEFAULT_AGENT_DESCRIPTORS: Awaited<ReturnType<ORPCClient["agents"]["list"]
     name: "Explore",
     description: "Read-only exploration",
     uiSelectable: false,
-    subagentRunnable: true,
+    sidekickRunnable: true,
   },
 ];
 
 function createHarness(
-  initial: WorkspaceState,
+  initial: MinionState,
   options?: {
     agents?: AgentDescriptor[];
   }
 ): {
   client: ORPCClient;
-  getWorkspaceState: () => WorkspaceState;
+  getMinionState: () => MinionState;
   updateModeCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     mode: "exec" | "plan";
-    aiSettings: WorkspaceAiSettings;
+    aiSettings: MinionAiSettings;
   }>;
   updateAgentCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     agentId: string;
-    aiSettings: WorkspaceAiSettings;
+    aiSettings: MinionAiSettings;
   }>;
 } {
-  let workspaceState: WorkspaceState = {
+  let workspaceState: MinionState = {
     agentId: initial.agentId,
     aiSettings: { ...initial.aiSettings },
     aiSettingsByAgent: { ...initial.aiSettingsByAgent },
   };
 
   const updateModeCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     mode: "exec" | "plan";
-    aiSettings: WorkspaceAiSettings;
+    aiSettings: MinionAiSettings;
   }> = [];
   const updateAgentCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     agentId: string;
-    aiSettings: WorkspaceAiSettings;
+    aiSettings: MinionAiSettings;
   }> = [];
 
   const availableAgents = options?.agents ?? DEFAULT_AGENT_DESCRIPTORS;
 
   const client = {
-    workspace: {
+    minion: {
       getInfo: async (): Promise<WorkspaceInfo> => ({
         id: "ws-1",
         name: "ws-1",
@@ -111,15 +111,15 @@ function createHarness(
         projectName: "project",
         projectPath: "/tmp/project",
         runtimeConfig: { type: "local" },
-        namedWorkspacePath: "/tmp/project/.lattice/ws-1",
+        namedMinionPath: "/tmp/project/.lattice/ws-1",
         agentId: workspaceState.agentId,
         aiSettings: workspaceState.aiSettings,
         aiSettingsByAgent: workspaceState.aiSettingsByAgent,
       }),
       updateModeAISettings: async (input: {
-        workspaceId: string;
+        minionId: string;
         mode: "exec" | "plan";
-        aiSettings: WorkspaceAiSettings;
+        aiSettings: MinionAiSettings;
       }) => {
         updateModeCalls.push(input);
 
@@ -136,9 +136,9 @@ function createHarness(
         return { success: true as const, data: undefined };
       },
       updateAgentAISettings: async (input: {
-        workspaceId: string;
+        minionId: string;
         agentId: string;
-        aiSettings: WorkspaceAiSettings;
+        aiSettings: MinionAiSettings;
       }) => {
         updateAgentCalls.push(input);
 
@@ -162,7 +162,7 @@ function createHarness(
 
   return {
     client,
-    getWorkspaceState: () => workspaceState,
+    getMinionState: () => workspaceState,
     updateModeCalls,
     updateAgentCalls,
   };
@@ -304,7 +304,7 @@ describe("ACP config options", () => {
 
     expect(thinkingOption.currentValue).toBe("high");
     expect(thinkingEntries.map((entry) => entry.value)).toEqual(["high"]);
-    expect(harness.getWorkspaceState().aiSettingsByAgent.exec).toEqual({
+    expect(harness.getMinionState().aiSettingsByAgent.exec).toEqual({
       model: "openai:gpt-5-pro",
       thinkingLevel: "high",
     });

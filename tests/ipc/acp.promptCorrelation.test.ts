@@ -1,27 +1,27 @@
 import { AgentSideConnection, PROTOCOL_VERSION, ndJsonStream } from "@agentclientprotocol/sdk";
-import type { OnChatMode, WorkspaceChatMessage } from "../../src/common/orpc/types";
+import type { OnChatMode, MinionChatMessage } from "../../src/common/orpc/types";
 import { LatticeAgent } from "../../src/node/acp/agent";
 import type { ORPCClient, ServerConnection } from "../../src/node/acp/serverConnection";
 
-type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["workspace"]["getInfo"]>>>;
+type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["minion"]["getInfo"]>>>;
 
 interface Harness {
   agent: LatticeAgent;
   sendMessageCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     message: string;
     options: Record<string, unknown>;
   }>;
   delegatedToolAnswers: Array<{
-    workspaceId: string;
+    minionId: string;
     toolCallId: string;
     result: unknown;
   }>;
   interruptCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     options?: Record<string, unknown>;
   }>;
-  pushChatEvent: (event: WorkspaceChatMessage) => void;
+  pushChatEvent: (event: MinionChatMessage) => void;
   closeConnection: () => void;
   connectionClosed: Promise<void>;
 }
@@ -34,7 +34,7 @@ function createWorkspaceInfo(overrides?: Partial<WorkspaceInfo>): WorkspaceInfo 
     projectName: "project",
     projectPath: "/repo/default",
     runtimeConfig: { type: "local" },
-    namedWorkspacePath: "/repo/default/.lattice/ws-default",
+    namedMinionPath: "/repo/default/.lattice/ws-default",
     agentId: "exec",
     aiSettings: {
       model: "anthropic:claude-sonnet-4-5",
@@ -75,13 +75,13 @@ function createControllableAcpStream(options?: { output?: WritableStream<Uint8Ar
 }
 
 function createControlledChatStream(): {
-  stream: AsyncIterable<WorkspaceChatMessage>;
-  push: (event: WorkspaceChatMessage) => void;
+  stream: AsyncIterable<MinionChatMessage>;
+  push: (event: MinionChatMessage) => void;
 } {
-  const pendingEvents: WorkspaceChatMessage[] = [];
-  let pendingResolve: ((result: IteratorResult<WorkspaceChatMessage>) => void) | null = null;
+  const pendingEvents: MinionChatMessage[] = [];
+  let pendingResolve: ((result: IteratorResult<MinionChatMessage>) => void) | null = null;
 
-  const push = (event: WorkspaceChatMessage) => {
+  const push = (event: MinionChatMessage) => {
     if (pendingResolve != null) {
       const resolve = pendingResolve;
       pendingResolve = null;
@@ -92,10 +92,10 @@ function createControlledChatStream(): {
     pendingEvents.push(event);
   };
 
-  const stream: AsyncIterable<WorkspaceChatMessage> = {
+  const stream: AsyncIterable<MinionChatMessage> = {
     [Symbol.asyncIterator]() {
       return {
-        next: async (): Promise<IteratorResult<WorkspaceChatMessage>> => {
+        next: async (): Promise<IteratorResult<MinionChatMessage>> => {
           if (pendingEvents.length > 0) {
             const next = pendingEvents.shift();
             if (next == null) {
@@ -104,7 +104,7 @@ function createControlledChatStream(): {
             return { done: false, value: next };
           }
 
-          return new Promise<IteratorResult<WorkspaceChatMessage>>((resolve) => {
+          return new Promise<IteratorResult<MinionChatMessage>>((resolve) => {
             pendingResolve = resolve;
           });
         },
@@ -116,12 +116,12 @@ function createControlledChatStream(): {
 }
 
 function createDelayedTeardownChatStream(): {
-  stream: AsyncIterable<WorkspaceChatMessage>;
+  stream: AsyncIterable<MinionChatMessage>;
   returnCalled: Promise<void>;
   releaseTeardown: () => void;
   returnCompleted: Promise<void>;
 } {
-  let pendingResolve: ((result: IteratorResult<WorkspaceChatMessage>) => void) | null = null;
+  let pendingResolve: ((result: IteratorResult<MinionChatMessage>) => void) | null = null;
   let isClosed = false;
 
   let resolveReturnCalled!: () => void;
@@ -148,19 +148,19 @@ function createDelayedTeardownChatStream(): {
     }
   };
 
-  const stream: AsyncIterable<WorkspaceChatMessage> = {
+  const stream: AsyncIterable<MinionChatMessage> = {
     [Symbol.asyncIterator]() {
       return {
-        next: async (): Promise<IteratorResult<WorkspaceChatMessage>> => {
+        next: async (): Promise<IteratorResult<MinionChatMessage>> => {
           if (isClosed) {
             return { done: true, value: undefined };
           }
 
-          return await new Promise<IteratorResult<WorkspaceChatMessage>>((resolve) => {
+          return await new Promise<IteratorResult<MinionChatMessage>>((resolve) => {
             pendingResolve = resolve;
           });
         },
-        return: async (): Promise<IteratorResult<WorkspaceChatMessage>> => {
+        return: async (): Promise<IteratorResult<MinionChatMessage>> => {
           closeIterator();
           resolveReturnCalled();
           await teardownGate;
@@ -180,14 +180,14 @@ function createDelayedTeardownChatStream(): {
 }
 
 function createLingeringTeardownChatStream(): {
-  stream: AsyncIterable<WorkspaceChatMessage>;
-  push: (event: WorkspaceChatMessage) => void;
+  stream: AsyncIterable<MinionChatMessage>;
+  push: (event: MinionChatMessage) => void;
   returnCalled: Promise<void>;
   releaseTeardown: () => void;
   returnCompleted: Promise<void>;
 } {
-  const pendingEvents: WorkspaceChatMessage[] = [];
-  let pendingResolve: ((result: IteratorResult<WorkspaceChatMessage>) => void) | null = null;
+  const pendingEvents: MinionChatMessage[] = [];
+  let pendingResolve: ((result: IteratorResult<MinionChatMessage>) => void) | null = null;
   let isClosed = false;
 
   let resolveReturnCalled!: () => void;
@@ -214,7 +214,7 @@ function createLingeringTeardownChatStream(): {
     }
   };
 
-  const push = (event: WorkspaceChatMessage) => {
+  const push = (event: MinionChatMessage) => {
     if (isClosed) {
       return;
     }
@@ -229,10 +229,10 @@ function createLingeringTeardownChatStream(): {
     pendingEvents.push(event);
   };
 
-  const stream: AsyncIterable<WorkspaceChatMessage> = {
+  const stream: AsyncIterable<MinionChatMessage> = {
     [Symbol.asyncIterator]() {
       return {
-        next: async (): Promise<IteratorResult<WorkspaceChatMessage>> => {
+        next: async (): Promise<IteratorResult<MinionChatMessage>> => {
           if (isClosed) {
             return { done: true, value: undefined };
           }
@@ -245,11 +245,11 @@ function createLingeringTeardownChatStream(): {
             return { done: false, value: next };
           }
 
-          return await new Promise<IteratorResult<WorkspaceChatMessage>>((resolve) => {
+          return await new Promise<IteratorResult<MinionChatMessage>>((resolve) => {
             pendingResolve = resolve;
           });
         },
-        return: async (): Promise<IteratorResult<WorkspaceChatMessage>> => {
+        return: async (): Promise<IteratorResult<MinionChatMessage>> => {
           resolveReturnCalled();
           await teardownGate;
           closeIterator();
@@ -271,16 +271,16 @@ function createLingeringTeardownChatStream(): {
 
 interface HarnessOptions {
   onChat?: (input: {
-    workspaceId: string;
+    minionId: string;
     mode?: OnChatMode;
-  }) => Promise<AsyncIterable<WorkspaceChatMessage>>;
+  }) => Promise<AsyncIterable<MinionChatMessage>>;
   sendMessage?: (input: {
-    workspaceId: string;
+    minionId: string;
     message: string;
     options: Record<string, unknown>;
   }) => Promise<{ success: boolean; data?: unknown; error?: unknown }>;
   interruptStream?: (input: {
-    workspaceId: string;
+    minionId: string;
     options?: Record<string, unknown>;
   }) => Promise<{ success: boolean; data?: unknown; error?: unknown }>;
   /** Custom output WritableStream for simulating stdout backpressure. */
@@ -290,19 +290,19 @@ interface HarnessOptions {
 
 function createHarness(options?: HarnessOptions): Harness {
   const workspacesById = new Map<string, WorkspaceInfo>();
-  let workspaceIdCounter = 0;
+  let minionIdCounter = 0;
   const sendMessageCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     message: string;
     options: Record<string, unknown>;
   }> = [];
   const delegatedToolAnswers: Array<{
-    workspaceId: string;
+    minionId: string;
     toolCallId: string;
     result: unknown;
   }> = [];
   const interruptCalls: Array<{
-    workspaceId: string;
+    minionId: string;
     options?: Record<string, unknown>;
   }> = [];
   const chatStream = createControlledChatStream();
@@ -330,7 +330,7 @@ function createHarness(options?: HarnessOptions): Harness {
         throw new Error("createHarness: get not implemented for this test");
       },
     },
-    workspace: {
+    minion: {
       create: async (input: {
         projectPath: string;
         branchName: string;
@@ -338,29 +338,29 @@ function createHarness(options?: HarnessOptions): Harness {
         title?: string;
         runtimeConfig?: WorkspaceInfo["runtimeConfig"];
       }) => {
-        workspaceIdCounter += 1;
-        const workspaceId = `ws-${workspaceIdCounter}`;
+        minionIdCounter += 1;
+        const minionId = `ws-${minionIdCounter}`;
         const metadata = createWorkspaceInfo({
-          id: workspaceId,
+          id: minionId,
           name: input.branchName,
           title: input.title ?? input.branchName,
           projectPath: input.projectPath,
-          namedWorkspacePath: `${input.projectPath}/.lattice/${input.branchName}`,
+          namedMinionPath: `${input.projectPath}/.lattice/${input.branchName}`,
           runtimeConfig: input.runtimeConfig ?? { type: "local" },
         });
-        workspacesById.set(workspaceId, metadata);
+        workspacesById.set(minionId, metadata);
 
         return {
           success: true as const,
           metadata,
         };
       },
-      getInfo: async ({ workspaceId }: { workspaceId: string }) =>
-        workspacesById.get(workspaceId) ?? null,
-      onChat: async (input: { workspaceId: string; mode?: OnChatMode }) =>
+      getInfo: async ({ minionId }: { minionId: string }) =>
+        workspacesById.get(minionId) ?? null,
+      onChat: async (input: { minionId: string; mode?: OnChatMode }) =>
         (await options?.onChat?.(input)) ?? chatStream.stream,
       sendMessage: async (input: {
-        workspaceId: string;
+        minionId: string;
         message: string;
         options: Record<string, unknown>;
       }) => {
@@ -371,7 +371,7 @@ function createHarness(options?: HarnessOptions): Harness {
         return { success: true as const, data: {} };
       },
       answerDelegatedToolCall: async (input: {
-        workspaceId: string;
+        minionId: string;
         toolCallId: string;
         result: unknown;
       }) => {
@@ -379,7 +379,7 @@ function createHarness(options?: HarnessOptions): Harness {
         return { success: true as const, data: undefined };
       },
       interruptStream: async (input: {
-        workspaceId: string;
+        minionId: string;
         options?: Record<string, unknown>;
       }) => {
         interruptCalls.push(input);
@@ -478,46 +478,46 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-other",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 2,
       startTime: Date.now(),
       acpPromptId: "unrelated-prompt-id",
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-other",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(promptSettled).toBe(false);
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -570,28 +570,28 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-other",
       acpPromptId: "unrelated-prompt-id",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(promptSettled).toBe(false);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       acpPromptId: promptCorrelationId,
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -676,13 +676,13 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     // Keep the stream active for longer than turnCorrelationTimeoutMs to prove
     // timeout is inactivity-based (not a fixed wall-clock timer).
@@ -690,24 +690,24 @@ describe("ACP prompt stream correlation", () => {
       await new Promise((resolve) => setTimeout(resolve, 40));
       harness.pushChatEvent({
         type: "stream-delta",
-        workspaceId: newSessionResponse.sessionId,
+        minionId: newSessionResponse.sessionId,
         messageId: "assistant-target",
         delta: `chunk-${i} `,
         tokens: 1,
         timestamp: Date.now(),
-      } as WorkspaceChatMessage);
+      } as MinionChatMessage);
     }
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       acpPromptId: promptCorrelationId,
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -764,13 +764,13 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     // Wait longer than turnCorrelationTimeoutMs with no correlated deltas.
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -778,14 +778,14 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       acpPromptId: promptCorrelationId,
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -828,24 +828,24 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       // Simulate runtimes that omit correlation metadata on live stream-start.
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       acpPromptId: promptCorrelationId,
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -881,13 +881,13 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       // Simulate runtimes that omit correlation metadata on live stream events.
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     // Keep the stream active longer than turnCorrelationTimeoutMs to prove the
     // fallback stream-start binding refreshes inactivity while acpPromptId is missing.
@@ -895,24 +895,24 @@ describe("ACP prompt stream correlation", () => {
       await new Promise((resolve) => setTimeout(resolve, 40));
       harness.pushChatEvent({
         type: "stream-delta",
-        workspaceId: newSessionResponse.sessionId,
+        minionId: newSessionResponse.sessionId,
         messageId: "assistant-target",
         delta: `chunk-${i} `,
         tokens: 1,
         timestamp: Date.now(),
-      } as WorkspaceChatMessage);
+      } as MinionChatMessage);
     }
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
       // Terminal event may also omit acpPromptId in older runtimes.
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -965,47 +965,47 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-stale",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 1,
       // Simulate a stale stream-start from before this prompt began.
       startTime: 1,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-stale",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(promptSettled).toBe(false);
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       acpPromptId: promptCorrelationId,
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -1048,7 +1048,7 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
@@ -1056,11 +1056,11 @@ describe("ACP prompt stream correlation", () => {
       acpPromptId: promptCorrelationId,
       // Simulate pre-caught-up replay classification from full-mode subscriptions.
       replay: true,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
@@ -1068,7 +1068,7 @@ describe("ACP prompt stream correlation", () => {
       parts: [],
       // Deliberately omit acpPromptId to ensure message-id matching still completes.
       replay: true,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -1109,7 +1109,7 @@ describe("ACP prompt stream correlation", () => {
 
     expect(harness.interruptCalls).toEqual([
       {
-        workspaceId: newSessionResponse.sessionId,
+        minionId: newSessionResponse.sessionId,
       },
     ]);
 
@@ -1149,24 +1149,24 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-abort",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "",
       abortReason: "system",
       acpPromptId: promptCorrelationId,
       metadata: {
         duration: 1,
       },
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "cancelled",
@@ -1223,23 +1223,23 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -1306,41 +1306,41 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 4,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "tool-call-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       toolCallId: "tool-bash",
       toolName: "bash",
       args: { script: "echo hi" },
       tokens: 1,
       timestamp: Date.now(),
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await waitForCondition(() => harness.delegatedToolAnswers.length === 1);
     expect(harness.delegatedToolAnswers[0]).toEqual({
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       toolCallId: "tool-bash",
       result: { terminalId: "term-1" },
     });
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -1382,7 +1382,7 @@ describe("ACP prompt stream correlation", () => {
     await waitForCondition(() => harness.interruptCalls.length === 1);
 
     expect(harness.interruptCalls[0]).toEqual({
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       options: {
         abandonPartial: true,
       },
@@ -1400,7 +1400,7 @@ describe("ACP prompt stream correlation", () => {
 
     const harness = createHarness({
       interruptStream: async (input) => {
-        interruptedWorkspaceIds.push(input.workspaceId);
+        interruptedWorkspaceIds.push(input.minionId);
         if (interruptedWorkspaceIds.length === 1) {
           await firstInterruptGate;
         }
@@ -1511,7 +1511,7 @@ describe("ACP prompt stream correlation", () => {
   });
 
   it("rejects promptly when chat subscription drops before terminal events", async () => {
-    const endedChatStream: AsyncIterable<WorkspaceChatMessage> = {
+    const endedChatStream: AsyncIterable<MinionChatMessage> = {
       [Symbol.asyncIterator]() {
         return {
           next: async () => ({ done: true, value: undefined }),
@@ -1583,7 +1583,7 @@ describe("ACP prompt stream correlation", () => {
     const privateAgent = harness.agent as unknown as {
       ensureChatSubscription: (
         sessionId: string,
-        workspaceId: string,
+        minionId: string,
         onChatMode: OnChatMode
       ) => Promise<void>;
     };
@@ -1619,24 +1619,24 @@ describe("ACP prompt stream correlation", () => {
 
     replacementSubscription.push({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     replacementSubscription.push({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       acpPromptId: promptCorrelationId,
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -1674,7 +1674,7 @@ describe("ACP prompt stream correlation", () => {
     const privateAgent = harness.agent as unknown as {
       ensureChatSubscription: (
         sessionId: string,
-        workspaceId: string,
+        minionId: string,
         onChatMode: OnChatMode
       ) => Promise<void>;
     };
@@ -1718,46 +1718,46 @@ describe("ACP prompt stream correlation", () => {
     // and incorrectly resolve the active turn after mode-switch replacement.
     staleSubscription.push({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-stale",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     staleSubscription.push({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-stale",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(promptSettled).toBe(false);
 
     replacementSubscription.push({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 4,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     replacementSubscription.push({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       acpPromptId: promptCorrelationId,
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -1803,17 +1803,17 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-other",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 2,
       startTime: Date.now(),
       acpPromptId: "unrelated-prompt-id",
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "usage-delta",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-other",
       usage: {
         inputTokens: 1,
@@ -1825,27 +1825,27 @@ describe("ACP prompt stream correlation", () => {
         outputTokens: 1,
         totalTokens: 2,
       },
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 3,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       metadata: {
         model: "anthropic:claude-sonnet-4-5",
       },
       parts: [],
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).resolves.toEqual({
       stopReason: "end_turn",
@@ -1898,23 +1898,23 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "error",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-other",
       error: "runtime unavailable",
       errorType: "runtime_not_ready",
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await new Promise((resolve) => setTimeout(resolve, 25));
     expect(promptSettled).toBe(false);
 
     harness.pushChatEvent({
       type: "error",
-      workspaceId: newSessionResponse.sessionId,
+      minionId: newSessionResponse.sessionId,
       messageId: "assistant-target",
       error: "runtime unavailable",
       errorType: "runtime_not_ready",
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     await expect(promptPromise).rejects.toThrow("runtime unavailable");
 
@@ -1966,25 +1966,25 @@ describe("ACP prompt stream correlation", () => {
     // Emit stream-start to bind the turn to a message
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: session.sessionId,
+      minionId: session.sessionId,
       messageId: "assistant-bp",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 2,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     // Flood 20 stream-delta events. Each translates to a sessionUpdate write
     // that takes ~50ms, creating substantial backpressure.
     for (let i = 0; i < 20; i++) {
       harness.pushChatEvent({
         type: "stream-delta",
-        workspaceId: session.sessionId,
+        minionId: session.sessionId,
         messageId: "assistant-bp",
         delta: `chunk-${i} `,
         tokens: 1,
         timestamp: Date.now(),
-      } as WorkspaceChatMessage);
+      } as MinionChatMessage);
     }
 
     // Emit stream-end. With the old observeChatStream approach, this event
@@ -1992,12 +1992,12 @@ describe("ACP prompt stream correlation", () => {
     // handleStreamEvent(stream-end) to never fire and prompt() to hang.
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: session.sessionId,
+      minionId: session.sessionId,
       messageId: "assistant-bp",
       metadata: { model: "anthropic:claude-sonnet-4-5" },
       parts: [],
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     // prompt() should resolve quickly — well before the ~1s of backpressured
     // writes complete — because handleStreamEvent runs in the drain loop,
@@ -2068,13 +2068,13 @@ describe("ACP prompt stream correlation", () => {
 
     harness.pushChatEvent({
       type: "stream-start",
-      workspaceId: session.sessionId,
+      minionId: session.sessionId,
       messageId: "assistant-saturated",
       model: "anthropic:claude-sonnet-4-5",
       historySequence: 2,
       startTime: Date.now(),
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     // Emit far more events than MAX_BUFFERED_CHAT_EVENTS. The drain loop must
     // still read through to stream-end (resolving prompt()) even while
@@ -2082,22 +2082,22 @@ describe("ACP prompt stream correlation", () => {
     for (let i = 0; i < 6_000; i++) {
       harness.pushChatEvent({
         type: "stream-delta",
-        workspaceId: session.sessionId,
+        minionId: session.sessionId,
         messageId: "assistant-saturated",
         delta: `chunk-${i} `,
         tokens: 1,
         timestamp: Date.now(),
-      } as WorkspaceChatMessage);
+      } as MinionChatMessage);
     }
 
     harness.pushChatEvent({
       type: "stream-end",
-      workspaceId: session.sessionId,
+      minionId: session.sessionId,
       messageId: "assistant-saturated",
       metadata: { model: "anthropic:claude-sonnet-4-5" },
       parts: [],
       acpPromptId: promptCorrelationId,
-    } as WorkspaceChatMessage);
+    } as MinionChatMessage);
 
     const result = await Promise.race([
       promptPromise,

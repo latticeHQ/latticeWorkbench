@@ -314,12 +314,12 @@ describeIntegration("MCP server integration with model", () => {
     async ({ name, prompt, mediaTypePattern }) => {
       const {
         env,
-        workspaceId,
+        minionId,
         tempGitRepo: _tempGitRepo,
         cleanup,
       } = await setupWorkspace("anthropic", `mcp-chrome-${name.toLowerCase()}`);
       const client = resolveOrpcClient(env);
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
 
       try {
@@ -332,7 +332,7 @@ describeIntegration("MCP server integration with model", () => {
 
         await collector.waitForSubscription();
 
-        const result = await sendMessageWithModel(env, workspaceId, prompt, HAIKU_MODEL, {
+        const result = await sendMessageWithModel(env, minionId, prompt, HAIKU_MODEL, {
           toolPolicy: [{ regex_match: "chrome_take_screenshot", action: "require" }],
           thinkingLevel: "off",
           agentId: "exec",
@@ -382,12 +382,12 @@ describeIntegration("MCP server integration with model", () => {
     async () => {
       console.log("[MCP Test] Setting up workspace...");
       // Setup workspace with Anthropic provider
-      const { env, workspaceId, tempGitRepo, cleanup } = await setupWorkspace(
+      const { env, minionId, tempGitRepo, cleanup } = await setupWorkspace(
         "anthropic",
         "mcp-memory"
       );
       const client = resolveOrpcClient(env);
-      console.log("[MCP Test] Workspace created:", { workspaceId, tempGitRepo });
+      console.log("[MCP Test] Workspace created:", { minionId, tempGitRepo });
 
       try {
         // Add the memory MCP server to the project
@@ -401,7 +401,7 @@ describeIntegration("MCP server integration with model", () => {
 
         // Create stream collector to capture events
         console.log("[MCP Test] Creating stream collector...");
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
         await collector.waitForSubscription();
         console.log("[MCP Test] Stream collector ready");
@@ -411,7 +411,7 @@ describeIntegration("MCP server integration with model", () => {
         console.log("[MCP Test] Sending message...");
         const result = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           'Use the create_entities tool from MCP to create an entity with name "TestEntity" and entityType "test" and observations ["integration test"]. Then confirm you did it.',
           HAIKU_MODEL
         );

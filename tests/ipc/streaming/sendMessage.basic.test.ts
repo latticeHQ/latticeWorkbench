@@ -49,11 +49,11 @@ describeIntegration("sendMessage basic integration tests", () => {
     test.concurrent(
       "should successfully send message and receive response",
       async () => {
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           // Send a simple message
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Say 'hello' and nothing else",
             modelString(provider, model)
           );
@@ -78,11 +78,11 @@ describeIntegration("sendMessage basic integration tests", () => {
     test.concurrent(
       "should interrupt streaming with interruptStream()",
       async () => {
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           // Start a message that would generate a long response
           const longMessage =
             "Write a very long essay about the history of computing, at least 1000 words.";
-          void sendMessageWithModel(env, workspaceId, longMessage, modelString(provider, model));
+          void sendMessageWithModel(env, minionId, longMessage, modelString(provider, model));
 
           // Wait for stream to start
           await collector.waitForEvent("stream-start", 10000);
@@ -91,7 +91,7 @@ describeIntegration("sendMessage basic integration tests", () => {
           await new Promise((resolve) => setTimeout(resolve, 500));
 
           // Interrupt the stream
-          const interruptResult = await env.orpc.workspace.interruptStream({ workspaceId });
+          const interruptResult = await env.orpc.minion.interruptStream({ minionId });
           expect(interruptResult.success).toBe(true);
 
           // Wait for stream-abort event
@@ -105,11 +105,11 @@ describeIntegration("sendMessage basic integration tests", () => {
     test.concurrent(
       "should track usage tokens",
       async () => {
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           // Send a message
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Say 'test' and nothing else",
             modelString(provider, model)
           );
@@ -135,11 +135,11 @@ describeIntegration("sendMessage basic integration tests", () => {
     test.concurrent(
       "should handle multiple sequential messages",
       async () => {
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           // Send first message
           const result1 = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Say 'one'",
             modelString(provider, model)
           );
@@ -157,7 +157,7 @@ describeIntegration("sendMessage basic integration tests", () => {
           // Send second message
           const result2 = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Say 'two'",
             modelString(provider, model)
           );
@@ -178,11 +178,11 @@ describeIntegration("sendMessage basic integration tests", () => {
   test.concurrent(
     "should work with both providers in same workspace",
     async () => {
-      await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+      await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
         // Send with OpenAI
         const openaiResult = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'openai'",
           modelString("openai", KNOWN_MODELS.GPT.providerModelId)
         );
@@ -201,7 +201,7 @@ describeIntegration("sendMessage basic integration tests", () => {
         // Send with Anthropic
         const anthropicResult = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'anthropic'",
           modelString("anthropic", KNOWN_MODELS.HAIKU.providerModelId)
         );

@@ -8,7 +8,7 @@ import {
 import { cleanupTempGitRepo, createTempGitRepo, generateBranchName } from "../../ipc/helpers";
 import { detectDefaultTrunkBranch } from "@/node/git";
 import type { RuntimeConfig } from "@/common/types/runtime";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 
 import { installDom } from "../dom";
 import { renderApp, type RenderedApp } from "../renderReviewPanel";
@@ -31,7 +31,7 @@ export interface AppHarness {
   env: TestEnvironment;
   repoPath: string;
   workspaceId: string;
-  metadata: FrontendWorkspaceMetadata;
+  metadata: FrontendMinionMetadata;
   view: RenderedApp;
   chat: ChatHarness;
   dispose(): Promise<void>;
@@ -55,7 +55,7 @@ export async function createAppHarness(options?: {
   }
 
   let workspaceId: string | undefined;
-  let metadata: FrontendWorkspaceMetadata | undefined;
+  let metadata: FrontendMinionMetadata | undefined;
   let view: RenderedApp | undefined;
   let cleanupDom: (() => void) | undefined;
 
@@ -63,7 +63,7 @@ export async function createAppHarness(options?: {
     const trunkBranch = await detectDefaultTrunkBranch(repoPath);
     const branchName = generateBranchName(options?.branchPrefix ?? "ui");
 
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath: repoPath,
       branchName,
       trunkBranch,
@@ -102,7 +102,7 @@ export async function createAppHarness(options?: {
 
         if (workspaceId) {
           try {
-            await env.orpc.workspace.remove({ workspaceId, options: { force: true } });
+            await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } });
           } catch {
             // Best effort.
           }
@@ -119,7 +119,7 @@ export async function createAppHarness(options?: {
 
     if (workspaceId) {
       try {
-        await env.orpc.workspace.remove({ workspaceId, options: { force: true } });
+        await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } });
       } catch {
         // Best effort.
       }
