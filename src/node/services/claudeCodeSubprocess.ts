@@ -6,8 +6,14 @@
  * subscriptions from third-party tools — the real Claude Code binary makes the API
  * calls, so Anthropic's server-side checks pass.
  *
+ * Execution Modes:
+ *   - "proxy":   Text-only LLM proxy. No tools. Single-turn request/response.
+ *   - "agentic": Claude Code handles tool calling internally via --mcp-config.
+ *                The CLI runs its own multi-turn agentic loop with Lattice MCP tools.
+ *
  * Architecture:
  *   Lattice → spawns `claude -p "<prompt>" --model <model> --output-format stream-json`
+ *       → (agentic) also passes --mcp-config, --permission-mode, --max-turns
  *       → parses line-delimited JSON events from stdout
  *       → translates to AI SDK LanguageModelV2StreamPart events
  *
@@ -29,6 +35,9 @@ import type {
   LanguageModelV2CallWarning,
 } from "@ai-sdk/provider";
 import { log } from "./log";
+import { ServerLockfile } from "./serverLockfile";
+import { getLatticeHome } from "@/common/constants/paths";
+import type { ClaudeCodeExecutionMode } from "@/common/types/claudeCodeMode";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Claude CLI stream-json event types
@@ -353,6 +362,53 @@ function spawnClaude(binaryPath: string, args: string[], timeout?: number): Chil
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// MCP config generation — for agentic mode
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generate MCP config JSON for Claude Code CLI's --mcp-config flag.
+ * Configures the Lattice MCP server so Claude Code can call Lattice tools
+ * (create minions, list projects, send messages, etc.) during its agentic loop.
+ *
+ * Returns null if the Lattice server is not running (graceful degradation).
+ */
+async function generateLatticeMcpConfig(): Promise<string | null> {
+  try {
+    const lockfile = new ServerLockfile(getLatticeHome());
+    const lockData = await lockfile.read();
+
+    if (!lockData) {
+      log.warn("[claude-code-subprocess] No server.lock found; agentic mode will lack MCP tools");
+      return null;
+    }
+
+    // Compute absolute path to MCP server entry point.
+    // In dev: __dirname is src/node/services/, MCP server is at src/mcp-server/index.ts
+    // In prod: adjust relative path accordingly.
+    const mcpServerPath = path.resolve(__dirname, "../../mcp-server/index.ts");
+
+    const config = {
+      mcpServers: {
+        lattice: {
+          command: "bun",
+          args: ["run", mcpServerPath],
+          env: {
+            LATTICE_SERVER_URL: lockData.baseUrl,
+            ...(lockData.token ? { LATTICE_SERVER_AUTH_TOKEN: lockData.token } : {}),
+          },
+        },
+      },
+    };
+
+    log.info(`[claude-code-subprocess] Generated MCP config for agentic mode (server: ${lockData.baseUrl})`);
+    return JSON.stringify(config);
+  } catch (error) {
+    log.warn("[claude-code-subprocess] Failed to generate MCP config", { error });
+    return null;
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Prompt serialization — convert AI SDK messages to flat text for CLI
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -575,8 +631,12 @@ async function requireClaudeBinary(): Promise<string> {
  * to call findClaudeBinary() ahead of time.
  *
  * @param modelId - Model ID (e.g. "claude-sonnet-4-5"). Dots normalized to dashes.
+ * @param mode - Execution mode: "proxy" (text-only) or "agentic" (with MCP tools).
  */
-export function createClaudeCodeModel(modelId: string): LanguageModelV2 {
+export function createClaudeCodeModel(
+  modelId: string,
+  mode: ClaudeCodeExecutionMode = "agentic"
+): LanguageModelV2 {
   const normalizedModelId = normalizeModelId(modelId);
 
   return {
@@ -591,7 +651,17 @@ export function createClaudeCodeModel(modelId: string): LanguageModelV2 {
       const systemPrompt = extractSystemPrompt(options);
       const prompt = promptToFlatString(options, systemPrompt !== null);
 
-      const args = buildClaudeArgs(prompt, normalizedModelId, systemPrompt, "json");
+      // Generate MCP config for agentic mode
+      const mcpConfigJson = mode === "agentic" ? await generateLatticeMcpConfig() : null;
+
+      const args = buildClaudeArgs({
+        prompt,
+        modelId: normalizedModelId,
+        systemPrompt,
+        outputFormat: "json",
+        mode,
+        mcpConfigJson,
+      });
 
       log.info(
         `[claude-code-subprocess] doGenerate: ${binaryPath} ${args.slice(0, 4).join(" ")} ...`
@@ -694,7 +764,17 @@ export function createClaudeCodeModel(modelId: string): LanguageModelV2 {
       const systemPrompt = extractSystemPrompt(options);
       const prompt = promptToFlatString(options, systemPrompt !== null);
 
-      const args = buildClaudeArgs(prompt, normalizedModelId, systemPrompt, "stream-json");
+      // Generate MCP config for agentic mode
+      const mcpConfigJson = mode === "agentic" ? await generateLatticeMcpConfig() : null;
+
+      const args = buildClaudeArgs({
+        prompt,
+        modelId: normalizedModelId,
+        systemPrompt,
+        outputFormat: "stream-json",
+        mode,
+        mcpConfigJson,
+      });
 
       log.info(
         `[claude-code-subprocess] doStream: ${binaryPath} ${args.slice(0, 4).join(" ")} ...`
@@ -731,12 +811,23 @@ export function createClaudeCodeModel(modelId: string): LanguageModelV2 {
 // CLI argument builder
 // ────────────────────────────────────────────────────────────────────────────
 
-function buildClaudeArgs(
-  prompt: string,
-  modelId: string,
-  systemPrompt: string | null,
-  outputFormat: "json" | "stream-json"
-): string[] {
+/** Default max turns for agentic mode — generous but bounded to prevent infinite loops. */
+const DEFAULT_AGENTIC_MAX_TURNS = 25;
+
+interface ClaudeArgOptions {
+  prompt: string;
+  modelId: string;
+  systemPrompt: string | null;
+  outputFormat: "json" | "stream-json";
+  mode: ClaudeCodeExecutionMode;
+  /** MCP config JSON string for agentic mode (from generateLatticeMcpConfig). */
+  mcpConfigJson?: string | null;
+  /** Max agentic turns. Defaults to DEFAULT_AGENTIC_MAX_TURNS in agentic mode. */
+  maxTurns?: number;
+}
+
+function buildClaudeArgs(options: ClaudeArgOptions): string[] {
+  const { prompt, modelId, systemPrompt, outputFormat, mode, mcpConfigJson, maxTurns } = options;
   const args: string[] = [];
 
   // System prompt via dedicated flag — matches lattice's working pattern.
@@ -756,6 +847,24 @@ function buildClaudeArgs(
   args.push("--output-format", outputFormat);
   args.push("--verbose");
   args.push("--no-session-persistence");
+
+  // ── Agentic mode: pass MCP config and permission bypass ──
+  if (mode === "agentic") {
+    // Inject Lattice MCP server so Claude Code can call Lattice tools
+    // (create_minion, list_projects, send_message, etc.) during its agentic loop.
+    if (mcpConfigJson) {
+      args.push("--mcp-config", mcpConfigJson);
+    }
+
+    // Bypass permission prompts since Lattice is a trusted environment.
+    // Without this, Claude Code would prompt on stderr for tool approvals,
+    // which we cannot respond to in non-interactive mode.
+    args.push("--permission-mode", "bypassPermissions");
+
+    // Safety limit to prevent infinite tool loops.
+    const effectiveMaxTurns = maxTurns ?? DEFAULT_AGENTIC_MAX_TURNS;
+    args.push("--max-turns", String(effectiveMaxTurns));
+  }
 
   return args;
 }
