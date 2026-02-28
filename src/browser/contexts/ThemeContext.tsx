@@ -50,8 +50,8 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const THEME_COLORS: Record<ThemeMode, string> = {
-  dark: "#0D0D0D",
-  light: "#FAFAF7",
+  dark: "#0C0F1A",
+  light: "#FFFCF0",
 };
 
 const FAVICON_BY_SCHEME: Record<"light" | "dark", string> = {
