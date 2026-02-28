@@ -909,7 +909,7 @@ if (gotTheLock) {
       // Migrate from .clattice to .lattice directory structure if needed
       migrateLegacyLatticeHome();
 
-      // Install React DevTools in development
+      // Install React DevTools and set dock icon in development
       if (!app.isPackaged) {
         try {
           const { default: installExtension, REACT_DEVELOPER_TOOLS } =
@@ -921,6 +921,14 @@ if (gotTheLock) {
           console.log(`✅ React DevTools installed: ${extension.name} (id: ${extension.id})`);
         } catch (err) {
           console.log("❌ Error installing React DevTools:", err);
+        }
+
+        // Set dock icon in dev mode (packaged builds use build/icon.icns automatically)
+        if (process.platform === "darwin") {
+          const iconPath = path.join(__dirname, "../../build/icon.png");
+          if (fs.existsSync(iconPath)) {
+            app.dock?.setIcon(nativeImage.createFromPath(iconPath));
+          }
         }
       }
 
