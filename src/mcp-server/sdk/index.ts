@@ -36,5 +36,11 @@ export * as mcpManagement from "./mcp-management";
 export * as secrets from "./secrets";
 export * as general from "./general";
 
+// Collaboration & automation
+export * as inbox from "./inbox";
+export * as kanban from "./kanban";
+export * as scheduler from "./scheduler";
+export * as sync from "./sync";
+
 // Authentication
 export * as oauth from "./oauth";
