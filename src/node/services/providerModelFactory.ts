@@ -437,18 +437,24 @@ export class ProviderModelFactory {
         }
       }
 
+      // Load providers configuration - the ONLY source of truth
+      const providersConfig = this.config.loadProvidersConfig() ?? {};
+
       // Handle Claude Code subprocess provider — spawns the `claude` CLI binary
       // directly, bypassing API key configuration entirely. The real Claude Code
       // binary handles auth (Pro/Max subscription), making this the sanctioned path.
-      //
-      // Agentic mode: Claude Code handles tool calling internally via --mcp-config,
-      // with access to Lattice MCP tools (create minions, list projects, etc.).
       if (providerName === "claude-code") {
-        return Ok(createClaudeCodeModel(modelId, "agentic") as unknown as LanguageModel);
+        const ccConfig = (providersConfig["claude-code"] ?? {}) as {
+          claudeCodeMode?: string;
+        };
+        const ccMode =
+          ccConfig.claudeCodeMode === "proxy"
+            ? "proxy"
+            : ccConfig.claudeCodeMode === "streaming"
+              ? "streaming"
+              : "agentic"; // default
+        return Ok(createClaudeCodeModel(modelId, ccMode) as unknown as LanguageModel);
       }
-
-      // Load providers configuration - the ONLY source of truth
-      const providersConfig = this.config.loadProvidersConfig() ?? {};
 
       // Backend config is authoritative for Anthropic prompt cache TTL on any
       // Anthropic-routed model (direct Anthropic, openrouter:anthropic/*).

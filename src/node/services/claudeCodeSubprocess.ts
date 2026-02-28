@@ -468,6 +468,63 @@ function promptToFlatString(options: LanguageModelV2CallOptions, skipSystem: boo
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Stream-JSON input serialization — convert AI SDK messages to CLI stdin events
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Serialize AI SDK prompt messages to Claude Code stream-json input events.
+ * Each event is a JSON line written to stdin when using --input-format stream-json.
+ *
+ * System prompts are handled via --system-prompt flag, not stdin.
+ */
+function promptToStreamJsonEvents(options: LanguageModelV2CallOptions): string[] {
+  const events: string[] = [];
+
+  for (const msg of options.prompt) {
+    if (msg.role === "system") {
+      // Handled via --system-prompt CLI flag
+      continue;
+    } else if (msg.role === "user") {
+      const textParts: string[] = [];
+      for (const part of msg.content) {
+        if (part.type === "text") {
+          textParts.push(part.text);
+        }
+      }
+      if (textParts.length > 0) {
+        events.push(
+          JSON.stringify({
+            type: "user",
+            message: { role: "user", content: textParts.join("\n") },
+          })
+        );
+      }
+    } else if (msg.role === "tool") {
+      // Tool results from AI SDK's tool execution — fed back to CLI
+      for (const part of msg.content) {
+        if (part.type === "tool-result") {
+          const output =
+            typeof part.output === "object"
+              ? JSON.stringify(part.output)
+              : String(part.output);
+          events.push(
+            JSON.stringify({
+              type: "tool_result",
+              tool_use_id: part.toolCallId,
+              content: output,
+            })
+          );
+        }
+      }
+    }
+    // Assistant messages are part of conversation history the CLI reconstructs
+    // from the user + tool_result sequence. We don't replay them on stdin.
+  }
+
+  return events;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // Normalize model ID — UI sends dots (claude-opus-4.5), CLI expects dashes
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -481,7 +538,8 @@ function normalizeModelId(modelId: string): string {
 
 function attachStreamJsonAdapter(
   proc: ChildProcess,
-  controller: ReadableStreamDefaultController<LanguageModelV2StreamPart>
+  controller: ReadableStreamDefaultController<LanguageModelV2StreamPart>,
+  closeStdin: boolean = true
 ): void {
   let buffer = "";
   const textId = "text-0";
@@ -599,7 +657,9 @@ function attachStreamJsonAdapter(
     controller.close();
   });
 
-  proc.stdin?.end();
+  if (closeStdin) {
+    proc.stdin?.end();
+  }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -762,6 +822,56 @@ export function createClaudeCodeModel(
     async doStream(options: LanguageModelV2CallOptions) {
       const binaryPath = await requireClaudeBinary();
       const systemPrompt = extractSystemPrompt(options);
+
+      if (mode === "streaming") {
+        // ── Streaming mode: write conversation as stream-json events to stdin ──
+        const events = promptToStreamJsonEvents(options);
+
+        const args = buildClaudeArgs({
+          prompt: "", // not used in streaming mode — input via stdin
+          modelId: normalizedModelId,
+          systemPrompt,
+          outputFormat: "stream-json",
+          mode: "streaming",
+        });
+
+        log.info(
+          `[claude-code-subprocess] doStream (streaming): ${binaryPath} ${args.slice(0, 4).join(" ")} ... (${events.length} stdin events)`
+        );
+
+        const proc = spawnClaude(binaryPath, args);
+
+        if (options.abortSignal) {
+          options.abortSignal.addEventListener("abort", () => {
+            log.info("[claude-code-subprocess] Abort signal received, killing process");
+            proc.kill("SIGTERM");
+          });
+        }
+
+        // Write conversation events to stdin, then close to signal end-of-input
+        for (const event of events) {
+          proc.stdin?.write(event + "\n");
+        }
+        proc.stdin?.end();
+
+        const stream = new ReadableStream<LanguageModelV2StreamPart>({
+          start(controller) {
+            // Don't close stdin again — already closed above
+            attachStreamJsonAdapter(proc, controller, false);
+          },
+        });
+
+        return {
+          stream,
+          rawCall: {
+            rawPrompt: events.join("\n"),
+            rawSettings: { model: normalizedModelId },
+          },
+          warnings: [] as LanguageModelV2CallWarning[],
+        };
+      }
+
+      // ── Proxy / Agentic: flat text prompt via -p flag ──
       const prompt = promptToFlatString(options, systemPrompt !== null);
 
       // Generate MCP config for agentic mode
@@ -836,8 +946,20 @@ function buildClaudeArgs(options: ClaudeArgOptions): string[] {
     args.push("--system-prompt", systemPrompt);
   }
 
-  // -p is --print (non-interactive mode). Prompt follows immediately as next arg.
-  // This matches lattice's `promptFlag: "-p"` → `args.push("-p", prompt)`.
+  if (mode === "streaming") {
+    // ── Streaming mode: bidirectional stream-json ──
+    // No -p flag — input comes via stdin as structured JSON events.
+    args.push("--input-format", "stream-json");
+    args.push("--output-format", "stream-json");
+    args.push("--model", modelId);
+    args.push("--verbose");
+    args.push("--no-session-persistence");
+    // No --mcp-config: Lattice handles tool execution via AI SDK
+    // No --permission-mode: Lattice manages permissions via its own UI
+    return args;
+  }
+
+  // ── Proxy / Agentic: non-interactive print mode ──
   args.push("-p", prompt);
 
   // Model selection

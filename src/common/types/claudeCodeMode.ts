@@ -8,11 +8,12 @@
  *   The CLI runs its own multi-turn agentic loop with access to Lattice MCP tools.
  *   Still uses -p mode (non-interactive), but the process manages its own tool loop.
  *
- * Future:
  * - "streaming": Bidirectional streaming via --input-format stream-json.
- *   Lattice intercepts tool calls and manages execution. (Coming soon)
+ *   Lattice intercepts tool calls and manages execution. The AI SDK's
+ *   streamText() handles the multi-step tool loop — each doStream() call
+ *   spawns a fresh process and writes the full conversation to stdin.
  */
-export type ClaudeCodeExecutionMode = "proxy" | "agentic";
+export type ClaudeCodeExecutionMode = "proxy" | "agentic" | "streaming";
 
 /** Default mode when claude-code provider is selected. */
 export const DEFAULT_CLAUDE_CODE_MODE: ClaudeCodeExecutionMode = "agentic";
