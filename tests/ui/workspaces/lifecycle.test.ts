@@ -41,7 +41,7 @@ describeIntegration("Workspace Creation (UI)", () => {
 
   test("workspace selection persists after clicking workspace in sidebar", async () => {
     // Use withSharedWorkspace to get a properly created workspace
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderApp({
@@ -96,7 +96,7 @@ describeIntegration("Workspace Creation (UI)", () => {
       expect(metadata.id).toBeTruthy();
       expect(metadata.projectPath).toBeTruthy();
       expect(metadata.projectName).toBeTruthy();
-      expect(metadata.namedWorkspacePath).toBeTruthy();
+      expect(metadata.namedMinionPath).toBeTruthy();
     });
   }, 30_000);
 });
@@ -120,7 +120,7 @@ describeIntegration("Workspace Archive (UI)", () => {
     const firstBranch = generateBranchName("test-archive-nav-first");
     const secondBranch = generateBranchName("test-archive-nav-second");
 
-    const firstResult = await env.orpc.workspace.create({
+    const firstResult = await env.orpc.minion.create({
       projectPath,
       branchName: firstBranch,
       trunkBranch,
@@ -128,7 +128,7 @@ describeIntegration("Workspace Archive (UI)", () => {
     if (!firstResult.success) throw new Error(firstResult.error);
     const firstWorkspace = firstResult.metadata;
 
-    const secondResult = await env.orpc.workspace.create({
+    const secondResult = await env.orpc.minion.create({
       projectPath,
       branchName: secondBranch,
       trunkBranch,
@@ -208,11 +208,11 @@ describeIntegration("Workspace Archive (UI)", () => {
       const homeScreen = view.container.querySelector('[data-testid="home-screen"]');
       expect(homeScreen).toBeNull();
     } finally {
-      await env.orpc.workspace
-        .remove({ workspaceId: firstWorkspace.id, options: { force: true } })
+      await env.orpc.minion
+        .remove({ minionId: firstWorkspace.id, options: { force: true } })
         .catch(() => {});
-      await env.orpc.workspace
-        .remove({ workspaceId: secondWorkspace.id, options: { force: true } })
+      await env.orpc.minion
+        .remove({ minionId: secondWorkspace.id, options: { force: true } })
         .catch(() => {});
       await cleanupView(view, cleanupDom);
     }
@@ -221,7 +221,7 @@ describeIntegration("Workspace Archive (UI)", () => {
   test("archiving the only workspace in a project falls back to project page", async () => {
     // When there are no sibling workspaces to navigate to, archiving should
     // fall back to the project page (not home).
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const projectPath = metadata.projectPath;
       const displayTitle = metadata.title ?? metadata.name;
 
@@ -329,7 +329,7 @@ describeIntegration("Workspace Archive List Reactivity (UI)", () => {
     const firstBranch = generateBranchName("test-archive-reactivity-first");
     const secondBranch = generateBranchName("test-archive-reactivity-second");
 
-    const firstResult = await env.orpc.workspace.create({
+    const firstResult = await env.orpc.minion.create({
       projectPath,
       branchName: firstBranch,
       trunkBranch,
@@ -337,7 +337,7 @@ describeIntegration("Workspace Archive List Reactivity (UI)", () => {
     if (!firstResult.success) throw new Error(firstResult.error);
     const firstWorkspace = firstResult.metadata;
 
-    const secondResult = await env.orpc.workspace.create({
+    const secondResult = await env.orpc.minion.create({
       projectPath,
       branchName: secondBranch,
       trunkBranch,
@@ -347,7 +347,7 @@ describeIntegration("Workspace Archive List Reactivity (UI)", () => {
     const secondDisplayTitle = secondWorkspace.title ?? secondWorkspace.name;
 
     // Archive the first workspace so the archive section will be visible
-    await env.orpc.workspace.archive({ workspaceId: firstWorkspace.id });
+    await env.orpc.minion.archive({ minionId: firstWorkspace.id });
 
     const cleanupDom = installDom();
     const view = renderApp({
@@ -455,11 +455,11 @@ describeIntegration("Workspace Archive List Reactivity (UI)", () => {
       );
       expect(stillInSidebar).toBeNull();
     } finally {
-      await env.orpc.workspace
-        .remove({ workspaceId: firstWorkspace.id, options: { force: true } })
+      await env.orpc.minion
+        .remove({ minionId: firstWorkspace.id, options: { force: true } })
         .catch(() => {});
-      await env.orpc.workspace
-        .remove({ workspaceId: secondWorkspace.id, options: { force: true } })
+      await env.orpc.minion
+        .remove({ minionId: secondWorkspace.id, options: { force: true } })
         .catch(() => {});
       await cleanupView(view, cleanupDom);
     }
@@ -484,7 +484,7 @@ describeIntegration("Workspace Delete from Archive (UI)", () => {
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create and archive workspace (setup)
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath,
       branchName,
       trunkBranch,
@@ -494,7 +494,7 @@ describeIntegration("Workspace Delete from Archive (UI)", () => {
     const workspaceId = metadata.id;
     const displayTitle = metadata.title ?? metadata.name;
 
-    await env.orpc.workspace.archive({ workspaceId });
+    await env.orpc.minion.archive({ minionId: workspaceId });
 
     const cleanupDom = installDom();
     const view = renderApp({
@@ -576,7 +576,7 @@ describeIntegration("Workspace Delete from Archive (UI)", () => {
       );
       expect(projectStillVisible).toBeTruthy();
     } finally {
-      await env.orpc.workspace.remove({ workspaceId, options: { force: true } }).catch(() => {});
+      await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } }).catch(() => {});
       await cleanupView(view, cleanupDom);
     }
   }, 30_000);
@@ -588,7 +588,7 @@ describeIntegration("Workspace Delete from Archive (UI)", () => {
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create and archive workspace (setup - OK to use API)
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath,
       branchName,
       trunkBranch,
@@ -598,7 +598,7 @@ describeIntegration("Workspace Delete from Archive (UI)", () => {
     const workspaceId = metadata.id;
     const displayTitle = metadata.title ?? metadata.name;
 
-    await env.orpc.workspace.archive({ workspaceId });
+    await env.orpc.minion.archive({ minionId: workspaceId });
 
     const cleanupDom = installDom();
     const view = renderApp({
@@ -685,7 +685,7 @@ describeIntegration("Workspace Delete from Archive (UI)", () => {
       expect(creationTextarea).toBeTruthy();
     } finally {
       // Workspace should be deleted, but cleanup just in case
-      await env.orpc.workspace.remove({ workspaceId, options: { force: true } }).catch(() => {});
+      await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } }).catch(() => {});
       await cleanupView(view, cleanupDom);
     }
   }, 30_000);

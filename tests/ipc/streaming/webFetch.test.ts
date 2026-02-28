@@ -16,9 +16,9 @@ import {
   configureTestRetries,
 } from "../sendMessageTestHelpers";
 import { isToolCallStart } from "@/common/orpc/types";
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 
-type ToolCallEndEvent = Extract<WorkspaceChatMessage, { type: "tool-call-end" }>;
+type ToolCallEndEvent = Extract<MinionChatMessage, { type: "tool-call-end" }>;
 
 /**
  * Poll for a tool-call-end event by toolName after stream-end.
@@ -26,7 +26,7 @@ type ToolCallEndEvent = Extract<WorkspaceChatMessage, { type: "tool-call-end" }>
  * so we poll briefly rather than reading getEvents() once.
  */
 async function waitForToolCallEnd(
-  collector: { getEvents(): WorkspaceChatMessage[] },
+  collector: { getEvents(): MinionChatMessage[] },
   toolName: string,
   timeoutMs: number
 ): Promise<ToolCallEndEvent | undefined> {
@@ -61,10 +61,10 @@ describeIntegration("web_fetch integration tests", () => {
   test.concurrent(
     "should call web_fetch and summarize top story from lite.cnn.com",
     async () => {
-      await withSharedWorkspace("anthropic", async ({ env, workspaceId, collector }) => {
+      await withSharedWorkspace("anthropic", async ({ env, minionId, collector }) => {
         const result = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Use web_fetch to read https://lite.cnn.com/ and tell me the top story headline.",
           SONNET_4_6,
           {

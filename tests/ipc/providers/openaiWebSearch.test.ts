@@ -23,8 +23,8 @@ describeIntegration("OpenAI web_search integration tests", () => {
     "should handle reasoning + web_search without itemId errors",
     async () => {
       // Setup test environment with OpenAI
-      const { env, workspaceId, cleanup } = await setupWorkspace("openai");
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const { env, minionId, cleanup } = await setupWorkspace("openai");
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       try {
         // This prompt reliably triggers the reasoning + web_search bug:
@@ -35,7 +35,7 @@ describeIntegration("OpenAI web_search integration tests", () => {
         // Note: Previous prompt (gold price + Collatz) caused excessive tool loops in CI
         const result = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Use web search to find the current weather in San Francisco. " +
             "Then tell me if it's a good day for a picnic.",
           modelString("openai", "gpt-5.2"),

@@ -5,7 +5,7 @@ import {
   TUTORIAL_STATE_KEY,
   WORKBENCH_PANEL_COLLAPSED_KEY,
   EXPANDED_PROJECTS_KEY,
-  WORKSPACE_DRAFTS_BY_PROJECT_KEY,
+  MINION_DRAFTS_BY_PROJECT_KEY,
   type TutorialState,
 } from "../src/common/constants/storage";
 import { NOW } from "../src/browser/stories/mockFactory";
@@ -55,7 +55,7 @@ function disableTutorials() {
   if (typeof localStorage !== "undefined") {
     const disabledState: TutorialState = {
       disabled: true,
-      completed: { creation: true, workspace: true },
+      completed: { creation: true, minion: true },
     };
     localStorage.setItem(TUTORIAL_STATE_KEY, JSON.stringify(disabledState));
   }
@@ -80,7 +80,7 @@ function collapseProjects() {
 // Drafts persist in localStorage and can leak between stories causing flaky diffs.
 // Uses updatePersistedState to notify subscribers (WorkspaceContext uses listener: true).
 function clearWorkspaceDrafts() {
-  updatePersistedState(WORKSPACE_DRAFTS_BY_PROJECT_KEY, {});
+  updatePersistedState(MINION_DRAFTS_BY_PROJECT_KEY, {});
 }
 
 const preview: Preview = {
