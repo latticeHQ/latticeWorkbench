@@ -3,6 +3,7 @@ import * as fsPromises from "fs/promises";
 import type { Config } from "@/node/config";
 import { isDockerRuntime, isSSHRuntime, isDevcontainerRuntime } from "@/common/types/runtime";
 import { log } from "@/node/services/log";
+import { getErrorMessage } from "@/common/utils/errors";
 
 /**
  * Quote a string for safe use in shell commands.
@@ -54,7 +55,7 @@ export interface EditorConfig {
 }
 
 /**
- * Service for opening workspaces in code editors.
+ * Service for opening minions in code editors.
  *
  * NOTE: VS Code/Cursor/Zed are opened via deep links in the renderer.
  * This service is only responsible for spawning the user's custom editor command.
@@ -69,12 +70,12 @@ export class EditorService {
   /**
    * Open a path in the user's configured code editor.
    *
-   * @param workspaceId - The workspace (used to determine runtime + validate constraints)
-   * @param targetPath - The path to open (workspace directory or specific file)
+   * @param minionId - The minion (used to determine runtime + validate constraints)
+   * @param targetPath - The path to open (minion directory or specific file)
    * @param editorConfig - Editor configuration from user settings
    */
   async openInEditor(
-    workspaceId: string,
+    minionId: string,
     targetPath: string,
     editorConfig: EditorConfig
   ): Promise<{ success: true; data: void } | { success: false; error: string }> {
@@ -92,25 +93,25 @@ export class EditorService {
         return { success: false, error: "No editor command configured" };
       }
 
-      const allMetadata = await this.config.getAllWorkspaceMetadata();
-      const workspace = allMetadata.find((w) => w.id === workspaceId);
+      const allMetadata = await this.config.getAllMinionMetadata();
+      const minion = allMetadata.find((w) => w.id === minionId);
 
-      if (!workspace) {
-        return { success: false, error: `Workspace not found: ${workspaceId}` };
+      if (!minion) {
+        return { success: false, error: `Minion not found: ${minionId}` };
       }
 
       // Remote runtimes: custom commands run on the local machine and can't access remote paths.
-      if (isSSHRuntime(workspace.runtimeConfig)) {
+      if (isSSHRuntime(minion.runtimeConfig)) {
         return {
           success: false,
-          error: "Custom editors do not support SSH connections for SSH workspaces",
+          error: "Custom editors do not support SSH connections for SSH minions",
         };
       }
 
-      if (isDevcontainerRuntime(workspace.runtimeConfig)) {
+      if (isDevcontainerRuntime(minion.runtimeConfig)) {
         return { success: false, error: "Custom editors do not support Dev Containers" };
       }
-      if (isDockerRuntime(workspace.runtimeConfig)) {
+      if (isDockerRuntime(minion.runtimeConfig)) {
         return { success: false, error: "Custom editors do not support Docker containers" };
       }
 
@@ -140,7 +141,7 @@ export class EditorService {
 
       return { success: true, data: undefined };
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       log.error(`Failed to open in editor: ${message}`);
       return { success: false, error: message };
     }

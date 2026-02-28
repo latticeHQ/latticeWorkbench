@@ -6,18 +6,19 @@
  */
 
 import type { ThinkingLevel } from "@/common/types/thinking";
+import type { ReviewNoteDataForDisplay } from "@/common/types/message";
 import type { FilePart } from "@/common/orpc/schemas";
 
 export const CUSTOM_EVENTS = {
   /**
    * Event to show a toast notification when thinking level changes
-   * Detail: { workspaceId: string, level: ThinkingLevel }
+   * Detail: { minionId: string, level: ThinkingLevel }
    */
   THINKING_LEVEL_TOAST: "lattice:thinkingLevelToast",
 
   /**
    * Event to insert text into the chat input
-   * Detail: { text: string, mode?: "replace" | "append", fileParts?: FilePart[] }
+   * Detail: { text: string, mode?: "replace" | "append", fileParts?: FilePart[], reviews?: ReviewNoteDataForDisplay[] }
    */
   UPDATE_CHAT_INPUT: "lattice:updateChatInput",
 
@@ -40,23 +41,22 @@ export const CUSTOM_EVENTS = {
   CLOSE_AGENT_PICKER: "lattice:closeAgentPicker",
 
   /**
-   * Event to trigger resume check for a workspace
-   * Detail: { workspaceId: string }
-   *
-   * Emitted when:
-   * - Stream error occurs
-   * - Stream aborted
-   * - App startup (for all workspaces with interrupted streams)
-   *
-   * useResumeManager handles this idempotently - safe to emit multiple times
+   * Event to request a refresh of the agent definition list (AgentContext).
+   * No detail.
    */
-  RESUME_CHECK_REQUESTED: "lattice:resumeCheckRequested",
+  AGENTS_REFRESH_REQUESTED: "lattice:agentsRefreshRequested",
 
   /**
-   * Event to switch to a different workspace after fork
-   * Detail: { workspaceId: string, projectPath: string, projectName: string, workspacePath: string, branch: string }
+   * Event to switch to a different minion after fork
+   * Detail: { minionId: string, projectPath: string, projectName: string, minionPath: string, branch: string }
    */
-  WORKSPACE_FORK_SWITCH: "lattice:workspaceForkSwitch",
+  MINION_FORK_SWITCH: "lattice:minionForkSwitch",
+
+  /**
+   * Event to request AI title regeneration for a minion.
+   * Detail: { minionId: string }
+   */
+  MINION_GENERATE_TITLE_REQUESTED: "lattice:minionGenerateTitleRequested",
 
   /**
    * Event to execute a command from the command palette
@@ -64,16 +64,22 @@ export const CUSTOM_EVENTS = {
    */
   EXECUTE_COMMAND: "lattice:executeCommand",
   /**
-   * Event to enter the chat-based workspace creation experience.
+   * Event to enter the chat-based minion creation experience.
    * Detail: { projectPath: string, startMessage?: string, model?: string, trunkBranch?: string, runtime?: string }
    */
-  START_WORKSPACE_CREATION: "lattice:startWorkspaceCreation",
+  START_MINION_CREATION: "lattice:startMinionCreation",
 
   /**
    * Event to toggle voice input (dictation) mode
    * No detail
    */
   TOGGLE_VOICE_INPUT: "lattice:toggleVoiceInput",
+
+  /**
+   * Event to show toast feedback for analytics database rebuild commands.
+   * Detail: { type: "success" | "error", message: string, title?: string }
+   */
+  ANALYTICS_REBUILD_TOAST: "lattice:analyticsRebuildToast",
 
   /**
    * Event to open the debug LLM request modal
@@ -88,32 +94,33 @@ export const CUSTOM_EVENTS = {
  */
 export interface CustomEventPayloads {
   [CUSTOM_EVENTS.THINKING_LEVEL_TOAST]: {
-    workspaceId: string;
+    minionId: string;
     level: ThinkingLevel;
   };
   [CUSTOM_EVENTS.UPDATE_CHAT_INPUT]: {
     text: string;
     mode?: "replace" | "append";
     fileParts?: FilePart[];
+    reviews?: ReviewNoteDataForDisplay[];
   };
   [CUSTOM_EVENTS.OPEN_AGENT_PICKER]: never; // No payload
   [CUSTOM_EVENTS.CLOSE_AGENT_PICKER]: never; // No payload
+  [CUSTOM_EVENTS.AGENTS_REFRESH_REQUESTED]: never; // No payload
   [CUSTOM_EVENTS.OPEN_MODEL_SELECTOR]: never; // No payload
-  [CUSTOM_EVENTS.RESUME_CHECK_REQUESTED]: {
-    workspaceId: string;
-    isManual?: boolean; // true when user explicitly clicks retry (bypasses eligibility checks)
-  };
-  [CUSTOM_EVENTS.WORKSPACE_FORK_SWITCH]: {
-    workspaceId: string;
+  [CUSTOM_EVENTS.MINION_FORK_SWITCH]: {
+    minionId: string;
     projectPath: string;
     projectName: string;
-    workspacePath: string;
+    minionPath: string;
     branch: string;
+  };
+  [CUSTOM_EVENTS.MINION_GENERATE_TITLE_REQUESTED]: {
+    minionId: string;
   };
   [CUSTOM_EVENTS.EXECUTE_COMMAND]: {
     commandId: string;
   };
-  [CUSTOM_EVENTS.START_WORKSPACE_CREATION]: {
+  [CUSTOM_EVENTS.START_MINION_CREATION]: {
     projectPath: string;
     startMessage?: string;
     model?: string;
@@ -121,12 +128,17 @@ export interface CustomEventPayloads {
     runtime?: string;
   };
   [CUSTOM_EVENTS.TOGGLE_VOICE_INPUT]: never; // No payload
+  [CUSTOM_EVENTS.ANALYTICS_REBUILD_TOAST]: {
+    type: "success" | "error";
+    message: string;
+    title?: string;
+  };
   [CUSTOM_EVENTS.OPEN_DEBUG_LLM_REQUEST]: never; // No payload
 }
 
 /**
  * Type-safe custom event type
- * Usage: CustomEventType<typeof CUSTOM_EVENTS.RESUME_CHECK_REQUESTED>
+ * Usage: CustomEventType<typeof CUSTOM_EVENTS.THINKING_LEVEL_TOAST>
  */
 export type CustomEventType<K extends keyof CustomEventPayloads> = CustomEvent<
   CustomEventPayloads[K]
@@ -137,9 +149,9 @@ export type CustomEventType<K extends keyof CustomEventPayloads> = CustomEvent<
  *
  * @example
  * ```typescript
- * const event = createCustomEvent(CUSTOM_EVENTS.RESUME_CHECK_REQUESTED, {
- *   workspaceId: 'abc123',
- *   isManual: true
+ * const event = createCustomEvent(CUSTOM_EVENTS.THINKING_LEVEL_TOAST, {
+ *   minionId: "abc123",
+ *   level: "high",
  * });
  * window.dispatchEvent(event);
  * ```

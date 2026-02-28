@@ -10,6 +10,8 @@ export const EXPERIMENT_IDS = {
   PROGRAMMATIC_TOOL_CALLING_EXCLUSIVE: "programmatic-tool-calling-exclusive",
   CONFIGURABLE_BIND_URL: "configurable-bind-url",
   SYSTEM_1: "system-1",
+  EXEC_SIDEKICK_HARD_RESTART: "exec-sidekick-hard-restart",
+  LATTICE_GOVERNOR: "lattice-governor",
 } as const;
 
 export type ExperimentId = (typeof EXPERIMENT_IDS)[keyof typeof EXPERIMENT_IDS];
@@ -66,6 +68,22 @@ export const EXPERIMENTS: Record<ExperimentId, ExperimentDefinition> = {
     id: EXPERIMENT_IDS.SYSTEM_1,
     name: "System 1",
     description: "Context optimization helpers inspired by Thinking, Fast and Slow (Kahneman)",
+    enabledByDefault: false,
+    userOverridable: true,
+    showInSettings: true,
+  },
+  [EXPERIMENT_IDS.EXEC_SIDEKICK_HARD_RESTART]: {
+    id: EXPERIMENT_IDS.EXEC_SIDEKICK_HARD_RESTART,
+    name: "Exec sub-agent hard restart",
+    description: "Hard-restart exec sub-agents on context overflow",
+    enabledByDefault: false,
+    userOverridable: true,
+    showInSettings: true,
+  },
+  [EXPERIMENT_IDS.LATTICE_GOVERNOR]: {
+    id: EXPERIMENT_IDS.LATTICE_GOVERNOR,
+    name: "Lattice Governor",
+    description: "Remote policy delivery for enterprise Lattice Governor service",
     enabledByDefault: false,
     userOverridable: true,
     showInSettings: true,

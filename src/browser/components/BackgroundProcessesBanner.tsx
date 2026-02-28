@@ -23,7 +23,7 @@ function truncateScript(script: string, maxLength = 60): string {
 }
 
 interface BackgroundProcessesBannerProps {
-  workspaceId: string;
+  minionId: string;
 }
 
 /**
@@ -34,8 +34,8 @@ export const BackgroundProcessesBanner: React.FC<BackgroundProcessesBannerProps>
   const [viewingProcessId, setViewingProcessId] = useState<string | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [, setTick] = useState(0);
-  const processes = useBackgroundProcesses(props.workspaceId);
-  const terminatingIds = useBackgroundBashTerminatingIds(props.workspaceId);
+  const processes = useBackgroundProcesses(props.minionId);
+  const terminatingIds = useBackgroundBashTerminatingIds(props.minionId);
   const { terminate } = useBackgroundBashActions();
 
   // Filter to only running processes
@@ -177,7 +177,7 @@ export const BackgroundProcessesBanner: React.FC<BackgroundProcessesBannerProps>
               setViewingProcessId(null);
             }
           }}
-          workspaceId={props.workspaceId}
+          minionId={props.minionId}
           processId={viewingProcessId}
           displayName={viewingProcess?.displayName}
         />

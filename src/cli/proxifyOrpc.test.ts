@@ -101,12 +101,12 @@ describe("proxifyOrpc schema enhancement", () => {
 });
 
 describe("proxifyOrpc CLI help output", () => {
-  test("workspace resume-stream shows options description", () => {
+  test("minion resume-stream shows options description", () => {
     const r = router();
     const proxied = proxifyOrpc(r, { baseUrl: "http://localhost:8080" });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-    const resumeStream = (proxied as any).workspace?.resumeStream;
+    const resumeStream = (proxied as any).minion?.resumeStream;
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
     const inputSchema = resumeStream?.["~orpc"]?.inputSchema;
 
@@ -124,7 +124,7 @@ describe("proxifyOrpc CLI help output", () => {
     const proxied = proxifyOrpc(r, { baseUrl: "http://localhost:8080" });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
-    const resumeStream = (proxied as any).workspace?.resumeStream;
+    const resumeStream = (proxied as any).minion?.resumeStream;
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
     const inputSchema = resumeStream?.["~orpc"]?.inputSchema;
 
@@ -148,7 +148,7 @@ describe("proxifyOrpc CLI help output", () => {
     const proxied = proxifyOrpc(r, { baseUrl: "http://localhost:8080" });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access
-    const resumeStream = (proxied as any).workspace?.resumeStream as unknown;
+    const resumeStream = (proxied as any).minion?.resumeStream as unknown;
 
     const inputSchema = (
       resumeStream as { ["~orpc"]?: { inputSchema?: z.ZodTypeAny } } | undefined

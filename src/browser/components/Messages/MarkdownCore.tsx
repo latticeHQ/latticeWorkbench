@@ -48,7 +48,7 @@ const REMARK_PLUGINS_WITH_BREAKS: Pluggable[] = [
 ];
 
 // Schema for rehype-sanitize that allows safe HTML elements.
-// Extends the default schema to support KaTeX math and collapsible sections.
+// Extends the default schema to support KaTeX math and collapsible crews.
 const sanitizeSchema = {
   ...defaultSchema,
   tagNames: [
@@ -77,7 +77,7 @@ const sanitizeSchema = {
     "mpadded",
     "mphantom",
     "menclose",
-    // Collapsible sections (GitHub-style)
+    // Collapsible crews (GitHub-style)
     "details",
     "summary",
   ],

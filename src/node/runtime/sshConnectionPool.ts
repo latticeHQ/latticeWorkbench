@@ -18,7 +18,37 @@ import * as crypto from "crypto";
 import * as path from "path";
 import * as os from "os";
 import { spawn } from "child_process";
+import { HOST_KEY_APPROVAL_TIMEOUT_MS } from "@/common/constants/ssh";
+import { formatSshEndpoint } from "@/common/utils/ssh/formatSshEndpoint";
 import { log } from "@/node/services/log";
+import type { SshPromptService } from "@/node/services/sshPromptService";
+import { createMediatedAskpassSession } from "./openSshPromptMediation";
+
+export type OpenSSHHostKeyPolicyMode = "strict" | "headless-fallback";
+
+let sshPromptService: SshPromptService | undefined;
+let hostKeyPolicyMode: OpenSSHHostKeyPolicyMode = "headless-fallback";
+
+export function setSshPromptService(svc: SshPromptService | undefined): void {
+  sshPromptService = svc;
+}
+
+export function setOpenSSHHostKeyPolicyMode(mode: OpenSSHHostKeyPolicyMode): void {
+  hostKeyPolicyMode = mode;
+}
+
+export function isInteractiveHostKeyApprovalAvailable(): boolean {
+  return sshPromptService?.hasInteractiveResponder() === true;
+}
+
+export function appendOpenSSHHostKeyPolicyArgs(args: string[]): void {
+  if (hostKeyPolicyMode === "strict") {
+    return;
+  }
+
+  args.push("-o", "StrictHostKeyChecking=no");
+  args.push("-o", "UserKnownHostsFile=/dev/null");
+}
 
 /**
  * SSH connection configuration (host/port/identity only).
@@ -100,7 +130,7 @@ export interface AcquireConnectionOptions {
   /**
    * Called when acquireConnection is waiting due to backoff.
    *
-   * Useful for user-facing progress logs (e.g. workspace init).
+   * Useful for user-facing progress logs (e.g. minion init).
    */
   onWait?: (waitMs: number) => void;
 
@@ -253,10 +283,16 @@ export class SSHConnectionPool {
         await probe;
         return;
       } catch (error) {
+        // Ensure backoff is recorded even if probeConnection rejected before
+        // reaching markFailedByKey (e.g., askpass setup failure). Without this,
+        // the while-loop retries immediately with no backoff — a hot loop.
+        const h = this.health.get(key);
+        if (!h?.backoffUntil || h.backoffUntil <= new Date()) {
+          this.markFailedByKey(key, error instanceof Error ? error.message : String(error));
+        }
         if (!shouldWait) {
           throw error;
         }
-        // In wait mode: probeConnection() recorded backoff; loop and wait.
         continue;
       } finally {
         this.inflight.delete(key);
@@ -346,6 +382,15 @@ export class SSHConnectionPool {
   }
 
   /**
+   * Clear all health state. Used in tests to reset between test cases
+   * so backoff from one test doesn't affect subsequent tests.
+   */
+  clearAllHealth(): void {
+    this.health.clear();
+    this.inflight.clear();
+  }
+
+  /**
    * Probe connection health by running a simple command
    */
   private async probeConnection(
@@ -354,6 +399,8 @@ export class SSHConnectionPool {
     key: string
   ): Promise<void> {
     const controlPath = getControlPath(config);
+    const promptService = sshPromptService;
+    const canPromptInteractively = isInteractiveHostKeyApprovalAvailable();
 
     const args: string[] = ["-T"]; // No PTY needed for probe
 
@@ -363,8 +410,6 @@ export class SSHConnectionPool {
 
     if (config.identityFile) {
       args.push("-i", config.identityFile);
-      args.push("-o", "StrictHostKeyChecking=no");
-      args.push("-o", "UserKnownHostsFile=/dev/null");
       args.push("-o", "LogLevel=ERROR");
     }
 
@@ -373,35 +418,88 @@ export class SSHConnectionPool {
     args.push("-o", `ControlPath=${controlPath}`);
     args.push("-o", "ControlPersist=60");
 
-    // Aggressive timeouts for probe
-    const connectTimeout = Math.min(Math.ceil(timeoutMs / 1000), 15);
+    // ConnectTimeout covers the entire SSH handshake including SSH_ASKPASS waits.
+    // When host-key prompts are possible, use the longer prompt timeout so SSH
+    // doesn't self-terminate while the user is responding to the dialog.
+    // The Node.js timer still provides fast-fail for unreachable hosts.
+    const connectTimeout = canPromptInteractively
+      ? Math.ceil(HOST_KEY_APPROVAL_TIMEOUT_MS / 1000)
+      : Math.min(Math.ceil(timeoutMs / 1000), 15);
     args.push("-o", `ConnectTimeout=${connectTimeout}`);
     args.push("-o", "ServerAliveInterval=5");
     args.push("-o", "ServerAliveCountMax=2");
+
+    // Scope insecure host-key fallback to explicitly headless contexts where
+    // no verification service is wired (e.g. CLI/test harness without UI).
+    // Responder liveness only affects askpass prompt mechanics, not trust policy.
+    appendOpenSSHHostKeyPolicyArgs(args);
 
     args.push(config.host, "echo ok");
 
     log.debug(`SSH probe: ssh ${args.join(" ")}`);
 
-    return new Promise((resolve, reject) => {
-      const proc = spawn("ssh", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stderr = "";
+    // Wired to the probe timer inside the Promise; the askpass callback
+    // calls this to transition from connection phase (10s) to interaction
+    // phase (60s) when a host-key prompt is detected.
+    let extendDeadline: ((ms: number) => void) | undefined;
 
-      let stderr = "";
+    // Set up SSH_ASKPASS for interactive host-key verification.
+    // The askpass helper exchanges prompt/response text through temp files.
+    // Non-host-key prompts (passphrase, password) return empty to fail fast —
+    // passphrase-protected keys must be agent-unlocked before Lattice can use them.
+    const askpass =
+      canPromptInteractively && promptService
+        ? await createMediatedAskpassSession({
+            sshPromptService: promptService,
+            promptPolicy: {
+              allowHostKey: true,
+              allowCredential: false,
+            },
+            dedupeKey: formatSshEndpoint(config.host, config.port ?? 22),
+            getStderrContext: () => stderr,
+            onHostKeyPromptStarted: () => {
+              extendDeadline?.(HOST_KEY_APPROVAL_TIMEOUT_MS);
+            },
+          })
+        : undefined;
+
+    return new Promise((resolve, reject) => {
+      const proc = spawn("ssh", args, {
+        stdio: ["ignore", "pipe", "pipe"],
+        ...(askpass ? { env: { ...process.env, ...askpass.env } } : {}),
+      });
+
+      let timedOut = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+
+      const scheduleKill = (ms: number) => {
+        if (timer) {
+          clearTimeout(timer);
+        }
+        timer = setTimeout(() => {
+          timedOut = true;
+          proc.kill("SIGKILL");
+          askpass?.cleanup();
+          const error = "SSH probe timed out";
+          this.markFailedByKey(key, error);
+          reject(new Error(error));
+        }, ms);
+      };
+
+      // Wire askpass deadline extension, then start initial fast timeout.
+      extendDeadline = scheduleKill;
+      scheduleKill(timeoutMs);
+
       proc.stderr.on("data", (data: Buffer) => {
         stderr += data.toString();
       });
 
-      let timedOut = false;
-      const timeout = setTimeout(() => {
-        timedOut = true;
-        proc.kill("SIGKILL");
-        const error = "SSH probe timed out";
-        this.markFailedByKey(key, error);
-        reject(new Error(error));
-      }, timeoutMs);
-
       proc.on("close", (code) => {
-        clearTimeout(timeout);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        askpass?.cleanup();
         if (timedOut) return; // Already handled by timeout
 
         if (code === 0) {
@@ -416,7 +514,10 @@ export class SSHConnectionPool {
       });
 
       proc.on("error", (err) => {
-        clearTimeout(timeout);
+        if (timer) {
+          clearTimeout(timer);
+        }
+        askpass?.cleanup();
         const error = `SSH probe spawn error: ${err.message}`;
         this.markFailedByKey(key, error);
         reject(new Error(error));
@@ -457,7 +558,7 @@ export function getControlPath(config: SSHConnectionConfig): string {
 function makeConnectionKey(config: SSHConnectionConfig): string {
   // Note: srcBaseDir is intentionally excluded - connection identity is determined
   // by user + host + port + key. This allows health tracking and multiplexing
-  // to be shared across workspaces on the same host.
+  // to be shared across minions on the same host.
   const parts = [
     os.userInfo().username, // Include local user to prevent cross-user collisions
     config.host,

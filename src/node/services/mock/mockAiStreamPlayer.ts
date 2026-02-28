@@ -25,6 +25,7 @@ import type { ToolCallStartEvent, ToolCallEndEvent } from "@/common/types/stream
 import type { ReasoningDeltaEvent } from "@/common/types/stream";
 import { getTokenizerForModel } from "@/node/utils/main/tokenizer";
 import { KNOWN_MODELS } from "@/common/constants/knownModels";
+import { getErrorMessage } from "@/common/utils/errors";
 
 const MOCK_TOKENIZER_MODEL = KNOWN_MODELS.GPT.id;
 const TOKENIZE_TIMEOUT_MS = 150;
@@ -71,7 +72,7 @@ async function tokenizeWithMockModel(text: string, context: string): Promise<num
       );
       return tokens;
     } catch (error) {
-      tokenizerErrorMessage = error instanceof Error ? error.message : String(error);
+      tokenizerErrorMessage = getErrorMessage(error);
       return approximateTokens;
     }
   })();
@@ -128,43 +129,48 @@ export class MockAiStreamPlayer {
   private readonly streamStartGates = new Map<string, StreamStartGate>();
   private readonly releasedStreamStartGates = new Set<string>();
   private readonly router = new MockAiRouter();
-  private readonly lastPromptByWorkspace = new Map<string, LatticeMessage[]>();
+  private readonly lastPromptByMinion = new Map<string, LatticeMessage[]>();
+  private readonly lastModelByMinion = new Map<string, string>();
   private readonly activeStreams = new Map<string, ActiveStream>();
   private nextMockMessageId = 0;
 
   constructor(private readonly deps: MockPlayerDeps) {}
 
-  debugGetLastPrompt(workspaceId: string): LatticeMessage[] | null {
-    return this.lastPromptByWorkspace.get(workspaceId) ?? null;
+  debugGetLastPrompt(minionId: string): LatticeMessage[] | null {
+    return this.lastPromptByMinion.get(minionId) ?? null;
   }
 
-  private recordLastPrompt(workspaceId: string, messages: LatticeMessage[]): void {
+  debugGetLastModel(minionId: string): string | null {
+    return this.lastModelByMinion.get(minionId) ?? null;
+  }
+
+  private recordLastPrompt(minionId: string, messages: LatticeMessage[]): void {
     try {
       const cloned =
         typeof structuredClone === "function"
           ? structuredClone(messages)
           : (JSON.parse(JSON.stringify(messages)) as LatticeMessage[]);
-      this.lastPromptByWorkspace.set(workspaceId, cloned);
+      this.lastPromptByMinion.set(minionId, cloned);
     } catch {
-      this.lastPromptByWorkspace.set(workspaceId, messages);
+      this.lastPromptByMinion.set(minionId, messages);
     }
   }
 
-  isStreaming(workspaceId: string): boolean {
-    return this.activeStreams.has(workspaceId);
+  isStreaming(minionId: string): boolean {
+    return this.activeStreams.has(minionId);
   }
 
-  releaseStreamStartGate(workspaceId: string): void {
-    const gate = this.streamStartGates.get(workspaceId);
+  releaseStreamStartGate(minionId: string): void {
+    const gate = this.streamStartGates.get(minionId);
     if (!gate) {
-      this.releasedStreamStartGates.add(workspaceId);
+      this.releasedStreamStartGates.add(minionId);
       return;
     }
     gate.resolve();
   }
 
-  private getStreamStartGate(workspaceId: string): StreamStartGate {
-    const existing = this.streamStartGates.get(workspaceId);
+  private getStreamStartGate(minionId: string): StreamStartGate {
+    const existing = this.streamStartGates.get(minionId);
     if (existing) {
       return existing;
     }
@@ -174,26 +180,26 @@ export class MockAiStreamPlayer {
       resolve = res;
     });
     const gate = { promise, resolve };
-    this.streamStartGates.set(workspaceId, gate);
+    this.streamStartGates.set(minionId, gate);
     return gate;
   }
 
   private async waitForStreamStartGate(
-    workspaceId: string,
+    minionId: string,
     abortSignal?: AbortSignal
   ): Promise<void> {
-    if (this.releasedStreamStartGates.delete(workspaceId)) {
+    if (this.releasedStreamStartGates.delete(minionId)) {
       return;
     }
 
-    const gate = this.getStreamStartGate(workspaceId);
+    const gate = this.getStreamStartGate(minionId);
     let resolved = false;
 
     await new Promise<void>((resolve) => {
       const finish = () => {
         if (resolved) return;
         resolved = true;
-        this.streamStartGates.delete(workspaceId);
+        this.streamStartGates.delete(minionId);
         if (abortSignal) {
           abortSignal.removeEventListener("abort", finish);
         }
@@ -211,8 +217,8 @@ export class MockAiStreamPlayer {
       }
     });
   }
-  stop(workspaceId: string): void {
-    const active = this.activeStreams.get(workspaceId);
+  stop(minionId: string): void {
+    const active = this.activeStreams.get(minionId);
     if (!active) return;
 
     active.cancelled = true;
@@ -220,17 +226,17 @@ export class MockAiStreamPlayer {
     // Emit stream-abort event to mirror real streaming behavior
     this.deps.aiService.emit("stream-abort", {
       type: "stream-abort",
-      workspaceId,
+      minionId,
       messageId: active.messageId,
-      reason: "user_cancelled",
+      abortReason: "user",
     });
 
-    this.cleanup(workspaceId);
+    this.cleanup(minionId);
   }
 
   async play(
     messages: LatticeMessage[],
-    workspaceId: string,
+    minionId: string,
     options?: {
       model?: string;
       abortSignal?: AbortSignal;
@@ -248,7 +254,13 @@ export class MockAiStreamPlayer {
 
     const latestText = this.extractText(latest);
 
-    this.recordLastPrompt(workspaceId, messages);
+    this.recordLastPrompt(minionId, messages);
+    // Always update last model to avoid stale state between requests
+    if (options?.model) {
+      this.lastModelByMinion.set(minionId, options.model);
+    } else {
+      this.lastModelByMinion.delete(minionId);
+    }
     const reply = this.router.route({
       messages,
       latestUserMessage: latest,
@@ -257,7 +269,7 @@ export class MockAiStreamPlayer {
 
     const messageId = `msg-mock-${this.nextMockMessageId++}`;
     if (reply.waitForStreamStart) {
-      await this.waitForStreamStartGate(workspaceId, abortSignal);
+      await this.waitForStreamStartGate(minionId, abortSignal);
       if (abortSignal?.aborted) {
         return Ok(undefined);
       }
@@ -281,7 +293,7 @@ export class MockAiStreamPlayer {
       // eslint-disable-next-line prefer-const -- assigned once but after cleanup() is defined
       let timeoutId: ReturnType<typeof setTimeout>;
       const onStreamStart = (event: StreamStartEvent) => {
-        if (event.workspaceId !== workspaceId || event.messageId !== messageId) {
+        if (event.minionId !== minionId || event.messageId !== messageId) {
           return;
         }
         cleanup();
@@ -319,7 +331,7 @@ export class MockAiStreamPlayer {
     }
 
     const appendResult = await this.deps.historyService.appendToHistory(
-      workspaceId,
+      minionId,
       assistantMessage
     );
     if (!appendResult.success) {
@@ -327,7 +339,7 @@ export class MockAiStreamPlayer {
     }
 
     if (abortSignal?.aborted) {
-      const deleteResult = await this.deps.historyService.deleteMessage(workspaceId, messageId);
+      const deleteResult = await this.deps.historyService.deleteMessage(minionId, messageId);
       if (!deleteResult.success) {
         log.error(
           `Failed to delete aborted mock assistant placeholder (${messageId}): ${deleteResult.error}`
@@ -339,11 +351,11 @@ export class MockAiStreamPlayer {
     historySequence = assistantMessage.metadata?.historySequence ?? historySequence;
 
     // Cancel any existing stream before starting a new one
-    if (this.isStreaming(workspaceId)) {
-      this.stop(workspaceId);
+    if (this.isStreaming(minionId)) {
+      this.stop(minionId);
     }
 
-    this.scheduleEvents(workspaceId, events, messageId, historySequence);
+    this.scheduleEvents(minionId, events, messageId, historySequence);
 
     await streamStartPromise;
     if (abortSignal?.aborted) {
@@ -353,18 +365,18 @@ export class MockAiStreamPlayer {
     return Ok(undefined);
   }
 
-  async replayStream(_workspaceId: string): Promise<void> {
+  async replayStream(_minionId: string): Promise<void> {
     // No-op for mock streams; events are deterministic and do not support mid-stream replay.
   }
 
   private scheduleEvents(
-    workspaceId: string,
+    minionId: string,
     events: MockAssistantEvent[],
     messageId: string,
     historySequence: number
   ): void {
     const timers: Array<ReturnType<typeof setTimeout>> = [];
-    this.activeStreams.set(workspaceId, {
+    this.activeStreams.set(minionId, {
       timers,
       messageId,
       eventQueue: [],
@@ -374,24 +386,24 @@ export class MockAiStreamPlayer {
 
     for (const event of events) {
       const timer = setTimeout(() => {
-        this.enqueueEvent(workspaceId, messageId, () =>
-          this.dispatchEvent(workspaceId, event, messageId, historySequence)
+        this.enqueueEvent(minionId, messageId, () =>
+          this.dispatchEvent(minionId, event, messageId, historySequence)
         );
       }, event.delay);
       timers.push(timer);
     }
   }
 
-  private enqueueEvent(workspaceId: string, messageId: string, handler: () => Promise<void>): void {
-    const active = this.activeStreams.get(workspaceId);
+  private enqueueEvent(minionId: string, messageId: string, handler: () => Promise<void>): void {
+    const active = this.activeStreams.get(minionId);
     if (!active || active.cancelled || active.messageId !== messageId) return;
 
     active.eventQueue.push(handler);
-    void this.processQueue(workspaceId);
+    void this.processQueue(minionId);
   }
 
-  private async processQueue(workspaceId: string): Promise<void> {
-    const active = this.activeStreams.get(workspaceId);
+  private async processQueue(minionId: string): Promise<void> {
+    const active = this.activeStreams.get(minionId);
     if (!active || active.isProcessing) return;
 
     active.isProcessing = true;
@@ -403,7 +415,7 @@ export class MockAiStreamPlayer {
       try {
         await handler();
       } catch (error) {
-        log.error(`Event handler error for ${workspaceId}:`, error);
+        log.error(`Event handler error for ${minionId}:`, error);
       }
     }
 
@@ -411,12 +423,12 @@ export class MockAiStreamPlayer {
   }
 
   private async dispatchEvent(
-    workspaceId: string,
+    minionId: string,
     event: MockAssistantEvent,
     messageId: string,
     historySequence: number
   ): Promise<void> {
-    const active = this.activeStreams.get(workspaceId);
+    const active = this.activeStreams.get(minionId);
     if (!active || active.cancelled || active.messageId !== messageId) {
       return;
     }
@@ -425,7 +437,7 @@ export class MockAiStreamPlayer {
       case "stream-start": {
         const payload: StreamStartEvent = {
           type: "stream-start",
-          workspaceId,
+          minionId,
           messageId,
           model: event.model,
           historySequence,
@@ -441,7 +453,7 @@ export class MockAiStreamPlayer {
         if (active.cancelled) return;
         const payload: ReasoningDeltaEvent = {
           type: "reasoning-delta",
-          workspaceId,
+          minionId,
           messageId,
           delta: event.text,
           tokens,
@@ -457,7 +469,7 @@ export class MockAiStreamPlayer {
         if (active.cancelled) return;
         const payload: ToolCallStartEvent = {
           type: "tool-call-start",
-          workspaceId,
+          minionId,
           messageId,
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -471,7 +483,7 @@ export class MockAiStreamPlayer {
       case "usage-delta": {
         const payload: UsageDeltaEvent = {
           type: "usage-delta",
-          workspaceId,
+          minionId,
           messageId,
           usage: event.usage,
           providerMetadata: event.providerMetadata,
@@ -484,7 +496,7 @@ export class MockAiStreamPlayer {
       case "tool-end": {
         const payload: ToolCallEndEvent = {
           type: "tool-call-end",
-          workspaceId,
+          minionId,
           messageId,
           toolCallId: event.toolCallId,
           toolName: event.toolName,
@@ -505,7 +517,7 @@ export class MockAiStreamPlayer {
         }
         const payload: StreamDeltaEvent = {
           type: "stream-delta",
-          workspaceId,
+          minionId,
           messageId,
           delta: event.text,
           tokens,
@@ -518,19 +530,19 @@ export class MockAiStreamPlayer {
         const payload: MockStreamErrorEvent = event;
         this.deps.aiService.emit(
           "error",
-          createErrorEvent(workspaceId, {
+          createErrorEvent(minionId, {
             messageId,
             error: payload.error,
             errorType: payload.errorType,
           })
         );
-        this.cleanup(workspaceId);
+        this.cleanup(minionId);
         break;
       }
       case "stream-end": {
         const payload: StreamEndEvent = {
           type: "stream-end",
-          workspaceId,
+          minionId,
           messageId,
           metadata: {
             model: event.metadata.model,
@@ -539,9 +551,10 @@ export class MockAiStreamPlayer {
           parts: event.parts,
         };
 
-        // Update history with completed message (mirrors real StreamManager behavior)
-        // Fetch the current message from history to get its historySequence
-        const historyResult = await this.deps.historyService.getHistory(workspaceId);
+        // Update history with completed message (mirrors real StreamManager behavior).
+        // The target message is always in the current epoch — use boundary-aware read.
+        const historyResult =
+          await this.deps.historyService.getHistoryFromLatestBoundary(minionId);
         if (active.cancelled) return;
         if (historyResult.success) {
           const existingMessage = historyResult.data.find((msg) => msg.id === messageId);
@@ -557,7 +570,7 @@ export class MockAiStreamPlayer {
               },
             };
             const updateResult = await this.deps.historyService.updateHistory(
-              workspaceId,
+              minionId,
               completedMessage
             );
 
@@ -570,14 +583,14 @@ export class MockAiStreamPlayer {
         if (active.cancelled) return;
 
         this.deps.aiService.emit("stream-end", payload);
-        this.cleanup(workspaceId);
+        this.cleanup(minionId);
         break;
       }
     }
   }
 
-  private cleanup(workspaceId: string): void {
-    const active = this.activeStreams.get(workspaceId);
+  private cleanup(minionId: string): void {
+    const active = this.activeStreams.get(minionId);
     if (!active) return;
 
     active.cancelled = true;
@@ -590,7 +603,7 @@ export class MockAiStreamPlayer {
     // Clear event queue to prevent any pending events from processing
     active.eventQueue = [];
 
-    this.activeStreams.delete(workspaceId);
+    this.activeStreams.delete(minionId);
   }
 
   private extractText(message: LatticeMessage): string {

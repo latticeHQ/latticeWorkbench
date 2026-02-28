@@ -2,6 +2,7 @@ import React from "react";
 import type { DisplayedMessage } from "@/common/types/message";
 import type { ReviewNoteData } from "@/common/types/review";
 import type { BashOutputGroupInfo } from "@/browser/utils/messages/messageUtils";
+import type { TaskReportLinking } from "@/browser/utils/messages/taskReportLinking";
 import { getToolComponent } from "../tools/shared/getToolComponent";
 import {
   HookOutputDisplay,
@@ -12,22 +13,25 @@ import {
 interface ToolMessageProps {
   message: DisplayedMessage & { type: "tool" };
   className?: string;
-  workspaceId?: string;
+  minionId?: string;
   /** Handler for adding review notes from inline diffs */
   onReviewNote?: (data: ReviewNoteData) => void;
   /** Whether this is the latest propose_plan in the conversation */
   isLatestProposePlan?: boolean;
   /** Optional bash_output grouping info */
   bashOutputGroup?: BashOutputGroupInfo;
+  /** Optional task report linking context (computed at render-time) */
+  taskReportLinking?: TaskReportLinking;
 }
 
 export const ToolMessage: React.FC<ToolMessageProps> = ({
   message,
   className,
-  workspaceId,
+  minionId,
   onReviewNote,
   isLatestProposePlan,
   bashOutputGroup,
+  taskReportLinking,
 }) => {
   const { toolName, args, result, status, toolCallId } = message;
 
@@ -53,7 +57,7 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({
         status={status}
         toolName={toolName}
         // Identity props (used by bash for live output, ask_user_question for caching)
-        workspaceId={workspaceId}
+        minionId={minionId}
         toolCallId={toolCallId}
         // Bash-specific
         startedAt={message.timestamp}
@@ -63,6 +67,8 @@ export const ToolMessage: React.FC<ToolMessageProps> = ({
         isLatest={isLatestProposePlan}
         // BashOutput-specific
         groupPosition={groupPosition}
+        // Task-specific
+        taskReportLinking={taskReportLinking}
         // CodeExecution-specific
         nestedCalls={message.nestedCalls}
       />

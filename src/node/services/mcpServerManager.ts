@@ -1,20 +1,24 @@
-import { experimental_createMCPClient } from "@ai-sdk/mcp";
+import { createMCPClient, type OAuthClientProvider } from "@ai-sdk/mcp";
 import type { Tool } from "ai";
 import { log } from "@/node/services/log";
 import { MCPStdioTransport } from "@/node/services/mcpStdioTransport";
 import type {
+  BearerChallenge,
   MCPHeaderValue,
   MCPServerInfo,
   MCPServerMap,
   MCPServerTransport,
   MCPTestResult,
-  WorkspaceMCPOverrides,
+  MinionMCPOverrides,
 } from "@/common/types/mcp";
 import type { Runtime } from "@/node/runtime/Runtime";
+import type { PolicyService } from "@/node/services/policyService";
 import type { MCPConfigService } from "@/node/services/mcpConfigService";
+import { parseBearerWwwAuthenticate, type McpOauthService } from "@/node/services/mcpOauthService";
 import { createRuntime } from "@/node/runtime/runtimeFactory";
 import { transformMCPResult, type MCPCallToolResult } from "@/node/services/mcpResultTransform";
 import { buildMcpToolName } from "@/common/utils/tools/mcpToolName";
+import { getErrorMessage } from "@/common/utils/errors";
 
 const TEST_TIMEOUT_MS = 10_000;
 const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
@@ -119,7 +123,7 @@ function extractHttpStatusCode(error: unknown): number | null {
   // Best-effort fallback on message contents.
   const message = obj.message;
   if (typeof message === "string") {
-    const re = /\b(400|404|405)\b/;
+    const re = /\b(400|401|403|404|405)\b/;
     const match = re.exec(message);
     if (match) {
       return Number(match[1]);
@@ -134,6 +138,144 @@ function shouldAutoFallbackToSse(error: unknown): boolean {
   return status === 400 || status === 404 || status === 405;
 }
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasHeaderGetter(value: unknown): value is { get: (name: string) => unknown } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    "get" in value &&
+    typeof (value as { get: unknown }).get === "function"
+  );
+}
+
+function extractHeaderValue(headers: unknown, name: string): string | null {
+  if (!headers) {
+    return null;
+  }
+
+  if (typeof Headers !== "undefined" && headers instanceof Headers) {
+    return headers.get(name);
+  }
+
+  if (hasHeaderGetter(headers)) {
+    const value = headers.get(name);
+    return typeof value === "string" ? value : null;
+  }
+
+  if (isPlainObject(headers)) {
+    const target = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers)) {
+      if (key.toLowerCase() !== target) {
+        continue;
+      }
+
+      if (typeof value === "string") {
+        return value;
+      }
+
+      if (Array.isArray(value) && value.every((v) => typeof v === "string")) {
+        return value.join(", ");
+      }
+    }
+  }
+
+  return null;
+}
+
+function extractWwwAuthenticateHeader(error: unknown): string | null {
+  if (!isPlainObject(error)) {
+    return null;
+  }
+
+  const direct =
+    extractHeaderValue(error.responseHeaders, "www-authenticate") ??
+    extractHeaderValue(error.headers, "www-authenticate");
+
+  if (direct) {
+    return direct;
+  }
+
+  const response = error.response;
+  if (isPlainObject(response)) {
+    const fromResponse = extractHeaderValue(response.headers, "www-authenticate");
+    if (fromResponse) {
+      return fromResponse;
+    }
+  }
+
+  const data = error.data;
+  if (isPlainObject(data)) {
+    const fromData =
+      extractHeaderValue(data.responseHeaders, "www-authenticate") ??
+      extractHeaderValue(data.headers, "www-authenticate");
+
+    if (fromData) {
+      return fromData;
+    }
+  }
+
+  const cause = error.cause;
+  if (cause) {
+    return extractWwwAuthenticateHeader(cause);
+  }
+
+  return null;
+}
+
+async function probeWwwAuthenticateHeader(url: string): Promise<string | null> {
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 3_000);
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "text/event-stream",
+      },
+      redirect: "manual",
+      signal: abortController.signal,
+    });
+
+    return response.headers.get("www-authenticate");
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function extractBearerOauthChallenge(options: {
+  error: unknown;
+  serverUrl: string | null;
+}): Promise<BearerChallenge | null> {
+  const status = extractHttpStatusCode(options.error);
+  if (status !== 401 && status !== 403) {
+    return null;
+  }
+
+  let header = extractWwwAuthenticateHeader(options.error);
+  if (!header && options.serverUrl) {
+    header = await probeWwwAuthenticateHeader(options.serverUrl);
+  }
+
+  if (!header) {
+    return null;
+  }
+
+  const challenge = parseBearerWwwAuthenticate(header);
+  if (!challenge) {
+    return null;
+  }
+
+  return {
+    scope: challenge.scope,
+    resourceMetadataUrl: challenge.resourceMetadataUrl?.toString(),
+  };
+}
+
 export type { MCPTestResult } from "@/common/types/mcp";
 
 /**
@@ -143,7 +285,12 @@ export type { MCPTestResult } from "@/common/types/mcp";
 async function runServerTest(
   server:
     | { transport: "stdio"; command: string }
-    | { transport: "http" | "sse" | "auto"; url: string; headers?: ResolvedHeaders },
+    | {
+        transport: "http" | "sse" | "auto";
+        url: string;
+        headers?: ResolvedHeaders;
+        authProvider?: OAuthClientProvider;
+      },
   projectPath: string,
   logContext: string
 ): Promise<MCPTestResult> {
@@ -153,7 +300,7 @@ async function runServerTest(
 
   const testPromise = (async (): Promise<MCPTestResult> => {
     let stdioTransport: MCPStdioTransport | null = null;
-    let client: Awaited<ReturnType<typeof experimental_createMCPClient>> | null = null;
+    let client: Awaited<ReturnType<typeof createMCPClient>> | null = null;
 
     try {
       if (server.transport === "stdio") {
@@ -167,25 +314,29 @@ async function runServerTest(
 
         stdioTransport = new MCPStdioTransport(execStream);
         await stdioTransport.start();
-        client = await experimental_createMCPClient({ transport: stdioTransport });
+        client = await createMCPClient({ transport: stdioTransport });
       } else {
         log.debug(`[MCP] Testing ${logContext}`, { transport: server.transport });
 
+        const transportBase = {
+          url: server.url,
+          headers: server.headers,
+          ...(server.authProvider ? { authProvider: server.authProvider } : {}),
+        };
+
         const tryHttp = async () =>
-          experimental_createMCPClient({
+          createMCPClient({
             transport: {
               type: "http",
-              url: server.url,
-              headers: server.headers,
+              ...transportBase,
             },
           });
 
         const trySse = async () =>
-          experimental_createMCPClient({
+          createMCPClient({
             transport: {
               type: "sse",
-              url: server.url,
-              headers: server.headers,
+              ...transportBase,
             },
           });
 
@@ -223,7 +374,7 @@ async function runServerTest(
       log.info(`[MCP] ${logContext} test successful`, { toolCount: toolNames.length });
       return { success: true, tools: toolNames };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       log.warn(`[MCP] ${logContext} test failed`, { error: message });
 
       if (client) {
@@ -242,7 +393,16 @@ async function runServerTest(
         }
       }
 
-      return { success: false, error: message };
+      const oauthChallenge = await extractBearerOauthChallenge({
+        error,
+        serverUrl: server.transport === "stdio" ? null : server.url,
+      });
+
+      return {
+        success: false,
+        error: message,
+        ...(oauthChallenge ? { oauthChallenge } : {}),
+      };
     }
   })();
 
@@ -262,7 +422,7 @@ interface MCPServerInstance {
 
 export type MCPTransportMode = "none" | "stdio_only" | "http_only" | "sse_only" | "mixed";
 
-export interface MCPWorkspaceStats {
+export interface MCPMinionStats {
   enabledServerCount: number;
   startedServerCount: number;
   failedServerCount: number;
@@ -274,14 +434,14 @@ export interface MCPWorkspaceStats {
   transportMode: MCPTransportMode;
 }
 
-export interface MCPToolsForWorkspaceResult {
+export interface MCPToolsForMinionResult {
   tools: Record<string, Tool>;
-  stats: MCPWorkspaceStats;
+  stats: MCPMinionStats;
 }
-interface WorkspaceServers {
+interface MinionServers {
   configSignature: string;
   instances: Map<string, MCPServerInstance>;
-  stats: MCPWorkspaceStats;
+  stats: MCPMinionStats;
   lastActivity: number;
 }
 
@@ -290,22 +450,26 @@ export interface MCPServerManagerOptions {
   inlineServers?: Record<string, string>;
   /** If true, ignore config file servers and use only inline servers */
   ignoreConfigFile?: boolean;
-  /** Bundled MCP servers that ship with Lattice. Lowest priority — overridden by config and inline. */
-  bundledServers?: Record<string, MCPServerInfo>;
 }
 
 export class MCPServerManager {
-  private readonly workspaceServers = new Map<string, WorkspaceServers>();
-  private readonly workspaceLeases = new Map<string, number>();
+  private readonly minionServers = new Map<string, MinionServers>();
+  private readonly minionLeases = new Map<string, number>();
   private readonly idleCheckInterval: ReturnType<typeof setInterval>;
   private inlineServers: Record<string, string> = {};
+  private readonly policyService: PolicyService | null;
+  private mcpOauthService: McpOauthService | null = null;
   private ignoreConfigFile = false;
-  private bundledServers: Record<string, MCPServerInfo> = {};
 
+  setMcpOauthService(service: McpOauthService): void {
+    this.mcpOauthService = service;
+  }
   constructor(
     private readonly configService: MCPConfigService,
-    options?: MCPServerManagerOptions
+    options?: MCPServerManagerOptions,
+    policyService?: PolicyService
   ) {
+    this.policyService = policyService ?? null;
     this.idleCheckInterval = setInterval(() => this.cleanupIdleServers(), IDLE_CHECK_INTERVAL_MS);
     this.idleCheckInterval.unref?.();
     if (options?.inlineServers) {
@@ -314,9 +478,14 @@ export class MCPServerManager {
     if (options?.ignoreConfigFile) {
       this.ignoreConfigFile = options.ignoreConfigFile;
     }
-    if (options?.bundledServers) {
-      this.bundledServers = options.bundledServers;
-    }
+  }
+
+  /**
+   * Get the set of built-in inline servers (name → command).
+   * These are always enabled and cannot be disabled by config or minion overrides.
+   */
+  getInlineServers(): Record<string, string> {
+    return { ...this.inlineServers };
   }
 
   /**
@@ -326,43 +495,43 @@ export class MCPServerManager {
     clearInterval(this.idleCheckInterval);
   }
 
-  private getLeaseCount(workspaceId: string): number {
-    return this.workspaceLeases.get(workspaceId) ?? 0;
+  private getLeaseCount(minionId: string): number {
+    return this.minionLeases.get(minionId) ?? 0;
   }
 
   /**
-   * Mark a workspace's MCP servers as actively in-use.
+   * Mark a minion's MCP servers as actively in-use.
    *
    * This prevents idle cleanup from shutting down MCP clients while a stream is
    * still running (which can otherwise surface as "Attempted to send a request
    * from a closed client").
    */
-  acquireLease(workspaceId: string): void {
-    const current = this.workspaceLeases.get(workspaceId) ?? 0;
-    this.workspaceLeases.set(workspaceId, current + 1);
-    this.markActivity(workspaceId);
+  acquireLease(minionId: string): void {
+    const current = this.minionLeases.get(minionId) ?? 0;
+    this.minionLeases.set(minionId, current + 1);
+    this.markActivity(minionId);
   }
 
   /**
    * Release a previously-acquired lease.
    */
-  releaseLease(workspaceId: string): void {
-    const current = this.workspaceLeases.get(workspaceId) ?? 0;
+  releaseLease(minionId: string): void {
+    const current = this.minionLeases.get(minionId) ?? 0;
     if (current <= 0) {
-      log.debug("[MCP] releaseLease called without an active lease", { workspaceId });
+      log.debug("[MCP] releaseLease called without an active lease", { minionId });
       return;
     }
 
     if (current === 1) {
-      this.workspaceLeases.delete(workspaceId);
+      this.minionLeases.delete(minionId);
       return;
     }
 
-    this.workspaceLeases.set(workspaceId, current - 1);
+    this.minionLeases.set(minionId, current - 1);
   }
 
-  private markActivity(workspaceId: string): void {
-    const entry = this.workspaceServers.get(workspaceId);
+  private markActivity(minionId: string): void {
+    const entry = this.minionServers.get(minionId);
     if (!entry) {
       return;
     }
@@ -371,21 +540,21 @@ export class MCPServerManager {
 
   private cleanupIdleServers(): void {
     const now = Date.now();
-    for (const [workspaceId, entry] of this.workspaceServers) {
+    for (const [minionId, entry] of this.minionServers) {
       if (entry.instances.size === 0) continue;
 
-      // Never tear down a workspace's MCP servers while a stream is running.
-      if (this.getLeaseCount(workspaceId) > 0) {
+      // Never tear down a minion's MCP servers while a stream is running.
+      if (this.getLeaseCount(minionId) > 0) {
         continue;
       }
 
       const idleMs = now - entry.lastActivity;
       if (idleMs >= IDLE_TIMEOUT_MS) {
         log.info("[MCP] Stopping idle servers", {
-          workspaceId,
+          minionId,
           idleMinutes: Math.round(idleMs / 60_000),
         });
-        void this.stopServers(workspaceId);
+        void this.stopServers(minionId);
       }
     }
   }
@@ -394,38 +563,56 @@ export class MCPServerManager {
    * Get all servers from config (both enabled and disabled) + inline servers.
    * Returns full MCPServerInfo to preserve disabled state.
    */
-  async getAllServers(projectPath: string): Promise<Record<string, MCPServerInfo>> {
+  private async getAllServers(projectPath: string): Promise<Record<string, MCPServerInfo>> {
     const configServers = this.ignoreConfigFile
       ? {}
       : await this.configService.listServers(projectPath);
-    // Inline servers override config file servers (always enabled)
+    // Inline servers override config file servers (always enabled, built-in)
     const inlineAsInfo: Record<string, MCPServerInfo> = {};
     for (const [name, command] of Object.entries(this.inlineServers)) {
-      inlineAsInfo[name] = { transport: "stdio", command, disabled: false };
+      inlineAsInfo[name] = { transport: "stdio", command, disabled: false, builtin: true };
     }
-    // Priority: bundled (lowest) → config file → inline (highest)
-    return { ...this.bundledServers, ...configServers, ...inlineAsInfo };
+    return { ...configServers, ...inlineAsInfo };
   }
 
   /**
    * List configured MCP servers for a project (name -> command).
    * Used to show server info in the system prompt.
    *
-   * Applies both project-level disabled state and workspace-level overrides:
-   * - Headquarter disabled + workspace enabled => enabled
-   * - Headquarter enabled + workspace disabled => disabled
-   * - No workspace override => use project state
+   * Applies both project-level disabled state and minion-level overrides:
+   * - Project disabled + minion enabled => enabled
+   * - Project enabled + minion disabled => disabled
+   * - No minion override => use project state
    *
-   * @param projectPath - Headquarter path to get servers for
-   * @param overrides - Optional workspace-level overrides
+   * @param projectPath - Project path to get servers for
+   * @param overrides - Optional minion-level overrides
    */
-  async listServers(projectPath: string, overrides?: WorkspaceMCPOverrides): Promise<MCPServerMap> {
+  async listServers(projectPath: string, overrides?: MinionMCPOverrides): Promise<MCPServerMap> {
     const allServers = await this.getAllServers(projectPath);
-    return this.applyServerOverrides(allServers, overrides);
+    const enabled = this.applyServerOverrides(allServers, overrides);
+    return this.filterServersByPolicy(enabled);
   }
 
   /**
-   * Apply workspace MCP overrides to determine final server enabled state.
+   * Filter servers based on the effective policy (e.g. disallow stdio/remote).
+   */
+  private filterServersByPolicy(servers: MCPServerMap): MCPServerMap {
+    if (!this.policyService?.isEnforced()) {
+      return servers;
+    }
+
+    const filtered: MCPServerMap = {};
+    for (const [name, info] of Object.entries(servers)) {
+      if (this.policyService.isMcpTransportAllowed(info.transport)) {
+        filtered[name] = info;
+      }
+    }
+
+    return filtered;
+  }
+
+  /**
+   * Apply minion MCP overrides to determine final server enabled state.
    *
    * Logic:
    * - If server is in enabledServers: enabled (overrides project disabled)
@@ -434,30 +621,30 @@ export class MCPServerManager {
    */
   private applyServerOverrides(
     servers: Record<string, MCPServerInfo>,
-    overrides?: WorkspaceMCPOverrides
+    overrides?: MinionMCPOverrides
   ): MCPServerMap {
     const enabledSet = new Set(overrides?.enabledServers ?? []);
     const disabledSet = new Set(overrides?.disabledServers ?? []);
 
     const result: MCPServerMap = {};
     for (const [name, info] of Object.entries(servers)) {
-      // Workspace overrides take precedence
+      // Minion overrides take precedence
       if (enabledSet.has(name)) {
-        // Explicitly enabled at workspace level (overrides project disabled)
+        // Explicitly enabled at minion level (overrides project disabled)
         result[name] = { ...info, disabled: false };
         continue;
       }
 
       if (disabledSet.has(name)) {
-        // Explicitly disabled at workspace level - skip
+        // Explicitly disabled at minion level - skip
         continue;
       }
 
       if (!info.disabled) {
-        // Enabled at project level, no workspace override
+        // Enabled at project level, no minion override
         result[name] = info;
       }
-      // If disabled at project level with no workspace override, skip
+      // If disabled at project level with no minion override, skip
     }
 
     return result;
@@ -465,37 +652,37 @@ export class MCPServerManager {
 
   /**
    * Apply tool allowlists to filter tools from a server.
-   * Headquarter-level allowlist is applied first, then workspace-level (intersection).
+   * Project-level allowlist is applied first, then minion-level (intersection).
    *
    * @param serverName - Name of the MCP server (used for allowlist lookup)
    * @param tools - Record of tool name -> Tool (NOT namespaced)
    * @param projectAllowlist - Optional project-level tool allowlist (from .lattice/mcp.jsonc)
-   * @param workspaceOverrides - Optional workspace MCP overrides containing toolAllowlist
+   * @param minionOverrides - Optional minion MCP overrides containing toolAllowlist
    * @returns Filtered tools record
    */
   private applyToolAllowlist(
     serverName: string,
     tools: Record<string, Tool>,
     projectAllowlist?: string[],
-    workspaceOverrides?: WorkspaceMCPOverrides
+    minionOverrides?: MinionMCPOverrides
   ): Record<string, Tool> {
-    const workspaceAllowlist = workspaceOverrides?.toolAllowlist?.[serverName];
+    const minionAllowlist = minionOverrides?.toolAllowlist?.[serverName];
 
     // Determine effective allowlist:
-    // - If both exist: intersection (workspace restricts further)
+    // - If both exist: intersection (minion restricts further)
     // - If only project: use project
-    // - If only workspace: use workspace
+    // - If only minion: use minion
     // - If neither: no filtering
     let effectiveAllowlist: Set<string> | null = null;
 
-    if (projectAllowlist && projectAllowlist.length > 0 && workspaceAllowlist) {
+    if (projectAllowlist && projectAllowlist.length > 0 && minionAllowlist) {
       // Intersection of both allowlists
       const projectSet = new Set(projectAllowlist);
-      effectiveAllowlist = new Set(workspaceAllowlist.filter((t) => projectSet.has(t)));
+      effectiveAllowlist = new Set(minionAllowlist.filter((t) => projectSet.has(t)));
     } else if (projectAllowlist && projectAllowlist.length > 0) {
       effectiveAllowlist = new Set(projectAllowlist);
-    } else if (workspaceAllowlist) {
-      effectiveAllowlist = new Set(workspaceAllowlist);
+    } else if (minionAllowlist) {
+      effectiveAllowlist = new Set(minionAllowlist);
     }
 
     if (!effectiveAllowlist) {
@@ -514,7 +701,7 @@ export class MCPServerManager {
     log.debug("[MCP] Applied tool allowlist", {
       serverName,
       projectAllowlist,
-      workspaceAllowlist,
+      minionAllowlist,
       effectiveCount: effectiveAllowlist.size,
       originalCount: Object.keys(tools).length,
       filteredCount: Object.keys(filtered).length,
@@ -523,23 +710,25 @@ export class MCPServerManager {
     return filtered;
   }
 
-  async getToolsForWorkspace(options: {
-    workspaceId: string;
+  async getToolsForMinion(options: {
+    minionId: string;
     projectPath: string;
     runtime: Runtime;
-    workspacePath: string;
-    /** Per-workspace MCP overrides (disabled servers, tool allowlists) */
-    overrides?: WorkspaceMCPOverrides;
-    /** Headquarter secrets, used for resolving {secret: "KEY"} header references. */
+    minionPath: string;
+    /** Per-minion MCP overrides (disabled servers, tool allowlists) */
+    overrides?: MinionMCPOverrides;
+    /** Project secrets, used for resolving {secret: "KEY"} header references. */
     projectSecrets?: Record<string, string>;
-  }): Promise<MCPToolsForWorkspaceResult> {
-    const { workspaceId, projectPath, runtime, workspacePath, overrides, projectSecrets } = options;
+  }): Promise<MCPToolsForMinionResult> {
+    const { minionId, projectPath, runtime, minionPath, overrides, projectSecrets } = options;
 
     // Fetch full server info for project-level allowlists and server filtering
     const fullServerInfo = await this.getAllServers(projectPath);
 
     // Apply server-level overrides (enabled/disabled) before caching
-    const enabledServers = this.applyServerOverrides(fullServerInfo, overrides);
+    const enabledServers = this.filterServersByPolicy(
+      this.applyServerOverrides(fullServerInfo, overrides)
+    );
     const enabledEntries = Object.entries(enabledServers).sort(([a], [b]) => a.localeCompare(b));
 
     // Signature is based on *start config* only (not tool allowlists), so changing allowlists
@@ -551,19 +740,43 @@ export class MCPServerManager {
         continue;
       }
 
+      // OAuth status affects whether we can attach authProvider during server start.
+      // Include this (redacted) information in the signature so we retry starting
+      // remote servers after a user logs in/out.
+      let hasOauthTokens = false;
+      if (this.mcpOauthService) {
+        try {
+          hasOauthTokens = await this.mcpOauthService.hasAuthTokens({
+            serverUrl: info.url,
+          });
+        } catch (error) {
+          log.debug("[MCP] Failed to resolve MCP OAuth status", { name, error });
+        }
+      }
+
       try {
         const { headers } = resolveHeaders(info.headers, projectSecrets);
-        signatureEntries[name] = { transport: info.transport, url: info.url, headers };
+        signatureEntries[name] = {
+          transport: info.transport,
+          url: info.url,
+          headers,
+          hasOauthTokens,
+        };
       } catch {
         // Missing secrets or invalid header config. Keep signature stable but avoid leaking details.
-        signatureEntries[name] = { transport: info.transport, url: info.url, headers: null };
+        signatureEntries[name] = {
+          transport: info.transport,
+          url: info.url,
+          headers: null,
+          hasOauthTokens,
+        };
       }
     }
 
     const signature = JSON.stringify(signatureEntries);
 
-    const existing = this.workspaceServers.get(workspaceId);
-    const leaseCount = this.getLeaseCount(workspaceId);
+    const existing = this.minionServers.get(minionId);
+    const leaseCount = this.getLeaseCount(minionId);
 
     const hasClosedInstance =
       existing && [...existing.instances.values()].some((instance) => instance.isClosed);
@@ -571,7 +784,7 @@ export class MCPServerManager {
     if (existing?.configSignature === signature && !hasClosedInstance) {
       existing.lastActivity = Date.now();
       log.debug("[MCP] Using cached servers", {
-        workspaceId,
+        minionId,
         serverCount: enabledEntries.length,
       });
 
@@ -598,7 +811,7 @@ export class MCPServerManager {
           .map((instance) => instance.name);
 
         log.info("[MCP] Restarting closed server instances while stream is active", {
-          workspaceId,
+          minionId,
           closedServerNames,
         });
 
@@ -622,16 +835,17 @@ export class MCPServerManager {
           try {
             await instance.close();
           } catch (error) {
-            log.debug("[MCP] Error closing dead instance", { workspaceId, serverName, error });
+            log.debug("[MCP] Error closing dead instance", { minionId, serverName, error });
           }
         }
 
         const restartedInstances = await this.startServers(
           serversToRestart,
           runtime,
-          workspacePath,
+          projectPath,
+          minionPath,
           projectSecrets,
-          () => this.markActivity(workspaceId)
+          () => this.markActivity(minionId)
         );
 
         for (const [serverName, instance] of restartedInstances) {
@@ -640,7 +854,7 @@ export class MCPServerManager {
       }
 
       log.info("[MCP] Deferring MCP server restart while stream is active", {
-        workspaceId,
+        minionId,
       });
 
       // Even while deferring restarts, ensure new tool lists reflect the latest enabled/disabled
@@ -659,23 +873,24 @@ export class MCPServerManager {
     // Config changed, instance closed, or not started yet -> restart
     if (enabledEntries.length > 0) {
       log.info("[MCP] Starting servers", {
-        workspaceId,
+        minionId,
         servers: enabledEntries.map(([name]) => name),
       });
     }
 
     if (existing && hasClosedInstance) {
-      log.info("[MCP] Restarting servers due to closed client", { workspaceId });
+      log.info("[MCP] Restarting servers due to closed client", { minionId });
     }
 
-    await this.stopServers(workspaceId);
+    await this.stopServers(minionId);
 
     const instances = await this.startServers(
       enabledServers,
       runtime,
-      workspacePath,
+      projectPath,
+      minionPath,
       projectSecrets,
-      () => this.markActivity(workspaceId)
+      () => this.markActivity(minionId)
     );
 
     const resolvedTransports = new Set<ResolvedTransport>();
@@ -698,7 +913,7 @@ export class MCPServerManager {
               ? "sse_only"
               : "mixed";
 
-    const stats: MCPWorkspaceStats = {
+    const stats: MCPMinionStats = {
       enabledServerCount: enabledEntries.length,
       startedServerCount: instances.size,
       failedServerCount: Math.max(0, enabledEntries.length - instances.size),
@@ -709,7 +924,7 @@ export class MCPServerManager {
       transportMode,
     };
 
-    this.workspaceServers.set(workspaceId, {
+    this.minionServers.set(minionId, {
       configSignature: signature,
       instances,
       stats,
@@ -722,13 +937,13 @@ export class MCPServerManager {
     };
   }
 
-  async stopServers(workspaceId: string): Promise<void> {
-    const entry = this.workspaceServers.get(workspaceId);
+  async stopServers(minionId: string): Promise<void> {
+    const entry = this.minionServers.get(minionId);
     if (!entry) return;
 
     // Remove from cache immediately so callers can't re-use tools backed by a
     // client that is in the middle of closing.
-    this.workspaceServers.delete(workspaceId);
+    this.minionServers.delete(minionId);
 
     for (const instance of entry.instances.values()) {
       try {
@@ -756,50 +971,95 @@ export class MCPServerManager {
     headers?: Record<string, MCPHeaderValue>;
     projectSecrets?: Record<string, string>;
   }): Promise<MCPTestResult> {
+    const isTransportAllowed = (t: MCPServerTransport): boolean => {
+      return !this.policyService?.isEnforced() || this.policyService.isMcpTransportAllowed(t);
+    };
     const { projectPath, name, command, transport, url, headers, projectSecrets } = options;
+    const trimmedName = name?.trim();
 
-    if (name?.trim()) {
-      const servers = await this.getAllServers(projectPath);
-      const server = servers[name];
+    if (trimmedName && !command?.trim() && !url?.trim()) {
+      // Check both config servers and built-in inline servers
+      const allServers = await this.getAllServers(projectPath);
+      const server = allServers[trimmedName];
       if (!server) {
-        return { success: false, error: `Server "${name}" not found in configuration` };
+        return { success: false, error: `Server "${trimmedName}" not found in configuration` };
+      }
+
+      if (!isTransportAllowed(server.transport)) {
+        return { success: false, error: "MCP transport is disabled by policy" };
       }
 
       if (server.transport === "stdio") {
         return runServerTest(
           { transport: "stdio", command: server.command },
           projectPath,
-          `server "${name}"`
+          `server "${trimmedName}"`
         );
       }
 
       try {
         const resolved = resolveHeaders(server.headers, projectSecrets);
+
+        const authProvider = await this.mcpOauthService?.getAuthProviderForServer({
+          serverName: trimmedName,
+          serverUrl: server.url,
+        });
+
         return runServerTest(
-          { transport: server.transport, url: server.url, headers: resolved.headers },
+          {
+            transport: server.transport,
+            url: server.url,
+            headers: resolved.headers,
+            ...(authProvider ? { authProvider } : {}),
+          },
           projectPath,
-          `server "${name}"`
+          `server "${trimmedName}"`
         );
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return { success: false, error: message };
       }
     }
 
     if (command?.trim()) {
+      if (!isTransportAllowed("stdio")) {
+        return { success: false, error: "MCP transport is disabled by policy" };
+      }
       return runServerTest({ transport: "stdio", command }, projectPath, "command");
     }
 
     if (url?.trim()) {
+      const serverUrl = url.trim();
+
       if (transport !== "http" && transport !== "sse" && transport !== "auto") {
         return { success: false, error: "transport must be http|sse|auto when testing by url" };
       }
 
+      if (!isTransportAllowed(transport)) {
+        return { success: false, error: "MCP transport is disabled by policy" };
+      }
+
       try {
         const resolved = resolveHeaders(headers, projectSecrets);
-        return runServerTest({ transport, url, headers: resolved.headers }, projectPath, "url");
+
+        const authProvider = trimmedName
+          ? await this.mcpOauthService?.getAuthProviderForServer({
+              serverName: trimmedName,
+              serverUrl,
+            })
+          : undefined;
+        return runServerTest(
+          {
+            transport,
+            url: serverUrl,
+            headers: resolved.headers,
+            ...(authProvider ? { authProvider } : {}),
+          },
+          projectPath,
+          trimmedName ? `server "${trimmedName}" (url)` : "url"
+        );
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return { success: false, error: message };
       }
     }
@@ -811,14 +1071,14 @@ export class MCPServerManager {
    * Collect tools from all server instances, applying tool allowlists.
    *
    * @param instances - Map of server instances
-   * @param serverInfo - Headquarter-level server info (for project-level tool allowlists)
-   * @param workspaceOverrides - Optional workspace MCP overrides for tool allowlists
+   * @param serverInfo - Project-level server info (for project-level tool allowlists)
+   * @param minionOverrides - Optional minion MCP overrides for tool allowlists
    * @returns Aggregated tools record with provider-safe namespaced names
    */
   private collectTools(
     instances: Map<string, MCPServerInstance>,
     serverInfo: Record<string, MCPServerInfo>,
-    workspaceOverrides?: WorkspaceMCPOverrides
+    minionOverrides?: MinionMCPOverrides
   ): Record<string, Tool> {
     const aggregated: Record<string, Tool> = {};
     const usedNames = new Set<string>();
@@ -829,12 +1089,12 @@ export class MCPServerManager {
     for (const instance of sortedInstances) {
       // Get project-level allowlist for this server
       const projectAllowlist = serverInfo[instance.name]?.toolAllowlist;
-      // Apply tool allowlist filtering (project-level + workspace-level)
+      // Apply tool allowlist filtering (project-level + minion-level)
       const filteredTools = this.applyToolAllowlist(
         instance.name,
         instance.tools,
         projectAllowlist,
-        workspaceOverrides
+        minionOverrides
       );
 
       const sortedTools = Object.entries(filteredTools).sort(([a], [b]) => a.localeCompare(b));
@@ -888,7 +1148,8 @@ export class MCPServerManager {
   private async startServers(
     servers: MCPServerMap,
     runtime: Runtime,
-    workspacePath: string,
+    projectPath: string,
+    minionPath: string,
     projectSecrets: Record<string, string> | undefined,
     onActivity: () => void
   ): Promise<Map<string, MCPServerInstance>> {
@@ -901,7 +1162,8 @@ export class MCPServerManager {
           name,
           info,
           runtime,
-          workspacePath,
+          projectPath,
+          minionPath,
           projectSecrets,
           onActivity
         );
@@ -909,7 +1171,7 @@ export class MCPServerManager {
           result.set(name, instance);
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         log.error("Failed to start MCP server", { name, error: message });
       }
     }
@@ -921,14 +1183,15 @@ export class MCPServerManager {
     name: string,
     info: MCPServerInfo,
     runtime: Runtime,
-    workspacePath: string,
+    _projectPath: string,
+    minionPath: string,
     projectSecrets: Record<string, string> | undefined,
     onActivity: () => void
   ): Promise<MCPServerInstance | null> {
     if (info.transport === "stdio") {
       log.debug("[MCP] Spawning stdio server", { name });
       const execStream = await runtime.exec(info.command, {
-        cwd: workspacePath,
+        cwd: minionPath,
         timeout: 60 * 60 * 24, // 24 hours
       });
 
@@ -953,7 +1216,7 @@ export class MCPServerManager {
       };
 
       await transport.start();
-      const client = await experimental_createMCPClient({ transport });
+      const client = await createMCPClient({ transport });
       const rawTools = await client.tools();
       const tools = wrapMCPTools(rawTools as unknown as Record<string, Tool>, onActivity);
 
@@ -993,25 +1256,37 @@ export class MCPServerManager {
 
     const { headers } = resolveHeaders(info.headers, projectSecrets);
 
+    // Only attach authProvider when we have stored OAuth tokens for this server.
+    // Passing an authProvider with no tokens can trigger user-interactive auth flows
+    // on background MCP calls (undesirable).
+    const authProvider = await this.mcpOauthService?.getAuthProviderForServer({
+      serverName: name,
+      serverUrl: info.url,
+    });
+
+    const transportBase = {
+      url: info.url,
+      headers,
+      ...(authProvider ? { authProvider } : {}),
+    };
+
     const tryHttp = async () =>
-      experimental_createMCPClient({
+      createMCPClient({
         transport: {
           type: "http",
-          url: info.url,
-          headers,
+          ...transportBase,
         },
       });
 
     const trySse = async () =>
-      experimental_createMCPClient({
+      createMCPClient({
         transport: {
           type: "sse",
-          url: info.url,
-          headers,
+          ...transportBase,
         },
       });
 
-    let client: Awaited<ReturnType<typeof experimental_createMCPClient>>;
+    let client: Awaited<ReturnType<typeof createMCPClient>>;
     let resolvedTransport: ResolvedTransport;
     let autoFallbackUsed = false;
 

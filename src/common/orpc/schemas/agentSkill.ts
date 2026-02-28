@@ -21,12 +21,18 @@ export const AgentSkillFrontmatterSchema = z.object({
   license: z.string().optional(),
   compatibility: z.string().min(1).max(500).optional(),
   metadata: z.record(z.string(), z.string()).optional(),
+
+  // When false, skill is NOT listed in the tool description's skill index.
+  // Unadvertised skills can still be invoked via /skill-name or agent_skill_read({ name: "skill-name" }).
+  // Use for internal orchestration skills, sidekick-only skills, or power-user workflows.
+  advertise: z.boolean().optional(),
 });
 
 export const AgentSkillDescriptorSchema = z.object({
   name: SkillNameSchema,
   description: z.string().min(1).max(1024),
   scope: AgentSkillScopeSchema,
+  advertise: z.boolean().optional(),
 });
 
 export const AgentSkillPackageSchema = z
@@ -40,3 +46,16 @@ export const AgentSkillPackageSchema = z
     message: "SKILL.md frontmatter.name must match the parent directory name",
     path: ["frontmatter", "name"],
   });
+
+// Diagnostics (invalid skill discovery)
+export const AgentSkillIssueSchema = z.object({
+  /** Directory name under the skills root (may be invalid / non-kebab-case). */
+  directoryName: z.string().min(1),
+  scope: AgentSkillScopeSchema,
+  /** User-facing path to the problematic skill (typically .../<dir>/SKILL.md). */
+  displayPath: z.string().min(1),
+  /** What went wrong while trying to load the skill. */
+  message: z.string().min(1),
+  /** Optional fix suggestion. */
+  hint: z.string().min(1).optional(),
+});

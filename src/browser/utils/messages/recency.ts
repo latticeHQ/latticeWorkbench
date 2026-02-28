@@ -2,12 +2,12 @@ import type { LatticeMessage } from "@/common/types/message";
 import { computeRecencyFromMessages } from "@/common/utils/recency";
 
 /**
- * Compute recency timestamp for workspace sorting.
+ * Compute recency timestamp for minion sorting.
  * Wrapper that handles string timestamp parsing for frontend use.
  *
  * Returns the maximum of:
- * - Workspace creation timestamp (ensures newly created/forked workspaces appear at top)
- * - Workspace unarchived timestamp (ensures restored workspaces appear at top)
+ * - Minion creation timestamp (ensures newly created/forked minions appear at top)
+ * - Minion unarchived timestamp (ensures restored minions appear at top)
  * - Last user message timestamp (most recent user interaction)
  * - Last compacted message timestamp (fallback for compacted histories)
  */

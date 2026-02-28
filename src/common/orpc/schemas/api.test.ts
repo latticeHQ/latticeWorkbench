@@ -20,6 +20,7 @@ describe("ProviderConfigInfoSchema conformance", () => {
   it("preserves all AWSCredentialStatus fields", () => {
     const full: AWSCredentialStatus = {
       region: "us-east-1",
+      profile: "my-sso-profile",
       bearerTokenSet: true,
       accessKeyIdSet: true,
       secretAccessKeySet: false,
@@ -35,6 +36,7 @@ describe("ProviderConfigInfoSchema conformance", () => {
   it("preserves all ProviderConfigInfo fields (base case)", () => {
     const full: ProviderConfigInfo = {
       apiKeySet: true,
+      isEnabled: true,
       isConfigured: true,
       baseUrl: "https://api.example.com",
       models: ["model-a", "model-b"],
@@ -46,14 +48,25 @@ describe("ProviderConfigInfoSchema conformance", () => {
     expect(Object.keys(parsed).sort()).toEqual(Object.keys(full).sort());
   });
 
+  it("defaults isEnabled to true when omitted", () => {
+    const parsed = ProviderConfigInfoSchema.parse({
+      apiKeySet: true,
+      isConfigured: true,
+    });
+
+    expect(parsed.isEnabled).toBe(true);
+  });
+
   it("preserves all ProviderConfigInfo fields (with AWS/Bedrock)", () => {
     const full: ProviderConfigInfo = {
       apiKeySet: false,
+      isEnabled: true,
       isConfigured: false,
       baseUrl: undefined,
       models: [],
       aws: {
         region: "eu-west-1",
+        profile: "my-sso-profile",
         bearerTokenSet: false,
         accessKeyIdSet: true,
         secretAccessKeySet: true,
@@ -67,34 +80,37 @@ describe("ProviderConfigInfoSchema conformance", () => {
     expect(parsed.aws).toEqual(full.aws);
   });
 
-  it("preserves all ProviderConfigInfo fields (with couponCodeSet)", () => {
+  it("preserves all ProviderConfigInfo fields (minimal required)", () => {
     const full: ProviderConfigInfo = {
       apiKeySet: true,
+      isEnabled: true,
       isConfigured: true,
-      couponCodeSet: true,
     };
 
     const parsed = ProviderConfigInfoSchema.parse(full);
 
     expect(parsed).toEqual(full);
-    expect(parsed.couponCodeSet).toBe(true);
   });
 
   it("preserves all ProviderConfigInfo fields (full object with all optional fields)", () => {
     // This is the most comprehensive test - includes ALL possible fields
     const full: ProviderConfigInfo = {
       apiKeySet: true,
+      isEnabled: true,
       isConfigured: true,
       baseUrl: "https://custom.endpoint.com",
       models: ["claude-3-opus", "claude-3-sonnet"],
       serviceTier: "flex",
+      cacheTtl: "1h",
+      codexOauthSet: true,
+      codexOauthDefaultAuth: "apiKey",
       aws: {
         region: "ap-northeast-1",
+        profile: "my-sso-profile",
         bearerTokenSet: true,
         accessKeyIdSet: true,
         secretAccessKeySet: true,
       },
-      couponCodeSet: true,
     };
 
     const parsed = ProviderConfigInfoSchema.parse(full);
@@ -104,30 +120,39 @@ describe("ProviderConfigInfoSchema conformance", () => {
 
     // Explicit field-by-field verification for clarity
     expect(parsed.apiKeySet).toBe(full.apiKeySet);
+    expect(parsed.isEnabled).toBe(full.isEnabled);
     expect(parsed.baseUrl).toBe(full.baseUrl);
     expect(parsed.models).toEqual(full.models);
     expect(parsed.serviceTier).toBe(full.serviceTier);
+    expect(parsed.cacheTtl).toBe(full.cacheTtl);
+    expect(parsed.codexOauthSet).toBe(full.codexOauthSet);
+    expect(parsed.codexOauthDefaultAuth).toBe(full.codexOauthDefaultAuth);
     expect(parsed.aws).toEqual(full.aws);
-    expect(parsed.couponCodeSet).toBe(full.couponCodeSet);
   });
 
   it("preserves ProvidersConfigMap with multiple providers", () => {
     const full: ProvidersConfigMap = {
       anthropic: {
         apiKeySet: true,
+        isEnabled: true,
         isConfigured: true,
         models: ["claude-3-opus"],
       },
       openai: {
         apiKeySet: true,
+        isEnabled: true,
         isConfigured: true,
         serviceTier: "auto",
+        codexOauthSet: true,
+        codexOauthDefaultAuth: "oauth",
       },
       bedrock: {
         apiKeySet: false,
+        isEnabled: true,
         isConfigured: false,
         aws: {
           region: "us-west-2",
+          profile: "my-sso-profile",
           bearerTokenSet: false,
           accessKeyIdSet: true,
           secretAccessKeySet: true,

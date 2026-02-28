@@ -1,26 +1,29 @@
 /**
- * Headquarter Settings stories
+ * Project Settings stories
  *
  * Shows different states and interactions for project-level configuration:
  * - MCP servers (enable/disable, tool allowlists)
  * - Idle compaction settings
- * - Workspace-level MCP overrides
+ * - Minion-level MCP overrides
  *
  * Uses play functions to navigate to settings and interact with the UI.
  */
 
+import React from "react";
+import type { MCPServerInfo } from "@/common/types/mcp";
+import type { MCPOAuthAuthStatus } from "@/common/types/mcpOauth";
 import type { Secret } from "@/common/types/secrets";
 import type { APIClient } from "@/browser/contexts/API";
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
-import { createWorkspace, groupWorkspacesByProject } from "./mockFactory";
-import { selectWorkspace } from "./storyHelpers";
+import { createMinion, groupMinionsByProject } from "./mockFactory";
+import { selectMinion } from "./storyHelpers";
 import { createMockORPCClient } from "@/browser/stories/mocks/orpc";
-import { within, userEvent, expect } from "@storybook/test";
+import { within, userEvent, waitFor, expect } from "@storybook/test";
 import { getMCPTestResultsKey } from "@/common/constants/storage";
 
 export default {
   ...appMeta,
-  title: "App/Headquarter Settings",
+  title: "App/Settings/MCP",
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -60,17 +63,19 @@ const POSTHOG_TOOLS = [
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface MCPStoryOptions {
-  /** MCP servers configured at project level */
-  servers?: Record<string, { command: string; disabled: boolean; toolAllowlist?: string[] }>;
-  /** Workspace-level MCP overrides */
-  workspaceOverrides?: {
+  /** Global MCP servers (Settings → MCP) */
+  servers?: Record<string, MCPServerInfo>;
+  /** Optional mock OAuth auth status per MCP server URL (serverUrl -> status) */
+  mcpOauthAuthStatus?: Map<string, MCPOAuthAuthStatus>;
+  /** Minion-level MCP overrides */
+  minionOverrides?: {
     disabledServers?: string[];
     enabledServers?: string[];
     toolAllowlist?: Record<string, string[]>;
   };
   /** Test results for each server (tools available) */
   testResults?: Record<string, string[]>;
-  /** Headquarter secrets (used for secret-backed MCP header dropdowns) */
+  /** Global secrets (used for secret-backed MCP header dropdowns) */
   secrets?: Secret[];
   /** Pre-cache test results in localStorage */
   preCacheTools?: boolean;
@@ -78,21 +83,21 @@ interface MCPStoryOptions {
 
 function setupMCPStory(options: MCPStoryOptions = {}): APIClient {
   const projectPath = "/Users/test/my-app";
-  const workspaceId = "ws-mcp-test";
-  const workspaces = [
-    createWorkspace({
-      id: workspaceId,
+  const minionId = "ws-mcp-test";
+  const minions = [
+    createMinion({
+      id: minionId,
       name: "main",
       projectName: "my-app",
       projectPath,
     }),
   ];
 
-  selectWorkspace(workspaces[0]);
+  selectMinion(minions[0]);
 
   // Pre-cache tool test results if requested
   if (options.preCacheTools && options.testResults) {
-    const cacheKey = getMCPTestResultsKey(projectPath);
+    const cacheKeys = [getMCPTestResultsKey("__global__"), getMCPTestResultsKey(projectPath)];
     const cacheData: Record<
       string,
       { result: { success: true; tools: string[] }; testedAt: number }
@@ -103,14 +108,13 @@ function setupMCPStory(options: MCPStoryOptions = {}): APIClient {
         testedAt: Date.now(),
       };
     }
-    localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+    for (const cacheKey of cacheKeys) {
+      localStorage.setItem(cacheKey, JSON.stringify(cacheData));
+    }
   }
 
   // Build mock data
-  const mcpServers = new Map<
-    string,
-    Record<string, { command: string; disabled: boolean; toolAllowlist?: string[] }>
-  >();
+  const mcpServers = new Map<string, Record<string, MCPServerInfo>>();
   if (options.servers) {
     mcpServers.set(projectPath, options.servers);
   }
@@ -123,8 +127,8 @@ function setupMCPStory(options: MCPStoryOptions = {}): APIClient {
       toolAllowlist?: Record<string, string[]>;
     }
   >();
-  if (options.workspaceOverrides) {
-    mcpOverrides.set(workspaceId, options.workspaceOverrides);
+  if (options.minionOverrides) {
+    mcpOverrides.set(minionId, options.minionOverrides);
   }
 
   const projectSecrets = new Map<string, Secret[]>();
@@ -139,54 +143,189 @@ function setupMCPStory(options: MCPStoryOptions = {}): APIClient {
   }
 
   return createMockORPCClient({
-    projects: groupWorkspacesByProject(workspaces),
-    workspaces,
+    projects: groupMinionsByProject(minions),
+    minions,
+    globalSecrets: options.secrets ?? [],
     projectSecrets,
+    globalMcpServers: options.servers ?? {},
     mcpServers,
     mcpOverrides,
     mcpTestResults,
+    mcpOauthAuthStatus: options.mcpOauthAuthStatus,
   });
 }
 
-/** Open settings modal and navigate to Headquarters section, scrolling to MCP servers */
+/** Open settings page and navigate to MCP crew. */
 async function openProjectSettings(canvasElement: HTMLElement): Promise<void> {
   const canvas = within(canvasElement);
-  const body = within(canvasElement.ownerDocument.body);
 
   const settingsButton = await canvas.findByTestId("settings-button", {}, { timeout: 10000 });
   await userEvent.click(settingsButton);
 
-  await body.findByRole("dialog", {}, { timeout: 10000 });
+  // Desktop + mobile settings nav are both present in the test DOM.
+  const mcpButtons = await canvas.findAllByRole("button", { name: /^MCP$/i });
+  const mcpButton = mcpButtons[0];
+  if (!mcpButton) {
+    throw new Error("MCP settings button not found");
+  }
+  await userEvent.click(mcpButton);
 
-  const projectsButton = await body.findByRole("button", { name: /Headquarters/i });
-  await userEvent.click(projectsButton);
-
-  // Scroll to MCP Servers section (past Idle Compaction)
-  const mcpHeading = await body.findByText("MCP Servers");
+  const mcpHeading = await canvas.findByText("MCP Servers");
   mcpHeading.scrollIntoView({ block: "start" });
 }
 
-/** Open the workspace MCP modal */
-async function openWorkspaceMCPModal(canvasElement: HTMLElement): Promise<void> {
-  const canvas = within(canvasElement);
-  const body = within(canvasElement.ownerDocument.body);
-
-  // Wait for workspace header to load
-  await canvas.findByTestId("workspace-header", {}, { timeout: 10000 });
-
-  // Click the MCP server button in the header
-  const mcpButton = await canvas.findByTestId("workspace-mcp-button");
-  await userEvent.click(mcpButton);
-
-  // Wait for dialog
-  await body.findByRole("dialog", {}, { timeout: 10000 });
+/**
+ * Modal roots are ephemeral under Storybook remounts; use query/find split
+ * to preserve retry semantics when the dialog briefly disappears.
+ */
+function queryMinionMCPDialog(canvasElement: HTMLElement): HTMLElement | null {
+  const dialog = Array.from(
+    canvasElement.ownerDocument.body.querySelectorAll('[role="dialog"]')
+  ).find((el) => el.textContent?.includes("Minion MCP Configuration"));
+  return dialog instanceof HTMLElement ? dialog : null;
 }
 
+async function findMinionMCPDialog(
+  canvasElement: HTMLElement,
+  timeout = 10000
+): Promise<HTMLElement> {
+  return waitFor(
+    () => {
+      const dialog = queryMinionMCPDialog(canvasElement);
+      if (!dialog) {
+        throw new Error("Minion MCP dialog not found");
+      }
+      return dialog;
+    },
+    { timeout }
+  );
+}
+
+function createMinionMCPModalScope(canvasElement: HTMLElement) {
+  /** Re-open the dialog if a Storybook remount reset component state. */
+  const ensureOpen = async () => {
+    if (!queryMinionMCPDialog(canvasElement)) {
+      await openMinionMCPModal(canvasElement);
+    }
+  };
+
+  return {
+    /** Self-healing find: re-opens the dialog if it disappeared. */
+    find: async (timeout = 10000) => {
+      await ensureOpen();
+      return within(await findMinionMCPDialog(canvasElement, timeout));
+    },
+    /**
+     * Self-healing assertion: ensures the dialog is open, then retries the
+     * assertion callback until it passes or timeout expires. Survives
+     * Storybook remounts that reset component state mid-test.
+     */
+    assert: async (
+      assertion: (scope: ReturnType<typeof within>) => void | Promise<void>,
+      timeout = 10000
+    ) => {
+      await waitFor(
+        async () => {
+          await ensureOpen();
+          const dialog = queryMinionMCPDialog(canvasElement);
+          if (!dialog) throw new Error("Minion MCP dialog not found");
+          await assertion(within(dialog));
+        },
+        { timeout }
+      );
+    },
+  };
+}
+
+/** Open the minion MCP modal via the "More actions" menu. */
+async function openMinionMCPModal(canvasElement: HTMLElement): Promise<void> {
+  const canvas = within(canvasElement);
+  const body = within(canvasElement.ownerDocument.body);
+  const stepTimeoutMs = 5000;
+
+  // Wait for header controls before interacting with minion menu bar actions.
+  await canvas.findByTestId("minion-menu-bar", {}, { timeout: stepTimeoutMs });
+
+  const openMoreActionsMenu = async (): Promise<void> => {
+    const moreActionsButton = await canvas.findByTestId(
+      "minion-more-actions",
+      {},
+      { timeout: stepTimeoutMs }
+    );
+    await userEvent.click(moreActionsButton);
+  };
+
+  const clickMcpButton = async (): Promise<void> => {
+    // Prefer stable test id lookup first; popover content renders in document.body.
+    const mcpButtonByTestId = body.queryByTestId("minion-mcp-button");
+    if (mcpButtonByTestId) {
+      await userEvent.click(mcpButtonByTestId);
+      return;
+    }
+
+    // Fallback to accessible name if test id lookup races with popover mount.
+    const mcpButtonsByRole = await body.findAllByRole(
+      "button",
+      { name: /configure mcp servers/i },
+      { timeout: stepTimeoutMs }
+    );
+    const mcpButtonByRole = mcpButtonsByRole[0];
+    if (!mcpButtonByRole) {
+      throw new Error("Minion MCP menu button not found");
+    }
+    await userEvent.click(mcpButtonByRole);
+  };
+
+  const waitForModalHeading = async (): Promise<void> => {
+    await body.findByRole(
+      "heading",
+      { name: /minion mcp configuration/i },
+      { timeout: stepTimeoutMs }
+    );
+  };
+
+  try {
+    await openMoreActionsMenu();
+    await clickMcpButton();
+    await waitForModalHeading();
+  } catch {
+    // Storybook can remount between menu open and click; retry the full flow once.
+    await openMoreActionsMenu();
+    await clickMcpButton();
+    await waitForModalHeading();
+  }
+}
+
+const withDesktopWindowApi = [
+  (Story: React.FC) => {
+    // Save and restore window.api to prevent leaking to other stories
+    const originalApiRef = React.useRef(window.api);
+    window.api = {
+      platform: "darwin",
+      versions: {
+        node: "20.0.0",
+        chrome: "120.0.0",
+        electron: "28.0.0",
+      },
+      isRosetta: false,
+    };
+
+    // Cleanup on unmount
+    React.useEffect(() => {
+      const savedApi = originalApiRef.current;
+      return () => {
+        window.api = savedApi;
+      };
+    }, []);
+
+    return <Story />;
+  },
+];
 // ═══════════════════════════════════════════════════════════════════════════════
 // PROJECT SETTINGS STORIES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Headquarter settings with no MCP servers configured */
+/** Project settings with no MCP servers configured */
 export const ProjectSettingsEmpty: AppStory = {
   render: () => <AppWithMocks setup={() => setupMCPStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -194,7 +333,7 @@ export const ProjectSettingsEmpty: AppStory = {
   },
 };
 
-/** Headquarter settings - adding a remote server shows the headers table editor */
+/** Project settings - adding a remote server shows the headers table editor */
 export const ProjectSettingsAddRemoteServerHeaders: AppStory = {
   render: () => (
     <AppWithMocks
@@ -221,7 +360,8 @@ export const ProjectSettingsAddRemoteServerHeaders: AppStory = {
     const transportContainer = transportLabel.closest("div");
     await expect(transportContainer).not.toBeNull();
 
-    const transportSelect = within(transportContainer as HTMLElement).getByRole("combobox");
+    // Use findByRole (retry-capable) to handle transient DOM gaps between awaits.
+    const transportSelect = await within(transportContainer as HTMLElement).findByRole("combobox");
     await userEvent.click(transportSelect);
 
     const httpOption = await body.findByRole("option", { name: /HTTP \(Streamable\)/i });
@@ -234,10 +374,11 @@ export const ProjectSettingsAddRemoteServerHeaders: AppStory = {
     const addHeaderButton = await body.findByRole("button", { name: /\+ Add header/i });
     await userEvent.click(addHeaderButton);
 
-    const headerNameInputs = body.getAllByPlaceholderText("Authorization");
+    // Use findAllByRole / waitFor to handle transient DOM gaps between awaits.
+    const headerNameInputs = await body.findAllByPlaceholderText("Authorization");
     await userEvent.type(headerNameInputs[0], "Authorization");
 
-    const secretToggles = body.getAllByRole("radio", { name: "Secret" });
+    const secretToggles = await body.findAllByRole("radio", { name: "Secret" });
     await userEvent.click(secretToggles[0]);
 
     await expect(
@@ -263,16 +404,20 @@ export const ProjectSettingsAddRemoteServerHeaders: AppStory = {
   },
 };
 
-/** Headquarter settings with MCP servers configured (all enabled) */
+/** Project settings with MCP servers configured (all enabled) */
 export const ProjectSettingsWithServers: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
-            posthog: { command: "npx -y posthog-mcp-server", disabled: false },
-            filesystem: { command: "npx -y @anthropics/filesystem-server /tmp", disabled: false },
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: false },
+            filesystem: {
+              transport: "stdio",
+              command: "npx -y @anthropics/filesystem-server /tmp",
+              disabled: false,
+            },
           },
           testResults: {
             lattice: MOCK_TOOLS,
@@ -295,16 +440,20 @@ export const ProjectSettingsWithServers: AppStory = {
   },
 };
 
-/** Headquarter settings with a mix of enabled and disabled servers */
+/** Project settings with a mix of enabled and disabled servers */
 export const ProjectSettingsMixedState: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
-            posthog: { command: "npx -y posthog-mcp-server", disabled: true },
-            filesystem: { command: "npx -y @anthropics/filesystem-server /tmp", disabled: false },
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: true },
+            filesystem: {
+              transport: "stdio",
+              command: "npx -y @anthropics/filesystem-server /tmp",
+              disabled: false,
+            },
           },
           testResults: {
             lattice: MOCK_TOOLS,
@@ -327,7 +476,7 @@ export const ProjectSettingsMixedState: AppStory = {
   },
 };
 
-/** Headquarter settings showing tool allowlist (tools filtered) */
+/** Project settings showing tool allowlist (tools filtered) */
 export const ProjectSettingsWithToolAllowlist: AppStory = {
   render: () => (
     <AppWithMocks
@@ -335,6 +484,7 @@ export const ProjectSettingsWithToolAllowlist: AppStory = {
         setupMCPStory({
           servers: {
             lattice: {
+              transport: "stdio",
               command: "npx -y @anthropics/lattice-server",
               disabled: false,
               toolAllowlist: ["file_read", "file_write", "bash"],
@@ -359,19 +509,105 @@ export const ProjectSettingsWithToolAllowlist: AppStory = {
   },
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// WORKSPACE MCP MODAL STORIES
-// ═══════════════════════════════════════════════════════════════════════════════
-
-/** Workspace MCP modal with servers from project (no overrides) */
-export const WorkspaceMCPNoOverrides: AppStory = {
+/** Project settings - remote MCP server row with OAuth available (not logged in) */
+export const ProjectSettingsOAuthNotLoggedIn: AppStory = {
+  decorators: withDesktopWindowApi,
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
-            posthog: { command: "npx -y posthog-mcp-server", disabled: false },
+            "remote-oauth": {
+              transport: "http",
+              url: "https://example.com/mcp",
+              disabled: false,
+            },
+          },
+          mcpOauthAuthStatus: new Map<string, MCPOAuthAuthStatus>([
+            [
+              "https://example.com/mcp",
+              {
+                serverUrl: "https://example.com/mcp",
+                isLoggedIn: false,
+                hasRefreshToken: false,
+              },
+            ],
+          ]),
+        })
+      }
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openProjectSettings(canvasElement);
+
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByText("remote-oauth");
+
+    // Wait for post-load OAuth status.
+    await body.findByText("Not logged in");
+    await body.findByRole("button", { name: /^Login$/i });
+  },
+};
+
+/** Project settings - remote MCP server row with OAuth available (logged in) */
+export const ProjectSettingsOAuthLoggedIn: AppStory = {
+  decorators: withDesktopWindowApi,
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupMCPStory({
+          servers: {
+            "remote-oauth": {
+              transport: "http",
+              url: "https://example.com/mcp",
+              disabled: false,
+            },
+          },
+          mcpOauthAuthStatus: new Map<string, MCPOAuthAuthStatus>([
+            [
+              "https://example.com/mcp",
+              {
+                serverUrl: "https://example.com/mcp",
+                isLoggedIn: true,
+                hasRefreshToken: true,
+                updatedAtMs: Date.now() - 60_000,
+              },
+            ],
+          ]),
+        })
+      }
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openProjectSettings(canvasElement);
+
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByText("remote-oauth");
+
+    // Wait for post-load OAuth status.
+    await body.findByText(/Logged in \(1 minute ago\)/i);
+
+    // Actions are grouped under a compact kebab menu.
+    const moreActionsButton = await body.findByRole("button", { name: "⋮" });
+    await userEvent.click(moreActionsButton);
+    await body.findByRole("button", { name: /Re-login/i });
+    await body.findByRole("button", { name: /^Logout$/i });
+  },
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MINION MCP MODAL STORIES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/** Minion MCP modal with servers from project (no overrides) */
+export const MinionMCPNoOverrides: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupMCPStory({
+          servers: {
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: false },
           },
           testResults: {
             lattice: MOCK_TOOLS,
@@ -383,25 +619,24 @@ export const WorkspaceMCPNoOverrides: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await openWorkspaceMCPModal(canvasElement);
+    await openMinionMCPModal(canvasElement);
+    const modal = createMinionMCPModalScope(canvasElement);
 
-    const body = within(canvasElement.ownerDocument.body);
-
-    // Both servers should be shown and enabled
-    await body.findByText("lattice");
-    await body.findByText("posthog");
+    // Both servers should be shown and enabled.
+    await expect((await modal.find()).findByText("lattice")).resolves.toBeInTheDocument();
+    await expect((await modal.find()).findByText("posthog")).resolves.toBeInTheDocument();
   },
 };
 
-/** Workspace MCP modal - server disabled at project level, can be enabled */
-export const WorkspaceMCPProjectDisabledServer: AppStory = {
+/** Minion MCP modal - server disabled at project level, can be enabled */
+export const MinionMCPProjectDisabledServer: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
-            posthog: { command: "npx -y posthog-mcp-server", disabled: true },
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: true },
           },
           testResults: {
             lattice: MOCK_TOOLS,
@@ -413,27 +648,28 @@ export const WorkspaceMCPProjectDisabledServer: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await openWorkspaceMCPModal(canvasElement);
+    await openMinionMCPModal(canvasElement);
+    const modal = createMinionMCPModalScope(canvasElement);
 
-    const body = within(canvasElement.ownerDocument.body);
-
-    // posthog should show "(disabled at project level)" but switch should still be toggleable
-    await body.findByText("posthog");
-    await body.findByText(/disabled at project level/i);
+    // posthog should show "(disabled at project level)" but switch should still be toggleable.
+    await expect((await modal.find()).findByText("posthog")).resolves.toBeInTheDocument();
+    await expect(
+      (await modal.find()).findByText(/disabled at project level/i)
+    ).resolves.toBeInTheDocument();
   },
 };
 
-/** Workspace MCP modal - server disabled at project level, enabled at workspace level */
-export const WorkspaceMCPEnabledOverride: AppStory = {
+/** Minion MCP modal - server disabled at project level, enabled at minion level */
+export const MinionMCPEnabledOverride: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
-            posthog: { command: "npx -y posthog-mcp-server", disabled: true },
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: true },
           },
-          workspaceOverrides: {
+          minionOverrides: {
             enabledServers: ["posthog"],
           },
           testResults: {
@@ -446,29 +682,30 @@ export const WorkspaceMCPEnabledOverride: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await openWorkspaceMCPModal(canvasElement);
+    await openMinionMCPModal(canvasElement);
+    const modal = createMinionMCPModalScope(canvasElement);
 
-    const body = within(canvasElement.ownerDocument.body);
+    // posthog should be enabled despite project-level disable.
+    await expect((await modal.find()).findByText("posthog")).resolves.toBeInTheDocument();
+    await expect(
+      (await modal.find()).findByText(/disabled at project level/i)
+    ).resolves.toBeInTheDocument();
 
-    // posthog should be enabled despite project-level disable
-    await body.findByText("posthog");
-    await body.findByText(/disabled at project level/i);
-
-    // The switch should be ON (enabled at workspace level)
+    // The switch should be ON (enabled at minion level).
   },
 };
 
-/** Workspace MCP modal - server enabled at project level, disabled at workspace level */
-export const WorkspaceMCPDisabledOverride: AppStory = {
+/** Minion MCP modal - server enabled at project level, disabled at minion level */
+export const MinionMCPDisabledOverride: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
-            posthog: { command: "npx -y posthog-mcp-server", disabled: false },
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: false },
           },
-          workspaceOverrides: {
+          minionOverrides: {
             disabledServers: ["posthog"],
           },
           testResults: {
@@ -481,26 +718,25 @@ export const WorkspaceMCPDisabledOverride: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await openWorkspaceMCPModal(canvasElement);
+    await openMinionMCPModal(canvasElement);
+    const modal = createMinionMCPModalScope(canvasElement);
 
-    const body = within(canvasElement.ownerDocument.body);
-
-    // lattice should be enabled, posthog should be disabled
-    await body.findByText("lattice");
-    await body.findByText("posthog");
+    // lattice should be enabled, posthog should be disabled.
+    await expect((await modal.find()).findByText("lattice")).resolves.toBeInTheDocument();
+    await expect((await modal.find()).findByText("posthog")).resolves.toBeInTheDocument();
   },
 };
 
-/** Workspace MCP modal with tool allowlist filtering */
-export const WorkspaceMCPWithToolAllowlist: AppStory = {
+/** Minion MCP modal with tool allowlist filtering */
+export const MinionMCPWithToolAllowlist: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            posthog: { command: "npx -y posthog-mcp-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: false },
           },
-          workspaceOverrides: {
+          minionOverrides: {
             toolAllowlist: {
               posthog: ["docs-search", "error-details", "list-errors"],
             },
@@ -514,13 +750,15 @@ export const WorkspaceMCPWithToolAllowlist: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await openWorkspaceMCPModal(canvasElement);
+    await openMinionMCPModal(canvasElement);
+    const modal = createMinionMCPModalScope(canvasElement);
 
-    const body = within(canvasElement.ownerDocument.body);
-    await body.findByText("posthog");
+    await expect((await modal.find()).findByText("posthog")).resolves.toBeInTheDocument();
 
-    // Should show filtered tool count
-    await body.findByText(/3 of 14 tools enabled/i);
+    // Should show filtered tool count.
+    await expect(
+      (await modal.find()).findByText(/3 of 14 tools enabled/i)
+    ).resolves.toBeInTheDocument();
   },
 };
 
@@ -535,7 +773,7 @@ export const ToolSelectorInteraction: AppStory = {
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
           },
           testResults: {
             lattice: MOCK_TOOLS,
@@ -546,35 +784,59 @@ export const ToolSelectorInteraction: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await openWorkspaceMCPModal(canvasElement);
+    await openMinionMCPModal(canvasElement);
+    const modal = createMinionMCPModalScope(canvasElement);
 
-    const body = within(canvasElement.ownerDocument.body);
+    // Normalize to the "all selected" baseline before testing None→All.
+    // Queries + clicks inside waitFor so we always target the live DOM node
+    // (prevents flakes from React re-renders replacing the button mid-step).
+    await modal.assert(async (scope) => {
+      const allBtn = scope.getByRole("button", { name: /^All$/i }) as HTMLElement;
+      if (!allBtn.hasAttribute("disabled")) {
+        await userEvent.click(allBtn);
+      }
+      await expect(allBtn).toBeDisabled();
+    });
 
-    // Find the tool selector section
-    await body.findByText("lattice");
+    // Click "None" to deselect all tools.
+    await modal.assert(async (scope) => {
+      const noneBtn = scope.getByRole("button", { name: /^None$/i }) as HTMLElement;
+      if (!noneBtn.hasAttribute("disabled")) {
+        await userEvent.click(noneBtn);
+      }
+      await expect(noneBtn).toBeDisabled();
+      scope.getByText((_content: string, element: Element | null) => {
+        const t = (element?.textContent ?? "").replace(/\s+/g, " ").trim();
+        return /^0 of \d+ tools enabled$/i.test(t);
+      });
+    });
 
-    // Click "None" to deselect all tools
-    const noneButton = await body.findByRole("button", { name: /^None$/i });
-    await userEvent.click(noneButton);
+    // "All" must be enabled before we click. This guards against a Storybook
+    // remount silently resetting state — the click would be a no-op otherwise.
+    await modal.assert(async (scope) => {
+      await expect(scope.getByRole("button", { name: /^All$/i })).toBeEnabled();
+    });
 
-    // Should now show "0 of X tools enabled"
-    await expect(body.findByText(/0 of \d+ tools enabled/i)).resolves.toBeInTheDocument();
-
-    // Click "All" to select all tools
-    const allButton = await body.findByRole("button", { name: /^All$/i });
-    await userEvent.click(allButton);
+    // Click "All" to re-select all tools.
+    await modal.assert(async (scope) => {
+      const allBtn = scope.getByRole("button", { name: /^All$/i }) as HTMLElement;
+      if (!allBtn.hasAttribute("disabled")) {
+        await userEvent.click(allBtn);
+      }
+      await expect(allBtn).toBeDisabled();
+    });
   },
 };
 
-/** Toggle server enabled state in workspace modal */
+/** Toggle server enabled state in minion modal */
 export const ToggleServerEnabled: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupMCPStory({
           servers: {
-            lattice: { command: "npx -y @anthropics/lattice-server", disabled: false },
-            posthog: { command: "npx -y posthog-mcp-server", disabled: false },
+            lattice: { transport: "stdio", command: "npx -y @anthropics/lattice-server", disabled: false },
+            posthog: { transport: "stdio", command: "npx -y posthog-mcp-server", disabled: false },
           },
           testResults: {
             lattice: MOCK_TOOLS,
@@ -586,15 +848,14 @@ export const ToggleServerEnabled: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await openWorkspaceMCPModal(canvasElement);
+    await openMinionMCPModal(canvasElement);
+    const modal = createMinionMCPModalScope(canvasElement);
 
-    const body = within(canvasElement.ownerDocument.body);
+    // Find the posthog server row.
+    await expect((await modal.find()).findByText("posthog")).resolves.toBeInTheDocument();
 
-    // Find the posthog server row
-    await body.findByText("posthog");
-
-    // Find all switches and click the second one (posthog)
-    const switches = await body.findAllByRole("switch");
+    // Find all switches and click the second one (posthog).
+    const switches = await (await modal.find()).findAllByRole("switch");
     // posthog should be the second switch
     if (switches.length >= 2) {
       await userEvent.click(switches[1]);

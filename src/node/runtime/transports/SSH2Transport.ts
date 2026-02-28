@@ -168,7 +168,7 @@ class SSH2Pty implements PtyHandle {
         return;
       }
 
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       const code =
         error && typeof error === "object" && "code" in error && typeof error.code === "string"
           ? error.code
@@ -239,11 +239,13 @@ export class SSH2Transport implements SSHTransport {
   async acquireConnection(options?: {
     abortSignal?: AbortSignal;
     timeoutMs?: number;
+    maxWaitMs?: number;
     onWait?: (waitMs: number) => void;
   }): Promise<void> {
     await ssh2ConnectionPool.acquireConnection(this.config, {
       abortSignal: options?.abortSignal,
       timeoutMs: options?.timeoutMs,
+      maxWaitMs: options?.maxWaitMs,
       onWait: options?.onWait,
     });
   }
@@ -325,14 +327,8 @@ export class SSH2Transport implements SSHTransport {
     // expandTildeForSSH already returns a quoted string (e.g., "$HOME/path")
     // Do NOT wrap with shellQuotePath - that would double-quote it
     // Exit on cd failure to match OpenSSH transport behavior (cd ... && exec $SHELL -i)
-    const expandedPath = expandTildeForSSH(params.workspacePath);
-    if (params.initialCommand && params.directExec) {
-      // Direct exec: run agent binary via login shell, bypassing interactive shell
-      const quoted = "'" + params.initialCommand.replace(/'/g, "'\\''") + "'";
-      channel.write(`cd ${expandedPath} && exec /bin/sh -l -c ${quoted}\n`);
-    } else {
-      channel.write(`cd ${expandedPath} || exit 1\n`);
-    }
+    const expandedPath = expandTildeForSSH(params.minionPath);
+    channel.write(`cd ${expandedPath} || exit 1\n`);
 
     return new SSH2Pty(channel);
   }

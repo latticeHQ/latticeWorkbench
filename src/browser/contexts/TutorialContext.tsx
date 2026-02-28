@@ -29,7 +29,7 @@ const TUTORIAL_SEQUENCES: Record<TutorialSequence, TutorialStep[]> = {
     {
       target: "trunk-branch",
       title: "Branch From",
-      content: "Choose which branch to create your workspace from.",
+      content: "Choose which branch to create your minion from.",
       position: "top",
     },
     {
@@ -40,11 +40,19 @@ const TUTORIAL_SEQUENCES: Record<TutorialSequence, TutorialStep[]> = {
       position: "top",
     },
   ],
-  workspace: [
+  minion: [
     {
       target: "terminal-button",
       title: "Terminal Access",
-      content: "Open a terminal window in your workspace.",
+      content: "Open a terminal window for your minion.",
+      position: "bottom",
+    },
+  ],
+  review: [
+    {
+      target: "immersive-review",
+      title: "Immersive Review",
+      content: "Try our new immersive keyboard-driven code review experience.",
       position: "bottom",
     },
   ],

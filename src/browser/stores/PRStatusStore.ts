@@ -3,7 +3,7 @@
  *
  * Architecture:
  * - Lives outside React lifecycle (stable references)
- * - Detects workspace PR from current branch via `gh pr view`
+ * - Detects minion PR from current branch via `gh pr view`
  * - Caches status with TTL
  * - Refreshes on focus (like GitStatusStore)
  * - Notifies subscribers when status changes
@@ -15,6 +15,7 @@
 import type { RouterClient } from "@orpc/server";
 import type { AppRouter } from "@/node/orpc/router";
 import type { GitHubPRLink, GitHubPRStatus, GitHubPRLinkWithStatus } from "@/common/types/links";
+import { createLRUCache } from "@/browser/utils/lruCache";
 /**
  * Parse a GitHub PR URL to extract owner, repo, and number.
  * Returns null if the URL is not a valid GitHub PR URL.
@@ -33,6 +34,23 @@ const STATUS_CACHE_TTL_MS = 5 * 1000;
 
 // How long to wait before retrying after an error
 const ERROR_RETRY_DELAY_MS = 5 * 1000;
+
+/**
+ * Persisted PR status for localStorage LRU cache.
+ * Stores only the essential data needed to display the badge on app restart.
+ */
+interface PersistedPRStatus {
+  prLink: GitHubPRLink;
+  status?: GitHubPRStatus;
+}
+
+// LRU cache for persisting PR status across app restarts
+const prStatusLRU = createLRUCache<PersistedPRStatus>({
+  entryPrefix: "prStatus:",
+  indexKey: "prStatusIndex",
+  maxEntries: 50,
+  // No TTL - we refresh on mount anyway, just want instant display
+});
 
 function summarizeStatusCheckRollup(raw: unknown): {
   hasPendingChecks: boolean;
@@ -83,9 +101,9 @@ function summarizeStatusCheckRollup(raw: unknown): {
 }
 
 /**
- * Workspace PR detection result (from branch, not chat).
+ * Minion PR detection result (from branch, not chat).
  */
-interface WorkspacePRCacheEntry {
+interface MinionPRCacheEntry {
   /** The detected PR link (null if no PR for this branch) */
   prLink: GitHubPRLink | null;
   /** PR status if available */
@@ -103,12 +121,12 @@ export class PRStatusStore {
   private readonly refreshController: RefreshController;
   private isActive = true;
 
-  // Workspace-based PR detection (keyed by workspaceId)
-  private workspacePRSubscriptions = new MapStore<string, WorkspacePRCacheEntry>();
-  private workspacePRCache = new Map<string, WorkspacePRCacheEntry>();
+  // Minion-based PR detection (keyed by minionId)
+  private minionPRSubscriptions = new MapStore<string, MinionPRCacheEntry>();
+  private minionPRCache = new Map<string, MinionPRCacheEntry>();
 
-  // Track active subscriptions per workspace so we only refresh workspaces that are actually visible.
-  private workspaceSubscriptionCounts = new Map<string, number>();
+  // Track active subscriptions per minion so we only refresh minions that are actually visible.
+  private minionSubscriptionCounts = new Map<string, number>();
 
   // Like GitStatusStore: batch immediate refreshes triggered by subscriptions.
   private immediateUpdateQueued = false;
@@ -122,31 +140,35 @@ export class PRStatusStore {
     });
   }
 
-  setClient(client: RouterClient<AppRouter>): void {
+  setClient(client: RouterClient<AppRouter> | null): void {
     this.client = client;
 
+    if (!client) {
+      return;
+    }
+
     // If hooks subscribed before the client was ready, ensure we refresh once it is.
-    if (this.workspaceSubscriptionCounts.size > 0) {
+    if (this.minionSubscriptionCounts.size > 0) {
       this.refreshController.requestImmediate();
     }
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Workspace-based PR detection (primary mode)
+  // Minion-based PR detection (primary mode)
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * Subscribe to workspace PR changes (branch-based detection).
+   * Subscribe to minion PR changes (branch-based detection).
    *
    * Like GitStatusStore: subscriptions drive refresh. Components should not need to
-   * manually "monitor" workspaces.
+   * manually "monitor" minions.
    */
-  subscribeWorkspace = (workspaceId: string, listener: () => void) => {
-    const unsubscribe = this.workspacePRSubscriptions.subscribeKey(workspaceId, listener);
+  subscribeMinion = (minionId: string, listener: () => void) => {
+    const unsubscribe = this.minionPRSubscriptions.subscribeKey(minionId, listener);
 
-    // Track active subscriptions so focus refresh only runs for visible workspaces.
-    const current = this.workspaceSubscriptionCounts.get(workspaceId) ?? 0;
-    this.workspaceSubscriptionCounts.set(workspaceId, current + 1);
+    // Track active subscriptions so focus refresh only runs for visible minions.
+    const current = this.minionSubscriptionCounts.get(minionId) ?? 0;
+    this.minionSubscriptionCounts.set(minionId, current + 1);
 
     // Bind focus/visibility listeners once we have any subscribers.
     this.refreshController.bindListeners();
@@ -163,42 +185,62 @@ export class PRStatusStore {
 
     return () => {
       unsubscribe();
-      const next = (this.workspaceSubscriptionCounts.get(workspaceId) ?? 1) - 1;
+      const next = (this.minionSubscriptionCounts.get(minionId) ?? 1) - 1;
       if (next <= 0) {
-        this.workspaceSubscriptionCounts.delete(workspaceId);
+        this.minionSubscriptionCounts.delete(minionId);
       } else {
-        this.workspaceSubscriptionCounts.set(workspaceId, next);
+        this.minionSubscriptionCounts.set(minionId, next);
       }
     };
   };
 
   /**
-   * Get workspace PR detection result.
+   * Get minion PR detection result.
+   * Checks in-memory cache first, then falls back to localStorage for persistence
+   * across app restarts.
    */
-  getWorkspacePR(workspaceId: string): WorkspacePRCacheEntry | undefined {
-    return this.workspacePRCache.get(workspaceId);
+  getMinionPR(minionId: string): MinionPRCacheEntry | undefined {
+    const memCached = this.minionPRCache.get(minionId);
+    if (memCached) return memCached;
+
+    // Check localStorage for persisted status (app restart scenario)
+    const persisted = prStatusLRU.get(minionId);
+    if (persisted) {
+      // Hydrate memory cache from localStorage, mark as loading to trigger refresh
+      // but show the cached value immediately (optimistic UI)
+      const entry: MinionPRCacheEntry = {
+        prLink: persisted.prLink,
+        status: persisted.status,
+        loading: true,
+        fetchedAt: 0,
+      };
+      this.minionPRCache.set(minionId, entry);
+      return entry;
+    }
+
+    return undefined;
   }
 
   /**
-   * Detect PR for workspace's current branch via `gh pr view`.
+   * Detect PR for minion's current branch via `gh pr view`.
    */
-  private async detectWorkspacePR(workspaceId: string): Promise<void> {
+  private async detectMinionPR(minionId: string): Promise<void> {
     if (!this.client || !this.isActive) return;
 
     // Mark as loading
-    const existing = this.workspacePRCache.get(workspaceId);
-    this.workspacePRCache.set(workspaceId, {
+    const existing = this.minionPRCache.get(minionId);
+    this.minionPRCache.set(minionId, {
       prLink: existing?.prLink ?? null,
       status: existing?.status,
       loading: true,
       fetchedAt: Date.now(),
     });
-    this.workspacePRSubscriptions.bump(workspaceId);
+    this.minionPRSubscriptions.bump(minionId);
 
     try {
       // Run gh pr view without URL - detects PR for current branch
-      const result = await this.client.workspace.executeBash({
-        workspaceId,
+      const result = await this.client.minion.executeBash({
+        minionId,
         script: `gh pr view --json number,url,state,mergeable,mergeStateStatus,title,isDraft,headRefName,baseRefName,statusCheckRollup 2>/dev/null || echo '{"no_pr":true}'`,
         options: { timeout_secs: 15 },
       });
@@ -206,13 +248,13 @@ export class PRStatusStore {
       if (!this.isActive) return;
 
       if (!result.success || !result.data.success) {
-        this.workspacePRCache.set(workspaceId, {
+        this.minionPRCache.set(minionId, {
           prLink: null,
           error: "Failed to run gh CLI",
           loading: false,
           fetchedAt: Date.now(),
         });
-        this.workspacePRSubscriptions.bump(workspaceId);
+        this.minionPRSubscriptions.bump(minionId);
         return;
       }
 
@@ -222,7 +264,7 @@ export class PRStatusStore {
 
         if ("no_pr" in parsed) {
           // No PR for this branch
-          this.workspacePRCache.set(workspaceId, {
+          this.minionPRCache.set(minionId, {
             prLink: null,
             loading: false,
             fetchedAt: Date.now(),
@@ -233,7 +275,7 @@ export class PRStatusStore {
           const prLinkBase = parseGitHubPRUrl(prUrl);
 
           if (!prLinkBase) {
-            this.workspacePRCache.set(workspaceId, {
+            this.minionPRCache.set(minionId, {
               prLink: null,
               error: "Invalid PR URL from gh CLI",
               loading: false,
@@ -266,16 +308,19 @@ export class PRStatusStore {
               occurrenceCount: 1,
             };
 
-            this.workspacePRCache.set(workspaceId, {
+            this.minionPRCache.set(minionId, {
               prLink,
               status,
               loading: false,
               fetchedAt: Date.now(),
             });
+
+            // Persist to localStorage for instant display on app restart
+            prStatusLRU.set(minionId, { prLink, status });
           }
         }
       } else {
-        this.workspacePRCache.set(workspaceId, {
+        this.minionPRCache.set(minionId, {
           prLink: null,
           error: "Empty response from gh CLI",
           loading: false,
@@ -283,23 +328,25 @@ export class PRStatusStore {
         });
       }
 
-      this.workspacePRSubscriptions.bump(workspaceId);
+      this.minionPRSubscriptions.bump(minionId);
     } catch (err) {
       if (!this.isActive) return;
 
-      this.workspacePRCache.set(workspaceId, {
+      this.minionPRCache.set(minionId, {
         prLink: null,
         error: err instanceof Error ? err.message : "Unknown error",
         loading: false,
         fetchedAt: Date.now(),
       });
-      this.workspacePRSubscriptions.bump(workspaceId);
+      this.minionPRSubscriptions.bump(minionId);
     }
   }
 
-  private shouldFetchWorkspace(entry: WorkspacePRCacheEntry | undefined, now: number): boolean {
+  private shouldFetchMinion(entry: MinionPRCacheEntry | undefined, now: number): boolean {
     if (!entry) return true;
-    if (entry.loading) return false;
+    // Allow refresh if entry was hydrated from localStorage (fetchedAt === 0)
+    // but is marked loading - this means we have stale cached data and need fresh data.
+    if (entry.loading && entry.fetchedAt !== 0) return false;
 
     if (entry.error) {
       return now - entry.fetchedAt > ERROR_RETRY_DELAY_MS;
@@ -309,24 +356,24 @@ export class PRStatusStore {
   }
 
   /**
-   * Refresh PR status for all subscribed workspaces.
+   * Refresh PR status for all subscribed minions.
    * Called via RefreshController (focus + debounced refresh).
    */
   private async refreshAll(): Promise<void> {
     if (!this.client || !this.isActive) return;
 
-    const workspaceIds = Array.from(this.workspaceSubscriptionCounts.keys());
-    if (workspaceIds.length === 0) {
+    const minionIds = Array.from(this.minionSubscriptionCounts.keys());
+    if (minionIds.length === 0) {
       return;
     }
 
     const now = Date.now();
     const refreshes: Array<Promise<void>> = [];
 
-    for (const workspaceId of workspaceIds) {
-      const cached = this.workspacePRCache.get(workspaceId);
-      if (this.shouldFetchWorkspace(cached, now)) {
-        refreshes.push(this.detectWorkspacePR(workspaceId));
+    for (const minionId of minionIds) {
+      const cached = this.minionPRCache.get(minionId);
+      if (this.shouldFetchMinion(cached, now)) {
+        refreshes.push(this.detectMinionPR(minionId));
       }
     }
 
@@ -358,40 +405,39 @@ export function setPRStatusStoreInstance(store: PRStatusStore): void {
 // React hooks
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Cache for useWorkspacePR hook to return stable references
-const workspacePRHookCache = new Map<string, GitHubPRLinkWithStatus | null>();
+// Cache for useMinionPR hook to return stable references
+const minionPRHookCache = new Map<string, GitHubPRLinkWithStatus | null>();
 
 /**
- * Hook to get PR for a workspace (branch-based detection).
+ * Hook to get PR for a minion (branch-based detection).
  * Returns the detected PR with status, or null if no PR for this branch.
  */
-export function useWorkspacePR(workspaceId: string): GitHubPRLinkWithStatus | null {
+export function useMinionPR(minionId: string): GitHubPRLinkWithStatus | null {
   const store = getPRStatusStoreInstance();
 
   return useSyncExternalStore(
-    (listener) => store.subscribeWorkspace(workspaceId, listener),
+    (listener) => store.subscribeMinion(minionId, listener),
     () => {
-      const cached = store.getWorkspacePR(workspaceId);
-      const existing = workspacePRHookCache.get(workspaceId);
+      const cached = store.getMinionPR(minionId);
+      const existing = minionPRHookCache.get(minionId);
 
       // No data yet
       if (!cached) {
         if (existing === null) return existing;
-        workspacePRHookCache.set(workspaceId, null);
+        minionPRHookCache.set(minionId, null);
         return null;
       }
 
       // No PR for this branch
       if (!cached.prLink) {
         if (existing === null) return existing;
-        workspacePRHookCache.set(workspaceId, null);
+        minionPRHookCache.set(minionId, null);
         return null;
       }
 
       // Return same reference if nothing meaningful changed
       if (
-        existing &&
-        existing.url === cached.prLink.url &&
+        existing?.url === cached.prLink.url &&
         existing.status === cached.status &&
         existing.loading === cached.loading &&
         existing.error === cached.error
@@ -406,7 +452,7 @@ export function useWorkspacePR(workspaceId: string): GitHubPRLinkWithStatus | nu
         loading: cached.loading,
         error: cached.error,
       };
-      workspacePRHookCache.set(workspaceId, newResult);
+      minionPRHookCache.set(minionId, newResult);
       return newResult;
     }
   );

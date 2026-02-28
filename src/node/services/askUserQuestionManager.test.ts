@@ -42,7 +42,7 @@ describe("AskUserQuestionManager", () => {
     expect(manager.getLatestPending("ws")).toBeNull();
   });
 
-  it("tracks latest pending per workspace", async () => {
+  it("tracks latest pending per minion", async () => {
     const manager = new AskUserQuestionManager();
 
     const promise1 = manager.registerPending("ws", "tool-1", [...QUESTIONS]);

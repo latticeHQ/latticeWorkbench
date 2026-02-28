@@ -1,26 +1,29 @@
-import * as os from "os";
 import * as path from "path";
 import * as fsPromises from "fs/promises";
 import {
   LATTICE_HELP_CHAT_AGENT_ID,
-  LATTICE_HELP_CHAT_WORKSPACE_ID,
-  LATTICE_HELP_CHAT_WORKSPACE_NAME,
-  LATTICE_HELP_CHAT_WORKSPACE_TITLE,
+  LATTICE_HELP_CHAT_MINION_ID,
+  LATTICE_HELP_CHAT_MINION_NAME,
+  LATTICE_HELP_CHAT_MINION_TITLE,
 } from "@/common/constants/latticeChat";
 import { getLatticeHelpChatProjectPath } from "@/node/constants/latticeChat";
+import { getInboxesProjectPath } from "@/node/constants/inboxProject";
+import {
+  INBOXES_PROJECT_MINION_ID,
+  INBOXES_PROJECT_MINION_NAME,
+  INBOXES_PROJECT_MINION_TITLE,
+} from "@/common/constants/inboxProject";
 import { createLatticeMessage } from "@/common/types/message";
 import { log } from "@/node/services/log";
 import type { Config } from "@/node/config";
-import { AIService } from "@/node/services/aiService";
-import { HistoryService } from "@/node/services/historyService";
-import { PartialService } from "@/node/services/partialService";
-import { InitStateManager } from "@/node/services/initStateManager";
+import { createCoreServices, type CoreServices } from "@/node/services/coreServices";
 import { PTYService } from "@/node/services/ptyService";
 import type { TerminalWindowManager } from "@/desktop/terminalWindowManager";
 import { ProjectService } from "@/node/services/projectService";
-import { WorkspaceService } from "@/node/services/workspaceService";
-import { ProviderService } from "@/node/services/providerService";
-import { ExtensionMetadataService } from "@/node/services/ExtensionMetadataService";
+import { LatticeGovernorOauthService } from "@/node/services/latticeGovernorOauthService";
+import { CodexOauthService } from "@/node/services/codexOauthService";
+import { CopilotOauthService } from "@/node/services/copilotOauthService";
+import { AnthropicOauthService } from "@/node/services/anthropicOauthService";
 import { TerminalService } from "@/node/services/terminalService";
 import { EditorService } from "@/node/services/editorService";
 import { WindowService } from "@/node/services/windowService";
@@ -42,41 +45,46 @@ import type {
 } from "@/common/types/stream";
 import { FeatureFlagService } from "@/node/services/featureFlagService";
 import { SessionTimingService } from "@/node/services/sessionTimingService";
+import { AnalyticsService } from "@/node/services/analytics/analyticsService";
 import { ExperimentsService } from "@/node/services/experimentsService";
-import { BackgroundProcessManager } from "@/node/services/backgroundProcessManager";
-import { MCPConfigService } from "@/node/services/mcpConfigService";
-import { WorkspaceMcpOverridesService } from "@/node/services/workspaceMcpOverridesService";
-import { MCPServerManager } from "@/node/services/mcpServerManager";
-import { SessionUsageService } from "@/node/services/sessionUsageService";
+import { MinionMcpOverridesService } from "@/node/services/minionMcpOverridesService";
+import { McpOauthService } from "@/node/services/mcpOauthService";
 import { IdleCompactionService } from "@/node/services/idleCompactionService";
-import { TaskService } from "@/node/services/taskService";
 import { getSigningService, type SigningService } from "@/node/services/signingService";
 import { latticeService, type LatticeService } from "@/node/services/latticeService";
+import { SshPromptService } from "@/node/services/sshPromptService";
+import { MinionLifecycleHooks } from "@/node/services/minionLifecycleHooks";
+import {
+  createStartLatticeOnUnarchiveHook,
+  createStopLatticeOnArchiveHook,
+} from "@/node/runtime/latticeLifecycleHooks";
 import { setGlobalLatticeService } from "@/node/runtime/runtimeFactory";
-import { InferenceService, InferenceSetupService } from "@/node/services/inference";
-import { ChannelService } from "@/node/services/channelService";
-import { ChannelSessionRouter } from "@/node/services/channelSessionRouter";
-import { BrowserSessionManager } from "@/node/services/browserSessionManager";
-import { PluginPackService } from "@/node/services/pluginPacks/pluginPackService";
-import { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
-import { CliAgentOrchestrationService } from "@/node/services/cliAgentOrchestrationService";
-import { CliAgentPreferencesService } from "@/node/services/cliAgentPreferencesService";
-import { TerminalScrollbackService } from "@/node/services/terminalScrollbackService";
+import { setSshPromptService } from "@/node/runtime/sshConnectionPool";
+import { setSshPromptService as setSSH2SshPromptService } from "@/node/runtime/SSH2ConnectionPool";
+import { PolicyService } from "@/node/services/policyService";
+import { ServerAuthService } from "@/node/services/serverAuthService";
+import { KanbanService } from "@/node/services/kanbanService";
+import { ExoService } from "@/node/services/exoService";
+import { SchedulerService } from "@/node/services/schedulerService";
+import { SyncService } from "@/node/services/syncService";
+import { InboxService } from "@/node/services/inboxService";
+import { TelegramAdapter } from "@/node/services/inbox/telegramAdapter";
+import type { ORPCContext } from "@/node/orpc/context";
 
 const LATTICE_HELP_CHAT_WELCOME_MESSAGE_ID = "lattice-chat-welcome";
-const LATTICE_HELP_CHAT_WELCOME_MESSAGE = `Welcome to Lattice Workbench — a system of AI agents for software development.
+const LATTICE_HELP_CHAT_WELCOME_MESSAGE = `Hi, I'm Lattice.
 
-This is your built-in **Chat with Lattice** workspace — a safe place to ask questions about Lattice Workbench itself.
+This is your built-in **Chat with Lattice** minion — a safe place to ask questions about Lattice itself.
 
 I can help you:
 - Configure global agent behavior by editing **~/.lattice/AGENTS.md** (I'll show a diff and ask before writing).
 - Pick models/providers and explain Lattice modes + tool policies.
-- Troubleshoot common setup issues (keys, runtimes, workspaces, etc.).
+- Troubleshoot common setup issues (keys, runtimes, minions, etc.).
 
 Try asking:
 - "What does AGENTS.md do?"
 - "Help me write global instructions for code reviews"
-- "How do I set up an OpenAI / Anthropic key in Lattice Workbench?"
+- "How do I set up an OpenAI / Anthropic key in Lattice?"
 `;
 
 /**
@@ -87,13 +95,23 @@ Try asking:
  */
 export class ServiceContainer {
   public readonly config: Config;
-  private readonly historyService: HistoryService;
-  private readonly partialService: PartialService;
-  public readonly aiService: AIService;
+  // Core services — instantiated by createCoreServices (shared with `lattice run` CLI)
+  private readonly historyService: CoreServices["historyService"];
+  public readonly aiService: CoreServices["aiService"];
+  public readonly minionService: CoreServices["minionService"];
+  public readonly taskService: CoreServices["taskService"];
+  public readonly providerService: CoreServices["providerService"];
+  public readonly mcpConfigService: CoreServices["mcpConfigService"];
+  public readonly mcpServerManager: CoreServices["mcpServerManager"];
+  public readonly sessionUsageService: CoreServices["sessionUsageService"];
+  private readonly extensionMetadata: CoreServices["extensionMetadata"];
+  private readonly backgroundProcessManager: CoreServices["backgroundProcessManager"];
+  // Desktop-only services
   public readonly projectService: ProjectService;
-  public readonly workspaceService: WorkspaceService;
-  public readonly taskService: TaskService;
-  public readonly providerService: ProviderService;
+  public readonly latticeGovernorOauthService: LatticeGovernorOauthService;
+  public readonly codexOauthService: CodexOauthService;
+  public readonly copilotOauthService: CopilotOauthService;
+  public readonly anthropicOauthService: AnthropicOauthService;
   public readonly terminalService: TerminalService;
   public readonly editorService: EditorService;
   public readonly windowService: WindowService;
@@ -102,170 +120,159 @@ export class ServiceContainer {
   public readonly serverService: ServerService;
   public readonly menuEventService: MenuEventService;
   public readonly voiceService: VoiceService;
-  public readonly mcpConfigService: MCPConfigService;
-  public readonly workspaceMcpOverridesService: WorkspaceMcpOverridesService;
-  public readonly mcpServerManager: MCPServerManager;
+  public readonly mcpOauthService: McpOauthService;
+  public readonly minionMcpOverridesService: MinionMcpOverridesService;
   public readonly telemetryService: TelemetryService;
   public readonly featureFlagService: FeatureFlagService;
   public readonly sessionTimingService: SessionTimingService;
+  public readonly analyticsService: AnalyticsService;
   public readonly experimentsService: ExperimentsService;
-  public readonly sessionUsageService: SessionUsageService;
   public readonly signingService: SigningService;
+  public readonly policyService: PolicyService;
   public readonly latticeService: LatticeService;
-  public readonly inferenceService: InferenceService;
-  public readonly inferenceSetupService: InferenceSetupService;
-  public readonly channelSessionRouter: ChannelSessionRouter;
-  public readonly channelService: ChannelService;
-  private readonly initStateManager: InitStateManager;
-  private readonly extensionMetadata: ExtensionMetadataService;
+  public readonly serverAuthService: ServerAuthService;
+  public readonly kanbanService: KanbanService;
+  public readonly exoService: ExoService;
+  public readonly schedulerService: SchedulerService;
+  public readonly syncService: SyncService;
+  public readonly inboxService: InboxService;
+  public readonly sshPromptService = new SshPromptService();
   private readonly ptyService: PTYService;
-  private readonly backgroundProcessManager: BackgroundProcessManager;
   public readonly idleCompactionService: IdleCompactionService;
-  public readonly browserSessionManager: BrowserSessionManager;
-  public readonly pluginPackService: PluginPackService;
-  public readonly cliAgentDetectionService: CliAgentDetectionService;
-  public readonly cliAgentOrchestrationService: CliAgentOrchestrationService;
-  public readonly cliAgentPreferencesService: CliAgentPreferencesService;
-  public readonly terminalScrollbackService: TerminalScrollbackService;
 
   constructor(config: Config) {
     this.config = config;
-    this.historyService = new HistoryService(config);
-    this.partialService = new PartialService(config, this.historyService);
-    this.projectService = new ProjectService(config);
-    this.pluginPackService = new PluginPackService(config);
-    this.initStateManager = new InitStateManager(config);
-    this.workspaceMcpOverridesService = new WorkspaceMcpOverridesService(config);
-    this.mcpConfigService = new MCPConfigService();
-    this.extensionMetadata = new ExtensionMetadataService(
-      path.join(config.rootDir, "extensionMetadata.json")
-    );
-    this.backgroundProcessManager = new BackgroundProcessManager(
-      path.join(os.tmpdir(), "lattice-bashes")
-    );
-    this.browserSessionManager = new BrowserSessionManager();
-    const workbenchRoot = path.resolve(__dirname, "../../..");
-    this.mcpServerManager = new MCPServerManager(this.mcpConfigService, {
-      bundledServers: {
-        // Lattice Workbench control — lets agents operate the workbench itself:
-        // create projects/workspaces, send messages, run bash, manage channels.
-        // Enables autonomous control from TG/Discord or any MCP-compatible client.
-        "lattice-workbench": {
-          transport: "stdio" as const,
-          command: `npx tsx ${path.join(workbenchRoot, "src/mcp-server/index.ts")}`,
-          disabled: false,
-        },
-      },
-    });
-    this.sessionUsageService = new SessionUsageService(config, this.historyService);
-    this.aiService = new AIService(
-      config,
-      this.historyService,
-      this.partialService,
-      this.initStateManager,
-      this.backgroundProcessManager,
-      this.sessionUsageService,
-      this.workspaceMcpOverridesService
-    );
-    this.aiService.setMCPServerManager(this.mcpServerManager);
-    this.aiService.setBrowserSessionManager(this.browserSessionManager);
-    this.workspaceService = new WorkspaceService(
-      config,
-      this.historyService,
-      this.partialService,
-      this.aiService,
-      this.initStateManager,
-      this.extensionMetadata,
-      this.backgroundProcessManager,
-      this.sessionUsageService
-    );
-    this.workspaceService.setMCPServerManager(this.mcpServerManager);
-    this.channelSessionRouter = new ChannelSessionRouter(
-      config,
-      this.workspaceService,
-      this.projectService
-    );
-    this.channelService = new ChannelService(
-      config,
-      this.workspaceService,
-      this.channelSessionRouter
-    );
-    this.taskService = new TaskService(
-      config,
-      this.historyService,
-      this.partialService,
-      this.aiService,
-      this.workspaceService,
-      this.initStateManager
-    );
-    this.aiService.setTaskService(this.taskService);
-    // Idle compaction service - auto-compacts workspaces after configured idle period
-    this.idleCompactionService = new IdleCompactionService(
-      config,
-      this.historyService,
-      this.extensionMetadata,
-      (workspaceId) => this.workspaceService.emitIdleCompactionNeeded(workspaceId)
-    );
-    this.windowService = new WindowService();
-    this.providerService = new ProviderService(config);
-    this.cliAgentDetectionService = new CliAgentDetectionService();
-    this.cliAgentDetectionService.setDiskCachePath(
-      path.join(config.rootDir, "agent-status-cache.json")
-    );
-    // Pre-warm detection on startup (emdash pattern) — fire-and-forget so the
-    // cache is hot by the time the first browser client subscribes to detectEach.
-    const _detectionService = this.cliAgentDetectionService;
-    void (async () => {
-      try {
-        // Drain the generator — each result updates the internal cache as it arrives
-        for await (const _ of _detectionService.detectEach()) { /* warm cache */ }
-      } catch {
-        // Non-fatal: detection will run lazily on first subscribe instead
-      }
-    })();
-    this.aiService.setCliAgentDetectionService(this.cliAgentDetectionService);
-    this.cliAgentOrchestrationService = new CliAgentOrchestrationService(
-      this.cliAgentDetectionService
-    );
-    this.cliAgentPreferencesService = new CliAgentPreferencesService(config);
-    // Terminal services - PTYService is cross-platform (with PTY lifecycle guard)
-    this.ptyService = new PTYService(config.rootDir);
-    this.terminalService = new TerminalService(config, this.ptyService);
-    // Wire terminal service to workspace service for cleanup on removal
-    this.workspaceService.setTerminalService(this.terminalService);
-    // Wire terminal service to AI service so hire_employee tool can create sessions
-    this.aiService.setTerminalService(this.terminalService);
-    // Wire agent detection to workspace/task services for remote agent bootstrap
-    this.workspaceService.setCliAgentDetectionService(this.cliAgentDetectionService);
-    this.taskService.setCliAgentDetectionService(this.cliAgentDetectionService);
-    // Disk-backed scrollback persistence for employee agent terminals
-    this.terminalScrollbackService = new TerminalScrollbackService(config);
-    // Editor service for opening workspaces in code editors
-    this.editorService = new EditorService(config);
-    this.updateService = new UpdateService();
-    this.tokenizerService = new TokenizerService(this.sessionUsageService);
-    this.serverService = new ServerService();
-    this.menuEventService = new MenuEventService();
-    this.voiceService = new VoiceService(config);
+
+    // Cross-cutting services: created first so they can be passed to core
+    // services via constructor params (no setter injection needed).
+    this.policyService = new PolicyService(config);
     this.telemetryService = new TelemetryService(config.rootDir);
-    this.aiService.setTelemetryService(this.telemetryService);
-    this.workspaceService.setTelemetryService(this.telemetryService);
     this.experimentsService = new ExperimentsService({
       telemetryService: this.telemetryService,
       latticeHome: config.rootDir,
     });
-    this.featureFlagService = new FeatureFlagService(config, this.telemetryService);
     this.sessionTimingService = new SessionTimingService(config, this.telemetryService);
-    this.workspaceService.setSessionTimingService(this.sessionTimingService);
+    this.analyticsService = new AnalyticsService(config);
+
+    // Desktop passes MinionMcpOverridesService explicitly so AIService uses
+    // the persistent config rather than creating a default with an ephemeral one.
+    this.minionMcpOverridesService = new MinionMcpOverridesService(config);
+
+    const core = createCoreServices({
+      config,
+      extensionMetadataPath: path.join(config.rootDir, "extensionMetadata.json"),
+      minionMcpOverridesService: this.minionMcpOverridesService,
+      policyService: this.policyService,
+      telemetryService: this.telemetryService,
+      experimentsService: this.experimentsService,
+      sessionTimingService: this.sessionTimingService,
+    });
+
+    // Spread core services into class fields
+    this.historyService = core.historyService;
+    this.aiService = core.aiService;
+    this.minionService = core.minionService;
+    this.taskService = core.taskService;
+    this.providerService = core.providerService;
+    this.mcpConfigService = core.mcpConfigService;
+    this.mcpServerManager = core.mcpServerManager;
+    this.sessionUsageService = core.sessionUsageService;
+    this.extensionMetadata = core.extensionMetadata;
+    this.backgroundProcessManager = core.backgroundProcessManager;
+
+    this.projectService = new ProjectService(config, this.sshPromptService);
+
+    // Idle compaction service - auto-compacts minions after configured idle period
+    this.idleCompactionService = new IdleCompactionService(
+      config,
+      this.historyService,
+      this.extensionMetadata,
+      (minionId) => this.minionService.executeIdleCompaction(minionId)
+    );
+    this.windowService = new WindowService();
+    this.mcpOauthService = new McpOauthService(
+      config,
+      this.mcpConfigService,
+      this.windowService,
+      this.telemetryService
+    );
+    this.mcpServerManager.setMcpOauthService(this.mcpOauthService);
+
+    this.latticeGovernorOauthService = new LatticeGovernorOauthService(
+      config,
+      this.windowService,
+      this.policyService
+    );
+    this.codexOauthService = new CodexOauthService(
+      config,
+      this.providerService,
+      this.windowService
+    );
+    this.aiService.setCodexOauthService(this.codexOauthService);
+    this.copilotOauthService = new CopilotOauthService(this.providerService, this.windowService);
+    this.anthropicOauthService = new AnthropicOauthService(
+      config,
+      this.providerService,
+      this.windowService
+    );
+    this.aiService.setAnthropicOauthService(this.anthropicOauthService);
+    // Terminal services - PTYService is cross-platform
+    this.ptyService = new PTYService();
+    this.kanbanService = new KanbanService(config);
+    this.exoService = new ExoService();
+    // Inbox service — manages channel adapters (Telegram, Slack, etc.)
+    this.inboxService = new InboxService(config);
+    // Wire agent dispatch dependencies into inbox service (setter injection
+    // to avoid circular deps — minionService + aiService are created earlier)
+    this.inboxService.setMinionService(this.minionService);
+    this.inboxService.setAIService(this.aiService);
+    // Register channel adapters based on config (startup-safe: individual failures don't crash)
+    this.registerInboxAdapters();
+    this.terminalService = new TerminalService(config, this.ptyService);
+    // Wire kanban service into terminal service for lifecycle tracking
+    this.terminalService.setKanbanService(this.kanbanService);
+    // Scheduler service — late-binds minion service to send agent messages
+    this.schedulerService = new SchedulerService(config);
+    this.schedulerService.setMinionService(this.minionService);
+
+    // Sync service — mirrors config to a private GitHub repo
+    this.syncService = new SyncService(config);
+    // Wire terminal service to minion service for cleanup on removal
+    this.minionService.setTerminalService(this.terminalService);
+    // Editor service for opening minions in code editors
+    this.editorService = new EditorService(config);
+    this.updateService = new UpdateService(this.config);
+    this.tokenizerService = new TokenizerService(this.sessionUsageService);
+    this.serverService = new ServerService();
+    this.menuEventService = new MenuEventService();
+    this.voiceService = new VoiceService(config, this.policyService);
+    this.featureFlagService = new FeatureFlagService(config, this.telemetryService);
     this.signingService = getSigningService();
     this.latticeService = latticeService;
+
+    this.serverAuthService = new ServerAuthService(config);
+
+    const minionLifecycleHooks = new MinionLifecycleHooks();
+    minionLifecycleHooks.registerBeforeArchive(
+      createStopLatticeOnArchiveHook({
+        latticeService: this.latticeService,
+        shouldStopOnArchive: () =>
+          this.config.loadConfigOrDefault().stopLatticeMinionOnArchive !== false,
+      })
+    );
+    minionLifecycleHooks.registerAfterUnarchive(
+      createStartLatticeOnUnarchiveHook({
+        latticeService: this.latticeService,
+        shouldStopOnArchive: () =>
+          this.config.loadConfigOrDefault().stopLatticeMinionOnArchive !== false,
+      })
+    );
+    this.minionService.setMinionLifecycleHooks(minionLifecycleHooks);
+
     // Register globally so all createRuntime calls can create LatticeSSHRuntime
     setGlobalLatticeService(this.latticeService);
-
-    // Local on-device inference (Lattice Inference)
-    this.inferenceService = new InferenceService(config.rootDir);
-    this.inferenceSetupService = new InferenceSetupService(this.inferenceService);
-    this.aiService.setInferenceService(this.inferenceService);
+    setSshPromptService(this.sshPromptService);
+    setSSH2SshPromptService(this.sshPromptService);
 
     // Backend timing stats (behind feature flag).
     this.aiService.on("stream-start", (data: StreamStartEvent) =>
@@ -286,19 +293,45 @@ export class ServiceContainer {
     this.aiService.on("tool-call-end", (data: ToolCallEndEvent) =>
       this.sessionTimingService.handleToolCallEnd(data)
     );
-    this.aiService.on("stream-end", (data: StreamEndEvent) =>
-      this.sessionTimingService.handleStreamEnd(data)
-    );
+    this.aiService.on("stream-end", (data: StreamEndEvent) => {
+      this.sessionTimingService.handleStreamEnd(data);
+
+      const minionLookup = this.config.findMinion(data.minionId);
+      const sessionDir = this.config.getSessionDir(data.minionId);
+      this.analyticsService.ingestMinion(data.minionId, sessionDir, {
+        projectPath: minionLookup?.projectPath,
+        projectName: minionLookup?.projectPath
+          ? path.basename(minionLookup.projectPath)
+          : undefined,
+      });
+    });
+    // MinionService emits metadata:null after successful remove().
+    // Clear analytics rows immediately so deleted minions disappear from stats
+    // without waiting for a future ingest pass.
+    this.minionService.on("metadata", (event) => {
+      if (event.metadata !== null) {
+        return;
+      }
+
+      this.analyticsService.clearMinion(event.minionId);
+    });
+
     this.aiService.on("stream-abort", (data: StreamAbortEvent) =>
       this.sessionTimingService.handleStreamAbort(data)
     );
-    this.workspaceService.setExperimentsService(this.experimentsService);
   }
 
   async initialize(): Promise<void> {
     await this.extensionMetadata.initialize();
-    // Initialize telemetry service
+    // Check config-level telemetry preference before initializing
+    if (!this.config.getTelemetryEnabled()) {
+      this.telemetryService._configDisabled = true;
+    }
+    // Initialize telemetry service (skips PostHog setup if _configDisabled)
     await this.telemetryService.initialize();
+
+    // Initialize policy service (startup gating)
+    await this.policyService.initialize();
 
     // Initialize feature flag state (don't block startup on network).
     this.featureFlagService
@@ -311,11 +344,11 @@ export class ServiceContainer {
     await this.taskService.initialize();
     // Start idle compaction checker
     this.idleCompactionService.start();
+    // Initialize scheduler (loads jobs, arms timers)
+    this.schedulerService.initialize();
 
-    // Initialize channel service (load saved configs, auto-connect enabled channels)
-    void this.channelService.initialize().catch((err) => {
-      log.warn("[ServiceContainer] Channel service init failed (non-fatal)", { error: err });
-    });
+    // Initialize sync (verifies repo if configured, starts auto-sync watcher)
+    this.syncService.initialize();
 
     // Refresh Lattice SSH config in background (handles binary path changes on restart)
     // Skip getLatticeInfo() to avoid caching "unavailable" if lattice isn't installed yet
@@ -323,57 +356,125 @@ export class ServiceContainer {
       // Ignore errors - lattice may not be installed
     });
 
-    // Initialize local inference (Python detection, backend availability)
-    void this.inferenceService.initialize().catch((err) => {
-      log.warn("[ServiceContainer] Inference service init failed (non-fatal)", { error: err });
-    });
+    // Connect inbox channel adapters (startup-safe: never crashes the app).
+    // Each adapter connects independently — one failure doesn't block others.
+    try {
+      await this.inboxService.connectAll();
+    } catch (error) {
+      log.warn("[ServiceContainer] Failed to connect inbox adapters", { error });
+    }
 
-    // Ensure the built-in Chat with Lattice system workspace exists.
+    // Ensure the built-in Chat with Lattice system minion exists.
     // Defensive: startup-time initialization must never crash the app.
     try {
-      await this.ensureLatticeChatWorkspace();
+      await this.ensureLatticeChatMinion();
     } catch (error) {
-      log.warn("[ServiceContainer] Failed to ensure Chat with Lattice workspace", { error });
+      log.warn("[ServiceContainer] Failed to ensure Chat with Lattice minion", { error });
+    }
+
+    // Ensure the dedicated Inboxes system project exists so all channel
+    // adapter conversations (Telegram, WhatsApp, etc.) consolidate there.
+    try {
+      await this.ensureInboxesProject();
+    } catch (error) {
+      log.warn("[ServiceContainer] Failed to ensure Inboxes project", { error });
     }
   }
 
-  private async ensureLatticeChatWorkspace(): Promise<void> {
+  /**
+   * Register channel adapters based on config.
+   * Called once at construction time. Each adapter's connect() is deferred
+   * to initialize() → connectAll() so startup never blocks on network I/O.
+   */
+  private registerInboxAdapters(): void {
+    // Telegram: register if bot token is configured
+    const telegramToken = this.config.getTelegramBotToken();
+    if (telegramToken) {
+      this.inboxService.registerAdapter(new TelegramAdapter(telegramToken));
+    }
+    // Future: add Slack, Discord, etc. adapters here as they are implemented
+  }
+
+  private async ensureLatticeChatMinion(): Promise<void> {
     const projectPath = getLatticeHelpChatProjectPath(this.config.rootDir);
 
     // Ensure the directory exists (LocalRuntime uses project dir directly).
     await fsPromises.mkdir(projectPath, { recursive: true });
 
     await this.config.editConfig((config) => {
+      // Dev builds can run with a different LATTICE_ROOT (for example ~/.lattice-dev).
+      // If config.json still has the built-in lattice-chat minion under an older root
+      // (for example ~/.lattice), the sidebar can show duplicate "Chat with Lattice" entries.
+      // Only treat entries as stale when they still look like a system Lattice project so
+      // we do not delete unrelated legacy user minions whose generated ID happened
+      // to collide with "lattice-chat" (e.g. project basename "lattice" + minion "chat").
+      const staleProjectPaths: string[] = [];
+      for (const [existingProjectPath, existingProjectConfig] of config.projects) {
+        if (existingProjectPath === projectPath) {
+          continue;
+        }
+
+        const isSystemLatticeProjectPath =
+          path.basename(existingProjectPath) === "Lattice" &&
+          path.basename(path.dirname(existingProjectPath)) === "system";
+
+        if (!isSystemLatticeProjectPath) {
+          continue;
+        }
+
+        existingProjectConfig.minions = existingProjectConfig.minions.filter((minion) => {
+          const isLatticeChatMinion = minion.id === LATTICE_HELP_CHAT_MINION_ID;
+          if (!isLatticeChatMinion) {
+            return true;
+          }
+
+          const looksLikeSystemLatticeChat =
+            minion.agentId === LATTICE_HELP_CHAT_AGENT_ID ||
+            minion.path === existingProjectPath ||
+            minion.name === LATTICE_HELP_CHAT_MINION_NAME ||
+            minion.title === LATTICE_HELP_CHAT_MINION_TITLE;
+
+          return !looksLikeSystemLatticeChat;
+        });
+
+        if (existingProjectConfig.minions.length === 0) {
+          staleProjectPaths.push(existingProjectPath);
+        }
+      }
+
+      for (const staleProjectPath of staleProjectPaths) {
+        config.projects.delete(staleProjectPath);
+      }
+
       let projectConfig = config.projects.get(projectPath);
       if (!projectConfig) {
-        projectConfig = { workspaces: [] };
+        projectConfig = { minions: [] };
         config.projects.set(projectPath, projectConfig);
       }
 
-      const existing = projectConfig.workspaces.find(
-        (w) => w.id === LATTICE_HELP_CHAT_WORKSPACE_ID
-      );
-      if (!existing) {
-        projectConfig.workspaces.push({
-          path: projectPath,
-          id: LATTICE_HELP_CHAT_WORKSPACE_ID,
-          name: LATTICE_HELP_CHAT_WORKSPACE_NAME,
-          title: LATTICE_HELP_CHAT_WORKSPACE_TITLE,
-          agentId: LATTICE_HELP_CHAT_AGENT_ID,
-          createdAt: new Date().toISOString(),
-          runtimeConfig: { type: "local" },
-        });
-        return config;
-      }
+      const existing = projectConfig.minions.find((w) => w.id === LATTICE_HELP_CHAT_MINION_ID);
 
-      // Self-heal: enforce invariants for the system workspace.
-      existing.path = projectPath;
-      existing.name = LATTICE_HELP_CHAT_WORKSPACE_NAME;
-      existing.title = LATTICE_HELP_CHAT_WORKSPACE_TITLE;
-      existing.agentId = LATTICE_HELP_CHAT_AGENT_ID;
-      existing.createdAt ??= new Date().toISOString();
-      existing.runtimeConfig = { type: "local" };
-      existing.archivedAt = undefined;
+      // Self-heal: enforce invariants for the system minion and collapse duplicates
+      // in the active system project down to exactly one lattice-chat entry.
+      const latticeChatMinion = {
+        ...existing,
+        path: projectPath,
+        id: LATTICE_HELP_CHAT_MINION_ID,
+        name: LATTICE_HELP_CHAT_MINION_NAME,
+        title: LATTICE_HELP_CHAT_MINION_TITLE,
+        agentId: LATTICE_HELP_CHAT_AGENT_ID,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        runtimeConfig: { type: "local" } as const,
+        archivedAt: undefined,
+        unarchivedAt: undefined,
+      };
+
+      projectConfig.minions = [
+        ...projectConfig.minions.filter(
+          (minion) => minion.id !== LATTICE_HELP_CHAT_MINION_ID
+        ),
+        latticeChatMinion,
+      ];
 
       return config;
     });
@@ -381,16 +482,56 @@ export class ServiceContainer {
     await this.ensureLatticeChatWelcomeMessage();
   }
 
-  private async ensureLatticeChatWelcomeMessage(): Promise<void> {
-    const historyResult = await this.historyService.getHistory(LATTICE_HELP_CHAT_WORKSPACE_ID);
-    if (!historyResult.success) {
-      log.warn("[ServiceContainer] Failed to read lattice-chat history for welcome message", {
-        error: historyResult.error,
-      });
-      return;
-    }
+  /**
+   * Ensure the dedicated Inboxes system project exists.
+   * All channel adapter conversations (Telegram, WhatsApp, Slack, etc.)
+   * consolidate under this single project instead of scattering across
+   * user projects. Follows the same pattern as ensureLatticeChatMinion.
+   */
+  private async ensureInboxesProject(): Promise<void> {
+    const projectPath = getInboxesProjectPath(this.config.rootDir);
 
-    if (historyResult.data.length > 0) {
+    // Ensure the directory exists (LocalRuntime uses project dir directly).
+    await fsPromises.mkdir(projectPath, { recursive: true });
+
+    await this.config.editConfig((config) => {
+      let projectConfig = config.projects.get(projectPath);
+      if (!projectConfig) {
+        projectConfig = { minions: [] };
+        config.projects.set(projectPath, projectConfig);
+      }
+
+      // Ensure exactly one inbox-dispatch minion exists (self-heal on each startup)
+      const existing = projectConfig.minions.find((w) => w.id === INBOXES_PROJECT_MINION_ID);
+
+      const inboxMinion = {
+        ...existing,
+        path: projectPath,
+        id: INBOXES_PROJECT_MINION_ID,
+        name: INBOXES_PROJECT_MINION_NAME,
+        title: INBOXES_PROJECT_MINION_TITLE,
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+        runtimeConfig: { type: "local" } as const,
+        archivedAt: undefined,
+        unarchivedAt: undefined,
+      };
+
+      projectConfig.minions = [
+        ...projectConfig.minions.filter(
+          (minion) => minion.id !== INBOXES_PROJECT_MINION_ID
+        ),
+        inboxMinion,
+      ];
+
+      return config;
+    });
+
+    log.info("[ServiceContainer] Inboxes system project ensured", { projectPath });
+  }
+
+  private async ensureLatticeChatWelcomeMessage(): Promise<void> {
+    // Only need to check if any history exists — avoid parsing the entire file
+    if (await this.historyService.hasHistory(LATTICE_HELP_CHAT_MINION_ID)) {
       return;
     }
 
@@ -403,7 +544,7 @@ export class ServiceContainer {
     );
 
     const appendResult = await this.historyService.appendToHistory(
-      LATTICE_HELP_CHAT_WORKSPACE_ID,
+      LATTICE_HELP_CHAT_MINION_ID,
       message
     );
     if (!appendResult.success) {
@@ -414,13 +555,59 @@ export class ServiceContainer {
   }
 
   /**
+   * Build the ORPCContext from this container's services.
+   * Centralizes the ServiceContainer → ORPCContext mapping so callers
+   * (desktop/main.ts, cli/server.ts) don't duplicate a 30-field spread.
+   */
+  toORPCContext(): Omit<ORPCContext, "headers"> {
+    return {
+      config: this.config,
+      aiService: this.aiService,
+      projectService: this.projectService,
+      minionService: this.minionService,
+      taskService: this.taskService,
+      providerService: this.providerService,
+      latticeGovernorOauthService: this.latticeGovernorOauthService,
+      codexOauthService: this.codexOauthService,
+      copilotOauthService: this.copilotOauthService,
+      anthropicOauthService: this.anthropicOauthService,
+      terminalService: this.terminalService,
+      editorService: this.editorService,
+      windowService: this.windowService,
+      updateService: this.updateService,
+      tokenizerService: this.tokenizerService,
+      serverService: this.serverService,
+      menuEventService: this.menuEventService,
+      voiceService: this.voiceService,
+      mcpConfigService: this.mcpConfigService,
+      mcpOauthService: this.mcpOauthService,
+      minionMcpOverridesService: this.minionMcpOverridesService,
+      mcpServerManager: this.mcpServerManager,
+      featureFlagService: this.featureFlagService,
+      sessionTimingService: this.sessionTimingService,
+      telemetryService: this.telemetryService,
+      experimentsService: this.experimentsService,
+      sessionUsageService: this.sessionUsageService,
+      policyService: this.policyService,
+      signingService: this.signingService,
+      latticeService: this.latticeService,
+      serverAuthService: this.serverAuthService,
+      sshPromptService: this.sshPromptService,
+      analyticsService: this.analyticsService,
+      kanbanService: this.kanbanService,
+      exoService: this.exoService,
+      schedulerService: this.schedulerService,
+      syncService: this.syncService,
+      inboxService: this.inboxService,
+    };
+  }
+
+  /**
    * Shutdown services that need cleanup
    */
   async shutdown(): Promise<void> {
     this.idleCompactionService.stop();
-    await this.channelService.shutdown();
-    await this.browserSessionManager.closeAll();
-    await this.inferenceService.dispose();
+    await this.analyticsService.dispose();
     await this.telemetryService.shutdown();
   }
 
@@ -437,8 +624,25 @@ export class ServiceContainer {
    * Terminates all background processes to prevent orphans.
    */
   async dispose(): Promise<void> {
+    // Persist inbox + kanban state before terminal cleanup
+    await this.inboxService.stop();
+    await this.kanbanService.saveAll();
+    // Persist terminal screen buffers BEFORE killing PTY processes.
+    // This must happen first — once PTYs are killed the screen state is lost.
+    await this.terminalService.saveAllSessions();
+    this.terminalService.closeAllSessions();
+
+    await this.analyticsService.dispose();
+    this.exoService.dispose();
+    this.policyService.dispose();
     this.mcpServerManager.dispose();
-    await this.inferenceService.dispose();
+    await this.mcpOauthService.dispose();
+    await this.latticeGovernorOauthService.dispose();
+    await this.codexOauthService.dispose();
+
+    this.copilotOauthService.dispose();
+    this.anthropicOauthService.dispose();
+    this.serverAuthService.dispose();
     await this.backgroundProcessManager.terminateAll();
   }
 }

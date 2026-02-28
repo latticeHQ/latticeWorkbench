@@ -121,7 +121,7 @@ describe("system1AgentRunner", () => {
           "name: Override System1 Bash",
           "ui:",
           "  hidden: true",
-          "subagent:",
+          "sidekick:",
           "  runnable: false",
           "---",
           "OVERRIDE_DO_NOT_USE",

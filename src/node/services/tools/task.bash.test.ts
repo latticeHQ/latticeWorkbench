@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from "bun:test";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 import { createBashTool } from "./bash";
 import { createTaskAwaitTool } from "./task_await";
@@ -9,7 +9,7 @@ import type { BackgroundProcessManager } from "@/node/services/backgroundProcess
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
 import type { TaskService } from "@/node/services/taskService";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -28,7 +28,7 @@ describe("bash + task_* (background bash tasks)", () => {
     const backgroundProcessManager = { spawn } as unknown as BackgroundProcessManager;
 
     const tool = createBashTool({
-      ...createTestToolConfig(tempDir.path, { workspaceId: "ws-1" }),
+      ...createTestToolConfig(tempDir.path, { minionId: "ws-1" }),
       backgroundProcessManager,
     });
 
@@ -58,7 +58,7 @@ describe("bash + task_* (background bash tasks)", () => {
   it("task_await returns incremental output for bash tasks", async () => {
     using tempDir = new TestTempDir("test-task-await-bash");
 
-    const getProcess = mock(() => ({ id: "proc-1", workspaceId: "ws-1", displayName: "My Proc" }));
+    const getProcess = mock(() => ({ id: "proc-1", minionId: "ws-1", displayName: "My Proc" }));
     const getOutput = mock(() => ({
       success: true as const,
       status: "running" as const,
@@ -73,12 +73,12 @@ describe("bash + task_* (background bash tasks)", () => {
 
     const taskService = {
       listActiveDescendantAgentTaskIds: mock(() => []),
-      isDescendantAgentTask: mock(() => false),
+      isDescendantAgentTask: mock(() => Promise.resolve(false)),
       waitForAgentReport: mock(() => Promise.resolve({ reportMarkdown: "ignored" })),
     } as unknown as TaskService;
 
     const tool = createTaskAwaitTool({
-      ...createTestToolConfig(tempDir.path, { workspaceId: "ws-1" }),
+      ...createTestToolConfig(tempDir.path, { minionId: "ws-1" }),
       backgroundProcessManager,
       taskService,
     });
@@ -109,7 +109,7 @@ describe("bash + task_* (background bash tasks)", () => {
     const list = mock(() => [
       {
         id: "proc-1",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         status: "running" as const,
         displayName: "My Proc",
         startTime,
@@ -120,11 +120,11 @@ describe("bash + task_* (background bash tasks)", () => {
 
     const taskService = {
       listDescendantAgentTasks: mock(() => []),
-      isDescendantAgentTask: mock(() => false),
+      isDescendantAgentTask: mock(() => Promise.resolve(false)),
     } as unknown as TaskService;
 
     const tool = createTaskListTool({
-      ...createTestToolConfig(tempDir.path, { workspaceId: "ws-1" }),
+      ...createTestToolConfig(tempDir.path, { minionId: "ws-1" }),
       backgroundProcessManager,
       taskService,
     });
@@ -136,7 +136,7 @@ describe("bash + task_* (background bash tasks)", () => {
         {
           taskId: "bash:proc-1",
           status: "running",
-          parentWorkspaceId: "ws-1",
+          parentMinionId: "ws-1",
           title: "My Proc",
           createdAt: new Date(startTime).toISOString(),
           depth: 1,
@@ -148,7 +148,7 @@ describe("bash + task_* (background bash tasks)", () => {
   it("task_terminate can terminate bash tasks", async () => {
     using tempDir = new TestTempDir("test-task-terminate-bash");
 
-    const getProcess = mock(() => ({ id: "proc-1", workspaceId: "ws-1" }));
+    const getProcess = mock(() => ({ id: "proc-1", minionId: "ws-1" }));
     const terminate = mock(() => ({ success: true as const }));
 
     const backgroundProcessManager = {
@@ -160,11 +160,11 @@ describe("bash + task_* (background bash tasks)", () => {
       terminateDescendantAgentTask: mock(() =>
         Promise.resolve({ success: false, error: "not used" })
       ),
-      isDescendantAgentTask: mock(() => false),
+      isDescendantAgentTask: mock(() => Promise.resolve(false)),
     } as unknown as TaskService;
 
     const tool = createTaskTerminateTool({
-      ...createTestToolConfig(tempDir.path, { workspaceId: "ws-1" }),
+      ...createTestToolConfig(tempDir.path, { minionId: "ws-1" }),
       backgroundProcessManager,
       taskService,
     });

@@ -19,7 +19,7 @@ interface ToolSelectorProps {
 
 /**
  * Reusable tool selector grid with All/None buttons.
- * Used by both project-level and workspace-level MCP config UIs.
+ * Used by both project-level and minion-level MCP config UIs.
  */
 export const ToolSelector: React.FC<ToolSelectorProps> = ({
   availableTools,

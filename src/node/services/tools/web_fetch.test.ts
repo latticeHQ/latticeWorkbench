@@ -3,21 +3,16 @@ import { createWebFetchTool } from "./web_fetch";
 import type { WebFetchToolArgs, WebFetchToolResult } from "@/common/types/tools";
 import { WEB_FETCH_MAX_OUTPUT_BYTES } from "@/common/constants/toolLimits";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
-import {
-  isLatticeMdUrl,
-  parseLatticeMdUrl,
-  uploadToLatticeMd,
-  deleteFromLatticeMd,
-} from "@/common/lib/latticeMd";
+import { isLatticeMdUrl, parseLatticeMdUrl, uploadToLatticeMd, deleteFromLatticeMd } from "@/common/lib/latticeMd";
 import * as fs from "fs/promises";
 import * as path from "path";
 
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 // ToolCallOptions stub for testing
 
 const itIntegration = process.env.TEST_INTEGRATION === "1" ? it : it.skip;
-const toolCallOptions: ToolCallOptions = {
+const toolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -37,22 +32,22 @@ function createTestWebFetchTool() {
   };
 }
 
-describe("openagent.md URL helpers", () => {
+describe("lattice.md URL helpers", () => {
   describe("isLatticeMdUrl", () => {
-    it("should detect valid openagent.md URLs", () => {
-      expect(isLatticeMdUrl("https://openagent.md/abc123#key456")).toBe(true);
-      expect(isLatticeMdUrl("https://openagent.md/RQJe3#Fbbhosspt9q9Ig")).toBe(true);
+    it("should detect valid lattice.md URLs", () => {
+      expect(isLatticeMdUrl("https://lattice.md/abc123#key456")).toBe(true);
+      expect(isLatticeMdUrl("https://lattice.md/RQJe3#Fbbhosspt9q9Ig")).toBe(true);
     });
 
-    it("should reject openagent.md URLs without hash", () => {
-      expect(isLatticeMdUrl("https://openagent.md/abc123")).toBe(false);
+    it("should reject lattice.md URLs without hash", () => {
+      expect(isLatticeMdUrl("https://lattice.md/abc123")).toBe(false);
     });
 
-    it("should reject openagent.md URLs with empty hash", () => {
-      expect(isLatticeMdUrl("https://openagent.md/abc123#")).toBe(false);
+    it("should reject lattice.md URLs with empty hash", () => {
+      expect(isLatticeMdUrl("https://lattice.md/abc123#")).toBe(false);
     });
 
-    it("should reject non-openagent.md URLs", () => {
+    it("should reject non-lattice.md URLs", () => {
       expect(isLatticeMdUrl("https://example.com/page#hash")).toBe(false);
       expect(isLatticeMdUrl("https://other.md/abc#key")).toBe(false);
     });
@@ -64,22 +59,22 @@ describe("openagent.md URL helpers", () => {
   });
 
   describe("parseLatticeMdUrl", () => {
-    it("should extract id and key from valid openagent.md URL", () => {
-      const result = parseLatticeMdUrl("https://openagent.md/abc123#key456");
+    it("should extract id and key from valid lattice.md URL", () => {
+      const result = parseLatticeMdUrl("https://lattice.md/abc123#key456");
       expect(result).toEqual({ id: "abc123", key: "key456" });
     });
 
     it("should handle base64url characters in key", () => {
-      const result = parseLatticeMdUrl("https://openagent.md/RQJe3#Fbbhosspt9q9Ig");
+      const result = parseLatticeMdUrl("https://lattice.md/RQJe3#Fbbhosspt9q9Ig");
       expect(result).toEqual({ id: "RQJe3", key: "Fbbhosspt9q9Ig" });
     });
 
     it("should return null for URLs without hash", () => {
-      expect(parseLatticeMdUrl("https://openagent.md/abc123")).toBeNull();
+      expect(parseLatticeMdUrl("https://lattice.md/abc123")).toBeNull();
     });
 
     it("should return null for URLs with empty id", () => {
-      expect(parseLatticeMdUrl("https://openagent.md/#key")).toBeNull();
+      expect(parseLatticeMdUrl("https://lattice.md/#key")).toBeNull();
     });
 
     it("should return null for invalid URLs", () => {
@@ -195,6 +190,36 @@ describe("web_fetch tool", () => {
     }
   });
 
+  it("should not treat non-lattice.md URLs with fragments as lattice.md shares", async () => {
+    using testEnv = createTestWebFetchTool();
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<head><title>Fragment Page</title></head>
+<body>
+  <article>
+    <h1>Hello</h1>
+    <p>This is a fragment test.</p>
+  </article>
+</body>
+</html>`;
+    const htmlPath = path.join(testEnv.tempDir.path, "fragment.html");
+    await fs.writeFile(htmlPath, htmlContent);
+
+    const args: WebFetchToolArgs = {
+      url: `file://${htmlPath}#section1`,
+    };
+
+    const result = (await testEnv.tool.execute!(args, toolCallOptions)) as WebFetchToolResult;
+
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.title).toBe("Fragment Page");
+      expect(result.content).toContain("This is a fragment test.");
+    }
+  });
+
   it("should truncate oversized output from local file", async () => {
     using testEnv = createTestWebFetchTool();
 
@@ -307,12 +332,12 @@ describe("web_fetch tool", () => {
     }
   });
 
-  // openagent.md integration tests
-  itIntegration("should handle expired/missing openagent.md share links", async () => {
+  // lattice.md integration tests
+  itIntegration("should handle expired/missing lattice.md share links", async () => {
     using testEnv = createTestWebFetchTool();
     const args: WebFetchToolArgs = {
       // Non-existent share ID should return 404
-      url: "https://openagent.md/nonexistent123#somekey456",
+      url: "https://lattice.md/nonexistent123#somekey456",
     };
 
     const result = (await testEnv.tool.execute!(args, toolCallOptions)) as WebFetchToolResult;
@@ -323,25 +348,25 @@ describe("web_fetch tool", () => {
     }
   });
 
-  it("should return error for openagent.md URLs without valid key format", async () => {
+  it("should return error for lattice.md URLs without valid key format", async () => {
     using testEnv = createTestWebFetchTool();
     const args: WebFetchToolArgs = {
-      // URL without hash (invalid openagent.md format) - should fall through to normal fetch
-      // which will fail to extract content from openagent.md's HTML viewer
-      url: "https://openagent.md/someid",
+      // URL without hash (invalid lattice.md format) - should fall through to normal fetch
+      // which will fail to extract content from lattice.md's HTML viewer
+      url: "https://lattice.md/someid",
     };
 
     const result = (await testEnv.tool.execute!(args, toolCallOptions)) as WebFetchToolResult;
 
     // Without the key fragment, it's treated as a normal URL fetch
-    // The openagent.md viewer page won't have extractable content
+    // The lattice.md viewer page won't have extractable content
     expect(result.success).toBe(false);
   });
 
-  itIntegration("should decrypt and return openagent.md content correctly", async () => {
+  itIntegration("should decrypt and return lattice.md content correctly", async () => {
     using testEnv = createTestWebFetchTool();
 
-    // Upload test content to openagent.md
+    // Upload test content to lattice.md
     const testContent = "# Test Heading\n\nThis is **test content** for web_fetch decryption.";
     const uploadResult = await uploadToLatticeMd(
       testContent,

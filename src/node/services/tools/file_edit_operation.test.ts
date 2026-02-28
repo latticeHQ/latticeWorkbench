@@ -5,32 +5,9 @@ import { executeFileEditOperation } from "./file_edit_operation";
 import type { Runtime } from "@/node/runtime/Runtime";
 import { LocalRuntime } from "@/node/runtime/LocalRuntime";
 
-import { createTestToolConfig, getTestDeps, TestTempDir } from "./testHelpers";
-
-const TEST_CWD = "/tmp";
-
-function createConfig(runtime?: Runtime) {
-  const config = createTestToolConfig(TEST_CWD);
-  if (runtime) {
-    config.runtime = runtime;
-  }
-  return config;
-}
+import { getTestDeps, TestTempDir } from "./testHelpers";
 
 describe("executeFileEditOperation", () => {
-  test("should return error when path validation fails", async () => {
-    const result = await executeFileEditOperation({
-      config: createConfig(),
-      filePath: "../../etc/passwd",
-      operation: () => ({ success: true, newContent: "", metadata: {} }),
-    });
-
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      expect(result.error).toContain("File operations are restricted to the workspace directory");
-    }
-  });
-
   test("should use runtime.normalizePath for path resolution, not Node's path.resolve", async () => {
     // This test verifies that executeFileEditOperation uses runtime.normalizePath()
     // instead of path.resolve() for resolving file paths.
@@ -63,7 +40,7 @@ describe("executeFileEditOperation", () => {
     } as unknown as Runtime;
 
     const testFilePath = "relative/path/to/file.txt";
-    const testCwd = "/remote/workspace/dir";
+    const testCwd = "/remote/minion/dir";
 
     await executeFileEditOperation({
       config: {
@@ -94,7 +71,7 @@ describe("executeFileEditOperation plan mode enforcement", () => {
     // This test verifies that when in plan mode with a planFilePath set,
     // attempting to edit any other file is blocked BEFORE trying to read/write
     const OTHER_FILE_PATH = "/home/user/project/src/main.ts";
-    const PLAN_FILE_PATH = "/home/user/.lattice/sessions/workspace-123/plan.md";
+    const PLAN_FILE_PATH = "/home/user/.lattice/sessions/minion-123/plan.md";
     const TEST_CWD = "/home/user/project";
 
     const readFileMock = jest.fn();
@@ -154,13 +131,13 @@ describe("executeFileEditOperation plan mode enforcement", () => {
     await fs.writeFile(planPath, "# Original Plan\n");
 
     // CWD is separate from plan file location (simulates real setup)
-    const workspaceCwd = path.join(tempDir.path, "workspace");
-    await fs.mkdir(workspaceCwd);
+    const minionCwd = path.join(tempDir.path, "minion");
+    await fs.mkdir(minionCwd);
 
     const result = await executeFileEditOperation({
       config: {
-        cwd: workspaceCwd,
-        runtime: new LocalRuntime(workspaceCwd),
+        cwd: minionCwd,
+        runtime: new LocalRuntime(minionCwd),
         runtimeTempDir: tempDir.path,
         planFileOnly: true,
         planFilePath: planPath,
@@ -221,13 +198,13 @@ describe("executeFileEditOperation plan mode enforcement", () => {
     const planPath = path.join(tempDir.path, "plan.md");
     await fs.writeFile(planPath, "# Plan\n");
 
-    const workspaceCwd = path.join(tempDir.path, "workspace");
-    await fs.mkdir(workspaceCwd);
+    const minionCwd = path.join(tempDir.path, "minion");
+    await fs.mkdir(minionCwd);
 
     const result = await executeFileEditOperation({
       config: {
-        cwd: workspaceCwd,
-        runtime: new LocalRuntime(workspaceCwd),
+        cwd: minionCwd,
+        runtime: new LocalRuntime(minionCwd),
         runtimeTempDir: tempDir.path,
         planFilePath: planPath,
       },

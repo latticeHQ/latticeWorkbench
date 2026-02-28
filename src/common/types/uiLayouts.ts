@@ -17,32 +17,32 @@ export interface LayoutSlot {
   keybindOverride?: Keybind;
 }
 
-export type RightSidebarPresetBaseTabType = "costs" | "review" | "explorer" | "stats";
-export type RightSidebarPresetTabType = RightSidebarPresetBaseTabType | `terminal_new:${string}`;
+export type WorkbenchPanelPresetBaseTabType = "costs" | "review" | "explorer" | "stats";
+export type WorkbenchPanelPresetTabType = WorkbenchPanelPresetBaseTabType | `terminal_new:${string}`;
 
-export type RightSidebarLayoutPresetNode =
+export type WorkbenchPanelLayoutPresetNode =
   | {
       type: "split";
       id: string;
       direction: "horizontal" | "vertical";
       sizes: [number, number];
-      children: [RightSidebarLayoutPresetNode, RightSidebarLayoutPresetNode];
+      children: [WorkbenchPanelLayoutPresetNode, WorkbenchPanelLayoutPresetNode];
     }
   | {
       type: "tabset";
       id: string;
-      tabs: RightSidebarPresetTabType[];
-      activeTab: RightSidebarPresetTabType;
+      tabs: WorkbenchPanelPresetTabType[];
+      activeTab: WorkbenchPanelPresetTabType;
     };
 
-export interface RightSidebarLayoutPresetState {
+export interface WorkbenchPanelLayoutPresetState {
   version: 1;
   nextId: number;
   focusedTabsetId: string;
-  root: RightSidebarLayoutPresetNode;
+  root: WorkbenchPanelLayoutPresetNode;
 }
 
-export type RightSidebarWidthPreset =
+export type WorkbenchPanelWidthPreset =
   | {
       mode: "px";
       value: number;
@@ -56,10 +56,11 @@ export interface LayoutPreset {
   id: string;
   name: string;
   leftSidebarCollapsed: boolean;
-  rightSidebar: {
+  leftSidebarWidthPx?: number;
+  workbenchPanel: {
     collapsed: boolean;
-    width: RightSidebarWidthPreset;
-    layout: RightSidebarLayoutPresetState;
+    width: WorkbenchPanelWidthPreset;
+    layout: WorkbenchPanelLayoutPresetState;
   };
 }
 
@@ -86,7 +87,7 @@ function normalizeOptionalNonEmptyString(value: unknown): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function normalizeRightSidebarWidthPreset(raw: unknown): RightSidebarWidthPreset {
+function normalizeWorkbenchPanelWidthPreset(raw: unknown): WorkbenchPanelWidthPreset {
   if (!raw || typeof raw !== "object") {
     return { mode: "px", value: 400 };
   }
@@ -109,7 +110,7 @@ function normalizeRightSidebarWidthPreset(raw: unknown): RightSidebarWidthPreset
   return { mode: "px", value: clamped };
 }
 
-function isPresetTabType(value: unknown): value is RightSidebarPresetTabType {
+function isPresetTabType(value: unknown): value is WorkbenchPanelPresetTabType {
   if (typeof value !== "string") return false;
   if (value === "costs" || value === "review" || value === "explorer" || value === "stats") {
     return true;
@@ -117,7 +118,7 @@ function isPresetTabType(value: unknown): value is RightSidebarPresetTabType {
   return value.startsWith("terminal_new:") && value.length > "terminal_new:".length;
 }
 
-function isLayoutNode(value: unknown): value is RightSidebarLayoutPresetNode {
+function isLayoutNode(value: unknown): value is WorkbenchPanelLayoutPresetNode {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
 
@@ -143,16 +144,16 @@ function isLayoutNode(value: unknown): value is RightSidebarLayoutPresetNode {
 }
 
 function findTabset(
-  root: RightSidebarLayoutPresetNode,
+  root: WorkbenchPanelLayoutPresetNode,
   tabsetId: string
-): RightSidebarLayoutPresetNode | null {
+): WorkbenchPanelLayoutPresetNode | null {
   if (root.type === "tabset") {
     return root.id === tabsetId ? root : null;
   }
   return findTabset(root.children[0], tabsetId) ?? findTabset(root.children[1], tabsetId);
 }
 
-function isRightSidebarLayoutPresetState(value: unknown): value is RightSidebarLayoutPresetState {
+function isWorkbenchPanelLayoutPresetState(value: unknown): value is WorkbenchPanelLayoutPresetState {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   if (v.version !== 1) return false;
@@ -241,27 +242,33 @@ function normalizeLayoutPreset(raw: unknown): LayoutPreset | undefined {
   const leftSidebarCollapsed =
     typeof record.leftSidebarCollapsed === "boolean" ? record.leftSidebarCollapsed : false;
 
-  if (!record.rightSidebar || typeof record.rightSidebar !== "object") {
+  const leftSidebarWidthPx =
+    typeof record.leftSidebarWidthPx === "number" && Number.isFinite(record.leftSidebarWidthPx)
+      ? Math.min(600, Math.max(200, Math.floor(record.leftSidebarWidthPx)))
+      : undefined;
+
+  if (!record.workbenchPanel || typeof record.workbenchPanel !== "object") {
     return undefined;
   }
 
-  const rightSidebarRecord = record.rightSidebar as Record<string, unknown>;
+  const workbenchPanelRecord = record.workbenchPanel as Record<string, unknown>;
   const collapsed =
-    typeof rightSidebarRecord.collapsed === "boolean" ? rightSidebarRecord.collapsed : false;
-  const width = normalizeRightSidebarWidthPreset(rightSidebarRecord.width);
+    typeof workbenchPanelRecord.collapsed === "boolean" ? workbenchPanelRecord.collapsed : false;
+  const width = normalizeWorkbenchPanelWidthPreset(workbenchPanelRecord.width);
 
-  const layoutRaw = rightSidebarRecord.layout;
-  if (!isRightSidebarLayoutPresetState(layoutRaw)) {
+  const layoutRaw = workbenchPanelRecord.layout;
+  if (!isWorkbenchPanelLayoutPresetState(layoutRaw)) {
     return undefined;
   }
 
-  const layout: RightSidebarLayoutPresetState = layoutRaw;
+  const layout: WorkbenchPanelLayoutPresetState = layoutRaw;
 
   return {
     id,
     name,
     leftSidebarCollapsed,
-    rightSidebar: {
+    leftSidebarWidthPx,
+    workbenchPanel: {
       collapsed,
       width,
       layout,

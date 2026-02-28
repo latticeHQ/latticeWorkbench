@@ -3,7 +3,7 @@ import {
   getModelKey,
   getThinkingLevelByModelKey,
   getThinkingLevelKey,
-  getDisableWorkspaceAgentsKey,
+  getDisableMinionAgentsKey,
   PREFERRED_SYSTEM_1_MODEL_KEY,
   PREFERRED_SYSTEM_1_THINKING_LEVEL_KEY,
 } from "@/common/constants/storage";
@@ -13,10 +13,16 @@ import {
   updatePersistedState,
 } from "@/browser/hooks/usePersistedState";
 import { getDefaultModel } from "@/browser/hooks/useModelsFromSettings";
+import {
+  buildSendMessageOptions,
+  normalizeModelPreference,
+  normalizeSystem1Model,
+  normalizeSystem1ThinkingLevel,
+} from "@/browser/utils/messages/buildSendMessageOptions";
 import type { SendMessageOptions } from "@/common/orpc/types";
-import { coerceThinkingLevel, type ThinkingLevel } from "@/common/types/thinking";
+import type { ThinkingLevel } from "@/common/types/thinking";
 import type { LatticeProviderOptions } from "@/common/types/providerOptions";
-import { WORKSPACE_DEFAULTS } from "@/constants/workspaceDefaults";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
 import { isExperimentEnabled } from "@/browser/hooks/useExperiments";
 import { EXPERIMENT_IDS } from "@/common/constants/experiments";
 
@@ -26,12 +32,9 @@ import { EXPERIMENT_IDS } from "@/common/constants/experiments";
 function getProviderOptions(): LatticeProviderOptions {
   const anthropic = readPersistedState<LatticeProviderOptions["anthropic"]>(
     "provider_options_anthropic",
-    { use1MContext: false }
-  );
-  const google = readPersistedState<LatticeProviderOptions["google"]>(
-    "provider_options_google",
     {}
   );
+  const google = readPersistedState<LatticeProviderOptions["google"]>("provider_options_google", {});
 
   return {
     anthropic,
@@ -40,76 +43,62 @@ function getProviderOptions(): LatticeProviderOptions {
 }
 
 /**
- * Get send options from localStorage
- * Mirrors logic from useSendMessageOptions but works outside React context
- *
- * Used by useResumeManager for auto-retry without hook dependencies.
- * This ensures DRY - single source of truth for option extraction.
+ * Non-hook equivalent of useSendMessageOptions — reads current preferences from localStorage.
+ * Used by compaction, resume, idle-compaction, and plan execution outside React context.
  */
-export function getSendOptionsFromStorage(workspaceId: string): SendMessageOptions {
-  // Read model preference (workspace-specific), fallback to the Settings default
-  const model = readPersistedState<string>(getModelKey(workspaceId), getDefaultModel());
+export function getSendOptionsFromStorage(minionId: string): SendMessageOptions {
+  const defaultModel = getDefaultModel();
+  const rawModel = readPersistedState<string>(getModelKey(minionId), defaultModel);
+  const baseModel = normalizeModelPreference(rawModel, defaultModel);
 
-  // Read thinking level (workspace-scoped).
-  // Migration: if the workspace-scoped value is missing, fall back to legacy per-model storage
-  // once, then persist into the workspace-scoped key.
-  const scopedKey = getThinkingLevelKey(workspaceId);
+  // Read thinking level (minion-scoped).
+  // Migration: if the minion-scoped value is missing, fall back to legacy per-model storage
+  // once, then persist into the minion-scoped key.
+  const scopedKey = getThinkingLevelKey(minionId);
   const existingScoped = readPersistedState<ThinkingLevel | undefined>(scopedKey, undefined);
   const thinkingLevel =
     existingScoped ??
     readPersistedState<ThinkingLevel>(
-      getThinkingLevelByModelKey(model),
-      WORKSPACE_DEFAULTS.thinkingLevel
+      getThinkingLevelByModelKey(baseModel),
+      MINION_DEFAULTS.thinkingLevel
     );
   if (existingScoped === undefined) {
     // Best-effort: avoid losing a user's existing per-model preference.
     updatePersistedState<ThinkingLevel>(scopedKey, thinkingLevel);
   }
 
-  // Read selected agent id (workspace-specific)
   const agentId = readPersistedState<string>(
-    getAgentIdKey(workspaceId),
-    WORKSPACE_DEFAULTS.agentId
+    getAgentIdKey(minionId),
+    MINION_DEFAULTS.agentId
   );
 
-  // Get provider options
   const providerOptions = getProviderOptions();
 
-  // Plan mode instructions are now handled by the backend (has access to plan file path)
-
-  // Read disableWorkspaceAgents toggle (workspace-scoped)
-
-  const system1ModelTrimmed = readPersistedString(PREFERRED_SYSTEM_1_MODEL_KEY)?.trim();
-  const system1Model =
-    system1ModelTrimmed !== undefined && system1ModelTrimmed.length > 0
-      ? system1ModelTrimmed
-      : undefined;
-  const system1ThinkingLevelRaw = readPersistedState<unknown>(
-    PREFERRED_SYSTEM_1_THINKING_LEVEL_KEY,
-    "off"
+  const system1Model = normalizeSystem1Model(readPersistedString(PREFERRED_SYSTEM_1_MODEL_KEY));
+  const system1ThinkingLevel = normalizeSystem1ThinkingLevel(
+    readPersistedState<unknown>(PREFERRED_SYSTEM_1_THINKING_LEVEL_KEY, "off")
   );
-  const system1ThinkingLevel = coerceThinkingLevel(system1ThinkingLevelRaw) ?? "off";
 
-  const disableWorkspaceAgents = readPersistedState<boolean>(
-    getDisableWorkspaceAgentsKey(workspaceId),
+  const disableMinionAgents = readPersistedState<boolean>(
+    getDisableMinionAgentsKey(minionId),
     false
   );
 
-  return {
-    model,
+  return buildSendMessageOptions({
+    model: baseModel,
     system1Model,
-    system1ThinkingLevel: system1ThinkingLevel !== "off" ? system1ThinkingLevel : undefined,
+    system1ThinkingLevel,
     agentId,
     thinkingLevel,
-    // toolPolicy is computed by backend from agent definitions (resolveToolPolicyForAgent)
     providerOptions,
-    disableWorkspaceAgents: disableWorkspaceAgents || undefined, // Only include if true
+    disableMinionAgents,
     experiments: {
       programmaticToolCalling: isExperimentEnabled(EXPERIMENT_IDS.PROGRAMMATIC_TOOL_CALLING),
       programmaticToolCallingExclusive: isExperimentEnabled(
         EXPERIMENT_IDS.PROGRAMMATIC_TOOL_CALLING_EXCLUSIVE
       ),
       system1: isExperimentEnabled(EXPERIMENT_IDS.SYSTEM_1),
+      execSidekickHardRestart: isExperimentEnabled(EXPERIMENT_IDS.EXEC_SIDEKICK_HARD_RESTART),
     },
-  };
+  });
 }

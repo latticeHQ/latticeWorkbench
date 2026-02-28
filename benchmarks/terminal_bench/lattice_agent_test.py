@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import io
+import tarfile
 from pathlib import Path
 
 import pytest
 
 from .lattice_agent import LatticeAgent
+from .lattice_payload import build_app_archive
 
 
 @pytest.fixture(autouse=True)
-def _clear_mux_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    keys = (*MuxAgent._PROVIDER_ENV_KEYS, *MuxAgent._CONFIG_ENV_KEYS)
+def _clear_lattice_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    keys = (*LatticeAgent._PROVIDER_ENV_KEYS, *LatticeAgent._CONFIG_ENV_KEYS)
     for key in keys:
         monkeypatch.delenv(key, raising=False)
 
@@ -37,3 +40,15 @@ def test_timeout_must_be_numeric(monkeypatch: pytest.MonkeyPatch) -> None:
     agent = LatticeAgent()
     with pytest.raises(ValueError):
         _ = agent._env
+
+
+def test_app_archive_includes_postinstall_script() -> None:
+    assert "scripts/postinstall.sh" in LatticeAgent._INCLUDE_PATHS
+
+    repo_root = _repo_root()
+    postinstall = repo_root / "scripts/postinstall.sh"
+    assert postinstall.is_file()
+
+    archive_bytes = build_app_archive(repo_root, ["scripts/postinstall.sh"])
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
+        assert "scripts/postinstall.sh" in archive.getnames()

@@ -3,54 +3,79 @@ import * as fsPromises from "fs/promises";
 
 import { MutexMap } from "@/node/utils/concurrency/mutexMap";
 import { AsyncMutex } from "@/node/utils/concurrency/asyncMutex";
-import type { Config, Workspace as WorkspaceConfigEntry } from "@/node/config";
+import type { Config, Minion as MinionConfigEntry } from "@/node/config";
 import type { AIService } from "@/node/services/aiService";
-import type { WorkspaceService } from "@/node/services/workspaceService";
+import type { MinionService } from "@/node/services/minionService";
 import type { HistoryService } from "@/node/services/historyService";
-import type { PartialService } from "@/node/services/partialService";
 import type { InitStateManager } from "@/node/services/initStateManager";
-import type { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
 import { log } from "@/node/services/log";
-import { detectDefaultTrunkBranch, listLocalBranches } from "@/node/git";
 import {
-  readAgentDefinition,
   discoverAgentDefinitions,
+  readAgentDefinition,
+  resolveAgentFrontmatter,
 } from "@/node/services/agentDefinitions/agentDefinitionsService";
-import { applyForkRuntimeUpdates } from "@/node/services/utils/forkRuntimeUpdates";
-import { createRuntimeForWorkspace } from "@/node/runtime/runtimeHelpers";
-import { createRuntime, runBackgroundInit } from "@/node/runtime/runtimeFactory";
-import type { InitLogger, WorkspaceCreationResult } from "@/node/runtime/Runtime";
-import { validateWorkspaceName } from "@/common/utils/validation/workspaceValidation";
+import { resolveAgentInheritanceChain } from "@/node/services/agentDefinitions/resolveAgentInheritanceChain";
+import { isAgentEffectivelyDisabled } from "@/node/services/agentDefinitions/agentEnablement";
+import { orchestrateFork } from "@/node/services/utils/forkOrchestrator";
+import { createRuntimeForMinion } from "@/node/runtime/runtimeHelpers";
+import { runBackgroundInit } from "@/node/runtime/runtimeFactory";
+import type { InitLogger, Runtime } from "@/node/runtime/Runtime";
+import { readPlanFile } from "@/node/utils/runtime/helpers";
+import { routePlanToExecutor } from "@/node/services/planExecutorRouter";
+import {
+  coerceNonEmptyString,
+  tryReadGitHeadCommitSha,
+  findMinionEntry,
+} from "@/node/services/taskUtils";
+import { validateMinionName } from "@/common/utils/validation/minionValidation";
 import { Ok, Err, type Result } from "@/common/types/result";
-import type { TaskSettings } from "@/common/types/tasks";
-import { DEFAULT_TASK_SETTINGS } from "@/common/types/tasks";
+import {
+  DEFAULT_TASK_SETTINGS,
+  type PlanSidekickExecutorRouting,
+  type TaskSettings,
+} from "@/common/types/tasks";
 
 import { createLatticeMessage, type LatticeMessage } from "@/common/types/message";
-import { createTaskReportMessageId } from "@/node/services/utils/messageIds";
-import { defaultModel, normalizeGatewayModel } from "@/common/utils/ai/models";
-import { WORKSPACE_DEFAULTS } from "@/constants/workspaceDefaults";
+import {
+  createCompactionSummaryMessageId,
+  createTaskReportMessageId,
+} from "@/node/services/utils/messageIds";
+import { defaultModel } from "@/common/utils/ai/models";
+import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/minion";
 import type { RuntimeConfig } from "@/common/types/runtime";
 import { AgentIdSchema } from "@/common/orpc/schemas";
+import { GitPatchArtifactService } from "@/node/services/gitPatchArtifactService";
 import type { ThinkingLevel } from "@/common/types/thinking";
-import type { ToolCallEndEvent, StreamEndEvent } from "@/common/types/stream";
+import type { StreamEndEvent } from "@/common/types/stream";
 import { isDynamicToolPart, type DynamicToolPart } from "@/common/types/toolParts";
 import {
   AgentReportToolArgsSchema,
   TaskToolResultSchema,
   TaskToolArgsSchema,
-  normalizeTaskToolArgs,
 } from "@/common/utils/tools/toolDefinitions";
+import { isPlanLikeInResolvedChain } from "@/common/utils/agentTools";
 import { formatSendMessageError } from "@/node/services/utils/sendMessageError";
 import { enforceThinkingPolicy } from "@/common/utils/thinking/policy";
+import {
+  PLAN_AUTO_ROUTING_STATUS_EMOJI,
+  PLAN_AUTO_ROUTING_STATUS_MESSAGE,
+} from "@/common/constants/planAutoRoutingStatus";
 import { taskQueueDebug } from "@/node/services/taskQueueDebug";
+import { readSidekickGitPatchArtifact } from "@/node/services/sidekickGitPatchArtifacts";
+import {
+  readSidekickReportArtifact,
+  readSidekickReportArtifactsFile,
+  upsertSidekickReportArtifact,
+} from "@/node/services/sidekickReportArtifacts";
 import { secretsToRecord } from "@/common/types/secrets";
+import { getErrorMessage } from "@/common/utils/errors";
 
 export type TaskKind = "agent";
 
-export type AgentTaskStatus = NonNullable<WorkspaceConfigEntry["taskStatus"]>;
+export type AgentTaskStatus = NonNullable<MinionConfigEntry["taskStatus"]>;
 
 export interface TaskCreateArgs {
-  parentWorkspaceId: string;
+  parentMinionId: string;
   kind: TaskKind;
   /** Preferred identifier (matches agent definition id). */
   agentId?: string;
@@ -61,8 +86,12 @@ export interface TaskCreateArgs {
   title: string;
   modelString?: string;
   thinkingLevel?: ThinkingLevel;
-  /** PTC experiments to inherit to subagent */
-  experiments?: { programmaticToolCalling?: boolean; programmaticToolCallingExclusive?: boolean };
+  /** Experiments to inherit to sidekick */
+  experiments?: {
+    programmaticToolCalling?: boolean;
+    programmaticToolCallingExclusive?: boolean;
+    execSidekickHardRestart?: boolean;
+  };
 }
 
 export interface TaskCreateResult {
@@ -79,9 +108,9 @@ export interface TerminateAgentTaskResult {
 export interface DescendantAgentTaskInfo {
   taskId: string;
   status: AgentTaskStatus;
-  parentWorkspaceId: string;
+  parentMinionId: string;
   agentType?: string;
-  workspaceName?: string;
+  minionName?: string;
   title?: string;
   createdAt?: string;
   modelString?: string;
@@ -89,13 +118,19 @@ export interface DescendantAgentTaskInfo {
   depth: number;
 }
 
-type AgentTaskWorkspaceEntry = WorkspaceConfigEntry & { projectPath: string };
+type AgentTaskMinionEntry = MinionConfigEntry & { projectPath: string };
 
-const COMPLETED_REPORT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const COMPLETED_REPORT_CACHE_MAX_ENTRIES = 128;
 
+/** Maximum consecutive auto-resumes before stopping. Prevents infinite loops when descendants are stuck. */
+// Task-recovery paths must stay deterministic and editing-capable even when
+// minion/default agent preferences evolve (e.g., auto router defaults).
+const TASK_RECOVERY_FALLBACK_AGENT_ID = "exec";
+
+const MAX_CONSECUTIVE_PARENT_AUTO_RESUMES = 3;
+
 interface AgentTaskIndex {
-  byId: Map<string, AgentTaskWorkspaceEntry>;
+  byId: Map<string, AgentTaskMinionEntry>;
   childrenByParent: Map<string, string[]>;
   parentById: Map<string, string>;
 }
@@ -116,38 +151,36 @@ interface PendingTaskStartWaiter {
 interface CompletedAgentReportCacheEntry {
   reportMarkdown: string;
   title?: string;
-  expiresAtMs: number;
-  // Ancestor workspace IDs captured when the report was cached.
-  // Used to keep descendant-scope checks working even if the task workspace is cleaned up.
-  ancestorWorkspaceIds: string[];
+  // Ancestor minion IDs captured when the report was cached.
+  // Used to keep descendant-scope checks working even if the task minion is cleaned up.
+  ancestorMinionIds: string[];
 }
 
-function isToolCallEndEvent(value: unknown): value is ToolCallEndEvent {
+interface ParentAutoResumeHint {
+  agentId?: string;
+}
+
+function isTypedMinionEvent(value: unknown, type: string): boolean {
   return (
     typeof value === "object" &&
     value !== null &&
     "type" in value &&
-    (value as { type: unknown }).type === "tool-call-end" &&
-    "workspaceId" in value &&
-    typeof (value as { workspaceId: unknown }).workspaceId === "string"
+    (value as { type: unknown }).type === type &&
+    "minionId" in value &&
+    typeof (value as { minionId: unknown }).minionId === "string"
   );
 }
 
 function isStreamEndEvent(value: unknown): value is StreamEndEvent {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "type" in value &&
-    (value as { type: unknown }).type === "stream-end" &&
-    "workspaceId" in value &&
-    typeof (value as { workspaceId: unknown }).workspaceId === "string"
-  );
+  return isTypedMinionEvent(value, "stream-end");
 }
 
-function coerceNonEmptyString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+function hasAncestorMinionId(
+  entry: { ancestorMinionIds?: unknown } | null | undefined,
+  ancestorMinionId: string
+): boolean {
+  const ids = entry?.ancestorMinionIds;
+  return Array.isArray(ids) && ids.includes(ancestorMinionId);
 }
 
 function isSuccessfulToolResult(value: unknown): boolean {
@@ -171,17 +204,17 @@ function sanitizeAgentTypeForName(agentType: string): string {
   return normalized.length > 0 ? normalized : "agent";
 }
 
-function buildAgentWorkspaceName(agentType: string, workspaceId: string): string {
+function buildAgentMinionName(agentType: string, minionId: string): string {
   const safeType = sanitizeAgentTypeForName(agentType);
-  const base = `agent_${safeType}_${workspaceId}`;
+  const base = `agent_${safeType}_${minionId}`;
   // Hard cap to validation limit (64). Ensure stable suffix is preserved.
   if (base.length <= 64) return base;
 
-  const suffix = `_${workspaceId}`;
+  const suffix = `_${minionId}`;
   const maxPrefixLen = 64 - suffix.length;
   const prefix = `agent_${safeType}`.slice(0, Math.max(0, maxPrefixLen));
   const name = `${prefix}${suffix}`;
-  return name.length <= 64 ? name : `agent_${workspaceId}`.slice(0, 64);
+  return name.length <= 64 ? name : `agent_${minionId}`.slice(0, 64);
 }
 
 function getIsoNow(): string {
@@ -189,58 +222,44 @@ function getIsoNow(): string {
 }
 
 export class TaskService {
-  // Serialize stream-end/tool-call-end processing per workspace to avoid races (e.g.
-  // stream-end observing awaiting_report before agent_report handling flips the status).
-  private readonly workspaceEventLocks = new MutexMap<string>();
+  // Serialize stream-end processing per minion to avoid races when
+  // finalizing reported tasks and cleanup state transitions.
+  private readonly minionEventLocks = new MutexMap<string>();
   private readonly mutex = new AsyncMutex();
   private readonly pendingWaitersByTaskId = new Map<string, PendingTaskWaiter[]>();
   private readonly pendingStartWaitersByTaskId = new Map<string, PendingTaskStartWaiter[]>();
-  // Tracks workspaces currently blocked in a foreground wait (e.g. a task tool call awaiting
+  // Tracks minions currently blocked in a foreground wait (e.g. a task tool call awaiting
   // agent_report). Used to avoid scheduler deadlocks when maxParallelAgentTasks is low and tasks
   // spawn nested tasks in the foreground.
-  private readonly foregroundAwaitCountByWorkspaceId = new Map<string, number>();
-  // Cache completed reports so callers can retrieve them even after the task workspace is removed.
-  // Bounded by TTL + max entries (see COMPLETED_REPORT_CACHE_*).
+  private readonly foregroundAwaitCountByMinionId = new Map<string, number>();
+  // Cache completed reports so callers can retrieve them without re-reading disk.
+  // Bounded by max entries; disk persistence is the source of truth for restart-safety.
   private readonly completedReportsByTaskId = new Map<string, CompletedAgentReportCacheEntry>();
+  private readonly gitPatchArtifactService: GitPatchArtifactService;
   private readonly remindedAwaitingReport = new Set<string>();
-  private cliAgentDetectionService?: CliAgentDetectionService;
-
+  private readonly handoffInProgress = new Set<string>();
   /**
-   * Set CLI agent detection service for remote agent bootstrap.
-   * When set, task workspace init will auto-install locally-detected agents on SSH/Docker runtimes.
+   * Hard-interrupted parent minions must not auto-resume until the next user message.
+   * This closes races where descendants could report between parent interrupt and cascade cleanup.
    */
-  setCliAgentDetectionService(service: CliAgentDetectionService): void {
-    this.cliAgentDetectionService = service;
-  }
+  private interruptedParentMinionIds = new Set<string>();
+  /** Tracks consecutive auto-resumes per minion. Reset when a user message is sent. */
+  private consecutiveAutoResumes = new Map<string, number>();
 
   constructor(
     private readonly config: Config,
     private readonly historyService: HistoryService,
-    private readonly partialService: PartialService,
     private readonly aiService: AIService,
-    private readonly workspaceService: WorkspaceService,
+    private readonly minionService: MinionService,
     private readonly initStateManager: InitStateManager
   ) {
-    this.aiService.on("tool-call-end", (payload: unknown) => {
-      if (!isToolCallEndEvent(payload)) return;
-      if (payload.toolName !== "agent_report") return;
-      // Ignore failed agent_report attempts (e.g. tool rejected due to active descendants).
-      if (!isSuccessfulToolResult(payload.result)) return;
-
-      void this.workspaceEventLocks
-        .withLock(payload.workspaceId, async () => {
-          await this.handleAgentReport(payload);
-        })
-        .catch((error: unknown) => {
-          log.error("TaskService.handleAgentReport failed", { error });
-        });
-    });
+    this.gitPatchArtifactService = new GitPatchArtifactService(config);
 
     this.aiService.on("stream-end", (payload: unknown) => {
       if (!isStreamEndEvent(payload)) return;
 
-      void this.workspaceEventLocks
-        .withLock(payload.workspaceId, async () => {
+      void this.minionEventLocks
+        .withLock(payload.minionId, async () => {
           await this.handleStreamEnd(payload);
         })
         .catch((error: unknown) => {
@@ -250,9 +269,9 @@ export class TaskService {
   }
 
   // Prefer per-agent settings so tasks inherit the correct agent defaults;
-  // fall back to legacy workspace settings for older configs.
-  private resolveWorkspaceAISettings(
-    workspace: {
+  // fall back to legacy minion settings for older configs.
+  private resolveMinionAISettings(
+    minion: {
       aiSettingsByAgent?: Record<string, { model: string; thinkingLevel?: ThinkingLevel }>;
       aiSettings?: { model: string; thinkingLevel?: ThinkingLevel };
     },
@@ -263,29 +282,285 @@ export class TaskService {
         ? agentId.trim().toLowerCase()
         : undefined;
     return (
-      (normalizedAgentId ? workspace.aiSettingsByAgent?.[normalizedAgentId] : undefined) ??
-      workspace.aiSettings
+      (normalizedAgentId ? minion.aiSettingsByAgent?.[normalizedAgentId] : undefined) ??
+      minion.aiSettings
     );
   }
-  private async emitWorkspaceMetadata(workspaceId: string): Promise<void> {
-    assert(workspaceId.length > 0, "emitWorkspaceMetadata: workspaceId must be non-empty");
+  /**
+   * Derives auto-resume send options (agentId, model, thinkingLevel) from durable
+   * conversation metadata, so synthetic resumes preserve the parent's active agent.
+   *
+   * Precedence: stream-end event metadata → last assistant message in history → minion AI settings → defaults.
+   */
+  private async resolveParentAutoResumeOptions(
+    parentMinionId: string,
+    parentEntry: {
+      minion: {
+        aiSettingsByAgent?: Record<string, { model: string; thinkingLevel?: ThinkingLevel }>;
+        aiSettings?: { model: string; thinkingLevel?: ThinkingLevel };
+      };
+    },
+    fallbackModel: string,
+    hint?: ParentAutoResumeHint
+  ): Promise<{ model: string; agentId: string; thinkingLevel?: ThinkingLevel }> {
+    // 1) Try stream-end hint metadata (available in handleStreamEnd path)
+    let agentId = hint?.agentId;
 
-    const allMetadata = await this.config.getAllWorkspaceMetadata();
-    const metadata = allMetadata.find((m) => m.id === workspaceId) ?? null;
-    this.workspaceService.emit("metadata", { workspaceId, metadata });
+    // 2) Fall back to latest assistant message metadata in history (restart-safe)
+    if (!agentId) {
+      try {
+        const historyResult = await this.historyService.getLastMessages(parentMinionId, 20);
+        if (historyResult.success) {
+          for (let i = historyResult.data.length - 1; i >= 0; i--) {
+            const msg = historyResult.data[i];
+            if (msg?.role === "assistant" && msg.metadata?.agentId) {
+              agentId = msg.metadata.agentId;
+              break;
+            }
+          }
+        }
+      } catch {
+        // Best-effort; fall through to defaults
+      }
+    }
+
+    // 3) Default
+    // Keep task auto-resume recovery on exec even if the minion default agent changes.
+    // This path needs a deterministic editing-capable fallback for legacy/incomplete metadata.
+    agentId = agentId ?? TASK_RECOVERY_FALLBACK_AGENT_ID;
+
+    const aiSettings = this.resolveMinionAISettings(parentEntry.minion, agentId);
+    return {
+      model: aiSettings?.model ?? fallbackModel,
+      agentId,
+      thinkingLevel: aiSettings?.thinkingLevel,
+    };
   }
 
-  private async editWorkspaceEntry(
-    workspaceId: string,
-    updater: (workspace: WorkspaceConfigEntry) => void,
+  private async isPlanLikeTaskMinion(entry: {
+    projectPath: string;
+    minion: Pick<
+      MinionConfigEntry,
+      "id" | "name" | "path" | "runtimeConfig" | "agentId" | "agentType"
+    >;
+  }): Promise<boolean> {
+    assert(entry.projectPath.length > 0, "isPlanLikeTaskMinion: projectPath must be non-empty");
+
+    const rawAgentId = coerceNonEmptyString(entry.minion.agentId ?? entry.minion.agentType);
+    if (!rawAgentId) {
+      return false;
+    }
+
+    const normalizedAgentId = rawAgentId.trim().toLowerCase();
+    const parsedAgentId = AgentIdSchema.safeParse(normalizedAgentId);
+    if (!parsedAgentId.success) {
+      return normalizedAgentId === "plan";
+    }
+
+    const minionPath = coerceNonEmptyString(entry.minion.path);
+    const minionName = coerceNonEmptyString(entry.minion.name) ?? entry.minion.id;
+    const runtimeConfig = entry.minion.runtimeConfig ?? DEFAULT_RUNTIME_CONFIG;
+    if (!minionPath || !minionName) {
+      return parsedAgentId.data === "plan";
+    }
+
+    try {
+      const runtime = createRuntimeForMinion({
+        runtimeConfig,
+        projectPath: entry.projectPath,
+        name: minionName,
+      });
+      const agentDefinition = await readAgentDefinition(runtime, minionPath, parsedAgentId.data);
+      const chain = await resolveAgentInheritanceChain({
+        runtime,
+        minionPath,
+        agentId: agentDefinition.id,
+        agentDefinition,
+        minionId: entry.minion.id ?? minionName,
+      });
+
+      if (agentDefinition.id === "compact") {
+        return false;
+      }
+
+      return isPlanLikeInResolvedChain(chain);
+    } catch (error: unknown) {
+      log.debug("Failed to resolve task agent mode; falling back to agentId check", {
+        minionId: entry.minion.id,
+        agentId: parsedAgentId.data,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return parsedAgentId.data === "plan";
+    }
+  }
+
+  private async isAgentEnabledForTaskMinion(args: {
+    minionId: string;
+    projectPath: string;
+    minion: Pick<MinionConfigEntry, "id" | "name" | "path" | "runtimeConfig">;
+    agentId: "exec" | "orchestrator";
+  }): Promise<boolean> {
+    assert(
+      args.minionId.length > 0,
+      "isAgentEnabledForTaskMinion: minionId must be non-empty"
+    );
+    assert(
+      args.projectPath.length > 0,
+      "isAgentEnabledForTaskMinion: projectPath must be non-empty"
+    );
+
+    const minionName = coerceNonEmptyString(args.minion.name) ?? args.minion.id;
+    if (!minionName) {
+      return false;
+    }
+
+    const runtimeConfig = args.minion.runtimeConfig ?? DEFAULT_RUNTIME_CONFIG;
+    const runtime = createRuntimeForMinion({
+      runtimeConfig,
+      projectPath: args.projectPath,
+      name: minionName,
+    });
+    const minionPath =
+      coerceNonEmptyString(args.minion.path) ??
+      runtime.getMinionPath(args.projectPath, minionName);
+
+    if (!minionPath) {
+      return false;
+    }
+
+    try {
+      const resolvedFrontmatter = await resolveAgentFrontmatter(
+        runtime,
+        minionPath,
+        args.agentId
+      );
+      const cfg = this.config.loadConfigOrDefault();
+      const effectivelyDisabled = isAgentEffectivelyDisabled({
+        cfg,
+        agentId: args.agentId,
+        resolvedFrontmatter,
+      });
+      return !effectivelyDisabled;
+    } catch (error: unknown) {
+      log.warn("Failed to resolve task handoff target agent availability", {
+        minionId: args.minionId,
+        agentId: args.agentId,
+        error: getErrorMessage(error),
+      });
+      return false;
+    }
+  }
+
+  private async resolvePlanAutoHandoffTargetAgentId(args: {
+    minionId: string;
+    entry: {
+      projectPath: string;
+      minion: Pick<
+        MinionConfigEntry,
+        "id" | "name" | "path" | "runtimeConfig" | "taskModelString"
+      >;
+    };
+    routing: PlanSidekickExecutorRouting;
+    planContent: string | null;
+  }): Promise<"exec" | "orchestrator"> {
+    assert(
+      args.minionId.length > 0,
+      "resolvePlanAutoHandoffTargetAgentId: minionId must be non-empty"
+    );
+    assert(
+      args.routing === "exec" || args.routing === "orchestrator" || args.routing === "auto",
+      "resolvePlanAutoHandoffTargetAgentId: routing must be exec, orchestrator, or auto"
+    );
+
+    const resolveOrchestratorAvailability = async (): Promise<"exec" | "orchestrator"> => {
+      const orchestratorEnabled = await this.isAgentEnabledForTaskMinion({
+        minionId: args.minionId,
+        projectPath: args.entry.projectPath,
+        minion: args.entry.minion,
+        agentId: "orchestrator",
+      });
+      if (orchestratorEnabled) {
+        return "orchestrator";
+      }
+
+      // If orchestrator is disabled/unavailable, fall back to exec before mutating
+      // minion agent state so the handoff stream can still proceed.
+      log.warn("Plan-task auto-handoff falling back to exec because orchestrator is unavailable", {
+        minionId: args.minionId,
+      });
+      return "exec";
+    };
+
+    if (args.routing === "exec") {
+      return "exec";
+    }
+
+    if (args.routing === "orchestrator") {
+      return resolveOrchestratorAvailability();
+    }
+
+    if (!args.planContent || args.planContent.trim().length === 0) {
+      log.warn("Plan-task auto-handoff auto-routing has no plan content; defaulting to exec", {
+        minionId: args.minionId,
+      });
+      return "exec";
+    }
+
+    const modelString =
+      coerceNonEmptyString(args.entry.minion.taskModelString) ?? defaultModel;
+    assert(
+      modelString.trim().length > 0,
+      "resolvePlanAutoHandoffTargetAgentId: modelString must be non-empty"
+    );
+
+    const modelResult = await this.aiService.createModel(modelString);
+    if (!modelResult.success) {
+      log.warn("Plan-task auto-handoff auto-routing failed to create model; defaulting to exec", {
+        minionId: args.minionId,
+        model: modelString,
+        error: modelResult.error,
+      });
+      return "exec";
+    }
+
+    const decision = await routePlanToExecutor({
+      model: modelResult.data,
+      planContent: args.planContent,
+    });
+
+    log.info("Plan-task auto-handoff routing decision", {
+      minionId: args.minionId,
+      target: decision.target,
+      reasoning: decision.reasoning,
+      model: modelString,
+    });
+
+    if (decision.target === "orchestrator") {
+      return resolveOrchestratorAvailability();
+    }
+
+    return "exec";
+  }
+
+  private async emitMinionMetadata(minionId: string): Promise<void> {
+    assert(minionId.length > 0, "emitMinionMetadata: minionId must be non-empty");
+
+    const allMetadata = await this.config.getAllMinionMetadata();
+    const metadata = allMetadata.find((m) => m.id === minionId) ?? null;
+    this.minionService.emit("metadata", { minionId, metadata });
+  }
+
+  private async editMinionEntry(
+    minionId: string,
+    updater: (minion: MinionConfigEntry) => void,
     options?: { allowMissing?: boolean }
   ): Promise<boolean> {
-    assert(workspaceId.length > 0, "editWorkspaceEntry: workspaceId must be non-empty");
+    assert(minionId.length > 0, "editMinionEntry: minionId must be non-empty");
 
     let found = false;
     await this.config.editConfig((config) => {
       for (const [_projectPath, project] of config.projects) {
-        const ws = project.workspaces.find((w) => w.id === workspaceId);
+        const ws = project.minions.find((w) => w.id === minionId);
         if (!ws) continue;
         updater(ws);
         found = true;
@@ -296,7 +571,7 @@ export class TaskService {
         return config;
       }
 
-      throw new Error(`editWorkspaceEntry: workspace ${workspaceId} not found`);
+      throw new Error(`editMinionEntry: minion ${minionId} not found`);
     });
 
     return found;
@@ -306,10 +581,10 @@ export class TaskService {
     await this.maybeStartQueuedTasks();
 
     const config = this.config.loadConfigOrDefault();
-    const awaitingReportTasks = this.listAgentTaskWorkspaces(config).filter(
+    const awaitingReportTasks = this.listAgentTaskMinions(config).filter(
       (t) => t.taskStatus === "awaiting_report"
     );
-    const runningTasks = this.listAgentTaskWorkspaces(config).filter(
+    const runningTasks = this.listAgentTaskMinions(config).filter(
       (t) => t.taskStatus === "running"
     );
 
@@ -322,28 +597,43 @@ export class TaskService {
         continue;
       }
 
-      // Restart-safety: if this task stream ends again without agent_report, fall back immediately.
+      // Restart-safety: if this task stream ends again without its required completion tool,
+      // fall back immediately.
       this.remindedAwaitingReport.add(task.id);
 
-      const model = task.taskModelString ?? defaultModel;
-      const resumeResult = await this.workspaceService.resumeStream(task.id, {
-        model,
-        agentId: task.agentId ?? WORKSPACE_DEFAULTS.agentId,
-        thinkingLevel: task.taskThinkingLevel,
-        toolPolicy: [{ regex_match: "^agent_report$", action: "require" }],
-        additionalSystemInstructions:
-          "This task is awaiting its final agent_report. Call agent_report exactly once now.",
+      const isPlanLike = await this.isPlanLikeTaskMinion({
+        projectPath: task.projectPath,
+        minion: task,
       });
-      if (!resumeResult.success) {
+      const completionToolName = isPlanLike ? "propose_plan" : "agent_report";
+
+      const model = task.taskModelString ?? defaultModel;
+      const sendResult = await this.minionService.sendMessage(
+        task.id,
+        isPlanLike
+          ? "This task is awaiting its final propose_plan. Call propose_plan exactly once now."
+          : "This task is awaiting its final agent_report. Call agent_report exactly once now.",
+        {
+          model,
+          agentId: task.agentId ?? TASK_RECOVERY_FALLBACK_AGENT_ID,
+          thinkingLevel: task.taskThinkingLevel,
+          toolPolicy: [{ regex_match: `^${completionToolName}$`, action: "require" }],
+        },
+        { synthetic: true }
+      );
+      if (!sendResult.success) {
         log.error("Failed to resume awaiting_report task on startup", {
           taskId: task.id,
-          error: resumeResult.error,
+          error: sendResult.error,
         });
 
-        await this.fallbackReportMissingAgentReport({
-          projectPath: task.projectPath,
-          workspace: task,
-        });
+        await this.fallbackReportMissingCompletionTool(
+          {
+            projectPath: task.projectPath,
+            minion: task,
+          },
+          completionToolName
+        );
       }
     }
 
@@ -356,38 +646,78 @@ export class TaskService {
         continue;
       }
 
+      const isPlanLike = await this.isPlanLikeTaskMinion({
+        projectPath: task.projectPath,
+        minion: task,
+      });
+
       const model = task.taskModelString ?? defaultModel;
-      await this.workspaceService.sendMessage(
+      await this.minionService.sendMessage(
         task.id,
-        "Lattice restarted while this task was running. Continue where you left off. " +
-          "When you have a final answer, call agent_report exactly once.",
+        isPlanLike
+          ? "Lattice restarted while this task was running. Continue where you left off. " +
+              "When you have a final plan, call propose_plan exactly once."
+          : "Lattice restarted while this task was running. Continue where you left off. " +
+              "When you have a final answer, call agent_report exactly once.",
         {
           model,
-          agentId: task.agentId ?? WORKSPACE_DEFAULTS.agentId,
+          agentId: task.agentId ?? TASK_RECOVERY_FALLBACK_AGENT_ID,
           thinkingLevel: task.taskThinkingLevel,
           experiments: task.taskExperiments,
-        }
+        },
+        { synthetic: true }
       );
+    }
+
+    // Restart-safety for git patch artifacts:
+    // - If lattice crashed mid-generation, patch artifacts can be left "pending".
+    // - Reported tasks are auto-deleted once they're leaves; defer deletion while patches are pending.
+    const reportedTasks = this.listAgentTaskMinions(config).filter(
+      (t) => t.taskStatus === "reported" && typeof t.id === "string" && t.id.length > 0
+    );
+
+    for (const task of reportedTasks) {
+      if (!task.parentMinionId) continue;
+      try {
+        await this.gitPatchArtifactService.maybeStartGeneration(
+          task.parentMinionId,
+          task.id!,
+          (wsId) => this.requestReportedTaskCleanupRecheck(wsId)
+        );
+      } catch (error: unknown) {
+        log.error("Failed to resume sidekick git patch generation on startup", {
+          parentMinionId: task.parentMinionId,
+          childMinionId: task.id,
+          error,
+        });
+      }
+    }
+
+    // Best-effort cleanup of reported leaf tasks (will no-op when patch artifacts are pending).
+    for (const task of reportedTasks) {
+      if (!task.id) continue;
+      await this.cleanupReportedLeafTask(task.id);
     }
   }
 
-  private startWorkspaceInit(workspaceId: string, projectPath: string): InitLogger {
-    assert(workspaceId.length > 0, "startWorkspaceInit: workspaceId must be non-empty");
-    assert(projectPath.length > 0, "startWorkspaceInit: projectPath must be non-empty");
+  private startMinionInit(minionId: string, projectPath: string): InitLogger {
+    assert(minionId.length > 0, "startMinionInit: minionId must be non-empty");
+    assert(projectPath.length > 0, "startMinionInit: projectPath must be non-empty");
 
-    this.initStateManager.startInit(workspaceId, projectPath);
+    this.initStateManager.startInit(minionId, projectPath);
     return {
-      logStep: (message: string) => this.initStateManager.appendOutput(workspaceId, message, false),
-      logStdout: (line: string) => this.initStateManager.appendOutput(workspaceId, line, false),
-      logStderr: (line: string) => this.initStateManager.appendOutput(workspaceId, line, true),
-      logComplete: (exitCode: number) => void this.initStateManager.endInit(workspaceId, exitCode),
+      logStep: (message: string) => this.initStateManager.appendOutput(minionId, message, false),
+      logStdout: (line: string) => this.initStateManager.appendOutput(minionId, line, false),
+      logStderr: (line: string) => this.initStateManager.appendOutput(minionId, line, true),
+      logComplete: (exitCode: number) => void this.initStateManager.endInit(minionId, exitCode),
+      enterHookPhase: () => this.initStateManager.enterHookPhase(minionId),
     };
   }
 
   async create(args: TaskCreateArgs): Promise<Result<TaskCreateResult, string>> {
-    const parentWorkspaceId = coerceNonEmptyString(args.parentWorkspaceId);
-    if (!parentWorkspaceId) {
-      return Err("Task.create: parentWorkspaceId is required");
+    const parentMinionId = coerceNonEmptyString(args.parentMinionId);
+    if (!parentMinionId) {
+      return Err("Task.create: parentMinionId is required");
     }
     if (args.kind !== "agent") {
       return Err("Task.create: unsupported kind");
@@ -415,9 +745,9 @@ export class TaskService {
     await using _lock = await this.mutex.acquire();
 
     // Validate parent exists and fetch runtime context.
-    const parentMetaResult = await this.aiService.getWorkspaceMetadata(parentWorkspaceId);
+    const parentMetaResult = await this.aiService.getMinionMetadata(parentMinionId);
     if (!parentMetaResult.success) {
-      return Err(`Task.create: parent workspace not found (${parentMetaResult.error})`);
+      return Err(`Task.create: parent minion not found (${parentMetaResult.error})`);
     }
     const parentMeta = parentMetaResult.data;
 
@@ -425,12 +755,12 @@ export class TaskService {
     const cfg = this.config.loadConfigOrDefault();
     const taskSettings = cfg.taskSettings ?? DEFAULT_TASK_SETTINGS;
 
-    const parentEntry = this.findWorkspaceEntry(cfg, parentWorkspaceId);
-    if (parentEntry?.workspace.taskStatus === "reported") {
+    const parentEntry = findMinionEntry(cfg, parentMinionId);
+    if (parentEntry?.minion.taskStatus === "reported") {
       return Err("Task.create: cannot spawn new tasks after agent_report");
     }
 
-    const requestedDepth = this.getTaskDepth(cfg, parentWorkspaceId) + 1;
+    const requestedDepth = this.getTaskDepth(cfg, parentMinionId) + 1;
     if (requestedDepth > taskSettings.maxTaskNestingDepth) {
       return Err(
         `Task.create: maxTaskNestingDepth exceeded (requestedDepth=${requestedDepth}, max=${taskSettings.maxTaskNestingDepth})`
@@ -442,51 +772,88 @@ export class TaskService {
     const shouldQueue = activeCount >= taskSettings.maxParallelAgentTasks;
 
     const taskId = this.config.generateStableId();
-    const workspaceName = buildAgentWorkspaceName(agentId, taskId);
+    const minionName = buildAgentMinionName(agentId, taskId);
 
-    const nameValidation = validateWorkspaceName(workspaceName);
+    const nameValidation = validateMinionName(minionName);
     if (!nameValidation.valid) {
       return Err(
-        `Task.create: generated workspace name invalid (${nameValidation.error ?? "unknown error"})`
+        `Task.create: generated minion name invalid (${nameValidation.error ?? "unknown error"})`
       );
     }
 
-    const parentAiSettings = this.resolveWorkspaceAISettings(parentMeta, agentId);
-    const inheritedModelString =
+    // User-requested precedence: use global per-agent defaults when configured;
+    // otherwise inherit the parent minion's active model/thinking.
+    const parentAiSettings = this.resolveMinionAISettings(parentMeta, agentId);
+    const inheritedModelCandidate =
       typeof args.modelString === "string" && args.modelString.trim().length > 0
-        ? args.modelString.trim()
-        : (parentAiSettings?.model ?? defaultModel);
-    const inheritedThinkingLevel: ThinkingLevel =
-      args.thinkingLevel ?? parentAiSettings?.thinkingLevel ?? "off";
+        ? args.modelString
+        : parentAiSettings?.model;
+    const parentActiveModel =
+      typeof inheritedModelCandidate === "string" && inheritedModelCandidate.trim().length > 0
+        ? inheritedModelCandidate.trim()
+        : defaultModel;
+    const globalDefault = cfg.agentAiDefaults?.[agentId];
+    const configuredModel = globalDefault?.modelString?.trim();
+    const taskModelString =
+      configuredModel && configuredModel.length > 0 ? configuredModel : parentActiveModel;
+    const canonicalModel = taskModelString.trim();
+    assert(canonicalModel.length > 0, "Task.create: resolved model must be non-empty");
 
-    const subagentDefaults = cfg.agentAiDefaults?.[agentId] ?? cfg.subagentAiDefaults?.[agentId];
-
-    const taskModelString = subagentDefaults?.modelString ?? inheritedModelString;
-    const canonicalModel = normalizeGatewayModel(taskModelString).trim();
-
-    const requestedThinkingLevel = subagentDefaults?.thinkingLevel ?? inheritedThinkingLevel;
+    const requestedThinkingLevel: ThinkingLevel =
+      globalDefault?.thinkingLevel ??
+      args.thinkingLevel ??
+      parentAiSettings?.thinkingLevel ??
+      "off";
     const effectiveThinkingLevel = enforceThinkingPolicy(canonicalModel, requestedThinkingLevel);
 
     const parentRuntimeConfig = parentMeta.runtimeConfig;
     const taskRuntimeConfig: RuntimeConfig = parentRuntimeConfig;
 
-    const runtime = createRuntimeForWorkspace({
+    const runtime = createRuntimeForMinion({
       runtimeConfig: taskRuntimeConfig,
       projectPath: parentMeta.projectPath,
       name: parentMeta.name,
     });
 
-    // Validate the agent definition exists and is runnable as a sub-agent.
+    // Validate the agent definition exists and is runnable as a sidekick.
     const isInPlace = parentMeta.projectPath === parentMeta.name;
-    const parentWorkspacePath = isInPlace
+    const parentMinionPath = isInPlace
       ? parentMeta.projectPath
-      : runtime.getWorkspacePath(parentMeta.projectPath, parentMeta.name);
+      : runtime.getMinionPath(parentMeta.projectPath, parentMeta.name);
 
-    // Helper to build error hint with all available runnable agents
+    // Helper to build error hint with all available runnable agents.
+    // NOTE: This resolves frontmatter inheritance so same-name overrides (e.g. project exec.md
+    // with base: exec) still count as runnable.
     const getRunnableHint = async (): Promise<string> => {
       try {
-        const allAgents = await discoverAgentDefinitions(runtime, parentWorkspacePath);
-        const runnableIds = allAgents.filter((a) => a.subagentRunnable).map((a) => a.id);
+        const allAgents = await discoverAgentDefinitions(runtime, parentMinionPath);
+
+        const runnableIds = (
+          await Promise.all(
+            allAgents.map(async (agent) => {
+              try {
+                const frontmatter = await resolveAgentFrontmatter(
+                  runtime,
+                  parentMinionPath,
+                  agent.id
+                );
+                if (frontmatter.sidekick?.runnable !== true) {
+                  return null;
+                }
+
+                const effectivelyDisabled = isAgentEffectivelyDisabled({
+                  cfg,
+                  agentId: agent.id,
+                  resolvedFrontmatter: frontmatter,
+                });
+                return effectivelyDisabled ? null : agent.id;
+              } catch {
+                return null;
+              }
+            })
+          )
+        ).filter((id): id is string => typeof id === "string");
+
         return runnableIds.length > 0
           ? `Runnable agentIds: ${runnableIds.join(", ")}`
           : "No runnable agents available";
@@ -497,12 +864,23 @@ export class TaskService {
 
     let skipInitHook = false;
     try {
-      const definition = await readAgentDefinition(runtime, parentWorkspacePath, agentId);
-      if (definition.frontmatter.subagent?.runnable !== true) {
+      const frontmatter = await resolveAgentFrontmatter(runtime, parentMinionPath, agentId);
+      if (frontmatter.sidekick?.runnable !== true) {
         const hint = await getRunnableHint();
         return Err(`Task.create: agentId is not runnable as a sub-agent (${agentId}). ${hint}`);
       }
-      skipInitHook = definition.frontmatter.subagent?.skip_init_hook === true;
+
+      if (
+        isAgentEffectivelyDisabled({
+          cfg,
+          agentId,
+          resolvedFrontmatter: frontmatter,
+        })
+      ) {
+        const hint = await getRunnableHint();
+        return Err(`Task.create: agentId is disabled (${agentId}). ${hint}`);
+      }
+      skipInitHook = frontmatter.sidekick?.skip_init_hook === true;
     } catch {
       const hint = await getRunnableHint();
       return Err(`Task.create: unknown agentId (${agentId}). ${hint}`);
@@ -511,10 +889,10 @@ export class TaskService {
     const createdAt = getIsoNow();
 
     taskQueueDebug("TaskService.create decision", {
-      parentWorkspaceId,
+      parentMinionId,
       taskId,
       agentId,
-      workspaceName,
+      minionName,
       createdAt,
       activeCount,
       maxParallelAgentTasks: taskSettings.maxParallelAgentTasks,
@@ -528,38 +906,38 @@ export class TaskService {
     if (shouldQueue) {
       const trunkBranch = coerceNonEmptyString(parentMeta.name);
       if (!trunkBranch) {
-        return Err("Task.create: parent workspace name missing (cannot queue task)");
+        return Err("Task.create: parent minion name missing (cannot queue task)");
       }
 
-      // NOTE: Queued tasks are persisted immediately, but their workspace is created later
+      // NOTE: Queued tasks are persisted immediately, but their minion is created later
       // when a parallel slot is available. This ensures queued tasks don't create worktrees
       // or run init hooks until they actually start.
-      const workspacePath = runtime.getWorkspacePath(parentMeta.projectPath, workspaceName);
+      const minionPath = runtime.getMinionPath(parentMeta.projectPath, minionName);
 
       taskQueueDebug("TaskService.create queued (persist-only)", {
         taskId,
-        workspaceName,
-        parentWorkspaceId,
+        minionName,
+        parentMinionId,
         trunkBranch,
-        workspacePath,
+        minionPath,
       });
 
       await this.config.editConfig((config) => {
         let projectConfig = config.projects.get(parentMeta.projectPath);
         if (!projectConfig) {
-          projectConfig = { workspaces: [] };
+          projectConfig = { minions: [] };
           config.projects.set(parentMeta.projectPath, projectConfig);
         }
 
-        projectConfig.workspaces.push({
-          path: workspacePath,
+        projectConfig.minions.push({
+          path: minionPath,
           id: taskId,
-          name: workspaceName,
+          name: minionName,
           title: args.title,
           createdAt,
           runtimeConfig: taskRuntimeConfig,
           aiSettings: { model: canonicalModel, thinkingLevel: effectiveThinkingLevel },
-          parentWorkspaceId,
+          parentMinionId,
           agentId,
           agentType,
           taskStatus: "queued",
@@ -572,15 +950,15 @@ export class TaskService {
         return config;
       });
 
-      // Emit metadata update so the UI sees the workspace immediately.
-      await this.emitWorkspaceMetadata(taskId);
+      // Emit metadata update so the UI sees the minion immediately.
+      await this.emitMinionMetadata(taskId);
 
       // NOTE: Do NOT persist the prompt into chat history until the task actually starts.
       // Otherwise the frontend treats "last message is user" as an interrupted stream and
       // will auto-retry / backoff-spam resume attempts while the task is queued.
       taskQueueDebug("TaskService.create queued persisted (prompt stored in config)", {
         taskId,
-        workspaceName,
+        minionName,
       });
 
       // Schedule queue processing (best-effort).
@@ -589,100 +967,75 @@ export class TaskService {
       return Ok({ taskId, kind: "agent", status: "queued" });
     }
 
-    const initLogger = this.startWorkspaceInit(taskId, parentMeta.projectPath);
+    const initLogger = this.startMinionInit(taskId, parentMeta.projectPath);
 
     // Note: Local project-dir runtimes share the same directory (unsafe by design).
-    // For worktree/ssh runtimes we attempt a fork first; otherwise fall back to createWorkspace.
+    // For worktree/ssh runtimes we attempt a fork first; otherwise fall back to createMinion.
 
-    const forkResult = await runtime.forkWorkspace({
+    const forkResult = await orchestrateFork({
+      sourceRuntime: runtime,
       projectPath: parentMeta.projectPath,
-      sourceWorkspaceName: parentMeta.name,
-      newWorkspaceName: workspaceName,
+      sourceMinionName: parentMeta.name,
+      newMinionName: minionName,
       initLogger,
+      config: this.config,
+      sourceMinionId: parentMinionId,
+      sourceRuntimeConfig: parentRuntimeConfig,
+      allowCreateFallback: true,
     });
 
-    const { forkedRuntimeConfig } = await applyForkRuntimeUpdates(
-      this.config,
-      parentWorkspaceId,
-      parentRuntimeConfig,
-      forkResult
-    );
-
-    if (forkResult.sourceRuntimeConfig) {
-      // Ensure UI gets the updated runtimeConfig for the parent workspace.
-      await this.emitWorkspaceMetadata(parentWorkspaceId);
+    if (forkResult.success && forkResult.data.sourceRuntimeConfigUpdate) {
+      await this.config.updateMinionMetadata(parentMinionId, {
+        runtimeConfig: forkResult.data.sourceRuntimeConfigUpdate,
+      });
+      // Ensure UI gets the updated runtimeConfig for the parent minion.
+      await this.emitMinionMetadata(parentMinionId);
     }
 
-    const runtimeForTaskWorkspace = createRuntime(forkedRuntimeConfig, {
-      projectPath: parentMeta.projectPath,
-      workspaceName,
-    });
-
-    let trunkBranch: string;
-    if (forkResult.success && forkResult.sourceBranch) {
-      trunkBranch = forkResult.sourceBranch;
-    } else {
-      // Fork failed - validate parentMeta.name is a valid local branch.
-      // For non-git projects (LocalRuntime), git commands fail - fall back to "main".
-      try {
-        const localBranches = await listLocalBranches(parentMeta.projectPath);
-        if (localBranches.includes(parentMeta.name)) {
-          trunkBranch = parentMeta.name;
-        } else {
-          trunkBranch = await detectDefaultTrunkBranch(parentMeta.projectPath, localBranches);
-        }
-      } catch {
-        trunkBranch = "main";
-      }
-    }
-    const createResult: WorkspaceCreationResult = forkResult.success
-      ? { success: true as const, workspacePath: forkResult.workspacePath }
-      : await runtime.createWorkspace({
-          projectPath: parentMeta.projectPath,
-          branchName: workspaceName,
-          trunkBranch,
-          directoryName: workspaceName,
-          initLogger,
-        });
-
-    if (!createResult.success || !createResult.workspacePath) {
+    if (!forkResult.success) {
       initLogger.logComplete(-1);
-      return Err(
-        `Task.create: failed to create agent workspace (${createResult.error ?? "unknown error"})`
-      );
+      return Err(`Task fork failed: ${forkResult.error}`);
     }
 
-    const workspacePath = createResult.workspacePath;
-
-    taskQueueDebug("TaskService.create started (workspace created)", {
-      taskId,
-      workspaceName,
-      workspacePath,
+    const {
+      minionPath,
       trunkBranch,
-      forkSuccess: forkResult.success,
+      forkedRuntimeConfig,
+      targetRuntime: runtimeForTaskMinion,
+      forkedFromSource,
+    } = forkResult.data;
+    const taskBaseCommitSha = await tryReadGitHeadCommitSha(runtimeForTaskMinion, minionPath);
+
+    taskQueueDebug("TaskService.create started (minion created)", {
+      taskId,
+      minionName,
+      minionPath,
+      trunkBranch,
+      forkSuccess: forkedFromSource,
     });
 
-    // Persist workspace entry before starting work so it's durable across crashes.
+    // Persist minion entry before starting work so it's durable across crashes.
     await this.config.editConfig((config) => {
       let projectConfig = config.projects.get(parentMeta.projectPath);
       if (!projectConfig) {
-        projectConfig = { workspaces: [] };
+        projectConfig = { minions: [] };
         config.projects.set(parentMeta.projectPath, projectConfig);
       }
 
-      projectConfig.workspaces.push({
-        path: workspacePath,
+      projectConfig.minions.push({
+        path: minionPath,
         id: taskId,
-        name: workspaceName,
+        name: minionName,
         title: args.title,
         createdAt,
         runtimeConfig: forkedRuntimeConfig,
         aiSettings: { model: canonicalModel, thinkingLevel: effectiveThinkingLevel },
         agentId,
-        parentWorkspaceId,
+        parentMinionId,
         agentType,
         taskStatus: "running",
         taskTrunkBranch: trunkBranch,
+        taskBaseCommitSha: taskBaseCommitSha ?? undefined,
         taskModelString,
         taskThinkingLevel: effectiveThinkingLevel,
         taskExperiments: args.experiments,
@@ -690,29 +1043,27 @@ export class TaskService {
       return config;
     });
 
-    // Emit metadata update so the UI sees the workspace immediately.
-    await this.emitWorkspaceMetadata(taskId);
+    // Emit metadata update so the UI sees the minion immediately.
+    await this.emitMinionMetadata(taskId);
 
     // Kick init (best-effort, async).
-    const secrets = secretsToRecord(this.config.getProjectSecrets(parentMeta.projectPath));
+    const secrets = secretsToRecord(this.config.getEffectiveSecrets(parentMeta.projectPath));
     runBackgroundInit(
-      runtimeForTaskWorkspace,
+      runtimeForTaskMinion,
       {
         projectPath: parentMeta.projectPath,
-        branchName: workspaceName,
+        branchName: minionName,
         trunkBranch,
-        workspacePath,
+        minionPath,
         initLogger,
         env: secrets,
         skipInitHook,
       },
-      taskId,
-      undefined,
-      this.cliAgentDetectionService
+      taskId
     );
 
     // Start immediately (counts towards parallel limit).
-    const sendResult = await this.workspaceService.sendMessage(taskId, prompt, {
+    const sendResult = await this.minionService.sendMessage(taskId, prompt, {
       model: taskModelString,
       agentId,
       thinkingLevel: effectiveThinkingLevel,
@@ -724,9 +1075,9 @@ export class TaskService {
           ? sendResult.error
           : formatSendMessageError(sendResult.error).message;
       await this.rollbackFailedTaskCreate(
-        runtimeForTaskWorkspace,
+        runtimeForTaskMinion,
         parentMeta.projectPath,
-        workspaceName,
+        minionName,
         taskId
       );
       return Err(message);
@@ -736,12 +1087,12 @@ export class TaskService {
   }
 
   async terminateDescendantAgentTask(
-    ancestorWorkspaceId: string,
+    ancestorMinionId: string,
     taskId: string
   ): Promise<Result<TerminateAgentTaskResult, string>> {
     assert(
-      ancestorWorkspaceId.length > 0,
-      "terminateDescendantAgentTask: ancestorWorkspaceId must be non-empty"
+      ancestorMinionId.length > 0,
+      "terminateDescendantAgentTask: ancestorMinionId must be non-empty"
     );
     assert(taskId.length > 0, "terminateDescendantAgentTask: taskId must be non-empty");
 
@@ -751,16 +1102,16 @@ export class TaskService {
       await using _lock = await this.mutex.acquire();
 
       const cfg = this.config.loadConfigOrDefault();
-      const entry = this.findWorkspaceEntry(cfg, taskId);
-      if (!entry?.workspace.parentWorkspaceId) {
+      const entry = findMinionEntry(cfg, taskId);
+      if (!entry?.minion.parentMinionId) {
         return Err("Task not found");
       }
 
       const index = this.buildAgentTaskIndex(cfg);
       if (
-        !this.isDescendantAgentTaskUsingParentById(index.parentById, ancestorWorkspaceId, taskId)
+        !this.isDescendantAgentTaskUsingParentById(index.parentById, ancestorMinionId, taskId)
       ) {
-        return Err("Task is not a descendant of this workspace");
+        return Err("Task is not a descendant of this minion");
       }
 
       // Terminate the entire subtree to avoid orphaned descendant tasks.
@@ -792,9 +1143,9 @@ export class TaskService {
         this.completedReportsByTaskId.delete(id);
         this.rejectWaiters(id, terminationError);
 
-        const removeResult = await this.workspaceService.remove(id, true);
+        const removeResult = await this.minionService.remove(id, true);
         if (!removeResult.success) {
-          return Err(`Failed to remove task workspace (${id}): ${removeResult.error}`);
+          return Err(`Failed to remove task minion (${id}): ${removeResult.error}`);
         }
 
         terminatedTaskIds.push(id);
@@ -807,35 +1158,145 @@ export class TaskService {
     return Ok({ terminatedTaskIds });
   }
 
+  /**
+   * Interrupt all descendant agent tasks for a minion (leaf-first).
+   *
+   * Rationale: when a user hard-interrupts a parent minion, descendants must
+   * also stop so they cannot later auto-resume the interrupted parent.
+   *
+   * Keep interrupted task minions on disk so users can inspect or manually
+   * resume them later.
+   *
+   * Legacy naming note: this method retains the original "terminate" name for
+   * compatibility with existing call sites.
+   */
+  async terminateAllDescendantAgentTasks(minionId: string): Promise<string[]> {
+    assert(
+      minionId.length > 0,
+      "terminateAllDescendantAgentTasks: minionId must be non-empty"
+    );
+
+    const interruptedTaskIds: string[] = [];
+
+    {
+      await using _lock = await this.mutex.acquire();
+
+      const cfg = this.config.loadConfigOrDefault();
+      const index = this.buildAgentTaskIndex(cfg);
+      const descendants = this.listDescendantAgentTaskIdsFromIndex(index, minionId);
+      if (descendants.length === 0) {
+        return interruptedTaskIds;
+      }
+
+      // Interrupt leaves first to avoid descendant/ancestor status races.
+      const parentById = index.parentById;
+      const depthById = new Map<string, number>();
+      for (const id of descendants) {
+        depthById.set(id, this.getTaskDepthFromParentById(parentById, id));
+      }
+      descendants.sort((a, b) => (depthById.get(b) ?? 0) - (depthById.get(a) ?? 0));
+
+      const interruptionError = new Error("Parent minion interrupted");
+
+      for (const id of descendants) {
+        // Best-effort: clear queue first. AgentSession stream-end cleanup auto-flushes
+        // queued messages, so descendants must not keep pending input after a hard interrupt.
+        try {
+          const clearQueueResult = this.minionService.clearQueue(id);
+          if (!clearQueueResult.success) {
+            log.debug("terminateAllDescendantAgentTasks: clearQueue failed", {
+              taskId: id,
+              error: clearQueueResult.error,
+            });
+          }
+        } catch (error: unknown) {
+          log.debug("terminateAllDescendantAgentTasks: clearQueue threw", { taskId: id, error });
+        }
+
+        // Best-effort: stop any active stream immediately to avoid further token usage.
+        try {
+          const stopResult = await this.aiService.stopStream(id, { abandonPartial: true });
+          if (!stopResult.success) {
+            log.debug("terminateAllDescendantAgentTasks: stopStream failed", { taskId: id });
+          }
+        } catch (error: unknown) {
+          log.debug("terminateAllDescendantAgentTasks: stopStream threw", { taskId: id, error });
+        }
+
+        this.remindedAwaitingReport.delete(id);
+        this.completedReportsByTaskId.delete(id);
+        this.rejectWaiters(id, interruptionError);
+
+        const updated = await this.editMinionEntry(
+          id,
+          (ws) => {
+            const previousStatus = ws.taskStatus;
+            const persistedQueuedPrompt = coerceNonEmptyString(ws.taskPrompt);
+            ws.taskStatus = "interrupted";
+
+            // Queued tasks persist their initial prompt in config until first start.
+            // Preserve that prompt when interrupting queued descendants so users can
+            // still inspect/resume the preserved minion intent.
+            //
+            // Also preserve across repeated hard interrupts: once a never-started task
+            // is first interrupted, its status becomes "interrupted". Later cascades
+            // must not clear the same persisted prompt.
+            if (previousStatus !== "queued" && !persistedQueuedPrompt) {
+              ws.taskPrompt = undefined;
+            }
+          },
+          { allowMissing: true }
+        );
+        if (!updated) {
+          log.debug("terminateAllDescendantAgentTasks: descendant minion missing", {
+            taskId: id,
+          });
+          continue;
+        }
+
+        interruptedTaskIds.push(id);
+      }
+    }
+
+    for (const taskId of interruptedTaskIds) {
+      await this.emitMinionMetadata(taskId);
+    }
+
+    // Free slots and start any queued tasks (best-effort).
+    await this.maybeStartQueuedTasks();
+
+    return interruptedTaskIds;
+  }
+
   private async rollbackFailedTaskCreate(
-    runtime: ReturnType<typeof createRuntime>,
+    runtime: Runtime,
     projectPath: string,
-    workspaceName: string,
+    minionName: string,
     taskId: string
   ): Promise<void> {
     try {
-      await this.config.removeWorkspace(taskId);
+      await this.config.removeMinion(taskId);
     } catch (error: unknown) {
-      log.error("Task.create rollback: failed to remove workspace from config", {
+      log.error("Task.create rollback: failed to remove minion from config", {
         taskId,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
     }
 
-    this.workspaceService.emit("metadata", { workspaceId: taskId, metadata: null });
+    this.minionService.emit("metadata", { minionId: taskId, metadata: null });
 
     try {
-      const deleteResult = await runtime.deleteWorkspace(projectPath, workspaceName, true);
+      const deleteResult = await runtime.deleteMinion(projectPath, minionName, true);
       if (!deleteResult.success) {
-        log.error("Task.create rollback: failed to delete workspace", {
+        log.error("Task.create rollback: failed to delete minion", {
           taskId,
           error: deleteResult.error,
         });
       }
     } catch (error: unknown) {
-      log.error("Task.create rollback: runtime.deleteWorkspace threw", {
+      log.error("Task.create rollback: runtime.deleteMinion threw", {
         taskId,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
     }
 
@@ -845,194 +1306,263 @@ export class TaskService {
     } catch (error: unknown) {
       log.error("Task.create rollback: failed to remove session directory", {
         taskId,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
     }
   }
 
-  private isForegroundAwaiting(workspaceId: string): boolean {
-    const count = this.foregroundAwaitCountByWorkspaceId.get(workspaceId);
+  private isForegroundAwaiting(minionId: string): boolean {
+    const count = this.foregroundAwaitCountByMinionId.get(minionId);
     return typeof count === "number" && count > 0;
   }
 
-  private startForegroundAwait(workspaceId: string): () => void {
-    assert(workspaceId.length > 0, "startForegroundAwait: workspaceId must be non-empty");
+  private startForegroundAwait(minionId: string): () => void {
+    assert(minionId.length > 0, "startForegroundAwait: minionId must be non-empty");
 
-    const current = this.foregroundAwaitCountByWorkspaceId.get(workspaceId) ?? 0;
+    const current = this.foregroundAwaitCountByMinionId.get(minionId) ?? 0;
     assert(
       Number.isInteger(current) && current >= 0,
       "startForegroundAwait: expected non-negative integer counter"
     );
 
-    this.foregroundAwaitCountByWorkspaceId.set(workspaceId, current + 1);
+    this.foregroundAwaitCountByMinionId.set(minionId, current + 1);
 
     return () => {
-      const current = this.foregroundAwaitCountByWorkspaceId.get(workspaceId) ?? 0;
+      const current = this.foregroundAwaitCountByMinionId.get(minionId) ?? 0;
       assert(
         Number.isInteger(current) && current > 0,
         "startForegroundAwait cleanup: expected positive integer counter"
       );
       if (current <= 1) {
-        this.foregroundAwaitCountByWorkspaceId.delete(workspaceId);
+        this.foregroundAwaitCountByMinionId.delete(minionId);
       } else {
-        this.foregroundAwaitCountByWorkspaceId.set(workspaceId, current - 1);
+        this.foregroundAwaitCountByMinionId.set(minionId, current - 1);
       }
     };
   }
 
-  waitForAgentReport(
+  async waitForAgentReport(
     taskId: string,
-    options?: { timeoutMs?: number; abortSignal?: AbortSignal; requestingWorkspaceId?: string }
+    options?: { timeoutMs?: number; abortSignal?: AbortSignal; requestingMinionId?: string }
   ): Promise<{ reportMarkdown: string; title?: string }> {
     assert(taskId.length > 0, "waitForAgentReport: taskId must be non-empty");
 
     const cached = this.completedReportsByTaskId.get(taskId);
     if (cached) {
-      const nowMs = Date.now();
-      if (cached.expiresAtMs > nowMs) {
-        return Promise.resolve({ reportMarkdown: cached.reportMarkdown, title: cached.title });
-      }
-      this.completedReportsByTaskId.delete(taskId);
+      return { reportMarkdown: cached.reportMarkdown, title: cached.title };
     }
 
     const timeoutMs = options?.timeoutMs ?? 10 * 60 * 1000; // 10 minutes
     assert(Number.isFinite(timeoutMs) && timeoutMs > 0, "waitForAgentReport: timeoutMs invalid");
 
-    const requestingWorkspaceId = coerceNonEmptyString(options?.requestingWorkspaceId);
+    const requestingMinionId = coerceNonEmptyString(options?.requestingMinionId);
 
-    return new Promise<{ reportMarkdown: string; title?: string }>((resolve, reject) => {
-      // Validate existence early to avoid waiting on never-resolving task IDs.
-      const cfg = this.config.loadConfigOrDefault();
-      const taskWorkspaceEntry = this.findWorkspaceEntry(cfg, taskId);
-      if (!taskWorkspaceEntry) {
-        reject(new Error("Task not found"));
-        return;
+    const tryReadPersistedReport = async (): Promise<{
+      reportMarkdown: string;
+      title?: string;
+    } | null> => {
+      if (!requestingMinionId) {
+        return null;
       }
 
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      let startWaiter: PendingTaskStartWaiter | null = null;
-      let abortListener: (() => void) | null = null;
-      let stopBlockingRequester: (() => void) | null = requestingWorkspaceId
-        ? this.startForegroundAwait(requestingWorkspaceId)
-        : null;
+      const sessionDir = this.config.getSessionDir(requestingMinionId);
+      const artifact = await readSidekickReportArtifact(sessionDir, taskId);
+      if (!artifact) {
+        return null;
+      }
 
-      const startReportTimeout = () => {
-        if (timeout) return;
-        timeout = setTimeout(() => {
-          entry.cleanup();
-          reject(new Error("Timed out waiting for agent_report"));
-        }, timeoutMs);
-      };
+      // Cache for the current process (best-effort). Disk is the source of truth.
+      this.completedReportsByTaskId.set(taskId, {
+        reportMarkdown: artifact.reportMarkdown,
+        title: artifact.title,
+        ancestorMinionIds: artifact.ancestorMinionIds,
+      });
+      this.enforceCompletedReportCacheLimit();
 
-      const cleanupStartWaiter = () => {
-        if (!startWaiter) return;
-        startWaiter.cleanup();
-        startWaiter = null;
-      };
+      return { reportMarkdown: artifact.reportMarkdown, title: artifact.title };
+    };
 
-      const entry: PendingTaskWaiter = {
-        createdAt: Date.now(),
-        resolve: (report) => {
-          entry.cleanup();
-          resolve(report);
-        },
-        reject: (error) => {
-          entry.cleanup();
-          reject(error);
-        },
-        cleanup: () => {
-          const current = this.pendingWaitersByTaskId.get(taskId);
-          if (current) {
-            const next = current.filter((w) => w !== entry);
-            if (next.length === 0) {
-              this.pendingWaitersByTaskId.delete(taskId);
-            } else {
-              this.pendingWaitersByTaskId.set(taskId, next);
-            }
+    // Fast-path: if the task is already gone (cleanup) or already reported (restart), return the
+    // persisted artifact from the requesting minion session dir.
+    const cfg = this.config.loadConfigOrDefault();
+    const taskMinionEntry = findMinionEntry(cfg, taskId);
+    const taskStatus = taskMinionEntry?.minion.taskStatus;
+    if (!taskMinionEntry || taskStatus === "reported" || taskStatus === "interrupted") {
+      const persisted = await tryReadPersistedReport();
+      if (persisted) {
+        return persisted;
+      }
+
+      if (taskStatus === "interrupted") {
+        throw new Error("Task interrupted");
+      }
+
+      throw new Error("Task not found");
+    }
+
+    return await new Promise<{ reportMarkdown: string; title?: string }>((resolve, reject) => {
+      void (async () => {
+        // Validate existence early to avoid waiting on never-resolving task IDs.
+        const cfg = this.config.loadConfigOrDefault();
+        const taskMinionEntry = findMinionEntry(cfg, taskId);
+        if (!taskMinionEntry) {
+          const persisted = await tryReadPersistedReport();
+          if (persisted) {
+            resolve(persisted);
+            return;
           }
 
-          cleanupStartWaiter();
+          reject(new Error("Task not found"));
+          return;
+        }
 
-          if (timeout) {
-            clearTimeout(timeout);
-            timeout = null;
+        if (
+          taskMinionEntry.minion.taskStatus === "reported" ||
+          taskMinionEntry.minion.taskStatus === "interrupted"
+        ) {
+          const persisted = await tryReadPersistedReport();
+          if (persisted) {
+            resolve(persisted);
+            return;
           }
 
-          if (abortListener && options?.abortSignal) {
-            options.abortSignal.removeEventListener("abort", abortListener);
-            abortListener = null;
-          }
+          reject(
+            new Error(
+              taskMinionEntry.minion.taskStatus === "interrupted"
+                ? "Task interrupted"
+                : "Task not found"
+            )
+          );
+          return;
+        }
 
-          if (stopBlockingRequester) {
-            try {
-              stopBlockingRequester();
-            } finally {
-              stopBlockingRequester = null;
-            }
-          }
-        },
-      };
+        let timeout: ReturnType<typeof setTimeout> | null = null;
+        let startWaiter: PendingTaskStartWaiter | null = null;
+        let abortListener: (() => void) | null = null;
+        let stopBlockingRequester: (() => void) | null = requestingMinionId
+          ? this.startForegroundAwait(requestingMinionId)
+          : null;
 
-      const list = this.pendingWaitersByTaskId.get(taskId) ?? [];
-      list.push(entry);
-      this.pendingWaitersByTaskId.set(taskId, list);
+        const startReportTimeout = () => {
+          if (timeout) return;
+          timeout = setTimeout(() => {
+            entry.cleanup();
+            reject(new Error("Timed out waiting for agent_report"));
+          }, timeoutMs);
+        };
 
-      // Don't start the execution timeout while the task is still queued.
-      // The timer starts once the child actually begins running (queued -> running).
-      const initialStatus = taskWorkspaceEntry.workspace.taskStatus;
-      if (initialStatus === "queued") {
-        const startWaiterEntry: PendingTaskStartWaiter = {
+        const cleanupStartWaiter = () => {
+          if (!startWaiter) return;
+          startWaiter.cleanup();
+          startWaiter = null;
+        };
+
+        const entry: PendingTaskWaiter = {
           createdAt: Date.now(),
-          start: startReportTimeout,
+          resolve: (report) => {
+            entry.cleanup();
+            resolve(report);
+          },
+          reject: (error) => {
+            entry.cleanup();
+            reject(error);
+          },
           cleanup: () => {
-            const currentStartWaiters = this.pendingStartWaitersByTaskId.get(taskId);
-            if (currentStartWaiters) {
-              const next = currentStartWaiters.filter((w) => w !== startWaiterEntry);
+            const current = this.pendingWaitersByTaskId.get(taskId);
+            if (current) {
+              const next = current.filter((w) => w !== entry);
               if (next.length === 0) {
-                this.pendingStartWaitersByTaskId.delete(taskId);
+                this.pendingWaitersByTaskId.delete(taskId);
               } else {
-                this.pendingStartWaitersByTaskId.set(taskId, next);
+                this.pendingWaitersByTaskId.set(taskId, next);
+              }
+            }
+
+            cleanupStartWaiter();
+
+            if (timeout) {
+              clearTimeout(timeout);
+              timeout = null;
+            }
+
+            if (abortListener && options?.abortSignal) {
+              options.abortSignal.removeEventListener("abort", abortListener);
+              abortListener = null;
+            }
+
+            if (stopBlockingRequester) {
+              try {
+                stopBlockingRequester();
+              } finally {
+                stopBlockingRequester = null;
               }
             }
           },
         };
-        startWaiter = startWaiterEntry;
 
-        const currentStartWaiters = this.pendingStartWaitersByTaskId.get(taskId) ?? [];
-        currentStartWaiters.push(startWaiterEntry);
-        this.pendingStartWaitersByTaskId.set(taskId, currentStartWaiters);
+        const list = this.pendingWaitersByTaskId.get(taskId) ?? [];
+        list.push(entry);
+        this.pendingWaitersByTaskId.set(taskId, list);
 
-        // Close the race where the task starts between the initial config read and registering the waiter.
-        const cfgAfterRegister = this.config.loadConfigOrDefault();
-        const afterEntry = this.findWorkspaceEntry(cfgAfterRegister, taskId);
-        if (afterEntry?.workspace.taskStatus !== "queued") {
-          cleanupStartWaiter();
+        // Don't start the execution timeout while the task is still queued.
+        // The timer starts once the child actually begins running (queued -> running).
+        const initialStatus = taskMinionEntry.minion.taskStatus;
+        if (initialStatus === "queued") {
+          const startWaiterEntry: PendingTaskStartWaiter = {
+            createdAt: Date.now(),
+            start: startReportTimeout,
+            cleanup: () => {
+              const currentStartWaiters = this.pendingStartWaitersByTaskId.get(taskId);
+              if (currentStartWaiters) {
+                const next = currentStartWaiters.filter((w) => w !== startWaiterEntry);
+                if (next.length === 0) {
+                  this.pendingStartWaitersByTaskId.delete(taskId);
+                } else {
+                  this.pendingStartWaitersByTaskId.set(taskId, next);
+                }
+              }
+            },
+          };
+          startWaiter = startWaiterEntry;
+
+          const currentStartWaiters = this.pendingStartWaitersByTaskId.get(taskId) ?? [];
+          currentStartWaiters.push(startWaiterEntry);
+          this.pendingStartWaitersByTaskId.set(taskId, currentStartWaiters);
+
+          // Close the race where the task starts between the initial config read and registering the waiter.
+          const cfgAfterRegister = this.config.loadConfigOrDefault();
+          const afterEntry = findMinionEntry(cfgAfterRegister, taskId);
+          if (afterEntry?.minion.taskStatus !== "queued") {
+            cleanupStartWaiter();
+            startReportTimeout();
+          }
+
+          // If the awaited task is queued and the caller is blocked in the foreground, ensure the
+          // scheduler runs after the waiter is registered. This avoids deadlocks when
+          // maxParallelAgentTasks is low.
+          if (requestingMinionId) {
+            void this.maybeStartQueuedTasks();
+          }
+        } else {
           startReportTimeout();
         }
 
-        // If the awaited task is queued and the caller is blocked in the foreground, ensure the
-        // scheduler runs after the waiter is registered. This avoids deadlocks when
-        // maxParallelAgentTasks is low.
-        if (requestingWorkspaceId) {
-          void this.maybeStartQueuedTasks();
-        }
-      } else {
-        startReportTimeout();
-      }
+        if (options?.abortSignal) {
+          if (options.abortSignal.aborted) {
+            entry.cleanup();
+            reject(new Error("Interrupted"));
+            return;
+          }
 
-      if (options?.abortSignal) {
-        if (options.abortSignal.aborted) {
-          entry.cleanup();
-          reject(new Error("Interrupted"));
-          return;
+          abortListener = () => {
+            entry.cleanup();
+            reject(new Error("Interrupted"));
+          };
+          options.abortSignal.addEventListener("abort", abortListener, { once: true });
         }
-
-        abortListener = () => {
-          entry.cleanup();
-          reject(new Error("Interrupted"));
-        };
-        options.abortSignal.addEventListener("abort", abortListener, { once: true });
-      }
+      })().catch((error: unknown) => {
+        reject(error instanceof Error ? error : new Error(String(error)));
+      });
     });
   }
 
@@ -1040,25 +1570,25 @@ export class TaskService {
     assert(taskId.length > 0, "getAgentTaskStatus: taskId must be non-empty");
 
     const cfg = this.config.loadConfigOrDefault();
-    const entry = this.findWorkspaceEntry(cfg, taskId);
-    const status = entry?.workspace.taskStatus;
+    const entry = findMinionEntry(cfg, taskId);
+    const status = entry?.minion.taskStatus;
     return status ?? null;
   }
 
-  hasActiveDescendantAgentTasksForWorkspace(workspaceId: string): boolean {
+  hasActiveDescendantAgentTasksForMinion(minionId: string): boolean {
     assert(
-      workspaceId.length > 0,
-      "hasActiveDescendantAgentTasksForWorkspace: workspaceId must be non-empty"
+      minionId.length > 0,
+      "hasActiveDescendantAgentTasksForMinion: minionId must be non-empty"
     );
 
     const cfg = this.config.loadConfigOrDefault();
-    return this.hasActiveDescendantAgentTasks(cfg, workspaceId);
+    return this.hasActiveDescendantAgentTasks(cfg, minionId);
   }
 
-  listActiveDescendantAgentTaskIds(workspaceId: string): string[] {
+  listActiveDescendantAgentTaskIds(minionId: string): string[] {
     assert(
-      workspaceId.length > 0,
-      "listActiveDescendantAgentTaskIds: workspaceId must be non-empty"
+      minionId.length > 0,
+      "listActiveDescendantAgentTaskIds: minionId must be non-empty"
     );
 
     const cfg = this.config.loadConfigOrDefault();
@@ -1066,7 +1596,7 @@ export class TaskService {
 
     const activeStatuses = new Set<AgentTaskStatus>(["queued", "running", "awaiting_report"]);
     const result: string[] = [];
-    const stack: string[] = [...(index.childrenByParent.get(workspaceId) ?? [])];
+    const stack: string[] = [...(index.childrenByParent.get(minionId) ?? [])];
     while (stack.length > 0) {
       const next = stack.pop()!;
       const status = index.byId.get(next)?.taskStatus;
@@ -1084,10 +1614,10 @@ export class TaskService {
   }
 
   listDescendantAgentTasks(
-    workspaceId: string,
+    minionId: string,
     options?: { statuses?: AgentTaskStatus[] }
   ): DescendantAgentTaskInfo[] {
-    assert(workspaceId.length > 0, "listDescendantAgentTasks: workspaceId must be non-empty");
+    assert(minionId.length > 0, "listDescendantAgentTasks: minionId must be non-empty");
 
     const statuses = options?.statuses;
     const statusFilter = statuses && statuses.length > 0 ? new Set(statuses) : null;
@@ -1098,7 +1628,7 @@ export class TaskService {
     const result: DescendantAgentTaskInfo[] = [];
 
     const stack: Array<{ taskId: string; depth: number }> = [];
-    for (const childTaskId of index.childrenByParent.get(workspaceId) ?? []) {
+    for (const childTaskId of index.childrenByParent.get(minionId) ?? []) {
       stack.push({ taskId: childTaskId, depth: 1 });
     }
 
@@ -1108,8 +1638,8 @@ export class TaskService {
       if (!entry) continue;
 
       assert(
-        entry.parentWorkspaceId,
-        `listDescendantAgentTasks: task ${next.taskId} is missing parentWorkspaceId`
+        entry.parentMinionId,
+        `listDescendantAgentTasks: task ${next.taskId} is missing parentMinionId`
       );
 
       const status: AgentTaskStatus = entry.taskStatus ?? "running";
@@ -1117,9 +1647,9 @@ export class TaskService {
         result.push({
           taskId: next.taskId,
           status,
-          parentWorkspaceId: entry.parentWorkspaceId,
+          parentMinionId: entry.parentMinionId,
           agentType: entry.agentType,
-          workspaceName: entry.name,
+          minionName: entry.name,
           title: entry.title,
           createdAt: entry.createdAt,
           modelString: entry.aiSettings?.model,
@@ -1145,33 +1675,50 @@ export class TaskService {
     return result;
   }
 
-  filterDescendantAgentTaskIds(ancestorWorkspaceId: string, taskIds: string[]): string[] {
+  async filterDescendantAgentTaskIds(
+    ancestorMinionId: string,
+    taskIds: string[]
+  ): Promise<string[]> {
     assert(
-      ancestorWorkspaceId.length > 0,
-      "filterDescendantAgentTaskIds: ancestorWorkspaceId required"
+      ancestorMinionId.length > 0,
+      "filterDescendantAgentTaskIds: ancestorMinionId required"
     );
     assert(Array.isArray(taskIds), "filterDescendantAgentTaskIds: taskIds must be an array");
 
     const cfg = this.config.loadConfigOrDefault();
     const parentById = this.buildAgentTaskIndex(cfg).parentById;
 
-    const nowMs = Date.now();
-    this.cleanupExpiredCompletedReports(nowMs);
-
     const result: string[] = [];
+    const maybePersisted: string[] = [];
+
     for (const taskId of taskIds) {
       if (typeof taskId !== "string" || taskId.length === 0) continue;
-      if (this.isDescendantAgentTaskUsingParentById(parentById, ancestorWorkspaceId, taskId)) {
+
+      if (this.isDescendantAgentTaskUsingParentById(parentById, ancestorMinionId, taskId)) {
         result.push(taskId);
         continue;
       }
 
-      // Preserve scope checks for tasks whose workspace was cleaned up after completion.
       const cached = this.completedReportsByTaskId.get(taskId);
-      if (cached && cached.expiresAtMs > nowMs) {
-        if (cached.ancestorWorkspaceIds.includes(ancestorWorkspaceId)) {
-          result.push(taskId);
-        }
+      if (hasAncestorMinionId(cached, ancestorMinionId)) {
+        result.push(taskId);
+        continue;
+      }
+
+      maybePersisted.push(taskId);
+    }
+
+    if (maybePersisted.length === 0) {
+      return result;
+    }
+
+    const sessionDir = this.config.getSessionDir(ancestorMinionId);
+    const persisted = await readSidekickReportArtifactsFile(sessionDir);
+    for (const taskId of maybePersisted) {
+      const entry = persisted.artifactsByChildTaskId[taskId];
+      if (!entry) continue;
+      if (hasAncestorMinionId(entry, ancestorMinionId)) {
+        result.push(taskId);
       }
     }
 
@@ -1180,15 +1727,15 @@ export class TaskService {
 
   private listDescendantAgentTaskIdsFromIndex(
     index: AgentTaskIndex,
-    workspaceId: string
+    minionId: string
   ): string[] {
     assert(
-      workspaceId.length > 0,
-      "listDescendantAgentTaskIdsFromIndex: workspaceId must be non-empty"
+      minionId.length > 0,
+      "listDescendantAgentTaskIdsFromIndex: minionId must be non-empty"
     );
 
     const result: string[] = [];
-    const stack: string[] = [...(index.childrenByParent.get(workspaceId) ?? [])];
+    const stack: string[] = [...(index.childrenByParent.get(minionId) ?? [])];
     while (stack.length > 0) {
       const next = stack.pop()!;
       result.push(next);
@@ -1202,49 +1749,50 @@ export class TaskService {
     return result;
   }
 
-  isDescendantAgentTask(ancestorWorkspaceId: string, taskId: string): boolean {
-    assert(ancestorWorkspaceId.length > 0, "isDescendantAgentTask: ancestorWorkspaceId required");
+  async isDescendantAgentTask(ancestorMinionId: string, taskId: string): Promise<boolean> {
+    assert(ancestorMinionId.length > 0, "isDescendantAgentTask: ancestorMinionId required");
     assert(taskId.length > 0, "isDescendantAgentTask: taskId required");
 
     const cfg = this.config.loadConfigOrDefault();
     const parentById = this.buildAgentTaskIndex(cfg).parentById;
-    if (this.isDescendantAgentTaskUsingParentById(parentById, ancestorWorkspaceId, taskId)) {
+    if (this.isDescendantAgentTaskUsingParentById(parentById, ancestorMinionId, taskId)) {
       return true;
     }
 
-    // The task workspace may have been removed after it reported (cleanup). Preserve scope checks
-    // by consulting the completed-report cache, which tracks the task's ancestor chain.
-    const nowMs = Date.now();
-    this.cleanupExpiredCompletedReports(nowMs);
+    // The task minion may have been removed after it reported (cleanup/restart). Preserve scope
+    // checks by consulting persisted report artifacts in the ancestor session dir.
     const cached = this.completedReportsByTaskId.get(taskId);
-    if (cached && cached.expiresAtMs > nowMs) {
-      return cached.ancestorWorkspaceIds.includes(ancestorWorkspaceId);
+    if (hasAncestorMinionId(cached, ancestorMinionId)) {
+      return true;
     }
 
-    return false;
+    const sessionDir = this.config.getSessionDir(ancestorMinionId);
+    const persisted = await readSidekickReportArtifactsFile(sessionDir);
+    const entry = persisted.artifactsByChildTaskId[taskId];
+    return hasAncestorMinionId(entry, ancestorMinionId);
   }
 
   private isDescendantAgentTaskUsingParentById(
     parentById: Map<string, string>,
-    ancestorWorkspaceId: string,
+    ancestorMinionId: string,
     taskId: string
   ): boolean {
     let current = taskId;
     for (let i = 0; i < 32; i++) {
       const parent = parentById.get(current);
       if (!parent) return false;
-      if (parent === ancestorWorkspaceId) return true;
+      if (parent === ancestorMinionId) return true;
       current = parent;
     }
 
     throw new Error(
-      `isDescendantAgentTaskUsingParentById: possible parentWorkspaceId cycle starting at ${taskId}`
+      `isDescendantAgentTaskUsingParentById: possible parentMinionId cycle starting at ${taskId}`
     );
   }
 
   // --- Internal orchestration ---
 
-  private listAncestorWorkspaceIdsUsingParentById(
+  private listAncestorMinionIdsUsingParentById(
     parentById: Map<string, string>,
     taskId: string
   ): string[] {
@@ -1259,34 +1807,34 @@ export class TaskService {
     }
 
     throw new Error(
-      `listAncestorWorkspaceIdsUsingParentById: possible parentWorkspaceId cycle starting at ${taskId}`
+      `listAncestorMinionIdsUsingParentById: possible parentMinionId cycle starting at ${taskId}`
     );
   }
 
-  private listAgentTaskWorkspaces(
+  private listAgentTaskMinions(
     config: ReturnType<Config["loadConfigOrDefault"]>
-  ): AgentTaskWorkspaceEntry[] {
-    const tasks: AgentTaskWorkspaceEntry[] = [];
+  ): AgentTaskMinionEntry[] {
+    const tasks: AgentTaskMinionEntry[] = [];
     for (const [projectPath, project] of config.projects) {
-      for (const workspace of project.workspaces) {
-        if (!workspace.id) continue;
-        if (!workspace.parentWorkspaceId) continue;
-        tasks.push({ ...workspace, projectPath });
+      for (const minion of project.minions) {
+        if (!minion.id) continue;
+        if (!minion.parentMinionId) continue;
+        tasks.push({ ...minion, projectPath });
       }
     }
     return tasks;
   }
 
   private buildAgentTaskIndex(config: ReturnType<Config["loadConfigOrDefault"]>): AgentTaskIndex {
-    const byId = new Map<string, AgentTaskWorkspaceEntry>();
+    const byId = new Map<string, AgentTaskMinionEntry>();
     const childrenByParent = new Map<string, string[]>();
     const parentById = new Map<string, string>();
 
-    for (const task of this.listAgentTaskWorkspaces(config)) {
+    for (const task of this.listAgentTaskMinions(config)) {
       const taskId = task.id!;
       byId.set(taskId, task);
 
-      const parent = task.parentWorkspaceId;
+      const parent = task.parentMinionId;
       if (!parent) continue;
 
       parentById.set(taskId, parent);
@@ -1300,9 +1848,9 @@ export class TaskService {
 
   private countActiveAgentTasks(config: ReturnType<Config["loadConfigOrDefault"]>): number {
     let activeCount = 0;
-    for (const task of this.listAgentTaskWorkspaces(config)) {
+    for (const task of this.listAgentTaskMinions(config)) {
       const status: AgentTaskStatus = task.taskStatus ?? "running";
-      // If this task workspace is blocked in a foreground wait, do not count it towards parallelism.
+      // If this task minion is blocked in a foreground wait, do not count it towards parallelism.
       // This prevents deadlocks where a task spawns a nested task in the foreground while
       // maxParallelAgentTasks is low (e.g. 1).
       // Note: StreamManager can still report isStreaming() while a tool call is executing, so
@@ -1315,9 +1863,9 @@ export class TaskService {
         continue;
       }
 
-      // Defensive: a task may still be streaming even after it transitioned to another status
-      // (e.g. tool-call-end happened but the stream hasn't ended yet). Count it as active so we
-      // never exceed the configured parallel limit.
+      // Defensive: task status and runtime stream state can be briefly out of sync during
+      // termination/cleanup boundaries. Count streaming tasks as active so we never exceed
+      // the configured parallel limit.
       if (task.id && this.aiService.isStreaming(task.id)) {
         activeCount += 1;
       }
@@ -1328,14 +1876,14 @@ export class TaskService {
 
   private hasActiveDescendantAgentTasks(
     config: ReturnType<Config["loadConfigOrDefault"]>,
-    workspaceId: string
+    minionId: string
   ): boolean {
-    assert(workspaceId.length > 0, "hasActiveDescendantAgentTasks: workspaceId must be non-empty");
+    assert(minionId.length > 0, "hasActiveDescendantAgentTasks: minionId must be non-empty");
 
     const index = this.buildAgentTaskIndex(config);
 
     const activeStatuses = new Set<AgentTaskStatus>(["queued", "running", "awaiting_report"]);
-    const stack: string[] = [...(index.childrenByParent.get(workspaceId) ?? [])];
+    const stack: string[] = [...(index.childrenByParent.get(minionId) ?? [])];
     while (stack.length > 0) {
       const next = stack.pop()!;
       const status = index.byId.get(next)?.taskStatus;
@@ -1353,21 +1901,31 @@ export class TaskService {
     return false;
   }
 
+  /**
+   * Topology predicate: does this minion still have child agent-task nodes in config?
+   * Unlike hasActiveDescendantAgentTasks (which checks runtime activity for scheduling),
+   * this checks structural tree shape — any child node blocks parent deletion regardless
+   * of its status.
+   */
+  private hasChildAgentTasks(index: AgentTaskIndex, minionId: string): boolean {
+    return (index.childrenByParent.get(minionId)?.length ?? 0) > 0;
+  }
+
   private getTaskDepth(
     config: ReturnType<Config["loadConfigOrDefault"]>,
-    workspaceId: string
+    minionId: string
   ): number {
-    assert(workspaceId.length > 0, "getTaskDepth: workspaceId must be non-empty");
+    assert(minionId.length > 0, "getTaskDepth: minionId must be non-empty");
 
     return this.getTaskDepthFromParentById(
       this.buildAgentTaskIndex(config).parentById,
-      workspaceId
+      minionId
     );
   }
 
-  private getTaskDepthFromParentById(parentById: Map<string, string>, workspaceId: string): number {
+  private getTaskDepthFromParentById(parentById: Map<string, string>, minionId: string): number {
     let depth = 0;
-    let current = workspaceId;
+    let current = minionId;
     for (let i = 0; i < 32; i++) {
       const parent = parentById.get(current);
       if (!parent) break;
@@ -1377,7 +1935,7 @@ export class TaskService {
 
     if (depth >= 32) {
       throw new Error(
-        `getTaskDepthFromParentById: possible parentWorkspaceId cycle starting at ${workspaceId}`
+        `getTaskDepthFromParentById: possible parentMinionId cycle starting at ${minionId}`
       );
     }
 
@@ -1399,7 +1957,7 @@ export class TaskService {
     });
     if (availableSlots === 0) return;
 
-    const queuedTaskIds = this.listAgentTaskWorkspaces(configAtStart)
+    const queuedTaskIds = this.listAgentTaskMinions(configAtStart)
       .filter((t) => t.taskStatus === "queued" && typeof t.id === "string")
       .sort((a, b) => {
         const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
@@ -1427,9 +1985,9 @@ export class TaskService {
         break;
       }
 
-      const taskEntry = this.findWorkspaceEntry(config, taskId);
-      if (!taskEntry?.workspace.parentWorkspaceId) continue;
-      const task = taskEntry.workspace;
+      const taskEntry = findMinionEntry(config, taskId);
+      if (!taskEntry?.minion.parentMinionId) continue;
+      const task = taskEntry.minion;
       if (task.taskStatus !== "queued") continue;
 
       // Defensive: tasks can begin streaming before taskStatus flips to "running".
@@ -1443,53 +2001,53 @@ export class TaskService {
 
       assert(typeof task.name === "string" && task.name.trim().length > 0, "Task name missing");
 
-      const parentId = coerceNonEmptyString(task.parentWorkspaceId);
+      const parentId = coerceNonEmptyString(task.parentMinionId);
       if (!parentId) {
-        log.error("Queued task missing parentWorkspaceId; cannot start", { taskId });
+        log.error("Queued task missing parentMinionId; cannot start", { taskId });
         continue;
       }
 
-      const parentEntry = this.findWorkspaceEntry(config, parentId);
+      const parentEntry = findMinionEntry(config, parentId);
       if (!parentEntry) {
         log.error("Queued task parent not found; cannot start", { taskId, parentId });
         continue;
       }
 
-      const parentWorkspaceName = coerceNonEmptyString(parentEntry.workspace.name);
-      if (!parentWorkspaceName) {
-        log.error("Queued task parent missing workspace name; cannot start", {
+      const parentMinionName = coerceNonEmptyString(parentEntry.minion.name);
+      if (!parentMinionName) {
+        log.error("Queued task parent minion name missing; cannot start", {
           taskId,
           parentId,
         });
         continue;
       }
 
-      const taskRuntimeConfig = task.runtimeConfig ?? parentEntry.workspace.runtimeConfig;
+      const taskRuntimeConfig = task.runtimeConfig ?? parentEntry.minion.runtimeConfig;
       if (!taskRuntimeConfig) {
         log.error("Queued task missing runtimeConfig; cannot start", { taskId });
         continue;
       }
 
-      const parentRuntimeConfig = parentEntry.workspace.runtimeConfig ?? taskRuntimeConfig;
-      const workspaceName = task.name.trim();
-      const runtime = createRuntimeForWorkspace({
+      const parentRuntimeConfig = parentEntry.minion.runtimeConfig ?? taskRuntimeConfig;
+      const minionName = task.name.trim();
+      const runtime = createRuntimeForMinion({
         runtimeConfig: taskRuntimeConfig,
         projectPath: taskEntry.projectPath,
-        name: workspaceName,
+        name: minionName,
       });
-      let runtimeForTaskWorkspace = runtime;
+      let runtimeForTaskMinion = runtime;
       let forkedRuntimeConfig = taskRuntimeConfig;
 
-      let workspacePath =
+      let minionPath =
         coerceNonEmptyString(task.path) ??
-        runtime.getWorkspacePath(taskEntry.projectPath, workspaceName);
+        runtime.getMinionPath(taskEntry.projectPath, minionName);
 
-      let workspaceExists = false;
+      let minionExists = false;
       try {
-        await runtime.stat(workspacePath);
-        workspaceExists = true;
+        await runtime.stat(minionPath);
+        minionExists = true;
       } catch {
-        workspaceExists = false;
+        minionExists = false;
       }
 
       const inMemoryInit = this.initStateManager.getInitState(taskId);
@@ -1511,12 +2069,12 @@ export class TaskService {
         break;
       }
 
-      // Ensure the workspace exists before starting. Queued tasks should not create worktrees/directories
+      // Ensure the minion exists before starting. Queued tasks should not create worktrees/directories
       // until they are actually dequeued.
       let trunkBranch =
         typeof task.taskTrunkBranch === "string" && task.taskTrunkBranch.trim().length > 0
           ? task.taskTrunkBranch.trim()
-          : parentWorkspaceName;
+          : parentMinionName;
       if (trunkBranch.length === 0) {
         trunkBranch = "main";
       }
@@ -1525,92 +2083,89 @@ export class TaskService {
       let initLogger: InitLogger | null = null;
       const getInitLogger = (): InitLogger => {
         if (initLogger) return initLogger;
-        initLogger = this.startWorkspaceInit(taskId, taskEntry.projectPath);
+        initLogger = this.startMinionInit(taskId, taskEntry.projectPath);
         return initLogger;
       };
 
       taskQueueDebug("TaskService.maybeStartQueuedTasks start attempt", {
         taskId,
-        workspaceName,
+        minionName,
         parentId,
-        parentWorkspaceName,
+        parentMinionName,
         runtimeType: taskRuntimeConfig.type,
-        workspacePath,
-        workspaceExists,
+        minionPath,
+        minionExists,
         trunkBranch,
         shouldRunInit,
         inMemoryInit: Boolean(inMemoryInit),
         persistedInit: Boolean(persistedInit),
       });
 
-      // If the workspace doesn't exist yet, create it now (fork preferred, else createWorkspace).
-      if (!workspaceExists) {
+      // If the minion doesn't exist yet, create it now (fork preferred, else createMinion).
+      if (!minionExists) {
         shouldRunInit = true;
         const initLogger = getInitLogger();
 
-        const forkResult = await runtime.forkWorkspace({
+        const forkOrchestratorResult = await orchestrateFork({
+          sourceRuntime: runtime,
           projectPath: taskEntry.projectPath,
-          sourceWorkspaceName: parentWorkspaceName,
-          newWorkspaceName: workspaceName,
+          sourceMinionName: parentMinionName,
+          newMinionName: minionName,
           initLogger,
+          config: this.config,
+          sourceMinionId: parentId,
+          sourceRuntimeConfig: parentRuntimeConfig,
+          allowCreateFallback: true,
+          preferredTrunkBranch: trunkBranch,
         });
 
-        const { forkedRuntimeConfig: resolvedForkedRuntimeConfig } = await applyForkRuntimeUpdates(
-          this.config,
-          parentId,
-          parentRuntimeConfig,
-          forkResult
-        );
-        forkedRuntimeConfig = resolvedForkedRuntimeConfig;
-
-        if (forkResult.sourceRuntimeConfig) {
-          // Ensure UI gets the updated runtimeConfig for the parent workspace.
-          await this.emitWorkspaceMetadata(parentId);
+        if (
+          forkOrchestratorResult.success &&
+          forkOrchestratorResult.data.sourceRuntimeConfigUpdate
+        ) {
+          await this.config.updateMinionMetadata(parentId, {
+            runtimeConfig: forkOrchestratorResult.data.sourceRuntimeConfigUpdate,
+          });
+          // Ensure UI gets the updated runtimeConfig for the parent minion.
+          await this.emitMinionMetadata(parentId);
         }
 
-        runtimeForTaskWorkspace = createRuntime(forkedRuntimeConfig, {
-          projectPath: taskEntry.projectPath,
-          workspaceName,
-        });
-
-        trunkBranch = forkResult.success ? (forkResult.sourceBranch ?? trunkBranch) : trunkBranch;
-        const createResult: WorkspaceCreationResult = forkResult.success
-          ? { success: true as const, workspacePath: forkResult.workspacePath }
-          : await runtime.createWorkspace({
-              projectPath: taskEntry.projectPath,
-              branchName: workspaceName,
-              trunkBranch,
-              directoryName: workspaceName,
-              initLogger,
-            });
-
-        if (!createResult.success || !createResult.workspacePath) {
+        if (!forkOrchestratorResult.success) {
           initLogger.logComplete(-1);
-          const errorMessage = createResult.error ?? "unknown error";
-          log.error("Failed to create queued task workspace", { taskId, error: errorMessage });
-          taskQueueDebug("TaskService.maybeStartQueuedTasks createWorkspace failed", {
+          log.error("Task fork failed", { taskId, error: forkOrchestratorResult.error });
+          taskQueueDebug("TaskService.maybeStartQueuedTasks fork failed", {
             taskId,
-            error: errorMessage,
-            forkSuccess: forkResult.success,
+            error: forkOrchestratorResult.error,
           });
           continue;
         }
 
-        workspacePath = createResult.workspacePath;
-        workspaceExists = true;
+        const {
+          forkedRuntimeConfig: resolvedForkedRuntimeConfig,
+          targetRuntime,
+          minionPath: resolvedMinionPath,
+          trunkBranch: resolvedTrunkBranch,
+          forkedFromSource,
+        } = forkOrchestratorResult.data;
 
-        taskQueueDebug("TaskService.maybeStartQueuedTasks workspace created", {
+        forkedRuntimeConfig = resolvedForkedRuntimeConfig;
+        runtimeForTaskMinion = targetRuntime;
+        minionPath = resolvedMinionPath;
+        trunkBranch = resolvedTrunkBranch;
+        minionExists = true;
+
+        taskQueueDebug("TaskService.maybeStartQueuedTasks minion created", {
           taskId,
-          workspacePath,
-          forkSuccess: forkResult.success,
+          minionPath,
+          forkSuccess: forkedFromSource,
           trunkBranch,
         });
 
         // Persist any corrected path/trunkBranch for restart-safe init.
-        await this.editWorkspaceEntry(
+        await this.editMinionEntry(
           taskId,
           (ws) => {
-            ws.path = workspacePath;
+            ws.path = minionPath;
             ws.taskTrunkBranch = trunkBranch;
             ws.runtimeConfig = forkedRuntimeConfig;
           },
@@ -1618,60 +2173,77 @@ export class TaskService {
         );
       }
 
-      // If init has not yet run for this workspace, start it now (best-effort, async).
+      // If init has not yet run for this minion, start it now (best-effort, async).
       // This is intentionally coupled to task start so queued tasks don't run init hooks
+      // Capture base commit for git-format-patch generation before the agent starts.
+      // This must reflect the *actual* minion HEAD after creation/fork, not the parent's current HEAD
+      // (queued tasks can start much later).
+      if (!coerceNonEmptyString(task.taskBaseCommitSha)) {
+        const taskBaseCommitSha = await tryReadGitHeadCommitSha(
+          runtimeForTaskMinion,
+          minionPath
+        );
+        if (taskBaseCommitSha) {
+          await this.editMinionEntry(
+            taskId,
+            (ws) => {
+              ws.taskBaseCommitSha = taskBaseCommitSha;
+            },
+            { allowMissing: true }
+          );
+        }
+      }
+
       // (SSH sync, .lattice/init scripts, etc.) until they actually begin execution.
       if (shouldRunInit) {
         const initLogger = getInitLogger();
-        taskQueueDebug("TaskService.maybeStartQueuedTasks initWorkspace starting", {
+        taskQueueDebug("TaskService.maybeStartQueuedTasks initMinion starting", {
           taskId,
-          workspacePath,
+          minionPath,
           trunkBranch,
         });
-        const secrets = secretsToRecord(this.config.getProjectSecrets(taskEntry.projectPath));
+        const secrets = secretsToRecord(this.config.getEffectiveSecrets(taskEntry.projectPath));
         let skipInitHook = false;
         const agentIdRaw = coerceNonEmptyString(task.agentId ?? task.agentType);
         if (agentIdRaw) {
           const parsedAgentId = AgentIdSchema.safeParse(agentIdRaw.trim().toLowerCase());
           if (parsedAgentId.success) {
-            const isInPlace = taskEntry.projectPath === parentWorkspaceName;
-            const parentWorkspacePath =
-              coerceNonEmptyString(parentEntry.workspace.path) ??
+            const isInPlace = taskEntry.projectPath === parentMinionName;
+            const parentMinionPath =
+              coerceNonEmptyString(parentEntry.minion.path) ??
               (isInPlace
                 ? taskEntry.projectPath
-                : runtime.getWorkspacePath(taskEntry.projectPath, parentWorkspaceName));
+                : runtime.getMinionPath(taskEntry.projectPath, parentMinionName));
 
             try {
-              const definition = await readAgentDefinition(
+              const frontmatter = await resolveAgentFrontmatter(
                 runtime,
-                parentWorkspacePath,
+                parentMinionPath,
                 parsedAgentId.data
               );
-              skipInitHook = definition.frontmatter.subagent?.skip_init_hook === true;
+              skipInitHook = frontmatter.sidekick?.skip_init_hook === true;
             } catch (error: unknown) {
               log.debug("Queued task: failed to read agent definition for skip_init_hook", {
                 taskId,
                 agentId: parsedAgentId.data,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
               });
             }
           }
         }
 
         runBackgroundInit(
-          runtimeForTaskWorkspace,
+          runtimeForTaskMinion,
           {
             projectPath: taskEntry.projectPath,
-            branchName: workspaceName,
+            branchName: minionName,
             trunkBranch,
-            workspacePath,
+            minionPath,
             initLogger,
             env: secrets,
             skipInitHook,
           },
-          taskId,
-          undefined,
-          this.cliAgentDetectionService
+          taskId
         );
       }
 
@@ -1683,12 +2255,12 @@ export class TaskService {
           model,
           promptLength: queuedPrompt.length,
         });
-        const sendResult = await this.workspaceService.sendMessage(
+        const sendResult = await this.minionService.sendMessage(
           taskId,
           queuedPrompt,
           {
             model,
-            agentId: task.agentId ?? WORKSPACE_DEFAULTS.agentId,
+            agentId: task.agentId ?? TASK_RECOVERY_FALLBACK_AGENT_ID,
             thinkingLevel: task.taskThinkingLevel,
             experiments: task.taskExperiments,
           },
@@ -1707,11 +2279,11 @@ export class TaskService {
           taskId,
           model,
         });
-        const resumeResult = await this.workspaceService.resumeStream(
+        const resumeResult = await this.minionService.resumeStream(
           taskId,
           {
             model,
-            agentId: task.agentId ?? WORKSPACE_DEFAULTS.agentId,
+            agentId: task.agentId ?? TASK_RECOVERY_FALLBACK_AGENT_ID,
             thinkingLevel: task.taskThinkingLevel,
             experiments: task.taskExperiments,
           },
@@ -1733,201 +2305,569 @@ export class TaskService {
     }
   }
 
-  private async setTaskStatus(workspaceId: string, status: AgentTaskStatus): Promise<void> {
-    assert(workspaceId.length > 0, "setTaskStatus: workspaceId must be non-empty");
+  private async setTaskStatus(minionId: string, status: AgentTaskStatus): Promise<void> {
+    assert(minionId.length > 0, "setTaskStatus: minionId must be non-empty");
 
-    await this.editWorkspaceEntry(workspaceId, (ws) => {
+    await this.editMinionEntry(minionId, (ws) => {
       ws.taskStatus = status;
       if (status === "running") {
         ws.taskPrompt = undefined;
       }
     });
 
-    await this.emitWorkspaceMetadata(workspaceId);
+    await this.emitMinionMetadata(minionId);
 
     if (status === "running") {
-      const waiters = this.pendingStartWaitersByTaskId.get(workspaceId);
+      const waiters = this.pendingStartWaitersByTaskId.get(minionId);
       if (!waiters || waiters.length === 0) return;
-      this.pendingStartWaitersByTaskId.delete(workspaceId);
+      this.pendingStartWaitersByTaskId.delete(minionId);
       for (const waiter of waiters) {
         try {
           waiter.start();
         } catch (error: unknown) {
-          log.error("Task start waiter callback failed", { workspaceId, error });
+          log.error("Task start waiter callback failed", { minionId, error });
         }
       }
     }
   }
 
+  /**
+   * Reset interrupt + auto-resume state for a minion (called when user sends a real message).
+   */
+  resetAutoResumeCount(minionId: string): void {
+    assert(minionId.length > 0, "resetAutoResumeCount: minionId must be non-empty");
+    this.consecutiveAutoResumes.delete(minionId);
+    this.interruptedParentMinionIds.delete(minionId);
+  }
+
+  /** Mark a parent minion as hard-interrupted by the user. */
+  markParentMinionInterrupted(minionId: string): void {
+    assert(minionId.length > 0, "markParentMinionInterrupted: minionId must be non-empty");
+    this.consecutiveAutoResumes.delete(minionId);
+    this.interruptedParentMinionIds.add(minionId);
+  }
+
+  /**
+   * If a preserved descendant task minion was previously interrupted and the user manually
+   * resumes it, restore taskStatus=running so stream-end finalization can proceed normally.
+   *
+   * Returns true only when a state transition happened.
+   */
+  async markInterruptedTaskRunning(minionId: string): Promise<boolean> {
+    assert(minionId.length > 0, "markInterruptedTaskRunning: minionId must be non-empty");
+
+    const configAtStart = this.config.loadConfigOrDefault();
+    const entryAtStart = findMinionEntry(configAtStart, minionId);
+    if (!entryAtStart?.minion.parentMinionId) {
+      return false;
+    }
+    if (entryAtStart.minion.taskStatus !== "interrupted") {
+      return false;
+    }
+
+    let transitionedToRunning = false;
+    await this.editMinionEntry(
+      minionId,
+      (ws) => {
+        // Only descendant task minions have task lifecycle status.
+        if (!ws.parentMinionId) {
+          return;
+        }
+        if (ws.taskStatus !== "interrupted") {
+          return;
+        }
+
+        // Preserve taskPrompt here: interrupted queued tasks store their only initial
+        // prompt in config. If send/resume fails, restoreInterruptedTaskAfterResumeFailure
+        // must be able to retain that original prompt for inspection/retry.
+        ws.taskStatus = "running";
+        transitionedToRunning = true;
+      },
+      { allowMissing: true }
+    );
+
+    if (!transitionedToRunning) {
+      return false;
+    }
+
+    await this.emitMinionMetadata(minionId);
+    return true;
+  }
+
+  /**
+   * Revert a pre-stream interrupted->running transition when send/resume fails to start
+   * or complete. This preserves fail-fast interrupted semantics for task_await.
+   */
+  async restoreInterruptedTaskAfterResumeFailure(minionId: string): Promise<void> {
+    assert(
+      minionId.length > 0,
+      "restoreInterruptedTaskAfterResumeFailure: minionId must be non-empty"
+    );
+
+    let revertedToInterrupted = false;
+    await this.editMinionEntry(
+      minionId,
+      (ws) => {
+        if (!ws.parentMinionId) {
+          return;
+        }
+        if (ws.taskStatus !== "running") {
+          return;
+        }
+
+        ws.taskStatus = "interrupted";
+        revertedToInterrupted = true;
+      },
+      { allowMissing: true }
+    );
+
+    if (!revertedToInterrupted) {
+      return;
+    }
+
+    await this.emitMinionMetadata(minionId);
+  }
+
   private async handleStreamEnd(event: StreamEndEvent): Promise<void> {
-    const workspaceId = event.workspaceId;
+    const minionId = event.minionId;
 
     const cfg = this.config.loadConfigOrDefault();
-    const entry = this.findWorkspaceEntry(cfg, workspaceId);
+    const entry = findMinionEntry(cfg, minionId);
     if (!entry) return;
 
-    // Parent workspaces must not end while they have active background tasks.
+    // Parent minions must not end while they have active background tasks.
     // Enforce by auto-resuming the stream with a directive to await outstanding tasks.
-    if (!entry.workspace.parentWorkspaceId) {
-      const hasActiveDescendants = this.hasActiveDescendantAgentTasks(cfg, workspaceId);
+    if (!entry.minion.parentMinionId) {
+      const hasActiveDescendants = this.hasActiveDescendantAgentTasks(cfg, minionId);
       if (!hasActiveDescendants) {
         return;
       }
 
-      if (this.aiService.isStreaming(workspaceId)) {
+      if (this.aiService.isStreaming(minionId)) {
         return;
       }
 
-      const activeTaskIds = this.listActiveDescendantAgentTaskIds(workspaceId);
-      const parentAgentId = entry.workspace.agentId ?? WORKSPACE_DEFAULTS.agentId;
-      const parentAiSettings = this.resolveWorkspaceAISettings(entry.workspace, parentAgentId);
-      const model = parentAiSettings?.model ?? defaultModel;
+      if (this.interruptedParentMinionIds.has(minionId)) {
+        log.debug("Skipping parent auto-resume after hard interrupt", { minionId });
+        return;
+      }
 
-      const resumeResult = await this.workspaceService.resumeStream(workspaceId, {
-        model,
-        agentId: parentAgentId,
-        thinkingLevel: parentAiSettings?.thinkingLevel,
-        additionalSystemInstructions:
-          `You have active background sub-agent task(s) (${activeTaskIds.join(", ")}). ` +
+      const activeTaskIds = this.listActiveDescendantAgentTaskIds(minionId);
+
+      // Check for auto-resume flood protection
+      const resumeCount = this.consecutiveAutoResumes.get(minionId) ?? 0;
+      if (resumeCount >= MAX_CONSECUTIVE_PARENT_AUTO_RESUMES) {
+        log.warn("Auto-resume limit reached for parent minion with active descendants", {
+          minionId,
+          resumeCount,
+          activeTaskIds,
+          limit: MAX_CONSECUTIVE_PARENT_AUTO_RESUMES,
+        });
+        return;
+      }
+      this.consecutiveAutoResumes.set(minionId, resumeCount + 1);
+
+      const resumeOptions = await this.resolveParentAutoResumeOptions(
+        minionId,
+        entry,
+        defaultModel,
+        event.metadata
+      );
+
+      const sendResult = await this.minionService.sendMessage(
+        minionId,
+        `You have active background sub-agent task(s) (${activeTaskIds.join(", ")}). ` +
           "You MUST NOT end your turn while any sub-agent tasks are queued/running/awaiting_report. " +
           "Call task_await now to wait for them to finish (omit timeout_secs to wait up to 10 minutes). " +
           "If any tasks are still queued/running/awaiting_report after that, call task_await again. " +
           "Only once all tasks are completed should you write your final response, integrating their reports.",
-      });
-      if (!resumeResult.success) {
+        {
+          model: resumeOptions.model,
+          agentId: resumeOptions.agentId,
+          thinkingLevel: resumeOptions.thinkingLevel,
+        },
+        // Skip auto-resume counter reset — this IS an auto-resume, not a user message.
+        { skipAutoResumeReset: true, synthetic: true }
+      );
+      if (!sendResult.success) {
         log.error("Failed to resume parent with active background tasks", {
-          workspaceId,
-          error: resumeResult.error,
+          minionId,
+          error: sendResult.error,
         });
       }
       return;
     }
 
-    const status = entry.workspace.taskStatus;
-    if (status === "reported") return;
+    const status = entry.minion.taskStatus;
+    if (status === "interrupted") {
+      return;
+    }
+    if (status === "reported") {
+      await this.finalizeTerminationPhaseForReportedTask(minionId);
+      return;
+    }
+
+    const isPlanLike = await this.isPlanLikeTaskMinion(entry);
 
     // Never allow a task to finish/report while it still has active descendant tasks.
     // We'll auto-resume this task once the last descendant reports.
-    const hasActiveDescendants = this.hasActiveDescendantAgentTasks(cfg, workspaceId);
+    const hasActiveDescendants = this.hasActiveDescendantAgentTasks(cfg, minionId);
     if (hasActiveDescendants) {
       if (status === "awaiting_report") {
-        await this.setTaskStatus(workspaceId, "running");
+        await this.setTaskStatus(minionId, "running");
       }
       return;
     }
 
     const reportArgs = this.findAgentReportArgsInParts(event.parts);
     if (reportArgs) {
-      await this.finalizeAgentTaskReport(workspaceId, entry, reportArgs);
+      await this.finalizeAgentTaskReport(minionId, entry, reportArgs);
+      await this.finalizeTerminationPhaseForReportedTask(minionId);
       return;
     }
 
-    // If a task stream ends without agent_report, request it once.
-    if (status === "awaiting_report" && this.remindedAwaitingReport.has(workspaceId)) {
-      await this.fallbackReportMissingAgentReport(entry);
+    const proposePlanResult = this.findProposePlanSuccessInParts(event.parts);
+    if (isPlanLike && proposePlanResult) {
+      await this.handleSuccessfulProposePlanAutoHandoff({
+        minionId,
+        entry,
+        proposePlanResult,
+        planSidekickExecutorRouting:
+          (cfg.taskSettings ?? DEFAULT_TASK_SETTINGS).planSidekickExecutorRouting ?? "exec",
+      });
       return;
     }
 
-    await this.setTaskStatus(workspaceId, "awaiting_report");
+    const missingCompletionToolName = isPlanLike ? "propose_plan" : "agent_report";
 
-    this.remindedAwaitingReport.add(workspaceId);
+    // If a task stream ends without its required completion tool, request it once.
+    if (status === "awaiting_report" && this.remindedAwaitingReport.has(minionId)) {
+      await this.fallbackReportMissingCompletionTool(entry, missingCompletionToolName);
+      await this.finalizeTerminationPhaseForReportedTask(minionId);
+      return;
+    }
 
-    const model = entry.workspace.taskModelString ?? defaultModel;
-    await this.workspaceService.sendMessage(
-      workspaceId,
-      "Your stream ended without calling agent_report. Call agent_report exactly once now with your final report.",
+    await this.setTaskStatus(minionId, "awaiting_report");
+
+    this.remindedAwaitingReport.add(minionId);
+
+    const model = entry.minion.taskModelString ?? defaultModel;
+    await this.minionService.sendMessage(
+      minionId,
+      isPlanLike
+        ? "Your stream ended without calling propose_plan. Call propose_plan exactly once now."
+        : "Your stream ended without calling agent_report. Call agent_report exactly once now with your final report.",
       {
         model,
-        agentId: entry.workspace.agentId ?? WORKSPACE_DEFAULTS.agentId,
-        thinkingLevel: entry.workspace.taskThinkingLevel,
-        toolPolicy: [{ regex_match: "^agent_report$", action: "require" }],
-      }
+        agentId: entry.minion.agentId ?? TASK_RECOVERY_FALLBACK_AGENT_ID,
+        thinkingLevel: entry.minion.taskThinkingLevel,
+        toolPolicy: [{ regex_match: `^${missingCompletionToolName}$`, action: "require" }],
+      },
+      { synthetic: true }
     );
   }
 
-  private async fallbackReportMissingAgentReport(entry: {
-    projectPath: string;
-    workspace: WorkspaceConfigEntry;
+  private async handleSuccessfulProposePlanAutoHandoff(args: {
+    minionId: string;
+    entry: { projectPath: string; minion: MinionConfigEntry };
+    proposePlanResult: { planPath: string };
+    planSidekickExecutorRouting: PlanSidekickExecutorRouting;
   }): Promise<void> {
-    const childWorkspaceId = entry.workspace.id;
-    const parentWorkspaceId = entry.workspace.parentWorkspaceId;
-    if (!childWorkspaceId || !parentWorkspaceId) {
+    assert(
+      args.minionId.length > 0,
+      "handleSuccessfulProposePlanAutoHandoff: minionId must be non-empty"
+    );
+    assert(
+      args.proposePlanResult.planPath.length > 0,
+      "handleSuccessfulProposePlanAutoHandoff: planPath must be non-empty"
+    );
+
+    if (this.handoffInProgress.has(args.minionId)) {
+      log.debug("Skipping duplicate plan-task auto-handoff", { minionId: args.minionId });
       return;
     }
 
-    const agentType = entry.workspace.agentType ?? "agent";
-    const lastText = await this.readLatestAssistantText(childWorkspaceId);
+    this.handoffInProgress.add(args.minionId);
 
-    const reportMarkdown =
-      "*(Note: this agent task did not call `agent_report`; " +
-      "posting its last assistant output as a fallback.)*\n\n" +
-      (lastText?.trim().length ? lastText : "(No assistant output found.)");
+    try {
+      let planSummary: { content: string; path: string } | null = null;
 
-    // Notify clients immediately even if we can't delete the workspace yet.
-    await this.editWorkspaceEntry(
-      childWorkspaceId,
-      (ws) => {
-        ws.taskStatus = "reported";
-        ws.reportedAt = getIsoNow();
-      },
-      { allowMissing: true }
-    );
-
-    await this.emitWorkspaceMetadata(childWorkspaceId);
-
-    await this.deliverReportToParent(parentWorkspaceId, entry, {
-      reportMarkdown,
-      title: `Subagent (${agentType}) report (fallback)`,
-    });
-
-    this.resolveWaiters(childWorkspaceId, {
-      reportMarkdown,
-      title: `Subagent (${agentType}) report (fallback)`,
-    });
-
-    await this.maybeStartQueuedTasks();
-    await this.cleanupReportedLeafTask(childWorkspaceId);
-
-    const postCfg = this.config.loadConfigOrDefault();
-    const hasActiveDescendants = this.hasActiveDescendantAgentTasks(postCfg, parentWorkspaceId);
-    if (!hasActiveDescendants && !this.aiService.isStreaming(parentWorkspaceId)) {
-      const resumeResult = await this.workspaceService.resumeStream(parentWorkspaceId, {
-        model: entry.workspace.taskModelString ?? defaultModel,
-        agentId: WORKSPACE_DEFAULTS.agentId,
-      });
-      if (!resumeResult.success) {
-        log.error("Failed to auto-resume parent after fallback report", {
-          parentWorkspaceId,
-          error: resumeResult.error,
+      try {
+        const info = await this.minionService.getInfo(args.minionId);
+        if (!info) {
+          log.error("Plan-task auto-handoff could not read minion metadata", {
+            minionId: args.minionId,
+          });
+        } else {
+          const runtime = createRuntimeForMinion(info);
+          const planResult = await readPlanFile(
+            runtime,
+            info.name,
+            info.projectName,
+            args.minionId
+          );
+          if (planResult.exists) {
+            planSummary = { content: planResult.content, path: planResult.path };
+          } else {
+            log.error("Plan-task auto-handoff did not find plan file content", {
+              minionId: args.minionId,
+              planPath: args.proposePlanResult.planPath,
+            });
+          }
+        }
+      } catch (error: unknown) {
+        log.error("Plan-task auto-handoff failed to read plan file", {
+          minionId: args.minionId,
+          planPath: args.proposePlanResult.planPath,
+          error,
         });
       }
+
+      const targetAgentId = await (async () => {
+        const shouldShowRoutingStatus = args.planSidekickExecutorRouting === "auto";
+        if (shouldShowRoutingStatus) {
+          // Auto routing can pause for up to the LLM timeout; surface progress in the sidebar.
+          await this.minionService.updateAgentStatus(args.minionId, {
+            emoji: PLAN_AUTO_ROUTING_STATUS_EMOJI,
+            message: PLAN_AUTO_ROUTING_STATUS_MESSAGE,
+            // ExtensionMetadataService carries forward the previous status URL when url is omitted.
+            // Use an explicit empty string sentinel to clear stale links for this transient status.
+            url: "",
+          });
+        }
+
+        try {
+          return await this.resolvePlanAutoHandoffTargetAgentId({
+            minionId: args.minionId,
+            entry: {
+              projectPath: args.entry.projectPath,
+              minion: {
+                id: args.entry.minion.id,
+                name: args.entry.minion.name,
+                path: args.entry.minion.path,
+                runtimeConfig: args.entry.minion.runtimeConfig,
+                taskModelString: args.entry.minion.taskModelString,
+              },
+            },
+            routing: args.planSidekickExecutorRouting,
+            planContent: planSummary?.content ?? null,
+          });
+        } finally {
+          if (shouldShowRoutingStatus) {
+            await this.minionService.updateAgentStatus(args.minionId, null);
+          }
+        }
+      })();
+
+      const summaryContent = planSummary
+        ? `# Plan\n\n${planSummary.content}\n\nNote: This chat already contains the full plan; no need to re-open the plan file.\n\n---\n\n*Plan file preserved at:* \`${planSummary.path}\``
+        : `A plan was proposed at ${args.proposePlanResult.planPath}. Read the plan file and implement it.`;
+
+      const summaryMessage = createLatticeMessage(
+        createCompactionSummaryMessageId(),
+        "assistant",
+        summaryContent,
+        {
+          timestamp: Date.now(),
+          compacted: "user",
+          agentId: "plan",
+        }
+      );
+
+      const replaceHistoryResult = await this.minionService.replaceHistory(
+        args.minionId,
+        summaryMessage,
+        {
+          mode: "append-compaction-boundary",
+          deletePlanFile: false,
+        }
+      );
+      if (!replaceHistoryResult.success) {
+        log.error("Plan-task auto-handoff failed to compact history", {
+          minionId: args.minionId,
+          error: replaceHistoryResult.error,
+        });
+      }
+
+      // Handoff resolution follows the same precedence as Task.create:
+      // global per-agent defaults, else inherit the plan task's active model.
+      const latestCfg = this.config.loadConfigOrDefault();
+      const globalDefault = latestCfg.agentAiDefaults?.[targetAgentId];
+      const parentActiveModelCandidate =
+        typeof args.entry.minion.taskModelString === "string"
+          ? args.entry.minion.taskModelString.trim()
+          : "";
+      const parentActiveModel =
+        parentActiveModelCandidate.length > 0 ? parentActiveModelCandidate : defaultModel;
+
+      const configuredModel = globalDefault?.modelString?.trim();
+      const preferredModel =
+        configuredModel && configuredModel.length > 0 ? configuredModel : parentActiveModel;
+      const resolvedModel =
+        preferredModel.length > 0 ? preferredModel : defaultModel;
+      assert(
+        resolvedModel.trim().length > 0,
+        "handleSuccessfulProposePlanAutoHandoff: resolved model must be non-empty"
+      );
+      const requestedThinking: ThinkingLevel =
+        globalDefault?.thinkingLevel ?? args.entry.minion.taskThinkingLevel ?? "off";
+      const resolvedThinking = enforceThinkingPolicy(resolvedModel, requestedThinking);
+
+      await this.editMinionEntry(args.minionId, (minion) => {
+        minion.agentId = targetAgentId;
+        minion.agentType = targetAgentId;
+        minion.taskModelString = resolvedModel;
+        minion.taskThinkingLevel = resolvedThinking;
+      });
+
+      await this.setTaskStatus(args.minionId, "running");
+      this.remindedAwaitingReport.delete(args.minionId);
+
+      const kickoffMsg =
+        targetAgentId === "orchestrator"
+          ? "Start orchestrating the implementation of this plan."
+          : "Implement the plan.";
+      try {
+        const sendKickoffResult = await this.minionService.sendMessage(
+          args.minionId,
+          kickoffMsg,
+          {
+            model: resolvedModel,
+            agentId: targetAgentId,
+            thinkingLevel: resolvedThinking,
+            experiments: args.entry.minion.taskExperiments,
+          },
+          { synthetic: true }
+        );
+        if (!sendKickoffResult.success) {
+          // Keep status as "running" so the restart handler in initialize() can
+          // re-attempt the kickoff on next startup, rather than moving to
+          // "awaiting_report" which could finalize the task prematurely.
+          log.error(
+            "Plan-task auto-handoff failed to send kickoff message; task stays running for retry on restart",
+            {
+              minionId: args.minionId,
+              targetAgentId,
+              error: sendKickoffResult.error,
+            }
+          );
+        }
+      } catch (error: unknown) {
+        // Same as above: leave status as "running" for restart recovery.
+        log.error(
+          "Plan-task auto-handoff failed to send kickoff message; task stays running for retry on restart",
+          {
+            minionId: args.minionId,
+            targetAgentId,
+            error,
+          }
+        );
+      }
+    } catch (error: unknown) {
+      log.error("Plan-task auto-handoff failed", {
+        minionId: args.minionId,
+        planPath: args.proposePlanResult.planPath,
+        error,
+      });
+    } finally {
+      this.handoffInProgress.delete(args.minionId);
     }
   }
 
-  private async readLatestAssistantText(workspaceId: string): Promise<string | null> {
-    const partial = await this.partialService.readPartial(workspaceId);
+  private async finalizeTerminationPhaseForReportedTask(minionId: string): Promise<void> {
+    assert(
+      minionId.length > 0,
+      "finalizeTerminationPhaseForReportedTask: minionId must be non-empty"
+    );
+
+    await this.cleanupReportedLeafTask(minionId);
+  }
+
+  private async maybeStartPatchGenerationForReportedTask(minionId: string): Promise<void> {
+    assert(
+      minionId.length > 0,
+      "maybeStartPatchGenerationForReportedTask: minionId must be non-empty"
+    );
+
+    const cfg = this.config.loadConfigOrDefault();
+    const parentMinionId = findMinionEntry(cfg, minionId)?.minion.parentMinionId;
+    if (!parentMinionId) {
+      return;
+    }
+
+    try {
+      await this.gitPatchArtifactService.maybeStartGeneration(
+        parentMinionId,
+        minionId,
+        (wsId) => this.requestReportedTaskCleanupRecheck(wsId)
+      );
+    } catch (error: unknown) {
+      log.error("Failed to start sidekick git patch generation", {
+        parentMinionId,
+        childMinionId: minionId,
+        error,
+      });
+    }
+  }
+
+  private requestReportedTaskCleanupRecheck(minionId: string): Promise<void> {
+    assert(
+      minionId.length > 0,
+      "requestReportedTaskCleanupRecheck: minionId must be non-empty"
+    );
+
+    return this.minionEventLocks.withLock(minionId, async () => {
+      await this.cleanupReportedLeafTask(minionId);
+    });
+  }
+
+  private async fallbackReportMissingCompletionTool(
+    entry: {
+      projectPath: string;
+      minion: MinionConfigEntry;
+    },
+    completionToolName: "agent_report" | "propose_plan"
+  ): Promise<void> {
+    const childMinionId = entry.minion.id;
+    if (!childMinionId) {
+      return;
+    }
+
+    const agentType = entry.minion.agentType ?? "agent";
+    const lastText = await this.readLatestAssistantText(childMinionId);
+    const completionToolLabel =
+      completionToolName === "propose_plan" ? "`propose_plan`" : "`agent_report`";
+
+    const reportMarkdown =
+      `*(Note: this agent task did not call ${completionToolLabel}; posting its last assistant output as a fallback.)*\n\n` +
+      (lastText?.trim().length ? lastText : "(No assistant output found.)");
+
+    await this.finalizeAgentTaskReport(childMinionId, entry, {
+      reportMarkdown,
+      title: `Sidekick (${agentType}) report (fallback)`,
+    });
+  }
+
+  private async readLatestAssistantText(minionId: string): Promise<string | null> {
+    const partial = await this.historyService.readPartial(minionId);
     if (partial && partial.role === "assistant") {
       const text = this.concatTextParts(partial).trim();
       if (text.length > 0) return text;
     }
 
-    const historyResult = await this.historyService.getHistory(workspaceId);
+    // Only need recent messages to find last assistant text — avoid full-file read.
+    // getLastMessages returns messages in chronological order.
+    const historyResult = await this.historyService.getLastMessages(minionId, 20);
     if (!historyResult.success) {
       log.error("Failed to read history for fallback report", {
-        workspaceId,
+        minionId,
         error: historyResult.error,
       });
       return null;
     }
 
-    const ordered = [...historyResult.data].sort((a, b) => {
-      const aSeq = a.metadata?.historySequence ?? -1;
-      const bSeq = b.metadata?.historySequence ?? -1;
-      return aSeq - bSeq;
-    });
-
-    for (let i = ordered.length - 1; i >= 0; i--) {
-      const msg = ordered[i];
+    for (let i = historyResult.data.length - 1; i >= 0; i--) {
+      const msg = historyResult.data[i];
       if (msg?.role !== "assistant") continue;
       const text = this.concatTextParts(msg).trim();
       if (text.length > 0) return text;
@@ -1948,47 +2888,14 @@ export class TaskService {
     return combined;
   }
 
-  private async handleAgentReport(event: ToolCallEndEvent): Promise<void> {
-    const childWorkspaceId = event.workspaceId;
-
-    if (!isSuccessfulToolResult(event.result)) {
-      return;
-    }
-
-    const cfgBeforeReport = this.config.loadConfigOrDefault();
-    const childEntryBeforeReport = this.findWorkspaceEntry(cfgBeforeReport, childWorkspaceId);
-    if (childEntryBeforeReport?.workspace.taskStatus === "reported") {
-      return;
-    }
-
-    if (this.hasActiveDescendantAgentTasks(cfgBeforeReport, childWorkspaceId)) {
-      log.error("agent_report called while task has active descendants; ignoring", {
-        childWorkspaceId,
-      });
-      return;
-    }
-
-    // Read report payload from the tool-call input (persisted in partial/history).
-    const reportArgs = await this.readLatestAgentReportArgs(childWorkspaceId);
-    if (!reportArgs) {
-      log.error("agent_report tool-call args not found", { childWorkspaceId });
-      return;
-    }
-
-    await this.finalizeAgentTaskReport(childWorkspaceId, childEntryBeforeReport, reportArgs, {
-      stopStream: true,
-    });
-  }
-
   private async finalizeAgentTaskReport(
-    childWorkspaceId: string,
-    childEntry: { projectPath: string; workspace: WorkspaceConfigEntry } | null | undefined,
-    reportArgs: { reportMarkdown: string; title?: string },
-    options?: { stopStream?: boolean }
+    childMinionId: string,
+    childEntry: { projectPath: string; minion: MinionConfigEntry } | null | undefined,
+    reportArgs: { reportMarkdown: string; title?: string }
   ): Promise<void> {
     assert(
-      childWorkspaceId.length > 0,
-      "finalizeAgentTaskReport: childWorkspaceId must be non-empty"
+      childMinionId.length > 0,
+      "finalizeAgentTaskReport: childMinionId must be non-empty"
     );
     assert(
       typeof reportArgs.reportMarkdown === "string" && reportArgs.reportMarkdown.length > 0,
@@ -1996,15 +2903,15 @@ export class TaskService {
     );
 
     const cfgBeforeReport = this.config.loadConfigOrDefault();
-    const statusBefore = this.findWorkspaceEntry(cfgBeforeReport, childWorkspaceId)?.workspace
+    const statusBefore = findMinionEntry(cfgBeforeReport, childMinionId)?.minion
       .taskStatus;
     if (statusBefore === "reported") {
       return;
     }
 
-    // Notify clients immediately even if we can't delete the workspace yet.
-    await this.editWorkspaceEntry(
-      childWorkspaceId,
+    // Notify clients immediately even if we can't delete the minion yet.
+    await this.editMinionEntry(
+      childMinionId,
       (ws) => {
         ws.taskStatus = "reported";
         ws.reportedAt = getIsoNow();
@@ -2012,84 +2919,121 @@ export class TaskService {
       { allowMissing: true }
     );
 
-    await this.emitWorkspaceMetadata(childWorkspaceId);
+    await this.emitMinionMetadata(childMinionId);
 
-    if (options?.stopStream) {
-      // `agent_report` is terminal. Stop the child stream immediately to prevent any further token
-      // usage and to ensure parallelism accounting never "frees" a slot while the stream is still
-      // active (Claude/Anthropic can emit tool calls before the final assistant block completes).
+    // NOTE: Stream continues — we intentionally do NOT abort it.
+    // Deterministic termination is enforced by StreamManager stopWhen logic that
+    // waits for an agent_report tool result where output.success === true at the
+    // step boundary (preserving usage accounting). recordSessionUsage runs when
+    // the stream ends naturally.
+
+    const cfgAfterReport = this.config.loadConfigOrDefault();
+    const latestChildEntry = findMinionEntry(cfgAfterReport, childMinionId) ?? childEntry;
+    const parentMinionId = latestChildEntry?.minion.parentMinionId;
+    if (!parentMinionId) {
+      const reason = latestChildEntry
+        ? "missing parentMinionId"
+        : "minion not found in config";
+      log.debug("Ignoring agent_report: minion is not an agent task", {
+        childMinionId,
+        reason,
+      });
+      // Best-effort: resolve any foreground waiters even if we can't deliver to a parent.
+      this.resolveWaiters(childMinionId, reportArgs);
+      void this.maybeStartQueuedTasks();
+      return;
+    }
+
+    const parentById = this.buildAgentTaskIndex(cfgAfterReport).parentById;
+    const ancestorMinionIds = this.listAncestorMinionIdsUsingParentById(
+      parentById,
+      childMinionId
+    );
+
+    // Persist the completed report in the session dirs of all ancestors so `task_await` can
+    // retrieve it after cleanup/restart (even if the task minion itself is deleted).
+    const persistedAtMs = Date.now();
+    for (const ancestorMinionId of ancestorMinionIds) {
       try {
-        const stopResult = await this.aiService.stopStream(childWorkspaceId, {
-          abandonPartial: true,
+        const ancestorSessionDir = this.config.getSessionDir(ancestorMinionId);
+        await upsertSidekickReportArtifact({
+          minionId: ancestorMinionId,
+          minionSessionDir: ancestorSessionDir,
+          childTaskId: childMinionId,
+          parentMinionId,
+          ancestorMinionIds,
+          reportMarkdown: reportArgs.reportMarkdown,
+          model: latestChildEntry?.minion.taskModelString,
+          thinkingLevel: latestChildEntry?.minion.taskThinkingLevel,
+          title: reportArgs.title,
+          nowMs: persistedAtMs,
         });
-        if (!stopResult.success) {
-          log.debug("Failed to stop task stream after agent_report", {
-            workspaceId: childWorkspaceId,
-            error: stopResult.error,
-          });
-        }
       } catch (error: unknown) {
-        log.debug("Failed to stop task stream after agent_report (threw)", {
-          workspaceId: childWorkspaceId,
+        log.error("Failed to persist sidekick report artifact", {
+          minionId: ancestorMinionId,
+          childTaskId: childMinionId,
           error,
         });
       }
     }
 
-    const cfgAfterReport = this.config.loadConfigOrDefault();
-    const latestChildEntry =
-      this.findWorkspaceEntry(cfgAfterReport, childWorkspaceId) ?? childEntry;
-    const parentWorkspaceId = latestChildEntry?.workspace.parentWorkspaceId;
-    if (!parentWorkspaceId) {
-      const reason = latestChildEntry
-        ? "missing parentWorkspaceId"
-        : "workspace not found in config";
-      log.debug("Ignoring agent_report: workspace is not an agent task", {
-        childWorkspaceId,
-        reason,
-      });
-      // Best-effort: resolve any foreground waiters even if we can't deliver to a parent.
-      this.resolveWaiters(childWorkspaceId, reportArgs);
-      void this.maybeStartQueuedTasks();
-      return;
-    }
+    await this.maybeStartPatchGenerationForReportedTask(childMinionId);
 
-    await this.deliverReportToParent(parentWorkspaceId, latestChildEntry, reportArgs);
+    await this.deliverReportToParent(
+      parentMinionId,
+      childMinionId,
+      latestChildEntry,
+      reportArgs
+    );
 
     // Resolve foreground waiters.
-    this.resolveWaiters(childWorkspaceId, reportArgs);
+    this.resolveWaiters(childMinionId, reportArgs);
 
     // Free slot and start queued tasks.
     await this.maybeStartQueuedTasks();
 
-    // Attempt cleanup of reported tasks (leaf-first).
-    await this.cleanupReportedLeafTask(childWorkspaceId);
-
     // Auto-resume any parent stream that was waiting on a task tool call (restart-safe).
     const postCfg = this.config.loadConfigOrDefault();
-    if (!this.findWorkspaceEntry(postCfg, parentWorkspaceId)) {
+    const parentEntry = findMinionEntry(postCfg, parentMinionId);
+    if (!parentEntry) {
       // Parent may have been cleaned up (e.g. it already reported and this was its last descendant).
       return;
     }
-    const hasActiveDescendants = this.hasActiveDescendantAgentTasks(postCfg, parentWorkspaceId);
-    if (!hasActiveDescendants && !this.aiService.isStreaming(parentWorkspaceId)) {
-      const resumeResult = await this.workspaceService.resumeStream(parentWorkspaceId, {
-        model: latestChildEntry?.workspace.taskModelString ?? defaultModel,
-        agentId: WORKSPACE_DEFAULTS.agentId,
-      });
-      if (!resumeResult.success) {
-        log.error("Failed to auto-resume parent after agent_report", {
-          parentWorkspaceId,
-          error: resumeResult.error,
-        });
-      }
+    const hasActiveDescendants = this.hasActiveDescendantAgentTasks(postCfg, parentMinionId);
+    if (!hasActiveDescendants) {
+      this.consecutiveAutoResumes.delete(parentMinionId);
     }
-  }
 
-  private cleanupExpiredCompletedReports(nowMs = Date.now()): void {
-    for (const [taskId, entry] of this.completedReportsByTaskId) {
-      if (entry.expiresAtMs <= nowMs) {
-        this.completedReportsByTaskId.delete(taskId);
+    if (this.interruptedParentMinionIds.has(parentMinionId)) {
+      log.debug("Skipping post-report parent auto-resume after hard interrupt", {
+        parentMinionId,
+        childMinionId,
+      });
+      return;
+    }
+
+    if (!hasActiveDescendants && !this.aiService.isStreaming(parentMinionId)) {
+      const resumeOptions = await this.resolveParentAutoResumeOptions(
+        parentMinionId,
+        parentEntry,
+        latestChildEntry?.minion.taskModelString ?? defaultModel
+      );
+      const sendResult = await this.minionService.sendMessage(
+        parentMinionId,
+        "Your background sub-agent task(s) have completed. Use task_await to retrieve their reports and integrate the results.",
+        {
+          model: resumeOptions.model,
+          agentId: resumeOptions.agentId,
+          thinkingLevel: resumeOptions.thinkingLevel,
+        },
+        // Skip auto-resume counter reset — this IS an auto-resume, not a user message.
+        { skipAutoResumeReset: true, synthetic: true }
+      );
+      if (!sendResult.success) {
+        log.error("Failed to auto-resume parent after agent_report", {
+          parentMinionId,
+          error: sendResult.error,
+        });
       }
     }
   }
@@ -2103,18 +3047,14 @@ export class TaskService {
   }
 
   private resolveWaiters(taskId: string, report: { reportMarkdown: string; title?: string }): void {
-    const nowMs = Date.now();
-    this.cleanupExpiredCompletedReports(nowMs);
-
     const cfg = this.config.loadConfigOrDefault();
     const parentById = this.buildAgentTaskIndex(cfg).parentById;
-    const ancestorWorkspaceIds = this.listAncestorWorkspaceIdsUsingParentById(parentById, taskId);
+    const ancestorMinionIds = this.listAncestorMinionIdsUsingParentById(parentById, taskId);
 
     this.completedReportsByTaskId.set(taskId, {
       reportMarkdown: report.reportMarkdown,
       title: report.title,
-      expiresAtMs: nowMs + COMPLETED_REPORT_CACHE_TTL_MS,
-      ancestorWorkspaceIds,
+      ancestorMinionIds,
     });
     this.enforceCompletedReportCacheLimit();
 
@@ -2149,36 +3089,25 @@ export class TaskService {
     }
   }
 
-  private async readLatestAgentReportArgs(
-    workspaceId: string
-  ): Promise<{ reportMarkdown: string; title?: string } | null> {
-    const partial = await this.partialService.readPartial(workspaceId);
-    if (partial) {
-      const args = this.findAgentReportArgsInMessage(partial);
-      if (args) return args;
+  private findProposePlanSuccessInParts(parts: readonly unknown[]): { planPath: string } | null {
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const part = parts[i];
+      if (!isDynamicToolPart(part)) continue;
+      if (part.toolName !== "propose_plan") continue;
+      if (part.state !== "output-available") continue;
+      if (!isSuccessfulToolResult(part.output)) continue;
+
+      const planPath =
+        typeof part.output === "object" &&
+        part.output !== null &&
+        "planPath" in part.output &&
+        typeof (part.output as { planPath?: unknown }).planPath === "string"
+          ? (part.output as { planPath: string }).planPath.trim()
+          : "";
+      if (!planPath) continue;
+
+      return { planPath };
     }
-
-    const historyResult = await this.historyService.getHistory(workspaceId);
-    if (!historyResult.success) {
-      log.error("Failed to read history for agent_report args", {
-        workspaceId,
-        error: historyResult.error,
-      });
-      return null;
-    }
-
-    // Scan newest-first.
-    const ordered = [...historyResult.data].sort((a, b) => {
-      const aSeq = a.metadata?.historySequence ?? -1;
-      const bSeq = b.metadata?.historySequence ?? -1;
-      return bSeq - aSeq;
-    });
-
-    for (const msg of ordered) {
-      const args = this.findAgentReportArgsInMessage(msg);
-      if (args) return args;
-    }
-
     return null;
   }
 
@@ -2193,28 +3122,29 @@ export class TaskService {
       if (!isSuccessfulToolResult(part.output)) continue;
       const parsed = AgentReportToolArgsSchema.safeParse(part.input);
       if (!parsed.success) continue;
-      return parsed.data;
+      // Normalize null → undefined at the schema boundary so downstream
+      // code that expects `title?: string` doesn't need to handle null.
+      return { reportMarkdown: parsed.data.reportMarkdown, title: parsed.data.title ?? undefined };
     }
     return null;
   }
 
-  private findAgentReportArgsInMessage(
-    msg: LatticeMessage
-  ): { reportMarkdown: string; title?: string } | null {
-    return this.findAgentReportArgsInParts(msg.parts);
-  }
-
   private async deliverReportToParent(
-    parentWorkspaceId: string,
-    childEntry: { projectPath: string; workspace: WorkspaceConfigEntry } | null | undefined,
+    parentMinionId: string,
+    childMinionId: string,
+    childEntry: { projectPath: string; minion: MinionConfigEntry } | null | undefined,
     report: { reportMarkdown: string; title?: string }
   ): Promise<void> {
-    const agentType = childEntry?.workspace.agentType ?? "agent";
-    const childWorkspaceId = childEntry?.workspace.id;
+    assert(
+      childMinionId.length > 0,
+      "deliverReportToParent: childMinionId must be non-empty"
+    );
+
+    const agentType = childEntry?.minion.agentType ?? "agent";
 
     const output = {
       status: "completed" as const,
-      ...(childWorkspaceId ? { taskId: childWorkspaceId } : {}),
+      taskId: childMinionId,
       reportMarkdown: report.reportMarkdown,
       title: report.title,
       agentType,
@@ -2227,8 +3157,8 @@ export class TaskService {
 
     // If someone is actively awaiting this report (foreground task tool call or task_await),
     // skip injecting a synthetic history message to avoid duplicating the report in context.
-    if (childWorkspaceId) {
-      const waiters = this.pendingWaitersByTaskId.get(childWorkspaceId);
+    if (childMinionId) {
+      const waiters = this.pendingWaitersByTaskId.get(childMinionId);
       if (waiters && waiters.length > 0) {
         return;
       }
@@ -2236,9 +3166,9 @@ export class TaskService {
 
     // Restart-safe: if the parent has a pending task tool call in partial.json (interrupted stream),
     // finalize it with the report. Avoid rewriting persisted history to keep earlier messages immutable.
-    if (!this.aiService.isStreaming(parentWorkspaceId)) {
+    if (!this.aiService.isStreaming(parentMinionId)) {
       const finalizedPending = await this.tryFinalizePendingTaskToolCallInPartial(
-        parentWorkspaceId,
+        parentMinionId,
         parsedOutput.data
       );
       if (finalizedPending) {
@@ -2248,16 +3178,16 @@ export class TaskService {
 
     // Background tasks: append a synthetic user message containing the report so earlier history
     // remains immutable (append-only) and prompt caches can still reuse the prefix.
-    const titlePrefix = report.title ?? `Subagent (${agentType}) report`;
+    const titlePrefix = report.title ?? `Sidekick (${agentType}) report`;
     const xml = [
-      "<lattice_subagent_report>",
-      `<task_id>${childWorkspaceId ?? ""}</task_id>`,
+      "<lattice_sidekick_report>",
+      `<task_id>${childMinionId}</task_id>`,
       `<agent_type>${agentType}</agent_type>`,
       `<title>${titlePrefix}</title>`,
       "<report_markdown>",
       report.reportMarkdown,
       "</report_markdown>",
-      "</lattice_subagent_report>",
+      "</lattice_sidekick_report>",
     ].join("\n");
 
     const messageId = createTaskReportMessageId();
@@ -2267,19 +3197,19 @@ export class TaskService {
     });
 
     const appendResult = await this.historyService.appendToHistory(
-      parentWorkspaceId,
+      parentMinionId,
       reportMessage
     );
     if (!appendResult.success) {
-      log.error("Failed to append synthetic subagent report to parent history", {
-        parentWorkspaceId,
+      log.error("Failed to append synthetic sidekick report to parent history", {
+        parentMinionId,
         error: appendResult.error,
       });
     }
   }
 
   private async tryFinalizePendingTaskToolCallInPartial(
-    workspaceId: string,
+    minionId: string,
     output: unknown
   ): Promise<boolean> {
     const parsedOutput = TaskToolResultSchema.safeParse(output);
@@ -2290,7 +3220,7 @@ export class TaskService {
       return false;
     }
 
-    const partial = await this.partialService.readPartial(workspaceId);
+    const partial = await this.historyService.readPartial(minionId);
     if (!partial) {
       return false;
     }
@@ -2306,7 +3236,7 @@ export class TaskService {
     }
     if (pendingParts.length > 1) {
       log.error("tryFinalizePendingTaskToolCallInPartial: multiple pending task tool calls", {
-        workspaceId,
+        minionId,
       });
       return false;
     }
@@ -2316,14 +3246,11 @@ export class TaskService {
     const parsedInput = TaskToolArgsSchema.safeParse(pendingParts[0].input);
     if (!parsedInput.success) {
       log.error("tryFinalizePendingTaskToolCallInPartial: task input validation failed", {
-        workspaceId,
+        minionId,
         error: parsedInput.error.message,
       });
       return false;
     }
-
-    // Apply normalization for backwards compatibility and defaults
-    const normalizedInput = normalizeTaskToolArgs(parsedInput.data);
 
     const updated: LatticeMessage = {
       ...partial,
@@ -2336,20 +3263,20 @@ export class TaskService {
       }),
     };
 
-    const writeResult = await this.partialService.writePartial(workspaceId, updated);
+    const writeResult = await this.historyService.writePartial(minionId, updated);
     if (!writeResult.success) {
       log.error("Failed to write finalized task tool output to partial", {
-        workspaceId,
+        minionId,
         error: writeResult.error,
       });
       return false;
     }
 
-    this.workspaceService.emit("chat", {
-      workspaceId,
+    this.minionService.emit("chat", {
+      minionId,
       message: {
         type: "tool-call-end",
-        workspaceId,
+        minionId,
         messageId: updated.id,
         toolCallId,
         toolName: "task",
@@ -2361,62 +3288,91 @@ export class TaskService {
     return true;
   }
 
-  private async cleanupReportedLeafTask(workspaceId: string): Promise<void> {
-    assert(workspaceId.length > 0, "cleanupReportedLeafTask: workspaceId must be non-empty");
+  private async canCleanupReportedTask(
+    minionId: string
+  ): Promise<{ ok: true; parentMinionId: string } | { ok: false; reason: string }> {
+    assert(minionId.length > 0, "canCleanupReportedTask: minionId must be non-empty");
 
-    let currentWorkspaceId = workspaceId;
+    const config = this.config.loadConfigOrDefault();
+    const entry = findMinionEntry(config, minionId);
+    if (!entry) {
+      return { ok: false, reason: "minion_not_found" };
+    }
+
+    const parentMinionId = entry.minion.parentMinionId;
+    if (!parentMinionId) {
+      return { ok: false, reason: "missing_parent_minion" };
+    }
+
+    if (entry.minion.taskStatus !== "reported") {
+      return { ok: false, reason: "task_not_reported" };
+    }
+
+    if (this.aiService.isStreaming(minionId)) {
+      log.debug("cleanupReportedLeafTask: deferring auto-delete; stream still active", {
+        minionId,
+        parentMinionId,
+      });
+      return { ok: false, reason: "still_streaming" };
+    }
+
+    // Topology gate: a reported task can only be cleaned up when it is a structural leaf
+    // (has no child agent tasks in config). This is status-agnostic — even reported children
+    // block parent deletion, ensuring artifact rollup always targets an existing parent path.
+    const index = this.buildAgentTaskIndex(config);
+    if (this.hasChildAgentTasks(index, minionId)) {
+      return { ok: false, reason: "has_child_tasks" };
+    }
+
+    const parentSessionDir = this.config.getSessionDir(parentMinionId);
+    const patchArtifact = await readSidekickGitPatchArtifact(parentSessionDir, minionId);
+    if (patchArtifact?.status === "pending") {
+      log.debug("cleanupReportedLeafTask: deferring auto-delete; patch artifact pending", {
+        minionId,
+        parentMinionId,
+      });
+      return { ok: false, reason: "patch_pending" };
+    }
+
+    return { ok: true, parentMinionId };
+  }
+
+  private async cleanupReportedLeafTask(minionId: string): Promise<void> {
+    assert(minionId.length > 0, "cleanupReportedLeafTask: minionId must be non-empty");
+
+    // Lineage reduction: each iteration removes exactly one leaf node, then re-evaluates
+    // the parent on fresh config. The structural-leaf gate in canCleanupReportedTask ensures
+    // parents are only removed after all children are gone.
+    let currentMinionId = minionId;
     const visited = new Set<string>();
     for (let depth = 0; depth < 32; depth++) {
-      if (visited.has(currentWorkspaceId)) {
-        log.error("cleanupReportedLeafTask: possible parentWorkspaceId cycle", {
-          workspaceId: currentWorkspaceId,
+      if (visited.has(currentMinionId)) {
+        log.error("cleanupReportedLeafTask: possible parentMinionId cycle", {
+          minionId: currentMinionId,
         });
         return;
       }
-      visited.add(currentWorkspaceId);
+      visited.add(currentMinionId);
 
-      const config = this.config.loadConfigOrDefault();
-      const entry = this.findWorkspaceEntry(config, currentWorkspaceId);
-      if (!entry) return;
+      const cleanupEligibility = await this.canCleanupReportedTask(currentMinionId);
+      if (!cleanupEligibility.ok) {
+        return;
+      }
 
-      const ws = entry.workspace;
-      const parentWorkspaceId = ws.parentWorkspaceId;
-      if (!parentWorkspaceId) return;
-      if (ws.taskStatus !== "reported") return;
-
-      const hasChildren = this.listAgentTaskWorkspaces(config).some(
-        (t) => t.parentWorkspaceId === currentWorkspaceId
-      );
-      if (hasChildren) return;
-
-      const removeResult = await this.workspaceService.remove(currentWorkspaceId, true);
+      const removeResult = await this.minionService.remove(currentMinionId, true);
       if (!removeResult.success) {
-        log.error("Failed to auto-delete reported task workspace", {
-          workspaceId: currentWorkspaceId,
+        log.error("Failed to auto-delete reported task minion", {
+          minionId: currentMinionId,
           error: removeResult.error,
         });
         return;
       }
 
-      currentWorkspaceId = parentWorkspaceId;
+      currentMinionId = cleanupEligibility.parentMinionId;
     }
 
     log.error("cleanupReportedLeafTask: exceeded max parent traversal depth", {
-      workspaceId,
+      minionId,
     });
-  }
-
-  private findWorkspaceEntry(
-    config: ReturnType<Config["loadConfigOrDefault"]>,
-    workspaceId: string
-  ): { projectPath: string; workspace: WorkspaceConfigEntry } | null {
-    for (const [projectPath, project] of config.projects) {
-      for (const workspace of project.workspaces) {
-        if (workspace.id === workspaceId) {
-          return { projectPath, workspace };
-        }
-      }
-    }
-    return null;
   }
 }

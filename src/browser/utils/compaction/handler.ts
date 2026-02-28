@@ -6,11 +6,16 @@
  */
 
 import type { StreamingMessageAggregator } from "@/browser/utils/messages/StreamingMessageAggregator";
+import { getCompactionFollowUpContent } from "@/common/types/message";
 import type { APIClient } from "@/browser/contexts/API";
+import {
+  buildEditingStateFromCompaction,
+  type EditingMessageState,
+} from "@/browser/utils/chatEditing";
 import { getFollowUpContentText } from "./format";
 
 /**
- * Check if the workspace is currently in a compaction stream
+ * Check if the minion is currently in a compaction stream
  */
 export function isCompactingStream(aggregator: StreamingMessageAggregator): boolean {
   // Prefer active stream state (derived from stream-start mode) over scanning history.
@@ -27,9 +32,8 @@ export function findCompactionRequestMessage(
   return (
     [...messages]
       .reverse()
-      .find(
-        (m) => m.role === "user" && m.metadata?.latticeMetadata?.type === "compaction-request"
-      ) ?? null
+      .find((m) => m.role === "user" && m.metadata?.latticeMetadata?.type === "compaction-request") ??
+    null
   );
 }
 
@@ -43,12 +47,7 @@ export function getCompactionCommand(aggregator: StreamingMessageAggregator): st
   const latticeMeta = compactionMsg.metadata?.latticeMetadata;
   if (latticeMeta?.type !== "compaction-request") return null;
 
-  // Support both new `followUpContent` and legacy `continueMessage` for backwards compatibility
-  const parsed = latticeMeta.parsed as { followUpContent?: unknown; continueMessage?: unknown };
-  const followUpContent = (parsed.followUpContent ?? parsed.continueMessage) as Parameters<
-    typeof getFollowUpContentText
-  >[0];
-  const followUpText = getFollowUpContentText(followUpContent);
+  const followUpText = getFollowUpContentText(getCompactionFollowUpContent(latticeMeta));
   if (followUpText && !latticeMeta.rawCommand.includes("\n")) {
     return `${latticeMeta.rawCommand}\n${followUpText}`;
   }
@@ -70,9 +69,9 @@ export function getCompactionCommand(aggregator: StreamingMessageAggregator): st
  */
 export async function cancelCompaction(
   client: APIClient,
-  workspaceId: string,
+  minionId: string,
   aggregator: StreamingMessageAggregator,
-  startEditingMessage: (messageId: string, initialText: string) => void
+  startEditingMessage: (editing: EditingMessageState) => void
 ): Promise<boolean> {
   // Find the compaction request message
   const compactionRequestMsg = findCompactionRequestMessage(aggregator);
@@ -86,14 +85,20 @@ export async function cancelCompaction(
     return false;
   }
 
+  // Extract follow-up content (attachments, reviews) that would be sent after compaction.
+  // Without this, canceling compaction would lose any attached files or code reviews.
+  const followUpContent = getCompactionFollowUpContent(compactionRequestMsg.metadata?.latticeMetadata);
+
   // Enter edit mode first so any subsequent restore-to-input event from the interrupt can't
-  // clobber the edit buffer.
-  startEditingMessage(compactionRequestMsg.id, command);
+  // clobber the edit buffer. Use the compaction builder to preserve attachments/reviews.
+  startEditingMessage(
+    buildEditingStateFromCompaction(compactionRequestMsg.id, command, followUpContent)
+  );
 
   // Interrupt stream with abandonPartial flag
   // Backend detects this and skips compaction (Ctrl+C flow)
-  await client.workspace.interruptStream({
-    workspaceId,
+  await client.minion.interruptStream({
+    minionId,
     options: { abandonPartial: true },
   });
 

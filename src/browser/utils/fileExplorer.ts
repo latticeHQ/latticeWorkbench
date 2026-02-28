@@ -346,25 +346,10 @@ export function parseReadFileOutput(output: string): { size: number; base64: str
   return { size, base64 };
 }
 
-/** PDF magic bytes: %PDF = 0x25 0x50 0x44 0x46 */
-const PDF_MAGIC_BYTES = [0x25, 0x50, 0x44, 0x46];
-
-/**
- * Detect PDF file by magic bytes (%PDF header).
- */
-export function detectPdf(buffer: Uint8Array): boolean {
-  if (buffer.length < PDF_MAGIC_BYTES.length) return false;
-  for (let i = 0; i < PDF_MAGIC_BYTES.length; i++) {
-    if (buffer[i] !== PDF_MAGIC_BYTES[i]) return false;
-  }
-  return true;
-}
-
 /** File contents response types for the client */
 export type FileContentsResult =
   | { type: "text"; content: string; size: number }
   | { type: "image"; base64: string; mimeType: string; size: number }
-  | { type: "pdf"; base64: string; size: number }
   | { type: "error"; message: string };
 
 /**
@@ -386,11 +371,6 @@ export function processFileContents(output: string, exitCode: number): FileConte
     buffer = base64ToUint8Array(base64);
   } catch {
     return { type: "error", message: "Unable to decode file contents" };
-  }
-
-  // Check for PDF by magic bytes (before image and binary checks)
-  if (detectPdf(buffer)) {
-    return { type: "pdf", base64, size };
   }
 
   // Check for image by magic bytes

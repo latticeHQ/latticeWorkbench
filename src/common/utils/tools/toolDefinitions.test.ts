@@ -1,9 +1,9 @@
-import { TaskToolArgsSchema, TOOL_DEFINITIONS, normalizeTaskToolArgs } from "./toolDefinitions";
+import { TaskToolArgsSchema, TOOL_DEFINITIONS } from "./toolDefinitions";
 
 describe("TOOL_DEFINITIONS", () => {
-  it("accepts custom subagent_type IDs (deprecated alias)", () => {
+  it("accepts custom sidekick_type IDs (deprecated alias)", () => {
     const parsed = TaskToolArgsSchema.safeParse({
-      subagent_type: "potato",
+      sidekick_type: "potato",
       prompt: "do the thing",
       title: "Test",
       run_in_background: true,
@@ -11,8 +11,7 @@ describe("TOOL_DEFINITIONS", () => {
 
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      const normalized = normalizeTaskToolArgs(parsed.data);
-      expect(normalized.subagent_type).toBe("potato");
+      expect(parsed.data.sidekick_type).toBe("potato");
     }
   });
 
@@ -56,6 +55,92 @@ describe("TOOL_DEFINITIONS", () => {
     expect(parsed.success).toBe(false);
   });
 
+  const filePathAliasCases = [
+    {
+      toolName: "file_read",
+      args: {
+        offset: 1,
+        limit: 10,
+      },
+    },
+    {
+      toolName: "file_edit_replace_string",
+      args: {
+        old_string: "before",
+        new_string: "after",
+      },
+    },
+    {
+      toolName: "file_edit_replace_lines",
+      args: {
+        start_line: 1,
+        end_line: 1,
+        new_lines: ["line"],
+      },
+    },
+    {
+      toolName: "file_edit_insert",
+      args: {
+        insert_after: "marker",
+        content: "text",
+      },
+    },
+  ] as const;
+
+  it.each(filePathAliasCases)(
+    "accepts file_path alias for $toolName and normalizes to path",
+    ({ toolName, args }) => {
+      const parsed = TOOL_DEFINITIONS[toolName].schema.safeParse({
+        ...args,
+        file_path: "src/example.ts",
+      });
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.path).toBe("src/example.ts");
+        expect("file_path" in parsed.data).toBe(false);
+      }
+    }
+  );
+
+  it.each(filePathAliasCases)(
+    "prefers canonical path over file_path for $toolName",
+    ({ toolName, args }) => {
+      const parsed = TOOL_DEFINITIONS[toolName].schema.safeParse({
+        ...args,
+        path: "src/canonical.ts",
+        file_path: "src/legacy.ts",
+      });
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.path).toBe("src/canonical.ts");
+        expect("file_path" in parsed.data).toBe(false);
+      }
+    }
+  );
+
+  it.each(filePathAliasCases)(
+    "rejects $toolName when path is present but invalid, even if file_path is provided",
+    ({ toolName, args }) => {
+      const parsed = TOOL_DEFINITIONS[toolName].schema.safeParse({
+        ...args,
+        path: 123,
+        file_path: "src/fallback.ts",
+      });
+
+      expect(parsed.success).toBe(false);
+    }
+  );
+
+  it.each(filePathAliasCases)(
+    "rejects $toolName calls missing both path and file_path",
+    ({ toolName, args }) => {
+      const parsed = TOOL_DEFINITIONS[toolName].schema.safeParse(args);
+      expect(parsed.success).toBe(false);
+    }
+  );
+
   it("asks for clarification via ask_user_question (instead of emitting open questions)", () => {
     expect(TOOL_DEFINITIONS.ask_user_question.description).toContain(
       "MUST be used when you need user clarification"
@@ -63,6 +148,11 @@ describe("TOOL_DEFINITIONS", () => {
     expect(TOOL_DEFINITIONS.ask_user_question.description).toContain(
       "Do not output a list of open questions"
     );
+  });
+
+  it("encourages compact task briefs when spawning sub-agents", () => {
+    expect(TOOL_DEFINITIONS.task.description).toContain("compact task brief");
+    expect(TOOL_DEFINITIONS.task.description).toContain("plan file");
   });
 
   it("accepts ask_user_question headers longer than 12 characters", () => {

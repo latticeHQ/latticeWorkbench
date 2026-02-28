@@ -6,14 +6,14 @@ import { calculateTokenStats } from "@/common/utils/tokens/tokenStatsCalculator"
 import { defaultModel } from "@/common/utils/ai/models";
 
 /**
- * Debug command to display cost/token statistics for a workspace
- * Usage: bun debug costs <workspace-id>
+ * Debug command to display cost/token statistics for a minion
+ * Usage: bun debug costs <minion-id>
  */
-export async function costsCommand(workspaceId: string) {
-  console.log(`\n=== Cost Statistics for workspace: ${workspaceId} ===\n`);
+export async function costsCommand(minionId: string) {
+  console.log(`\n=== Cost Statistics for minion: ${minionId} ===\n`);
 
   // Load chat history
-  const sessionDir = defaultConfig.getSessionDir(workspaceId);
+  const sessionDir = defaultConfig.getSessionDir(minionId);
   const chatHistoryPath = path.join(sessionDir, "chat.jsonl");
 
   if (!fs.existsSync(chatHistoryPath)) {

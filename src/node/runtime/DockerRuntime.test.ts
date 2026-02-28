@@ -4,7 +4,7 @@ import { DockerRuntime, getContainerName } from "./DockerRuntime";
 /**
  * DockerRuntime constructor tests (run with bun test)
  *
- * Note: Docker workspace operation tests require Docker
+ * Note: Docker minion operation tests require Docker
  * and should be in tests/runtime/runtime.test.ts
  */
 describe("DockerRuntime constructor", () => {
@@ -25,24 +25,24 @@ describe("DockerRuntime constructor", () => {
     expect(runtime.getImage()).toBe("node:20");
   });
 
-  it("should return /src for workspace path", () => {
+  it("should return /src for minion path", () => {
     const runtime = new DockerRuntime({ image: "ubuntu:22.04" });
-    expect(runtime.getWorkspacePath("/any/project", "any-branch")).toBe("/src");
+    expect(runtime.getMinionPath("/any/project", "any-branch")).toBe("/src");
   });
 
-  it("should accept containerName for existing workspaces", () => {
-    // When recreating runtime for existing workspace, containerName is passed in config
+  it("should accept containerName for existing minions", () => {
+    // When recreating runtime for existing minion, containerName is passed in config
     const runtime = new DockerRuntime({
       image: "ubuntu:22.04",
       containerName: "lattice-myproject-my-feature",
     });
     expect(runtime.getImage()).toBe("ubuntu:22.04");
-    // Runtime should be ready for exec operations without calling createWorkspace
+    // Runtime should be ready for exec operations without calling createMinion
   });
 });
 
 describe("getContainerName", () => {
-  it("should generate container name from project and workspace", () => {
+  it("should generate container name from project and minion", () => {
     expect(getContainerName("/home/user/myproject", "feature-branch")).toBe(
       "lattice-myproject-feature-branch-a8d18a"
     );

@@ -1,6 +1,6 @@
 import React from "react";
 import { cn } from "@/common/lib/utils";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import ProjectSidebar from "./ProjectSidebar";
 import { TitleBar } from "./TitleBar";
 import { isDesktopMode } from "@/browser/hooks/useDesktopTitlebar";
@@ -8,13 +8,30 @@ import { isDesktopMode } from "@/browser/hooks/useDesktopTitlebar";
 interface LeftSidebarProps {
   collapsed: boolean;
   onToggleCollapsed: () => void;
-  sortedWorkspacesByProject: Map<string, FrontendWorkspaceMetadata[]>;
-  workspaceRecency: Record<string, number>;
+  widthPx?: number;
+  isResizing?: boolean;
+  onStartResize?: (e: React.MouseEvent) => void;
+  sortedMinionsByProject: Map<string, FrontendMinionMetadata[]>;
+  minionRecency: Record<string, number>;
+  latticeChatProjectPath: string | null;
 }
 
 export function LeftSidebar(props: LeftSidebarProps) {
-  const { collapsed, onToggleCollapsed, ...projectSidebarProps } = props;
+  const {
+    collapsed,
+    onToggleCollapsed,
+    widthPx,
+    isResizing,
+    onStartResize,
+    ...projectSidebarProps
+  } = props;
   const isDesktop = isDesktopMode();
+  // Match the CSS gate for the mobile "overlay" sidebar; we don't show a drag handle in that mode.
+  const isMobileTouch =
+    typeof window !== "undefined" &&
+    window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+
+  const width = collapsed ? "20px" : `${widthPx ?? 288}px`;
 
   return (
     <>
@@ -29,10 +46,10 @@ export function LeftSidebar(props: LeftSidebarProps) {
 
       {/* Sidebar */}
       <div
+        data-testid="left-sidebar"
         className={cn(
-          "h-full bg-sidebar border-r border-border flex flex-col shrink-0",
-          "transition-all duration-200 overflow-hidden relative z-20",
-          collapsed ? "w-5" : "w-72",
+          "h-full bg-sidebar border-r border-border flex flex-col shrink-0 overflow-hidden relative z-20",
+          !isResizing && "transition-[width] duration-200",
           "mobile-sidebar",
           collapsed && "mobile-sidebar-collapsed",
           // In desktop mode when collapsed, start border below titlebar height (32px)
@@ -41,6 +58,7 @@ export function LeftSidebar(props: LeftSidebarProps) {
             collapsed &&
             "border-r-0 after:absolute after:right-0 after:top-8 after:bottom-0 after:w-px after:bg-border"
         )}
+        style={{ width }}
       >
         {!collapsed && <TitleBar />}
         <ProjectSidebar
@@ -48,6 +66,17 @@ export function LeftSidebar(props: LeftSidebarProps) {
           collapsed={collapsed}
           onToggleCollapsed={onToggleCollapsed}
         />
+
+        {!collapsed && !isMobileTouch && onStartResize && (
+          <div
+            data-testid="left-sidebar-resize-handle"
+            className={cn(
+              "absolute right-0 top-0 bottom-0 w-0.5 z-10 cursor-col-resize transition-[background] duration-150",
+              isResizing ? "bg-accent" : "bg-border-light hover:bg-accent"
+            )}
+            onMouseDown={(e) => onStartResize(e)}
+          />
+        )}
       </div>
     </>
   );

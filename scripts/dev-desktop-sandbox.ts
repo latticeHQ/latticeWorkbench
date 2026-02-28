@@ -16,6 +16,11 @@
  * Usage:
  *   make dev-desktop-sandbox
  *
+ * Optional CLI flags:
+ *   - --clean-providers
+ *   - --clean-projects
+ *   - --help
+ *
  * Optional env vars:
  *   - SEED_LATTICE_ROOT=/path/to/lattice/home   # where to copy providers.jsonc/config.json from
  *   - KEEP_SANDBOX=1                   # don't delete temp LATTICE_ROOT on exit
@@ -33,12 +38,48 @@ import * as path from "path";
 
 import {
   chooseSeedLatticeRoot,
+  copyConfigClearingProjectsIfExists,
   copyFileIfExists,
   forwardSignalsToChildProcesses,
   getFreePort,
   parseOptionalPort,
   waitForHttpReady,
 } from "./sandboxUtils";
+
+type SandboxCliFlags = {
+  cleanProviders: boolean;
+  cleanProjects: boolean;
+  help: boolean;
+};
+
+function parseSandboxCliFlags(argv: string[]): SandboxCliFlags {
+  const args = new Set(argv);
+  const knownArgs = new Set(["--clean-providers", "--clean-projects", "--help"]);
+
+  for (const arg of args) {
+    if (!knownArgs.has(arg)) {
+      throw new Error(`Unknown arg: ${arg}`);
+    }
+  }
+
+  return {
+    cleanProviders: args.has("--clean-providers"),
+    cleanProjects: args.has("--clean-projects"),
+    help: args.has("--help"),
+  };
+}
+
+function printHelp(): void {
+  console.log(`Usage:
+  make dev-desktop-sandbox
+
+Optional CLI flags:
+  --clean-providers   Do not copy providers.jsonc into the sandbox
+  --clean-projects    Do not import projects from config.json (projects will be empty)
+
+Note: to pass flags via make, use:
+  make dev-desktop-sandbox DEV_DESKTOP_SANDBOX_ARGS="--clean-providers --clean-projects"`);
+}
 
 function parseElectronDebugPort(
   raw: string | undefined
@@ -97,12 +138,22 @@ async function waitForChildExit(child: ReturnType<typeof spawn>, name: string): 
 }
 
 async function main(): Promise<number> {
+  const cliFlags = parseSandboxCliFlags(process.argv.slice(2));
+  if (cliFlags.help) {
+    printHelp();
+    return 0;
+  }
+
+  const cleanProviders = cliFlags.cleanProviders;
+  const cleanProjects = cliFlags.cleanProjects;
+
   const keepSandbox = process.env.KEEP_SANDBOX === "1";
   const makeCmd = process.env.MAKE ?? "make";
 
   // Do any validation that might throw *before* creating the temp root so we
   // don't leave behind stale `lattice-desktop-*` directories for simple mistakes.
-  const seedLatticeRoot = chooseSeedLatticeRoot();
+  const shouldSeed = !(cleanProviders && cleanProjects);
+  const seedLatticeRoot = shouldSeed ? chooseSeedLatticeRoot() : null;
 
   const vitePortOverride = parseOptionalPort(process.env.VITE_PORT);
   const debugPortConfig = parseElectronDebugPort(process.env.ELECTRON_DEBUG_PORT);
@@ -135,14 +186,20 @@ async function main(): Promise<number> {
   let electronProc: ReturnType<typeof spawn> | null = null;
 
   try {
-    const seedProvidersPath = seedLatticeRoot ? path.join(seedLatticeRoot, "providers.jsonc") : null;
+    const seedProvidersPath =
+      seedLatticeRoot && !cleanProviders ? path.join(seedLatticeRoot, "providers.jsonc") : null;
     const seedConfigPath = seedLatticeRoot ? path.join(seedLatticeRoot, "config.json") : null;
 
+    const sandboxProvidersPath = path.join(latticeRoot, "providers.jsonc");
+    const sandboxConfigPath = path.join(latticeRoot, "config.json");
+
     const copiedProviders = seedProvidersPath
-      ? copyFileIfExists(seedProvidersPath, path.join(latticeRoot, "providers.jsonc"), { mode: 0o600 })
+      ? copyFileIfExists(seedProvidersPath, sandboxProvidersPath, { mode: 0o600 })
       : false;
     const copiedConfig = seedConfigPath
-      ? copyFileIfExists(seedConfigPath, path.join(latticeRoot, "config.json"))
+      ? cleanProjects
+        ? copyConfigClearingProjectsIfExists(seedConfigPath, sandboxConfigPath)
+        : copyFileIfExists(seedConfigPath, sandboxConfigPath)
       : false;
 
     console.log("\nStarting lattice desktop sandbox...");
@@ -153,6 +210,10 @@ async function main(): Promise<number> {
       console.log(`  Copied providers: ${copiedProviders ? "yes" : "no"}`);
     } else {
       console.log("  Seeded from:     (none)");
+    }
+    if (cleanProviders || cleanProjects) {
+      console.log(`  Clean providers: ${cleanProviders ? "yes" : "no"}`);
+      console.log(`  Clean projects:  ${cleanProjects ? "yes" : "no"}`);
     }
     console.log(`  Vite:            http://127.0.0.1:${vitePort}`);
     if (electronDebugPort !== null) {

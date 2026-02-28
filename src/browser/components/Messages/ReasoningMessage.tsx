@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect } from "react";
 import type { DisplayedMessage } from "@/common/types/message";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { TypewriterMarkdown } from "./TypewriterMarkdown";
+import { normalizeReasoningMarkdown } from "./MarkdownStyles";
 import { cn } from "@/common/lib/utils";
 import { Shimmer } from "../ai-elements/shimmer";
 import { Lightbulb } from "lucide-react";
@@ -12,6 +13,33 @@ interface ReasoningMessageProps {
 }
 
 const REASONING_FONT_CLASSES = "font-primary text-[12px] leading-[18px]";
+const MAX_SUMMARY_CHARS = 240;
+
+function parseLeadingBoldSummary(
+  summary: string
+): { boldText: string; trailingText: string } | null {
+  // OpenAI reasoning summaries commonly start with markdown bold: "**Title**".
+  // Parse only a leading pair so we can keep the cheap plain-text header render while
+  // preserving the expected visual emphasis.
+  if (!summary.startsWith("**")) {
+    return null;
+  }
+
+  const closingMarkerIndex = summary.indexOf("**", 2);
+  if (closingMarkerIndex <= 2) {
+    return null;
+  }
+
+  const boldText = summary.slice(2, closingMarkerIndex).trim();
+  if (!boldText) {
+    return null;
+  }
+
+  return {
+    boldText,
+    trailingText: summary.slice(closingMarkerIndex + 2),
+  };
+}
 
 export const ReasoningMessage: React.FC<ReasoningMessageProps> = ({ message, className }) => {
   const [isExpanded, setIsExpanded] = useState(message.isStreaming);
@@ -23,7 +51,12 @@ export const ReasoningMessage: React.FC<ReasoningMessageProps> = ({ message, cla
   const isStreaming = message.isStreaming;
   const trimmedContent = content?.trim() ?? "";
   const hasContent = trimmedContent.length > 0;
-  const summaryLine = hasContent ? (trimmedContent.split(/\r?\n/)[0] ?? "") : "";
+  const summaryLineRaw = hasContent ? (trimmedContent.split(/\r?\n/)[0] ?? "") : "";
+  const summaryLine =
+    summaryLineRaw.length > MAX_SUMMARY_CHARS
+      ? `${summaryLineRaw.slice(0, MAX_SUMMARY_CHARS)}…`
+      : summaryLineRaw;
+  const parsedLeadingBoldSummary = parseLeadingBoldSummary(summaryLine);
   const hasAdditionalLines = hasContent && /[\r\n]/.test(trimmedContent);
   // OpenAI models often emit terse, single-line traces; surface them inline instead of hiding behind the label.
   const isSingleLineTrace = !isStreaming && hasContent && !hasAdditionalLines;
@@ -38,9 +71,15 @@ export const ReasoningMessage: React.FC<ReasoningMessageProps> = ({ message, cla
     }
   }, [isExpanded, isSingleLineTrace, content]);
 
-  // Auto-collapse when streaming ends
+  const wasStreamingRef = useRef(isStreaming);
+
+  // Auto-collapse only when a stream transitions from active -> completed.
+  // Keep user-triggered expansion working for completed messages.
   useEffect(() => {
-    if (!isStreaming) {
+    const wasStreaming = wasStreamingRef.current;
+    wasStreamingRef.current = isStreaming;
+
+    if (wasStreaming && !isStreaming) {
       setIsExpanded(false);
     }
   }, [isStreaming]);
@@ -60,13 +99,28 @@ export const ReasoningMessage: React.FC<ReasoningMessageProps> = ({ message, cla
       return <div className="text-thinking-mode opacity-60">Thinking...</div>;
     }
 
-    // Streaming text gets typewriter effect
+    // Preserve single newlines so short crew headers (e.g. "Fixing …") don't get
+    // collapsed into the previous paragraph by the markdown renderer.
+    //
+    // Also apply a small heuristic fixup for providers that omit a leading newline
+    // before bold crew headers (e.g. `...!**Deciding...**\n\n`).
+    // Streaming text gets typewriter effect.
     if (isStreaming) {
-      return <TypewriterMarkdown deltas={[content]} isComplete={false} />;
+      return (
+        <TypewriterMarkdown
+          deltas={[normalizeReasoningMarkdown(content)]}
+          isComplete={false}
+          preserveLineBreaks
+          streamKey={message.historyId}
+          streamSource={message.streamPresentation?.source}
+        />
+      );
     }
 
     // Completed text renders as static content
-    return content ? <MarkdownRenderer content={content} /> : null;
+    return content ? (
+      <MarkdownRenderer content={normalizeReasoningMarkdown(content)} preserveLineBreaks />
+    ) : null;
   };
 
   return (
@@ -97,13 +151,16 @@ export const ReasoningMessage: React.FC<ReasoningMessageProps> = ({ message, cla
             {isStreaming ? (
               <Shimmer colorClass="var(--color-thinking-mode)">Thinking...</Shimmer>
             ) : hasContent ? (
-              <MarkdownRenderer
-                content={summaryLine}
-                className={cn(
-                  "truncate [&_*]:inline [&_*]:align-baseline [&_*]:whitespace-nowrap",
-                  REASONING_FONT_CLASSES
+              <span className={cn("truncate whitespace-nowrap text-text", REASONING_FONT_CLASSES)}>
+                {parsedLeadingBoldSummary ? (
+                  <>
+                    <strong>{parsedLeadingBoldSummary.boldText}</strong>
+                    {parsedLeadingBoldSummary.trailingText}
+                  </>
+                ) : (
+                  summaryLine
                 )}
-              />
+              </span>
             ) : (
               "Thought"
             )}
@@ -144,7 +201,7 @@ export const ReasoningMessage: React.FC<ReasoningMessageProps> = ({ message, cla
         }}
         aria-hidden={!showExpandedContent}
       >
-        {renderContent()}
+        {isStreaming || showExpandedContent ? renderContent() : null}
       </div>
     </div>
   );

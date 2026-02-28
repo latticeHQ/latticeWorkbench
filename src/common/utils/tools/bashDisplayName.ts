@@ -28,7 +28,7 @@ function sanitizeBashDisplayName(rawName: string): string {
   }
   name = controlCharsStripped;
 
-  // Replace characters that are illegal in Windows filenames (and also problematic on Lattice).
+  // Replace characters that are illegal in Windows filenames (and also problematic on Unix).
   // This includes path separators, preventing path traversal via display_name.
   name = name.replace(INVALID_FILENAME_CHARS, "_");
   // Windows disallows trailing dots/spaces in file/dir names.

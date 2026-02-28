@@ -7,7 +7,7 @@ describe("getSlashCommandSuggestions", () => {
     expect(getSlashCommandSuggestions("")).toEqual([]);
   });
 
-  it("filters workspace-only commands in creation mode", () => {
+  it("filters minion-only commands in creation mode", () => {
     const suggestions = getSlashCommandSuggestions("/", { variant: "creation" });
     const labels = suggestions.map((s) => s.display);
 
@@ -15,7 +15,7 @@ describe("getSlashCommandSuggestions", () => {
     expect(labels).not.toContain("/plan");
   });
 
-  it("omits workspace-only subcommands in creation mode", () => {
+  it("omits minion-only subcommands in creation mode", () => {
     const suggestions = getSlashCommandSuggestions("/plan ", { variant: "creation" });
     expect(suggestions).toEqual([]);
   });
@@ -25,7 +25,6 @@ describe("getSlashCommandSuggestions", () => {
 
     expect(labels).toContain("/clear");
     expect(labels).toContain("/model");
-    expect(labels).toContain("/providers");
   });
 
   it("includes agent skills when provided in context", () => {
@@ -45,41 +44,39 @@ describe("getSlashCommandSuggestions", () => {
     expect(skillSuggestion?.description).toContain("(project)");
   });
 
+  it("matches hyphenated skill segments", () => {
+    const suggestions = getSlashCommandSuggestions("/r", {
+      agentSkills: [
+        {
+          name: "deep-review",
+          description: "Test",
+          scope: "project",
+        },
+      ],
+    });
+
+    const labels = suggestions.map((s) => s.display);
+    expect(labels).toContain("/deep-review");
+  });
+
+  it("matches full prefixes that cross hyphen boundaries", () => {
+    const suggestions = getSlashCommandSuggestions("/deep-r", {
+      agentSkills: [
+        {
+          name: "deep-review",
+          description: "Test",
+          scope: "project",
+        },
+      ],
+    });
+
+    expect(suggestions.map((s) => s.display)).toContain("/deep-review");
+  });
+
   it("filters top level commands by partial input", () => {
     const suggestions = getSlashCommandSuggestions("/cl");
     expect(suggestions).toHaveLength(1);
     expect(suggestions[0].replacement).toBe("/clear");
-  });
-
-  it("suggests provider subcommands", () => {
-    const suggestions = getSlashCommandSuggestions("/providers ");
-    expect(suggestions.map((s) => s.display)).toContain("set");
-  });
-
-  it("suggests provider names after /providers set", () => {
-    const suggestions = getSlashCommandSuggestions("/providers set ", {
-      providerNames: ["anthropic"],
-    });
-    const labels = suggestions.map((s) => s.display);
-
-    expect(labels).toContain("anthropic");
-  });
-
-  it("suggests provider keys after selecting a provider", () => {
-    const suggestions = getSlashCommandSuggestions("/providers set anthropic ");
-    const keys = suggestions.map((s) => s.display);
-
-    expect(keys).toContain("apiKey");
-    expect(keys).toContain("baseUrl");
-  });
-
-  it("filters provider keys by partial input", () => {
-    const suggestions = getSlashCommandSuggestions("/providers set anthropic api", {
-      providerNames: ["anthropic"],
-    });
-
-    expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].display).toBe("apiKey");
   });
 
   it("suggests model abbreviations after /model", () => {
@@ -92,7 +89,35 @@ describe("getSlashCommandSuggestions", () => {
 
   it("filters model suggestions by partial input", () => {
     const suggestions = getSlashCommandSuggestions("/model op");
+    // Only "opus" (opus-4-6) matches the "op" prefix
     expect(suggestions).toHaveLength(1);
-    expect(suggestions[0].display).toBe("opus");
+    const displays = suggestions.map((s) => s.display);
+    expect(displays).toContain("opus");
+  });
+
+  it("suggests model aliases as one-shot commands", () => {
+    const suggestions = getSlashCommandSuggestions("/");
+    const displays = suggestions.map((s) => s.display);
+
+    expect(displays).toContain("/haiku");
+    expect(displays).toContain("/sonnet");
+    expect(displays).toContain("/opus");
+  });
+
+  it("filters model alias suggestions by partial input", () => {
+    const suggestions = getSlashCommandSuggestions("/ha");
+    const displays = suggestions.map((s) => s.display);
+
+    expect(displays).toContain("/haiku");
+    expect(displays).not.toContain("/sonnet");
+  });
+
+  it("includes description for model alias suggestions", () => {
+    const suggestions = getSlashCommandSuggestions("/haiku");
+    const haiku = suggestions.find((s) => s.display === "/haiku");
+
+    expect(haiku).toBeTruthy();
+    expect(haiku?.description).toContain("(one message, +level for thinking)");
+    expect(haiku?.replacement).toBe("/haiku ");
   });
 });

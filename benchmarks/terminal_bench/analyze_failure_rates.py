@@ -4,9 +4,9 @@ Analyze Terminal-Bench failure rates to identify optimization opportunities.
 
 Pulls Lattice results from BigQuery and other agents from HuggingFace leaderboard.
 Computes:
-  L/O ratio = Lattice failure rate / Average failure rate of top 10 agents
+  M/O ratio = Lattice failure rate / Average failure rate of top 10 agents
 
-Tasks with high L/O ratio are where Lattice underperforms relative to competitors,
+Tasks with high M/O ratio are where Lattice underperforms relative to competitors,
 representing the best optimization opportunities.
 
 Usage:
@@ -351,7 +351,7 @@ class OptimizationOpportunity:
     task_id: str
     lattice_fail_rate: float
     avg_other_fail_rate: float
-    ratio: float  # L/O ratio
+    ratio: float  # M/O ratio
     lattice_agent: str
     n_other_agents: int
 
@@ -364,7 +364,7 @@ def find_optimization_opportunities(
     """
     Find tasks where Lattice has high failure rate relative to top agents.
 
-    Returns opportunities sorted by L/O ratio (descending).
+    Returns opportunities sorted by M/O ratio (descending).
     """
     stats = compute_agent_stats(results)
 
@@ -417,7 +417,7 @@ def find_optimization_opportunities(
 
             avg_other_fail_rate = sum(other_rates) / len(other_rates)
 
-            # Compute L/O ratio (add small epsilon to avoid div by zero)
+            # Compute M/O ratio (add small epsilon to avoid div by zero)
             epsilon = 0.01
             ratio = lattice_fail_rate / (avg_other_fail_rate + epsilon)
 
@@ -444,10 +444,10 @@ def print_opportunities(
 ) -> None:
     """Print optimization opportunities in a readable format."""
     print(f"\n{'=' * 80}")
-    print("OPTIMIZATION OPPORTUNITIES (sorted by L/O ratio)")
+    print("OPTIMIZATION OPPORTUNITIES (sorted by M/O ratio)")
     print(f"{'=' * 80}")
     print(
-        f"{'Task ID':<40} {'Lattice Fail%':>10} {'Avg Other%':>11} {'L/O Ratio':>10} {'Agent':<20}"
+        f"{'Task ID':<40} {'Lattice Fail%':>10} {'Avg Other%':>11} {'M/O Ratio':>10} {'Agent':<20}"
     )
     print("-" * 80)
 

@@ -7,13 +7,14 @@
  *
  * Uses Electron's cross-platform Notification API when available, with graceful
  * fallback for non-Electron environments. Clicking a notification navigates
- * the user to the workspace that sent it.
+ * the user to the minion that sent it.
  */
 
 import { tool } from "ai";
 import type { ToolFactory } from "@/common/utils/tools/tools";
 import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
 import type { NotifyToolResult } from "@/common/types/tools";
+import { getErrorMessage } from "@/common/utils/errors";
 
 /** Maximum notification body length (macOS limit is 256 bytes) */
 const MAX_NOTIFICATION_BODY_LENGTH = 200;
@@ -40,13 +41,13 @@ function isElectronEnvironment(): boolean {
 
 /**
  * Send a system notification using Electron's Notification API.
- * When clicked, focuses the app and navigates to the specified workspace.
+ * When clicked, focuses the app and navigates to the specified minion.
  * Returns true if notification was shown, false otherwise.
  */
 async function sendElectronNotification(
   title: string,
   body?: string,
-  workspaceId?: string
+  minionId?: string
 ): Promise<{ success: boolean; error?: string }> {
   if (!isElectronEnvironment()) {
     return {
@@ -72,7 +73,7 @@ async function sendElectronNotification(
       silent: false,
     });
 
-    // Handle notification click - focus app and navigate to workspace
+    // Handle notification click - focus app and navigate to minion
     notification.on("click", () => {
       const windows = BrowserWindow.getAllWindows();
       const mainWindow = windows[0];
@@ -83,9 +84,9 @@ async function sendElectronNotification(
         }
         mainWindow.focus();
 
-        // Send IPC message to renderer to navigate to workspace
-        if (workspaceId) {
-          mainWindow.webContents.send("lattice:notification-clicked", { workspaceId });
+        // Send IPC message to renderer to navigate to minion
+        if (minionId) {
+          mainWindow.webContents.send("lattice:notification-clicked", { minionId });
         }
       }
     });
@@ -94,7 +95,7 @@ async function sendElectronNotification(
 
     return { success: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     return {
       success: false,
       error: `Failed to send notification: ${message}`,
@@ -130,7 +131,7 @@ export const createNotifyTool: ToolFactory = (config) => {
       const result = await sendElectronNotification(
         truncatedTitle,
         truncatedMessage,
-        config.workspaceId
+        config.minionId
       );
 
       // If Electron notification succeeded, we're done
@@ -142,7 +143,7 @@ export const createNotifyTool: ToolFactory = (config) => {
           ui_only: {
             notify: {
               notifiedVia: "electron",
-              workspaceId: config.workspaceId,
+              minionId: config.minionId,
             },
           },
         };
@@ -157,7 +158,7 @@ export const createNotifyTool: ToolFactory = (config) => {
         ui_only: {
           notify: {
             notifiedVia: "browser",
-            workspaceId: config.workspaceId,
+            minionId: config.minionId,
           },
         },
       };

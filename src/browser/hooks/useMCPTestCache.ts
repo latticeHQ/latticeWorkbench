@@ -7,7 +7,7 @@ type CachedResults = Record<string, CachedMCPTestResult>;
 
 /**
  * Hook for managing MCP server test results cache.
- * Persists results to localStorage, shared across Settings and WorkspaceMCPModal.
+ * Persists results to localStorage, shared across Settings and MinionMCPModal.
  */
 export function useMCPTestCache(projectPath: string) {
   const storageKey = useMemo(

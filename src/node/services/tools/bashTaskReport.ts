@@ -86,7 +86,7 @@ export function tryParseBashOutputReport(
   const fenceStart = lines.findIndex((line) => /^`{3,}text\s*$/.test(line.trimEnd()));
 
   // Find status/exitCode lines. Keep this tolerant to extra blank lines.
-  // IMPORTANT: only scan the header section; the output block may contain literal
+  // IMPORTANT: only scan the header crew; the output block may contain literal
   // "status:" / "exitCode:" lines that must not override the header.
   const headerLines = fenceStart === -1 ? lines : lines.slice(0, fenceStart);
 

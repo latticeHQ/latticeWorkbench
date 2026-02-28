@@ -1,5 +1,5 @@
 /**
- * Hook for managing reviews per workspace
+ * Hook for managing reviews per minion
  * Provides interface for adding, checking, and removing reviews
  */
 
@@ -53,14 +53,14 @@ export interface UseReviewsReturn {
 }
 
 /**
- * Hook for managing reviews for a workspace
+ * Hook for managing reviews for a minion
  * Persists reviews to localStorage
  */
-export function useReviews(workspaceId: string): UseReviewsReturn {
+export function useReviews(minionId: string): UseReviewsReturn {
   const [state, setState] = usePersistedState<ReviewsState>(
-    getReviewsKey(workspaceId),
+    getReviewsKey(minionId),
     {
-      workspaceId,
+      minionId,
       reviews: {},
       lastUpdated: Date.now(),
     },

@@ -19,20 +19,9 @@ export interface DevcontainerUpResultLine {
   outcome: DevcontainerUpOutcome;
   containerId?: string;
   remoteUser?: string;
-  remoteWorkspaceFolder?: string;
+  remoteMinionFolder?: string;
   message?: string;
   description?: string;
-}
-
-interface _DevcontainerLogLine {
-  type?: string;
-  level?: number;
-  text?: string;
-  channel?: string;
-  timestamp?: number;
-  startTimestamp?: number;
-  name?: string;
-  status?: string;
 }
 
 export type DevcontainerStdoutParse =
@@ -137,7 +126,7 @@ export function shouldCleanupDevcontainer(result: DevcontainerUpResultLine): boo
 export interface DevcontainerUpResult {
   containerId: string;
   remoteUser: string;
-  remoteWorkspaceFolder: string;
+  remoteMinionFolder: string;
 }
 
 /** Devcontainer CLI availability info */
@@ -148,7 +137,7 @@ export interface DevcontainerCliInfo {
 
 /** devcontainer up options */
 export interface DevcontainerUpOptions {
-  workspaceFolder: string;
+  minionFolder: string;
   configPath?: string;
   initLogger: InitLogger;
   abortSignal?: AbortSignal;
@@ -162,7 +151,7 @@ export interface DevcontainerUpOptions {
 
 /** devcontainer exec options */
 export interface DevcontainerExecOptions {
-  workspaceFolder: string;
+  minionFolder: string;
   configPath?: string;
   command: string;
   /** Working directory inside container */
@@ -252,7 +241,7 @@ export async function devcontainerUp(
   options: DevcontainerUpOptions
 ): Promise<DevcontainerUpResult> {
   const {
-    workspaceFolder,
+    minionFolder,
     configPath,
     initLogger,
     abortSignal,
@@ -261,7 +250,7 @@ export async function devcontainerUp(
     timeoutMs = DEFAULT_UP_TIMEOUT_MS,
   } = options;
 
-  const baseArgs = ["up", "--log-format", "json", "--workspace-folder", workspaceFolder];
+  const baseArgs = ["up", "--log-format", "json", "--minion-folder", minionFolder];
 
   if (configPath) {
     baseArgs.push("--config", configPath);
@@ -289,7 +278,7 @@ export async function devcontainerUp(
       const proc = spawn("devcontainer", args, {
         stdio: ["ignore", "pipe", "pipe"],
         timeout: timeoutMs,
-        cwd: workspaceFolder,
+        cwd: minionFolder,
       });
 
       let settled = false;
@@ -399,7 +388,7 @@ export async function devcontainerUp(
               if (
                 !lastResultLine.containerId ||
                 !lastResultLine.remoteUser ||
-                !lastResultLine.remoteWorkspaceFolder
+                !lastResultLine.remoteMinionFolder
               ) {
                 await finalizeError(
                   "devcontainer up output missing required fields",
@@ -411,7 +400,7 @@ export async function devcontainerUp(
               settleSuccess({
                 containerId: lastResultLine.containerId,
                 remoteUser: lastResultLine.remoteUser,
-                remoteWorkspaceFolder: lastResultLine.remoteWorkspaceFolder,
+                remoteMinionFolder: lastResultLine.remoteMinionFolder,
               });
               return;
             }
@@ -448,9 +437,9 @@ export async function devcontainerUp(
 export async function devcontainerExec(
   options: DevcontainerExecOptions
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  const { workspaceFolder, configPath, command, cwd, env, abortSignal, timeoutMs } = options;
+  const { minionFolder, configPath, command, cwd, env, abortSignal, timeoutMs } = options;
 
-  const args = ["exec", "--workspace-folder", workspaceFolder];
+  const args = ["exec", "--minion-folder", minionFolder];
 
   if (configPath) {
     args.push("--config", configPath);
@@ -477,7 +466,7 @@ export async function devcontainerExec(
     const proc = spawn("devcontainer", args, {
       stdio: ["ignore", "pipe", "pipe"],
       timeout: timeoutMs,
-      cwd: workspaceFolder,
+      cwd: minionFolder,
     });
 
     let stdout = "";
@@ -538,18 +527,18 @@ export async function devcontainerExec(
 }
 
 /**
- * Get the container ID for a devcontainer workspace.
+ * Get the container ID for a devcontainer minion.
  * Returns null if no container exists.
  */
 export async function getDevcontainerContainerId(
-  workspaceFolder: string,
+  minionFolder: string,
   _configPath?: string,
   timeoutMs = 10_000
 ): Promise<string | null> {
-  // The devcontainer CLI labels containers with the workspace folder path
+  // The devcontainer CLI labels containers with the minion folder path
   // We can use `devcontainer read-configuration` or docker labels to find it
   // For now, use docker ps with label filter
-  const labelValue = workspaceFolder;
+  const labelValue = minionFolder;
 
   return new Promise((resolve) => {
     const proc = spawn(
@@ -582,18 +571,18 @@ export async function getDevcontainerContainerId(
 }
 
 /**
- * Get the container name for a devcontainer workspace.
+ * Get the container name for a devcontainer minion.
  * Returns null if no container exists.
  *
  * Note: VS Code devcontainer deep links require the container NAME (not ID).
  * The devcontainer CLI only returns container ID, so we query Docker directly.
  */
 export async function getDevcontainerContainerName(
-  workspaceFolder: string,
+  minionFolder: string,
   timeoutMs = 10_000
 ): Promise<string | null> {
-  // The devcontainer CLI labels containers with the workspace folder path
-  const labelValue = workspaceFolder;
+  // The devcontainer CLI labels containers with the minion folder path
+  const labelValue = minionFolder;
 
   return new Promise((resolve) => {
     const proc = spawn(
@@ -633,11 +622,11 @@ export async function getDevcontainerContainerName(
  * so we use docker commands directly with the container label.
  */
 export async function devcontainerDown(
-  workspaceFolder: string,
+  minionFolder: string,
   _configPath?: string,
   timeoutMs = 60_000
 ): Promise<void> {
-  const containerId = await getDevcontainerContainerId(workspaceFolder);
+  const containerId = await getDevcontainerContainerId(minionFolder);
   if (!containerId) {
     // No container to stop
     return;

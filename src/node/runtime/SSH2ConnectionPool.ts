@@ -12,12 +12,19 @@ import * as os from "os";
 import * as path from "path";
 import { spawn, type ChildProcess } from "child_process";
 import { Duplex } from "stream";
-import { Client } from "ssh2";
+import type { Client } from "ssh2";
 import { getErrorMessage } from "@/common/utils/errors";
 import { log } from "@/node/services/log";
 import { attachStreamErrorHandler } from "@/node/utils/streamErrors";
 import type { SSHConnectionConfig } from "./sshConnectionPool";
 import { resolveSSHConfig, type ResolvedSSHConfig } from "./sshConfigParser";
+import type { SshPromptService } from "@/node/services/sshPromptService";
+
+let sshPromptService: SshPromptService | undefined;
+
+export function setSshPromptService(svc: SshPromptService): void {
+  sshPromptService = svc;
+}
 
 /**
  * Connection health status
@@ -46,7 +53,7 @@ const DEFAULT_MAX_WAIT_MS = 2 * 60 * 1000;
 
 /**
  * Close idle connections after 60 seconds (matches ControlPersist=60).
- * This prevents accumulating stale connections to many Lattice workspaces.
+ * This prevents accumulating stale connections to many Lattice minions.
  */
 const IDLE_TIMEOUT_MS = 60 * 1000;
 
@@ -225,7 +232,8 @@ function spawnProxyCommand(
     throw new Error("ProxyCommand did not provide stdio streams");
   }
 
-  const sock = Duplex.from({ writable: proc.stdin, readable: proc.stdout });
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument -- Node Duplex.from accepts stream-like objects at runtime
+  const sock = Duplex.from({ writable: proc.stdin, readable: proc.stdout } as never);
 
   return { sock, process: proc };
 }
@@ -401,6 +409,15 @@ export class SSH2ConnectionPool {
   }
 
   /**
+   * Clear all health state. Used in tests to reset between test cases
+   * so backoff from one test doesn't affect subsequent tests.
+   */
+  clearAllHealth(): void {
+    this.health.clear();
+    this.inflight.clear();
+  }
+
+  /**
    * Update last activity time and reset idle timer.
    * Called on each acquireConnection() to keep active connections alive.
    */
@@ -485,6 +502,9 @@ export class SSH2ConnectionPool {
         const readableKeys = await resolvePrivateKeys(resolvedConfigWithIdentities.identityFiles);
         const keysToTry: Array<Buffer | undefined> =
           readableKeys.length > 0 ? readableKeys : [undefined];
+        // Keep the sshPromptService wiring in place so known_hosts-backed
+        // verification can be restored without changing the public module API.
+        void sshPromptService;
 
         const connectWithKey = async (
           privateKey: Buffer | undefined,
@@ -494,7 +514,11 @@ export class SSH2ConnectionPool {
             ? spawnProxyCommand(resolvedConfigWithIdentities.proxyCommand, proxyTokens)
             : undefined;
 
-          const client = new Client();
+          // Lazy-load ssh2 to avoid loading the native sshcrypto.node module at
+          // startup. Bun doesn't support the libuv functions the NAPI module calls,
+          // so eagerly importing ssh2 crashes the headless CLI in sandboxes.
+          const { Client: SSH2Client } = await import("ssh2");
+          const client = new SSH2Client();
           const entry: SSH2ConnectionEntry = {
             client,
             resolvedConfig: resolvedConfigWithIdentities,
@@ -598,6 +622,10 @@ export class SSH2ConnectionPool {
               keepaliveInterval: 5000,
               keepaliveCountMax: 2,
               ...(privateKey ? { privateKey } : {}),
+              // TODO(ethanndickson): Implement known_hosts support for SSH2
+              // and restore interactive host key verification once approvals
+              // can be persisted between connections.
+              hostVerifier: () => true,
             };
 
             client.connect(connectOptions);

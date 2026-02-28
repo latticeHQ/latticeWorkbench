@@ -1,181 +1,250 @@
 /**
- * Lattice workspace controls for SSH runtime.
- * Enables creating or connecting to Lattice cloud workspaces.
+ * Lattice minion controls for the SSH-based Lattice runtime.
+ * Enables creating or connecting to Lattice cloud minions.
  */
-import React from "react";
 import type {
   LatticeInfo,
   LatticeTemplate,
   LatticePreset,
-  LatticeWorkspace,
+  LatticeMinion,
+  LatticeWhoami,
 } from "@/common/orpc/schemas/lattice";
-import type { LatticeWorkspaceConfig } from "@/common/types/runtime";
+import type { LatticeMinionConfig } from "@/common/types/runtime";
 import { cn } from "@/common/lib/utils";
 import { Loader2 } from "lucide-react";
+import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
 
 export interface LatticeControlsProps {
-  /** Whether to use Lattice workspace (checkbox state) */
+  /** Whether Lattice is enabled for this minion */
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
 
   /** Lattice CLI availability info (null while checking) */
   latticeInfo: LatticeInfo | null;
 
+  /** Lattice authentication identity (null while checking) */
+  latticeWhoami: LatticeWhoami | null;
+
   /** Current Lattice configuration */
-  latticeConfig: LatticeWorkspaceConfig | null;
-  onLatticeConfigChange: (config: LatticeWorkspaceConfig | null) => void;
+  latticeConfig: LatticeMinionConfig | null;
+  onLatticeConfigChange: (config: LatticeMinionConfig | null) => void;
 
   /** Data for dropdowns (loaded async) */
   templates: LatticeTemplate[];
+  templatesError?: string | null;
   presets: LatticePreset[];
-  existingWorkspaces: LatticeWorkspace[];
+  presetsError?: string | null;
+  existingMinions: LatticeMinion[];
+  minionsError?: string | null;
 
   /** Loading states */
   loadingTemplates: boolean;
   loadingPresets: boolean;
-  loadingWorkspaces: boolean;
+  loadingMinions: boolean;
 
   /** Disabled state (e.g., during creation) */
   disabled: boolean;
 
   /** Error state for visual feedback */
   hasError?: boolean;
+
+  /** Re-fetch Lattice CLI info (e.g. after login) */
+  refreshLatticeInfo?: () => void;
 }
 
 type LatticeMode = "new" | "existing";
 
-/**
- * Lattice workspace controls component.
- * Shows checkbox to enable Lattice, then New/Existing toggle with appropriate dropdowns.
- */
-/** Checkbox row with optional status indicator and tooltip for disabled state */
-function LatticeCheckbox(props: {
-  enabled: boolean;
-  onEnabledChange: (enabled: boolean) => void;
-  disabled: boolean;
-  status?: React.ReactNode;
-  /** When provided, wraps checkbox in tooltip explaining why it's disabled */
-  disabledReason?: string;
-}) {
-  const checkboxElement = (
-    <label
-      className={cn(
-        "flex items-center gap-1.5 text-xs",
-        props.disabledReason && "cursor-not-allowed"
-      )}
-    >
-      <input
-        type="checkbox"
-        checked={props.enabled}
-        onChange={(e) => props.onEnabledChange(e.target.checked)}
-        disabled={props.disabled || Boolean(props.disabledReason)}
-        className={cn("accent-accent", props.disabledReason && "cursor-not-allowed opacity-50")}
-        data-testid="lattice-checkbox"
-      />
-      <span className={cn("text-muted", props.disabledReason && "opacity-50")}>
-        Use Lattice Workspace
-      </span>
-      {props.status}
-    </label>
-  );
+const LATTICE_CHECKING_LABEL = "Checking…";
 
-  // Wrap in tooltip when disabled with a reason
-  if (props.disabledReason) {
+/** Check if a template name exists in multiple organizations (for disambiguation in UI) */
+function hasTemplateDuplicateName(template: LatticeTemplate, allTemplates: LatticeTemplate[]): boolean {
+  return allTemplates.some(
+    (t) => t.name === template.name && t.organizationName !== template.organizationName
+  );
+}
+
+export type LatticeAvailabilityState =
+  | { state: "loading"; reason: string; shouldShowRuntimeButton: false }
+  | { state: "outdated"; reason: string; shouldShowRuntimeButton: true }
+  | { state: "unavailable"; reason: string; shouldShowRuntimeButton: boolean }
+  | { state: "unauthenticated"; reason: string; shouldShowRuntimeButton: true }
+  | { state: "available"; shouldShowRuntimeButton: true };
+
+function getLatticeOutdatedReason(latticeInfo: Extract<LatticeInfo, { state: "outdated" }>) {
+  return `Lattice CLI ${latticeInfo.version} is below minimum v${latticeInfo.minVersion}.`;
+}
+
+function getLatticeUnavailableReason(latticeInfo: Extract<LatticeInfo, { state: "unavailable" }>) {
+  if (latticeInfo.reason === "missing") {
+    return "Lattice CLI not found. Install to enable.";
+  }
+
+  return `Lattice CLI error: ${latticeInfo.reason.message}`;
+}
+
+/**
+ * Resolve combined Lattice availability from CLI info + auth state.
+ * CLI availability (LatticeInfo) is checked first, then auth (LatticeWhoami).
+ */
+export function resolveLatticeAvailability(
+  latticeInfo: LatticeInfo | null,
+  latticeWhoami?: LatticeWhoami | null,
+): LatticeAvailabilityState {
+  if (latticeInfo === null) {
+    return { state: "loading", reason: LATTICE_CHECKING_LABEL, shouldShowRuntimeButton: false };
+  }
+
+  if (latticeInfo.state === "outdated") {
+    return {
+      state: "outdated",
+      reason: getLatticeOutdatedReason(latticeInfo),
+      shouldShowRuntimeButton: true,
+    };
+  }
+
+  if (latticeInfo.state === "unavailable") {
+    // Show the Lattice runtime button for "missing" so users can access the Install dialog.
+    const shouldShowRuntimeButton = latticeInfo.reason === "missing";
+
+    return {
+      state: "unavailable",
+      reason: getLatticeUnavailableReason(latticeInfo),
+      shouldShowRuntimeButton,
+    };
+  }
+
+  // CLI is available — check auth state
+  if (latticeWhoami && latticeWhoami.state === "unauthenticated") {
+    return {
+      state: "unauthenticated",
+      reason: latticeWhoami.reason || "Not logged in. Click Login to authenticate.",
+      shouldShowRuntimeButton: true,
+    };
+  }
+
+  // CLI available + authenticated (or whoami not yet loaded — show button optimistically)
+  return { state: "available", shouldShowRuntimeButton: true };
+}
+
+// Standalone availability messaging used by the Lattice runtime UI.
+export function LatticeAvailabilityMessage(props: {
+  latticeInfo: LatticeInfo | null;
+  latticeWhoami?: LatticeWhoami | null;
+  /** If provided, shows a "Login" button when the CLI is installed but not logged in. */
+  onLoginClick?: () => void;
+  /** If provided, shows an "Install" button when the CLI is missing. */
+  onInstallClick?: () => void;
+}) {
+  const availability = resolveLatticeAvailability(props.latticeInfo, props.latticeWhoami);
+
+  if (availability.state === "loading") {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-block">{checkboxElement}</span>
-        </TooltipTrigger>
-        <TooltipContent align="start" className="max-w-60">
-          <p className="text-xs text-yellow-500">{props.disabledReason}</p>
-        </TooltipContent>
-      </Tooltip>
+      <span className="text-muted flex items-center gap-1 text-xs">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        {LATTICE_CHECKING_LABEL}
+      </span>
     );
   }
 
-  return checkboxElement;
+  if (availability.state === "outdated") {
+    return <p className="text-xs text-yellow-500">{availability.reason}</p>;
+  }
+
+  if (availability.state === "unavailable") {
+    const isMissing = props.latticeInfo?.state === "unavailable" && props.latticeInfo.reason === "missing";
+    const showInstall = props.onInstallClick && isMissing;
+
+    return (
+      <div className="flex items-center gap-2">
+        <p className="text-xs text-yellow-500">{availability.reason}</p>
+        {showInstall && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 shrink-0 px-1.5 text-xs"
+            onClick={props.onInstallClick}
+          >
+            Install
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  if (availability.state === "unauthenticated") {
+    return (
+      <div className="flex items-center gap-2">
+        <p className="text-xs text-yellow-500">{availability.reason}</p>
+        {props.onLoginClick && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 shrink-0 px-1.5 text-xs"
+            onClick={props.onLoginClick}
+          >
+            Login
+          </Button>
+        )}
+      </div>
+    );
+  }
+
+  return null;
 }
 
-export function LatticeControls(props: LatticeControlsProps) {
+export type LatticeMinionFormProps = Omit<
+  LatticeControlsProps,
+  "enabled" | "onEnabledChange" | "latticeInfo" | "latticeWhoami"
+> & {
+  username?: string;
+  deploymentUrl?: string;
+};
+
+export function LatticeMinionForm(props: LatticeMinionFormProps) {
   const {
-    enabled,
-    onEnabledChange,
-    latticeInfo,
     latticeConfig,
     onLatticeConfigChange,
     templates,
+    templatesError,
     presets,
-    existingWorkspaces,
+    presetsError,
+    existingMinions,
+    minionsError,
     loadingTemplates,
     loadingPresets,
-    loadingWorkspaces,
+    loadingMinions,
     disabled,
     hasError,
+    username,
+    deploymentUrl,
   } = props;
 
-  // Lattice CLI status: loading (null), unavailable, outdated, or available
-  if (latticeInfo === null) {
-    return (
-      <div className="flex flex-col gap-1.5" data-testid="lattice-controls">
-        <LatticeCheckbox
-          enabled={enabled}
-          onEnabledChange={onEnabledChange}
-          disabled={disabled}
-          status={
-            <span className="text-muted flex items-center gap-1">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Checking…
-            </span>
-          }
-        />
-      </div>
-    );
-  }
-
-  // CLI outdated: show checkbox disabled with tooltip explaining version mismatch
-  if (latticeInfo.state === "outdated") {
-    const reason = `Lattice CLI v${latticeInfo.version} is below the minimum required v${latticeInfo.minVersion}. Update the CLI to enable.`;
-    return (
-      <div className="flex flex-col gap-1.5" data-testid="lattice-controls">
-        <LatticeCheckbox
-          enabled={false}
-          onEnabledChange={onEnabledChange}
-          disabled={disabled}
-          disabledReason={reason}
-        />
-      </div>
-    );
-  }
-
-  // CLI unavailable (missing/broken): hide checkbox entirely
-  if (latticeInfo.state === "unavailable") {
-    return null;
-  }
-
-  const mode: LatticeMode = latticeConfig?.existingWorkspace ? "existing" : "new";
+  const mode: LatticeMode = latticeConfig?.existingMinion ? "existing" : "new";
+  const formHasError = Boolean(
+    (hasError ?? false) ||
+    (mode === "existing" && Boolean(minionsError)) ||
+    (mode === "new" && Boolean(templatesError ?? presetsError))
+  );
+  const templateErrorId = templatesError ? "lattice-template-error" : undefined;
+  const presetErrorId = presetsError ? "lattice-preset-error" : undefined;
+  const minionErrorId = minionsError ? "lattice-minion-error" : undefined;
 
   const handleModeChange = (newMode: LatticeMode) => {
     if (newMode === "existing") {
-      // Switch to existing workspace mode (workspaceName starts empty, user selects)
+      // Switch to existing minion mode (minionName starts empty, user selects)
       onLatticeConfigChange({
-        workspaceName: undefined,
-        existingWorkspace: true,
+        minionName: undefined,
+        existingMinion: true,
       });
     } else {
-      // Switch to new workspace mode (workspaceName omitted; backend derives from branch)
+      // Switch to new minion mode (minionName omitted; backend derives from branch)
       const firstTemplate = templates[0];
-      const firstIsDuplicate = firstTemplate
-        ? templates.some(
-            (t) =>
-              t.name === firstTemplate.name && t.organizationName !== firstTemplate.organizationName
-          )
-        : false;
       onLatticeConfigChange({
-        existingWorkspace: false,
+        existingMinion: false,
         template: firstTemplate?.name,
-        templateOrg: firstIsDuplicate ? firstTemplate?.organizationName : undefined,
+        templateOrg: firstTemplate?.organizationName,
       });
     }
   };
@@ -186,7 +255,13 @@ export function LatticeControls(props: LatticeControlsProps) {
     // Value is "org/name" when duplicates exist, otherwise just "name"
     const [orgOrName, maybeName] = value.split("/");
     const templateName = maybeName ?? orgOrName;
-    const templateOrg = maybeName ? orgOrName : undefined;
+
+    // Always resolve the org from the templates list so --org is passed to CLI
+    // even when the user belongs to multiple orgs but template names don't collide
+    const matchedTemplate = templates.find(
+      (t) => t.name === templateName && (maybeName ? t.organizationName === orgOrName : true)
+    );
+    const templateOrg = maybeName ? orgOrName : matchedTemplate?.organizationName;
 
     onLatticeConfigChange({
       ...latticeConfig,
@@ -206,10 +281,10 @@ export function LatticeControls(props: LatticeControlsProps) {
     });
   };
 
-  const handleExistingWorkspaceChange = (workspaceName: string) => {
+  const handleExistingMinionChange = (minionName: string) => {
     onLatticeConfigChange({
-      workspaceName,
-      existingWorkspace: true,
+      minionName,
+      existingMinion: true,
     });
   };
 
@@ -223,181 +298,219 @@ export function LatticeControls(props: LatticeControlsProps) {
         ? presets[0]?.name
         : (latticeConfig?.preset ?? defaultPresetName ?? presets[0]?.name);
 
+  const templatePlaceholder = templatesError
+    ? "Error loading templates"
+    : templates.length === 0
+      ? "No templates"
+      : "Select template...";
+  const templateSelectDisabled = disabled || templates.length === 0 || Boolean(templatesError);
+
+  const presetPlaceholder = presetsError
+    ? "Error loading presets"
+    : presets.length === 0
+      ? "No presets"
+      : "Select preset...";
+  const presetSelectDisabled = disabled || presets.length === 0 || Boolean(presetsError);
+
+  const minionPlaceholder = minionsError
+    ? "Error loading minions"
+    : existingMinions.length === 0
+      ? "No minions found"
+      : "Select minion...";
+  const minionSelectDisabled =
+    disabled || existingMinions.length === 0 || Boolean(minionsError);
+
+  const headerBorderClass = formHasError
+    ? "border-b border-red-500"
+    : "border-b border-border-medium";
+
+  // Only show login context when we can name the user and the deployment they're on.
+  const showLoginInfo = Boolean(username && deploymentUrl);
   return (
-    <div className="flex flex-col gap-1.5" data-testid="lattice-controls">
-      <LatticeCheckbox enabled={enabled} onEnabledChange={onEnabledChange} disabled={disabled} />
-
-      {/* Lattice controls - only shown when enabled */}
-      {enabled && (
+    <div
+      className={cn(
+        "flex w-[22rem] flex-col rounded-md border",
+        formHasError ? "border-red-500" : "border-border-medium"
+      )}
+      data-testid="lattice-controls-inner"
+    >
+      {showLoginInfo && (
+        <div className={cn("text-muted-foreground px-2 py-1.5 text-xs", headerBorderClass)}>
+          Logged in as <span className="text-foreground font-medium">{username}</span> on{" "}
+          <span className="text-foreground font-medium">{deploymentUrl}</span>
+        </div>
+      )}
+      <div className="flex">
+        {/* Left column: New/Existing toggle buttons */}
         <div
-          className={cn(
-            "flex w-fit rounded-md border",
-            hasError ? "border-red-500" : "border-border-medium"
-          )}
-          data-testid="lattice-controls-inner"
+          className="border-border-medium flex flex-col gap-1 border-r p-2 pr-3"
+          role="group"
+          aria-label="Lattice minion mode"
+          data-testid="lattice-mode-toggle"
         >
-          {/* Left column: New/Existing toggle buttons */}
-          <div
-            className="border-border-medium flex flex-col gap-1 border-r p-2 pr-3"
-            role="group"
-            aria-label="Lattice agent mode"
-            data-testid="lattice-mode-toggle"
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => handleModeChange("new")}
-                  disabled={disabled}
-                  className={cn(
-                    "rounded-md border px-2 py-1 text-xs transition-colors",
-                    mode === "new"
-                      ? "border-accent bg-accent/20 text-foreground"
-                      : "border-transparent bg-transparent text-muted hover:border-border-medium"
-                  )}
-                  aria-pressed={mode === "new"}
-                >
-                  New
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Create a new Lattice agent from a template</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => handleModeChange("existing")}
-                  disabled={disabled}
-                  className={cn(
-                    "rounded-md border px-2 py-1 text-xs transition-colors",
-                    mode === "existing"
-                      ? "border-accent bg-accent/20 text-foreground"
-                      : "border-transparent bg-transparent text-muted hover:border-border-medium"
-                  )}
-                  aria-pressed={mode === "existing"}
-                >
-                  Existing
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Connect to an existing Lattice agent</TooltipContent>
-            </Tooltip>
-          </div>
-
-          {/* Right column: Mode-specific controls */}
-          {/* New agent controls - template/preset stacked vertically */}
-          {mode === "new" && (
-            <div className="flex flex-col gap-1 p-2 pl-3">
-              <div className="flex h-7 items-center gap-2">
-                <label className="text-muted-foreground w-16 text-xs">Template</label>
-                {loadingTemplates ? (
-                  <Loader2 className="text-muted h-4 w-4 animate-spin" />
-                ) : (
-                  <Select
-                    value={(() => {
-                      const templateName = latticeConfig?.template;
-                      if (!templateName) {
-                        return "";
-                      }
-
-                      const matchingTemplates = templates.filter((t) => t.name === templateName);
-                      const hasDuplicate = matchingTemplates.some(
-                        (t) => t.organizationName !== matchingTemplates[0]?.organizationName
-                      );
-
-                      if (!hasDuplicate) {
-                        return templateName;
-                      }
-
-                      const org =
-                        latticeConfig?.templateOrg ??
-                        matchingTemplates[0]?.organizationName ??
-                        undefined;
-                      return org ? `${org}/${templateName}` : templateName;
-                    })()}
-                    onValueChange={handleTemplateChange}
-                    disabled={disabled || templates.length === 0}
-                  >
-                    <SelectTrigger
-                      className="h-7 w-[180px] text-xs"
-                      data-testid="lattice-template-select"
-                    >
-                      <SelectValue placeholder="No templates" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {templates.map((t) => {
-                        // Show org name only if there are duplicate template names
-                        const hasDuplicate = templates.some(
-                          (other) =>
-                            other.name === t.name && other.organizationName !== t.organizationName
-                        );
-                        // Use org/name as value when duplicates exist for disambiguation
-                        const itemValue = hasDuplicate ? `${t.organizationName}/${t.name}` : t.name;
-                        return (
-                          <SelectItem key={`${t.organizationName}/${t.name}`} value={itemValue}>
-                            {t.displayName || t.name}
-                            {hasDuplicate && (
-                              <span className="text-muted ml-1">({t.organizationName})</span>
-                            )}
-                          </SelectItem>
-                        );
-                      })}
-                    </SelectContent>
-                  </Select>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => handleModeChange("new")}
+                disabled={disabled}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-xs transition-colors",
+                  mode === "new"
+                    ? "border-accent bg-accent/20 text-foreground"
+                    : "border-transparent bg-transparent text-muted hover:border-border-medium"
                 )}
-              </div>
-              <div className="flex h-7 items-center gap-2">
-                <label className="text-muted-foreground w-16 text-xs">Preset</label>
-                {loadingPresets ? (
-                  <Loader2 className="text-muted h-4 w-4 animate-spin" />
-                ) : (
-                  <Select
-                    value={effectivePreset ?? ""}
-                    onValueChange={handlePresetChange}
-                    disabled={disabled || presets.length === 0}
-                  >
-                    <SelectTrigger
-                      className="h-7 w-[180px] text-xs"
-                      data-testid="lattice-preset-select"
-                    >
-                      <SelectValue placeholder="No presets" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {presets.map((p) => (
-                        <SelectItem key={p.id} value={p.name}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                aria-pressed={mode === "new"}
+              >
+                New
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Create a new Lattice minion from a template</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => handleModeChange("existing")}
+                disabled={disabled}
+                className={cn(
+                  "rounded-md border px-2 py-1 text-xs transition-colors",
+                  mode === "existing"
+                    ? "border-accent bg-accent/20 text-foreground"
+                    : "border-transparent bg-transparent text-muted hover:border-border-medium"
                 )}
-              </div>
-            </div>
-          )}
+                aria-pressed={mode === "existing"}
+              >
+                Existing
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Connect to an existing Lattice minion</TooltipContent>
+          </Tooltip>
+        </div>
 
-          {/* Existing agent controls - min-h matches New mode (2×h-7 + gap-1 + p-2) */}
-          {mode === "existing" && (
-            <div className="flex min-h-[4.75rem] min-w-[16rem] items-center gap-2 p-2 pl-3">
-              <label className="text-muted-foreground text-xs">Agent</label>
-              {loadingWorkspaces ? (
+        {/* Right column: Mode-specific controls */}
+        {/* New minion controls - template/preset stacked vertically */}
+        {mode === "new" && (
+          <div className="flex flex-col gap-1 p-2 pl-3">
+            <div className="flex h-7 items-center gap-2">
+              <label className="text-muted-foreground w-16 text-xs">Template</label>
+              {loadingTemplates ? (
                 <Loader2 className="text-muted h-4 w-4 animate-spin" />
               ) : (
                 <Select
-                  value={latticeConfig?.workspaceName ?? ""}
-                  onValueChange={handleExistingWorkspaceChange}
-                  disabled={disabled || existingWorkspaces.length === 0}
+                  value={(() => {
+                    const templateName = latticeConfig?.template;
+                    if (!templateName) {
+                      return "";
+                    }
+
+                    const matchingTemplates = templates.filter((t) => t.name === templateName);
+                    const firstMatch = matchingTemplates[0];
+                    const hasDuplicate =
+                      firstMatch && hasTemplateDuplicateName(firstMatch, templates);
+
+                    if (!hasDuplicate) {
+                      return templateName;
+                    }
+
+                    const org =
+                      latticeConfig?.templateOrg ?? firstMatch?.organizationName ?? undefined;
+                    return org ? `${org}/${templateName}` : templateName;
+                  })()}
+                  onValueChange={handleTemplateChange}
+                  disabled={templateSelectDisabled}
                 >
                   <SelectTrigger
                     className="h-7 w-[180px] text-xs"
-                    data-testid="lattice-agent-select"
+                    data-testid="lattice-template-select"
+                    aria-invalid={Boolean(templatesError) || undefined}
+                    aria-describedby={templateErrorId}
                   >
-                    <SelectValue
-                      placeholder={
-                        existingWorkspaces.length === 0 ? "No agents found" : "Select agent..."
-                      }
-                    />
+                    <SelectValue placeholder={templatePlaceholder} />
                   </SelectTrigger>
                   <SelectContent>
-                    {existingWorkspaces
+                    {templates.map((t) => {
+                      // Show org name only if there are duplicate template names
+                      const hasDuplicate = hasTemplateDuplicateName(t, templates);
+                      // Use org/name as value when duplicates exist for disambiguation
+                      const itemValue = hasDuplicate ? `${t.organizationName}/${t.name}` : t.name;
+                      return (
+                        <SelectItem key={`${t.organizationName}/${t.name}`} value={itemValue}>
+                          {t.displayName || t.name}
+                          {hasDuplicate && (
+                            <span className="text-muted ml-1">({t.organizationName})</span>
+                          )}
+                        </SelectItem>
+                      );
+                    })}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            {templatesError && (
+              <p id={templateErrorId} role="alert" className="text-xs break-all text-red-500">
+                {templatesError}
+              </p>
+            )}
+            <div className="flex h-7 items-center gap-2">
+              <label className="text-muted-foreground w-16 text-xs">Preset</label>
+              {loadingPresets ? (
+                <Loader2 className="text-muted h-4 w-4 animate-spin" />
+              ) : (
+                <Select
+                  value={effectivePreset ?? ""}
+                  onValueChange={handlePresetChange}
+                  disabled={presetSelectDisabled}
+                >
+                  <SelectTrigger
+                    className="h-7 w-[180px] text-xs"
+                    data-testid="lattice-preset-select"
+                    aria-invalid={Boolean(presetsError) || undefined}
+                    aria-describedby={presetErrorId}
+                  >
+                    <SelectValue placeholder={presetPlaceholder} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presets.map((p) => (
+                      <SelectItem key={p.id} value={p.name}>
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+            {presetsError && (
+              <p id={presetErrorId} role="alert" className="text-xs break-all text-red-500">
+                {presetsError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Existing minion controls - keep base height aligned with New mode (2×h-7 + gap-1). */}
+        {mode === "existing" && (
+          <div className="flex w-[17rem] flex-col gap-1 p-2 pl-3">
+            <div className="flex min-h-[3.75rem] items-center gap-2">
+              <label className="text-muted-foreground w-16 text-xs">Minion</label>
+              {loadingMinions ? (
+                <Loader2 className="text-muted h-4 w-4 animate-spin" />
+              ) : (
+                <Select
+                  value={latticeConfig?.minionName ?? ""}
+                  onValueChange={handleExistingMinionChange}
+                  disabled={minionSelectDisabled}
+                >
+                  <SelectTrigger
+                    className="h-7 w-[180px] text-xs"
+                    data-testid="lattice-minion-select"
+                    aria-invalid={Boolean(minionsError) || undefined}
+                    aria-describedby={minionErrorId}
+                  >
+                    <SelectValue placeholder={minionPlaceholder} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {existingMinions
                       .filter((w) => w.status !== "deleted" && w.status !== "deleting")
                       .map((w) => (
                         <SelectItem key={w.name} value={w.name}>
@@ -411,9 +524,14 @@ export function LatticeControls(props: LatticeControlsProps) {
                 </Select>
               )}
             </div>
-          )}
-        </div>
-      )}
+            {minionsError && (
+              <p id={minionErrorId} role="alert" className="text-xs break-all text-red-500">
+                {minionsError}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

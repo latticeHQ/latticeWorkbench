@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  copyWorkspaceStorage,
-  deleteWorkspaceStorage,
+  copyMinionStorage,
+  deleteMinionStorage,
+  getDraftScopeId,
   getInputAttachmentsKey,
 } from "@/common/constants/storage";
 
@@ -34,7 +35,7 @@ class MemoryStorage implements Storage {
   }
 }
 
-describe("storage workspace-scoped keys", () => {
+describe("storage minion-scoped keys", () => {
   let originalLocalStorage: Storage | undefined;
 
   beforeEach(() => {
@@ -52,11 +53,17 @@ describe("storage workspace-scoped keys", () => {
     }
   });
 
+  test("getDraftScopeId formats scope id", () => {
+    expect(getDraftScopeId("/Users/me/repo", "draft-123")).toBe(
+      "__draft__//Users/me/repo/draft-123"
+    );
+  });
+
   test("getInputAttachmentsKey formats key", () => {
     expect(getInputAttachmentsKey("ws-123")).toBe("inputAttachments:ws-123");
   });
 
-  test("copyWorkspaceStorage copies inputAttachments key", () => {
+  test("copyMinionStorage copies inputAttachments key", () => {
     const source = "ws-source";
     const dest = "ws-dest";
 
@@ -68,17 +75,17 @@ describe("storage workspace-scoped keys", () => {
     ]);
     localStorage.setItem(sourceKey, value);
 
-    copyWorkspaceStorage(source, dest);
+    copyMinionStorage(source, dest);
 
     expect(localStorage.getItem(destKey)).toBe(value);
   });
 
-  test("deleteWorkspaceStorage removes inputAttachments key", () => {
-    const workspaceId = "ws-delete";
-    const key = getInputAttachmentsKey(workspaceId);
+  test("deleteMinionStorage removes inputAttachments key", () => {
+    const minionId = "ws-delete";
+    const key = getInputAttachmentsKey(minionId);
 
     localStorage.setItem(key, "value");
-    deleteWorkspaceStorage(workspaceId);
+    deleteMinionStorage(minionId);
 
     expect(localStorage.getItem(key)).toBeNull();
   });

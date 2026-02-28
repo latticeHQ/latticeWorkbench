@@ -6,7 +6,6 @@ import type { CountTokensInput } from "./tokenizer.worker";
 import { models, type ModelName } from "ai-tokenizer";
 import { run } from "./workerPool";
 import { TOKENIZER_MODEL_OVERRIDES, DEFAULT_WARM_MODELS } from "@/common/constants/knownModels";
-import { normalizeGatewayModel } from "@/common/utils/ai/models";
 import { log } from "@/node/services/log";
 import { safeStringifyForCounting } from "@/common/utils/tokens/safeStringifyForCounting";
 
@@ -76,15 +75,31 @@ function normalizeModelKey(modelName: string): ModelName | null {
  * Optionally logs a warning when falling back.
  */
 function resolveModelName(modelString: string): ModelName {
-  const normalized = normalizeGatewayModel(modelString);
+  const normalized = modelString;
   let modelName = normalizeModelKey(normalized);
 
   if (!modelName) {
     const provider = normalized.split(":")[0] || "anthropic";
+
+    // GitHub Copilot hosts models from multiple providers.
+    // Infer the tokenizer family from the model name prefix.
+    let effectiveProvider = provider;
+    if (provider === "github-copilot") {
+      const modelId = normalized.split(":")[1] || "";
+      if (modelId.startsWith("claude-")) {
+        effectiveProvider = "anthropic";
+      } else if (modelId.startsWith("gemini-")) {
+        effectiveProvider = "google";
+      } else {
+        // gpt-*, grok-*, and unknown models use OpenAI tokenizer
+        effectiveProvider = "openai";
+      }
+    }
+
     const fallbackModel =
-      provider === "anthropic"
+      effectiveProvider === "anthropic"
         ? "anthropic/claude-sonnet-4.5"
-        : provider === "google"
+        : effectiveProvider === "google"
           ? "google/gemini-2.5-pro"
           : "openai/gpt-5";
 
@@ -184,12 +199,16 @@ export function loadTokenizerModules(
   );
 }
 
-export async function getTokenizerForModel(modelString: string): Promise<Tokenizer> {
+export async function getTokenizerForModel(
+  modelString: string,
+  metadataModelOverride?: string
+): Promise<Tokenizer> {
   if (shouldUseApproxTokenizer()) {
     return getApproxTokenizer();
   }
 
-  const modelName = resolveModelName(modelString);
+  const resolvedModel = metadataModelOverride ?? modelString;
+  const modelName = resolveModelName(resolvedModel);
   const encodingName = await resolveEncoding(modelName);
 
   return {
@@ -225,9 +244,12 @@ export function countTokensForData(data: unknown, tokenizer: Tokenizer): Promise
 
 export async function getToolDefinitionTokens(
   toolName: string,
-  modelString: string
+  modelString: string,
+  metadataModelOverride?: string
 ): Promise<number> {
   try {
+    // Tool availability is runtime-model specific (provider + model used for the request),
+    // but tokenization should follow metadata-model overrides when configured.
     const availableTools = getAvailableTools(modelString);
     if (!availableTools.includes(toolName)) {
       return 0;
@@ -239,7 +261,8 @@ export async function getToolDefinitionTokens(
       return 40;
     }
 
-    return countTokens(modelString, JSON.stringify(toolSchema));
+    const tokenizerModel = metadataModelOverride ?? modelString;
+    return countTokens(tokenizerModel, JSON.stringify(toolSchema));
   } catch {
     const fallbackSizes: Record<string, number> = {
       bash: 65,

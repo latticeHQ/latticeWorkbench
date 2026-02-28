@@ -4,9 +4,9 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { assert } from "@/common/utils/assert";
 
-const STORAGE_KEY_BASE_URL = "com.latticeruntime.workbench-settings.baseUrl";
-const STORAGE_KEY_AUTH_TOKEN = "com.latticeruntime.workbench-settings.authToken";
-const DEFAULT_BASE_URL = "https://mobile.latticeruntime.com";
+const STORAGE_KEY_BASE_URL = "com.lattice.lattice.app-settings.baseUrl";
+const STORAGE_KEY_AUTH_TOKEN = "com.lattice.lattice.app-settings.authToken";
+const DEFAULT_BASE_URL = "http://localhost:3000";
 const URL_SCHEME_REGEX = /^[a-z][a-z0-9+.-]*:\/\//i;
 
 interface ExpoLatticeExtra {

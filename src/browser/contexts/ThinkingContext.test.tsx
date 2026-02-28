@@ -40,14 +40,14 @@ const dom = new GlobalWindow();
 /* eslint-enable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access */
 
 interface TestProps {
-  workspaceId: string;
+  minionId: string;
 }
 
 const TestComponent: React.FC<TestProps> = (props) => {
   const [thinkingLevel] = useThinkingLevel();
   return (
     <div data-testid="thinking">
-      {thinkingLevel}:{props.workspaceId}
+      {thinkingLevel}:{props.minionId}
     </div>
   );
 };
@@ -65,10 +65,10 @@ describe("ThinkingContext", () => {
   });
 
   test("switching models does not remount children", async () => {
-    const workspaceId = "ws-1";
+    const minionId = "ws-1";
 
-    updatePersistedState(getModelKey(workspaceId), "openai:gpt-5.2");
-    updatePersistedState(getThinkingLevelKey(workspaceId), "high");
+    updatePersistedState(getModelKey(minionId), "openai:gpt-5.2");
+    updatePersistedState(getThinkingLevelKey(minionId), "high");
 
     let unmounts = 0;
 
@@ -84,7 +84,7 @@ describe("ThinkingContext", () => {
     };
 
     const view = render(
-      <ThinkingProvider workspaceId={workspaceId}>
+      <ThinkingProvider minionId={minionId}>
         <Child />
       </ThinkingProvider>
     );
@@ -94,25 +94,25 @@ describe("ThinkingContext", () => {
     });
 
     act(() => {
-      updatePersistedState(getModelKey(workspaceId), "anthropic:claude-3.5");
+      updatePersistedState(getModelKey(minionId), "anthropic:claude-3.5");
     });
 
-    // Thinking is workspace-scoped (not per-model), so switching models should not change it.
+    // Thinking is minion-scoped (not per-model), so switching models should not change it.
     await waitFor(() => {
       expect(view.getByTestId("child").textContent).toBe("high");
     });
 
     expect(unmounts).toBe(0);
   });
-  test("migrates legacy per-model thinking to the workspace-scoped key", async () => {
-    const workspaceId = "ws-1";
+  test("migrates legacy per-model thinking to the minion-scoped key", async () => {
+    const minionId = "ws-1";
 
-    updatePersistedState(getModelKey(workspaceId), "openai:gpt-5.2");
+    updatePersistedState(getModelKey(minionId), "openai:gpt-5.2");
     updatePersistedState(getThinkingLevelByModelKey("openai:gpt-5.2"), "low");
 
     const view = render(
-      <ThinkingProvider workspaceId={workspaceId}>
-        <TestComponent workspaceId={workspaceId} />
+      <ThinkingProvider minionId={minionId}>
+        <TestComponent minionId={minionId} />
       </ThinkingProvider>
     );
 
@@ -120,14 +120,14 @@ describe("ThinkingContext", () => {
       expect(view.getByTestId("thinking").textContent).toBe("low:ws-1");
     });
 
-    // Migration should have populated the new workspace-scoped key.
-    const persisted = window.localStorage.getItem(getThinkingLevelKey(workspaceId));
+    // Migration should have populated the new minion-scoped key.
+    const persisted = window.localStorage.getItem(getThinkingLevelKey(minionId));
     expect(persisted).toBeTruthy();
     expect(JSON.parse(persisted!)).toBe("low");
 
-    // Switching models should not change the workspace-scoped value.
+    // Switching models should not change the minion-scoped value.
     act(() => {
-      updatePersistedState(getModelKey(workspaceId), "anthropic:claude-3.5");
+      updatePersistedState(getModelKey(minionId), "anthropic:claude-3.5");
     });
 
     await waitFor(() => {

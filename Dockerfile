@@ -34,7 +34,6 @@ COPY src/ src/
 COPY tsconfig.json tsconfig.main.json ./
 COPY scripts/generate-version.sh scripts/generate-builtin-agents.sh scripts/generate-builtin-skills.sh scripts/
 COPY scripts/gen_builtin_skills.ts scripts/
-COPY docs/ docs/
 COPY index.html terminal.html vite.config.ts ./
 COPY public/ public/
 COPY static/ static/
@@ -86,6 +85,14 @@ RUN mkdir -p dist/static && cp -r static/* dist/static/ 2>/dev/null || true
 # Stage 2: Runtime
 # ==============================================================================
 FROM node:22-slim
+
+# OCI image metadata — allows registries (GHCR, Docker Hub) to link the image
+# back to the source repository and display version/description.
+ARG VERSION=dev
+LABEL org.opencontainers.image.source="https://github.com/latticeHQ/latticeWorkbench"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.description="Lattice server — parallel AI agent workflows"
+LABEL org.opencontainers.image.licenses="MIT"
 
 WORKDIR /app
 

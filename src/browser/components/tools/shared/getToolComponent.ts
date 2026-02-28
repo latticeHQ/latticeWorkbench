@@ -20,6 +20,7 @@ import { AskUserQuestionToolCall } from "../AskUserQuestionToolCall";
 import { ProposePlanToolCall } from "../ProposePlanToolCall";
 import { TodoToolCall } from "../TodoToolCall";
 import { StatusSetToolCall } from "../StatusSetToolCall";
+import { SwitchAgentToolCall } from "../SwitchAgentToolCall";
 import { NotifyToolCall } from "../NotifyToolCall";
 import { BashBackgroundListToolCall } from "../BashBackgroundListToolCall";
 import { BashBackgroundTerminateToolCall } from "../BashBackgroundTerminateToolCall";
@@ -32,6 +33,7 @@ import {
   TaskListToolCall,
   TaskTerminateToolCall,
 } from "../TaskToolCall";
+import { TaskApplyGitPatchToolCall } from "../TaskApplyGitPatchToolCall";
 
 /**
  * Component type that accepts any props. We use this because:
@@ -52,7 +54,7 @@ interface ToolRegistryEntry {
  * Adding a new tool: add one line here.
  *
  * Note: Some tools (ask_user_question, propose_plan, todo_write, status_set) require
- * props like workspaceId/toolCallId that aren't available in nested context. This is
+ * props like minionId/toolCallId that aren't available in nested context. This is
  * fine because the backend excludes these from code_execution sandbox (see EXCLUDED_TOOLS
  * in src/node/services/ptc/toolBridge.ts). They can never appear in nested tool calls.
  */
@@ -89,6 +91,10 @@ const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   },
   todo_write: { component: TodoToolCall, schema: TOOL_DEFINITIONS.todo_write.schema },
   status_set: { component: StatusSetToolCall, schema: TOOL_DEFINITIONS.status_set.schema },
+  switch_agent: {
+    component: SwitchAgentToolCall,
+    schema: TOOL_DEFINITIONS.switch_agent.schema,
+  },
   notify: { component: NotifyToolCall, schema: TOOL_DEFINITIONS.notify.schema },
   web_fetch: { component: WebFetchToolCall, schema: TOOL_DEFINITIONS.web_fetch.schema },
   bash_background_list: {
@@ -110,6 +116,10 @@ const TOOL_REGISTRY: Record<string, ToolRegistryEntry> = {
   task_terminate: {
     component: TaskTerminateToolCall,
     schema: TOOL_DEFINITIONS.task_terminate.schema,
+  },
+  task_apply_git_patch: {
+    component: TaskApplyGitPatchToolCall,
+    schema: TOOL_DEFINITIONS.task_apply_git_patch.schema,
   },
   agent_report: {
     component: AgentReportToolCall,

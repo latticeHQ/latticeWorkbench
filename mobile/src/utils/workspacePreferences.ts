@@ -21,7 +21,7 @@ export async function loadRuntimePreference(projectPath: string): Promise<string
 
 /**
  * Save runtime preference for a project
- * @param projectPath - Headquarter path
+ * @param projectPath - Project path
  * @param runtime - Runtime string ("ssh <host>" or "local")
  */
 export async function saveRuntimePreference(projectPath: string, runtime: string): Promise<void> {

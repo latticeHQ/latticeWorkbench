@@ -1,12 +1,12 @@
 import { describe, it, expect } from "bun:test";
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 import {
-  LATTICE_HELP_CHAT_WORKSPACE_ID,
-  LATTICE_HELP_CHAT_WORKSPACE_NAME,
-  LATTICE_HELP_CHAT_WORKSPACE_TITLE,
+  LATTICE_HELP_CHAT_MINION_ID,
+  LATTICE_HELP_CHAT_MINION_NAME,
+  LATTICE_HELP_CHAT_MINION_TITLE,
 } from "@/common/constants/latticeChat";
 import { FILE_EDIT_DIFF_OMITTED_MESSAGE } from "@/common/types/tools";
 
@@ -14,7 +14,7 @@ import { createLatticeGlobalAgentsReadTool } from "./lattice_global_agents_read"
 import { createLatticeGlobalAgentsWriteTool } from "./lattice_global_agents_write";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -23,16 +23,12 @@ describe("lattice_global_agents_* tools", () => {
   it("reads ~/.lattice/AGENTS.md (returns empty string if missing)", async () => {
     using latticeHome = new TestTempDir("lattice-global-agents");
 
-    const workspaceSessionDir = path.join(
-      latticeHome.path,
-      "sessions",
-      LATTICE_HELP_CHAT_WORKSPACE_ID
-    );
-    await fs.mkdir(workspaceSessionDir, { recursive: true });
+    const minionSessionDir = path.join(latticeHome.path, "sessions", LATTICE_HELP_CHAT_MINION_ID);
+    await fs.mkdir(minionSessionDir, { recursive: true });
 
     const config = createTestToolConfig(latticeHome.path, {
-      workspaceId: LATTICE_HELP_CHAT_WORKSPACE_ID,
-      sessionsDir: workspaceSessionDir,
+      minionId: LATTICE_HELP_CHAT_MINION_ID,
+      sessionsDir: minionSessionDir,
     });
 
     const tool = createLatticeGlobalAgentsReadTool(config);
@@ -51,7 +47,7 @@ describe("lattice_global_agents_* tools", () => {
     const agentsPath = path.join(latticeHome.path, "AGENTS.md");
     await fs.writeFile(
       agentsPath,
-      `# ${LATTICE_HELP_CHAT_WORKSPACE_TITLE}\n${LATTICE_HELP_CHAT_WORKSPACE_NAME}\n`,
+      `# ${LATTICE_HELP_CHAT_MINION_TITLE}\n${LATTICE_HELP_CHAT_MINION_NAME}\n`,
       "utf-8"
     );
 
@@ -61,24 +57,20 @@ describe("lattice_global_agents_* tools", () => {
     };
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.content).toContain(LATTICE_HELP_CHAT_WORKSPACE_TITLE);
-      expect(result.content).toContain(LATTICE_HELP_CHAT_WORKSPACE_NAME);
+      expect(result.content).toContain(LATTICE_HELP_CHAT_MINION_TITLE);
+      expect(result.content).toContain(LATTICE_HELP_CHAT_MINION_NAME);
     }
   });
 
   it("refuses to write without explicit confirmation", async () => {
     using latticeHome = new TestTempDir("lattice-global-agents");
 
-    const workspaceSessionDir = path.join(
-      latticeHome.path,
-      "sessions",
-      LATTICE_HELP_CHAT_WORKSPACE_ID
-    );
-    await fs.mkdir(workspaceSessionDir, { recursive: true });
+    const minionSessionDir = path.join(latticeHome.path, "sessions", LATTICE_HELP_CHAT_MINION_ID);
+    await fs.mkdir(minionSessionDir, { recursive: true });
 
     const config = createTestToolConfig(latticeHome.path, {
-      workspaceId: LATTICE_HELP_CHAT_WORKSPACE_ID,
-      sessionsDir: workspaceSessionDir,
+      minionId: LATTICE_HELP_CHAT_MINION_ID,
+      sessionsDir: minionSessionDir,
     });
 
     const tool = createLatticeGlobalAgentsWriteTool(config);
@@ -108,16 +100,12 @@ describe("lattice_global_agents_* tools", () => {
   it("writes ~/.lattice/AGENTS.md and returns a diff", async () => {
     using latticeHome = new TestTempDir("lattice-global-agents");
 
-    const workspaceSessionDir = path.join(
-      latticeHome.path,
-      "sessions",
-      LATTICE_HELP_CHAT_WORKSPACE_ID
-    );
-    await fs.mkdir(workspaceSessionDir, { recursive: true });
+    const minionSessionDir = path.join(latticeHome.path, "sessions", LATTICE_HELP_CHAT_MINION_ID);
+    await fs.mkdir(minionSessionDir, { recursive: true });
 
     const config = createTestToolConfig(latticeHome.path, {
-      workspaceId: LATTICE_HELP_CHAT_WORKSPACE_ID,
-      sessionsDir: workspaceSessionDir,
+      minionId: LATTICE_HELP_CHAT_MINION_ID,
+      sessionsDir: minionSessionDir,
     });
 
     const tool = createLatticeGlobalAgentsWriteTool(config);
@@ -143,16 +131,12 @@ describe("lattice_global_agents_* tools", () => {
   it("rejects symlink targets", async () => {
     using latticeHome = new TestTempDir("lattice-global-agents");
 
-    const workspaceSessionDir = path.join(
-      latticeHome.path,
-      "sessions",
-      LATTICE_HELP_CHAT_WORKSPACE_ID
-    );
-    await fs.mkdir(workspaceSessionDir, { recursive: true });
+    const minionSessionDir = path.join(latticeHome.path, "sessions", LATTICE_HELP_CHAT_MINION_ID);
+    await fs.mkdir(minionSessionDir, { recursive: true });
 
     const config = createTestToolConfig(latticeHome.path, {
-      workspaceId: LATTICE_HELP_CHAT_WORKSPACE_ID,
-      sessionsDir: workspaceSessionDir,
+      minionId: LATTICE_HELP_CHAT_MINION_ID,
+      sessionsDir: minionSessionDir,
     });
 
     const readTool = createLatticeGlobalAgentsReadTool(config);

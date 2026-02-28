@@ -11,11 +11,16 @@ import { execAsync } from "@/node/utils/disposableExec";
 import { getErrorMessage } from "@/common/utils/errors";
 import { log } from "@/node/services/log";
 
-interface OriginUrlResult {
+export interface OriginUrlResult {
   originUrl: string | null;
 }
 
-async function getOriginUrlForBundle(
+/**
+ * Detect the origin remote URL for a local project.
+ * Returns null if no origin exists, or if the URL points to a bundle file.
+ * Exported for reuse by SSHRuntime's worktree-based sync path.
+ */
+export async function getOriginUrlForBundle(
   projectPath: string,
   initLogger: InitLogger,
   logErrors: boolean
@@ -48,8 +53,8 @@ const TRACKING_BRANCHES_COMMAND =
 export interface GitBundleSyncParams {
   /** Local project path (where git bundle is created) */
   projectPath: string;
-  /** Destination workspace path on the remote runtime */
-  workspacePath: string;
+  /** Destination minion path on the remote runtime */
+  minionPath: string;
   /** Remote temp directory for clone/cleanup (e.g., "~" or "/tmp") */
   remoteTmpDir: string;
   /** Remote path where the bundle will be created/copied */
@@ -87,7 +92,7 @@ export interface GitBundleSyncParams {
 export async function syncProjectViaGitBundle(params: GitBundleSyncParams): Promise<void> {
   const {
     projectPath,
-    workspacePath,
+    minionPath,
     remoteTmpDir,
     remoteBundlePath,
     exec,
@@ -134,7 +139,7 @@ export async function syncProjectViaGitBundle(params: GitBundleSyncParams): Prom
     // Clone from the bundle on the remote runtime.
     initLogger.logStep(cloneStep);
     const cloneStream = await exec(
-      `git clone --quiet ${quoteRemotePath(remoteBundlePath)} ${quoteRemotePath(workspacePath)}`,
+      `git clone --quiet ${quoteRemotePath(remoteBundlePath)} ${quoteRemotePath(minionPath)}`,
       {
         cwd: remoteTmpDir,
         timeout: 300,
@@ -155,7 +160,7 @@ export async function syncProjectViaGitBundle(params: GitBundleSyncParams): Prom
     // Create local tracking branches.
     initLogger.logStep("Creating local tracking branches...");
     const trackingStream = await exec(TRACKING_BRANCHES_COMMAND, {
-      cwd: workspacePath,
+      cwd: minionPath,
       timeout: 30,
       abortSignal,
     });
@@ -165,7 +170,7 @@ export async function syncProjectViaGitBundle(params: GitBundleSyncParams): Prom
     if (originUrl) {
       initLogger.logStep(`Setting origin remote to ${originUrl}...`);
       const setOriginStream = await exec(`git remote set-url origin ${shescape.quote(originUrl)}`, {
-        cwd: workspacePath,
+        cwd: minionPath,
         timeout: 10,
         abortSignal,
       });
@@ -178,7 +183,7 @@ export async function syncProjectViaGitBundle(params: GitBundleSyncParams): Prom
     } else {
       initLogger.logStep("Removing bundle origin remote...");
       const removeOriginStream = await exec(`git remote remove origin 2>/dev/null || true`, {
-        cwd: workspacePath,
+        cwd: minionPath,
         timeout: 10,
         abortSignal,
       });

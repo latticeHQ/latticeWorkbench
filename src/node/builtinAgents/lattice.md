@@ -1,9 +1,9 @@
 ---
 name: Lattice
-description: Configure lattice global behavior (system workspace)
+description: Configure lattice global behavior (system minion)
 ui:
   hidden: true
-subagent:
+sidekick:
   runnable: false
 tools:
   add:

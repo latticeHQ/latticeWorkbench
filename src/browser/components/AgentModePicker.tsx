@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, FolderX, RefreshCw } from "lucide-react";
+import { ChevronDown, FolderX, Loader2, RefreshCw } from "lucide-react";
 
 import { useAgent } from "@/browser/contexts/AgentContext";
 import { CUSTOM_EVENTS } from "@/common/constants/events";
@@ -12,6 +12,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/browser/components/ui/tooltip";
+import { Button } from "@/browser/components/ui/button";
 import {
   formatKeybind,
   formatNumberedKeybind,
@@ -40,11 +41,11 @@ interface AgentOption {
   tools?: { add?: string[]; remove?: string[] };
   /** AI defaults (model, thinking level) */
   aiDefaults?: { model?: string; thinkingLevel?: string };
-  /** Whether this agent can be spawned as a subagent */
-  subagentRunnable: boolean;
+  /** Whether this agent can be spawned as a sidekick */
+  sidekickRunnable: boolean;
 }
 
-function formatAgentIdLabel(agentId: string): string {
+export function formatAgentIdLabel(agentId: string): string {
   if (!agentId) {
     return "Agent";
   }
@@ -69,7 +70,7 @@ function formatScope(scope: AgentOption["scope"]): string {
     case "built-in":
       return "Built-in";
     case "project":
-      return "Headquarter";
+      return "Project";
     case "global":
       return "Global";
   }
@@ -124,9 +125,9 @@ const AgentTooltipContent: React.FC<{ opt: AgentOption }> = ({ opt }) => {
         </div>
       )}
 
-      {opt.subagentRunnable && (
+      {opt.sidekickRunnable && (
         <div className="text-muted">
-          <span className="text-muted-light">Subagent:</span> runnable
+          <span className="text-muted-light">Sidekick:</span> runnable
         </div>
       )}
     </div>
@@ -141,7 +142,7 @@ function hasTooltipContent(opt: AgentOption): boolean {
   if (opt.aiDefaults?.thinkingLevel) return true;
   if ((opt.tools?.add?.length ?? 0) > 0) return true;
   if ((opt.tools?.remove?.length ?? 0) > 0) return true;
-  if (opt.subagentRunnable) return true;
+  if (opt.sidekickRunnable) return true;
   return false;
 }
 
@@ -175,10 +176,11 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
     agentId,
     setAgentId,
     agents,
+    loaded,
     refresh,
     refreshing,
-    disableWorkspaceAgents,
-    setDisableWorkspaceAgents,
+    disableMinionAgents,
+    setDisableMinionAgents,
   } = useAgent();
 
   const onComplete = props.onComplete;
@@ -208,7 +210,7 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
         name: formatAgentIdLabel(normalizedAgentId),
         uiColor: undefined,
         scope: "project" as const,
-        subagentRunnable: false,
+        sidekickRunnable: false,
       } satisfies AgentOption;
     }
 
@@ -221,7 +223,7 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
       base: descriptor.base,
       tools: descriptor.tools,
       aiDefaults: descriptor.aiDefaults,
-      subagentRunnable: descriptor.subagentRunnable,
+      sidekickRunnable: descriptor.sidekickRunnable,
     } satisfies AgentOption;
   }, [agents, normalizedAgentId]);
 
@@ -408,22 +410,23 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
 
   // Resolve display properties for the trigger pill
   const activeDisplayName = activeOption?.name ?? formatAgentIdLabel(normalizedAgentId);
+  // Use subtle border with agent color, but keep text/caret colors matching ModelSelector
   const activeStyle: React.CSSProperties | undefined = activeOption?.uiColor
-    ? { backgroundColor: activeOption.uiColor }
+    ? { borderColor: activeOption.uiColor }
     : undefined;
-  const activeClassName = activeOption?.uiColor
-    ? "text-white"
-    : "bg-exec-mode text-white hover:bg-exec-mode-hover";
+  const activeClassName = activeOption?.uiColor ? "" : "border-exec-mode";
 
   return (
     <div ref={containerRef} className={cn("relative flex items-center gap-1.5", props.className)}>
-      {/* Dropdown trigger - pill style button */}
+      {/* Dropdown trigger - styled to match ModelSelector */}
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
+          <Button
             type="button"
             aria-label="Select agent"
             aria-expanded={isPickerOpen}
+            size="xs"
+            variant="ghost"
             onClick={() => {
               if (isPickerOpen) {
                 closePicker();
@@ -433,25 +436,31 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
             }}
             style={activeStyle}
             className={cn(
-              "flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[11px] font-medium transition-all duration-150",
+              "text-foreground hover:bg-hover flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium transition-all duration-150",
               activeClassName
             )}
           >
-            <span className="max-w-[130px] truncate">{activeDisplayName}</span>
+            <span className="max-w-[clamp(4.5rem,30vw,130px)] truncate">{activeDisplayName}</span>
             <ChevronDown
               className={cn(
-                "h-3 w-3 transition-transform duration-150",
+                "text-muted h-3 w-3 transition-transform duration-150",
                 isPickerOpen && "rotate-180"
               )}
             />
-          </button>
+          </Button>
         </TooltipTrigger>
         <TooltipContent align="center">
-          Select agent ({formatKeybind(KEYBINDS.TOGGLE_AGENT)})
+          Select agent{" "}
+          <span className="mobile-hide-shortcut-hints">
+            ({formatKeybind(KEYBINDS.TOGGLE_AGENT)})
+          </span>
         </TooltipContent>
       </Tooltip>
 
-      <AgentHelpTooltip />
+      {/* Tooltip is hover-only; hide it on touch + narrow layouts to avoid overlap. */}
+      <div className="hidden [@container(min-width:420px)]:[@media(hover:hover)_and_(pointer:fine)]:block">
+        <AgentHelpTooltip />
+      </div>
 
       {isPickerOpen && (
         <div className="bg-separator border-border-light absolute right-0 bottom-full z-[1020] mb-1 max-w-[420px] min-w-72 overflow-hidden rounded border shadow-[0_4px_12px_rgba(0,0,0,0.3)]">
@@ -485,14 +494,14 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
                 <button
                   type="button"
                   aria-label={
-                    disableWorkspaceAgents
-                      ? "Workspace agents disabled (click to enable)"
-                      : "Workspace agents enabled (click to disable)"
+                    disableMinionAgents
+                      ? "Minion agents disabled (click to enable)"
+                      : "Minion agents enabled (click to disable)"
                   }
-                  onClick={() => setDisableWorkspaceAgents((prev) => !prev)}
+                  onClick={() => setDisableMinionAgents((prev) => !prev)}
                   className={cn(
                     "flex-shrink-0 p-0.5 transition-colors",
-                    disableWorkspaceAgents
+                    disableMinionAgents
                       ? "text-red-500 hover:text-red-400"
                       : "text-muted hover:text-foreground"
                   )}
@@ -501,12 +510,12 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="bottom" align="end" className="max-w-56">
-                {disableWorkspaceAgents ? (
+                {disableMinionAgents ? (
                   <span className="text-red-400">
-                    Workspace agents disabled — using built-in/global only. Click to re-enable.
+                    Minion agents disabled — using built-in/global only. Click to re-enable.
                   </span>
                 ) : (
-                  "Disable workspace agents (use built-in/global only)"
+                  "Disable minion agents (use built-in/global only)"
                 )}
               </TooltipContent>
             </Tooltip>
@@ -532,7 +541,16 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
 
           <div className="max-h-[220px] overflow-y-auto">
             {filteredOptions.length === 0 ? (
-              <div className="text-muted-light px-2.5 py-2 text-[11px]">No matching agents</div>
+              <div className="text-muted-light px-2.5 py-2 text-[11px]">
+                {!loaded ? (
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading agents…
+                  </span>
+                ) : (
+                  "No matching agents"
+                )}
+              </div>
             ) : (
               filteredOptions.map((opt, index) => {
                 const isHighlighted = index === highlightedIndex;

@@ -25,6 +25,7 @@ ensure_tool() {
 ensure_tool curl
 ensure_tool git
 ensure_tool unzip
+ensure_tool python3
 export BUN_INSTALL="${BUN_INSTALL:-/root/.bun}"
 export PATH="${BUN_INSTALL}/bin:${PATH}"
 
@@ -50,8 +51,15 @@ fi
 
 cd "${LATTICE_APP_ROOT}"
 
-log "installing lattice dependencies via bun"
-bun install --frozen-lockfile
+# Use --production to skip devDependencies (electron-builder, storybook, etc.)
+# which cuts install size from 1.9GB → 728MB and avoids OOM in memory-constrained
+# Daytona sandboxes (2GB). The headless CLI only needs production deps.
+if [[ -d "node_modules" ]]; then
+  log "node_modules already present, skipping bun install"
+else
+  log "installing lattice production dependencies via bun"
+  LATTICE_HEADLESS=1 bun install --production --frozen-lockfile
+fi
 
 mkdir -p "${LATTICE_CONFIG_ROOT}"
 
