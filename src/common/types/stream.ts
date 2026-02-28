@@ -5,6 +5,11 @@
 import type { z } from "zod";
 import type { LatticeReasoningPart, LatticeTextPart, LatticeToolPart } from "./message";
 import type {
+  AutoCompactionCompletedEventSchema,
+  AutoCompactionTriggeredEventSchema,
+  AutoRetryAbandonedEventSchema,
+  AutoRetryScheduledEventSchema,
+  AutoRetryStartingEventSchema,
   ErrorEventSchema,
   ReasoningDeltaEventSchema,
   ReasoningEndEventSchema,
@@ -17,6 +22,7 @@ import type {
   ToolCallEndEventSchema,
   ToolCallStartEventSchema,
   BashOutputEventSchema,
+  TaskCreatedEventSchema,
   UsageDeltaEventSchema,
   RuntimeStatusEventSchema,
 } from "../orpc/schemas";
@@ -40,6 +46,7 @@ export type StreamAbortEvent = z.infer<typeof StreamAbortEventSchema>;
 export type ErrorEvent = z.infer<typeof ErrorEventSchema>;
 
 export type BashOutputEvent = z.infer<typeof BashOutputEventSchema>;
+export type TaskCreatedEvent = z.infer<typeof TaskCreatedEventSchema>;
 export type ToolCallStartEvent = z.infer<typeof ToolCallStartEventSchema>;
 export type ToolCallDeltaEvent = z.infer<typeof ToolCallDeltaEventSchema>;
 export type ToolCallEndEvent = z.infer<typeof ToolCallEndEventSchema>;
@@ -53,23 +60,15 @@ export type ReasoningEndEvent = z.infer<typeof ReasoningEndEventSchema>;
  */
 export type UsageDeltaEvent = z.infer<typeof UsageDeltaEventSchema>;
 
+export type AutoCompactionTriggeredEvent = z.infer<typeof AutoCompactionTriggeredEventSchema>;
+export type AutoCompactionCompletedEvent = z.infer<typeof AutoCompactionCompletedEventSchema>;
+
+export type AutoRetryScheduledEvent = z.infer<typeof AutoRetryScheduledEventSchema>;
+export type AutoRetryStartingEvent = z.infer<typeof AutoRetryStartingEventSchema>;
+export type AutoRetryAbandonedEvent = z.infer<typeof AutoRetryAbandonedEventSchema>;
+
 /**
  * Progress event for runtime readiness checks.
- * Used by Lattice workspaces to show "Starting Lattice workspace..." while ensureReady() blocks.
+ * Used by Lattice minions to show "Starting Lattice minion..." while ensureReady() blocks.
  */
 export type RuntimeStatusEvent = z.infer<typeof RuntimeStatusEventSchema>;
-
-export type AIServiceEvent =
-  | StreamStartEvent
-  | StreamDeltaEvent
-  | StreamEndEvent
-  | StreamAbortEvent
-  | ErrorEvent
-  | ToolCallStartEvent
-  | ToolCallDeltaEvent
-  | ToolCallEndEvent
-  | BashOutputEvent
-  | ReasoningDeltaEvent
-  | ReasoningEndEvent
-  | UsageDeltaEvent
-  | RuntimeStatusEvent;

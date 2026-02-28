@@ -3,7 +3,7 @@ import { parseGitShowBranch } from "./parseGitLog";
 
 describe("parseGitShowBranch", () => {
   test("should preserve indicator positions for three-way divergence", () => {
-    // Real output from ci-codex workspace showing HEAD (ci-codex), origin/ci-codex, and origin/main
+    // Real output from ci-codex minion showing HEAD (ci-codex), origin/ci-codex, and origin/main
     // Order: HEAD, origin/<branch>, origin/main
     const output = `! [HEAD] 🤖 Trigger CI after resolving Codex comments
  ! [origin/ci-codex] 🤖 Trigger CI after resolving Codex comments

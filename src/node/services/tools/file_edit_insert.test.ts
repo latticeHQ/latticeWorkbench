@@ -4,11 +4,11 @@ import * as path from "path";
 import * as os from "os";
 import { createFileEditInsertTool } from "./file_edit_insert";
 import type { FileEditInsertToolArgs, FileEditInsertToolResult } from "@/common/types/tools";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 import { createRuntime } from "@/node/runtime/runtimeFactory";
 import { getTestDeps } from "./testHelpers";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -36,12 +36,12 @@ describe("file_edit_insert tool", () => {
     await fs.rm(testDir, { recursive: true, force: true });
   });
 
-  it("inserts content using before guard", async () => {
+  it("inserts content using insert_after guard", async () => {
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, testFilePath),
+      path: path.relative(testDir, testFilePath),
       content: "Line 2\n",
-      before: "Line 1\n",
+      insert_after: "Line 1\n",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
@@ -51,14 +51,14 @@ describe("file_edit_insert tool", () => {
     expect(updated).toBe("Line 1\nLine 2\nLine 3");
   });
 
-  it("inserts content using before guard when file uses CRLF", async () => {
+  it("inserts content using insert_after guard when file uses CRLF", async () => {
     await fs.writeFile(testFilePath, "Line 1\r\nLine 3\r\n");
 
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, testFilePath),
+      path: path.relative(testDir, testFilePath),
       content: "Line 2\n",
-      before: "Line 1\n",
+      insert_after: "Line 1\n",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
@@ -68,12 +68,12 @@ describe("file_edit_insert tool", () => {
     expect(updated).toBe("Line 1\r\nLine 2\r\nLine 3\r\n");
   });
 
-  it("inserts content using after guard", async () => {
+  it("inserts content using insert_before guard", async () => {
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, testFilePath),
+      path: path.relative(testDir, testFilePath),
       content: "Header\n",
-      after: "Line 1",
+      insert_before: "Line 1",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
@@ -85,9 +85,9 @@ describe("file_edit_insert tool", () => {
     await fs.writeFile(testFilePath, "repeat\nrepeat\nrepeat\n");
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, testFilePath),
+      path: path.relative(testDir, testFilePath),
       content: "middle\n",
-      before: "repeat\n",
+      insert_after: "repeat\n",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
@@ -102,9 +102,9 @@ describe("file_edit_insert tool", () => {
 
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, testFilePath),
+      path: path.relative(testDir, testFilePath),
       content: "Line 2\n",
-      before: "does not exist\n",
+      insert_after: "does not exist\n",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
@@ -113,19 +113,19 @@ describe("file_edit_insert tool", () => {
     expect(await fs.readFile(testFilePath, "utf-8")).toBe(original);
   });
 
-  it("fails when both before and after are provided", async () => {
+  it("fails when both insert_before and insert_after are provided", async () => {
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, testFilePath),
+      path: path.relative(testDir, testFilePath),
       content: "oops",
-      before: "Line 1",
-      after: "Line 3",
+      insert_after: "Line 1",
+      insert_before: "Line 3",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toContain("only one of before or after");
+      expect(result.error).toContain("only one of insert_before or insert_after");
     }
   });
 
@@ -133,7 +133,7 @@ describe("file_edit_insert tool", () => {
     const newFile = path.join(testDir, "new.txt");
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, newFile),
+      path: path.relative(testDir, newFile),
       content: "Hello world!\n",
     };
 
@@ -145,14 +145,14 @@ describe("file_edit_insert tool", () => {
   it("fails when no guards are provided", async () => {
     const tool = createTestTool(testDir);
     const args: FileEditInsertToolArgs = {
-      file_path: path.relative(testDir, testFilePath),
+      path: path.relative(testDir, testFilePath),
       content: "noop",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toContain("Provide either a before or after guard");
+      expect(result.error).toContain("Provide either insert_before or insert_after guard");
     }
   });
 });
@@ -169,24 +169,24 @@ describe("file_edit_insert plan mode enforcement", () => {
   });
 
   it("blocks creating non-plan files when in plan mode", async () => {
-    const planFilePath = path.join(testDir, "sessions", "workspace", "plan.md");
-    const otherFilePath = path.join(testDir, "workspace", "main.ts");
-    const workspaceCwd = path.join(testDir, "workspace");
+    const planFilePath = path.join(testDir, "sessions", "minion", "plan.md");
+    const otherFilePath = path.join(testDir, "minion", "main.ts");
+    const minionCwd = path.join(testDir, "minion");
 
-    // Create workspace directory
-    await fs.mkdir(workspaceCwd, { recursive: true });
+    // Create minion directory
+    await fs.mkdir(minionCwd, { recursive: true });
 
     const tool = createFileEditInsertTool({
       ...getTestDeps(),
-      cwd: workspaceCwd,
-      runtime: createRuntime({ type: "local", srcBaseDir: workspaceCwd }),
+      cwd: minionCwd,
+      runtime: createRuntime({ type: "local", srcBaseDir: minionCwd }),
       runtimeTempDir: testDir,
       planFileOnly: true,
       planFilePath: planFilePath,
     });
 
     const args: FileEditInsertToolArgs = {
-      file_path: otherFilePath,
+      path: otherFilePath,
       content: "console.log('test');",
     };
 
@@ -200,22 +200,22 @@ describe("file_edit_insert plan mode enforcement", () => {
 
   it("allows creating plan file when in plan mode", async () => {
     const planFilePath = path.join(testDir, "plan.md");
-    const workspaceCwd = path.join(testDir, "workspace");
+    const minionCwd = path.join(testDir, "minion");
 
-    // Create workspace directory
-    await fs.mkdir(workspaceCwd, { recursive: true });
+    // Create minion directory
+    await fs.mkdir(minionCwd, { recursive: true });
 
     const tool = createFileEditInsertTool({
       ...getTestDeps(),
-      cwd: workspaceCwd,
-      runtime: createRuntime({ type: "local", srcBaseDir: workspaceCwd }),
+      cwd: minionCwd,
+      runtime: createRuntime({ type: "local", srcBaseDir: minionCwd }),
       runtimeTempDir: testDir,
       planFileOnly: true,
       planFilePath: planFilePath,
     });
 
     const args: FileEditInsertToolArgs = {
-      file_path: planFilePath,
+      path: planFilePath,
       content: "# My Plan\n\n- Step 1\n- Step 2\n",
     };
 
@@ -237,9 +237,9 @@ describe("file_edit_insert plan mode enforcement", () => {
     });
 
     const args: FileEditInsertToolArgs = {
-      file_path: testFilePath,
+      path: testFilePath,
       content: "// header\n",
-      after: "const x = 1;",
+      insert_before: "const x = 1;",
     };
 
     const result = (await tool.execute!(args, mockToolCallOptions)) as FileEditInsertToolResult;
@@ -250,28 +250,28 @@ describe("file_edit_insert plan mode enforcement", () => {
 
   it("blocks creating .lattice/plan.md (wrong path) when real plan file is elsewhere", async () => {
     // This test simulates the bug where an agent tries to create ".lattice/plan.md"
-    // in the workspace instead of using the actual plan file at ~/.lattice/plans/project/workspace.md
-    const workspaceCwd = path.join(testDir, "workspace");
-    const wrongPlanPath = path.join(workspaceCwd, ".lattice", "plan.md");
-    const realPlanPath = path.join(testDir, "plans", "project", "workspace.md");
+    // in the minion instead of using the actual plan file at ~/.lattice/plans/project/minion.md
+    const minionCwd = path.join(testDir, "minion");
+    const wrongPlanPath = path.join(minionCwd, ".lattice", "plan.md");
+    const realPlanPath = path.join(testDir, "plans", "project", "minion.md");
 
-    // Create workspace directory (simulate a real project workspace)
-    await fs.mkdir(workspaceCwd, { recursive: true });
+    // Create minion directory (simulate a real project minion)
+    await fs.mkdir(minionCwd, { recursive: true });
     // Create the plans directory structure
     await fs.mkdir(path.dirname(realPlanPath), { recursive: true });
 
     const tool = createFileEditInsertTool({
       ...getTestDeps(),
-      cwd: workspaceCwd,
-      runtime: createRuntime({ type: "local", srcBaseDir: workspaceCwd }),
+      cwd: minionCwd,
+      runtime: createRuntime({ type: "local", srcBaseDir: minionCwd }),
       runtimeTempDir: testDir,
       planFileOnly: true,
       planFilePath: realPlanPath, // The REAL plan file path
     });
 
-    // Agent mistakenly tries to create ".lattice/plan.md" in workspace
+    // Agent mistakenly tries to create ".lattice/plan.md" in minion
     const args: FileEditInsertToolArgs = {
-      file_path: ".lattice/plan.md", // Wrong path - relative to cwd
+      path: ".lattice/plan.md", // Wrong path - relative to cwd
       content: "# My Plan\n\n- Step 1\n",
     };
 

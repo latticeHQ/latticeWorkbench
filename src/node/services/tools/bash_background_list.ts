@@ -4,7 +4,7 @@ import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools"
 import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
 
 /**
- * Tool for listing background processes in the current workspace
+ * Tool for listing background processes in the current minion
  */
 export const createBashBackgroundListTool: ToolFactory = (config: ToolConfiguration) => {
   return tool({
@@ -18,14 +18,14 @@ export const createBashBackgroundListTool: ToolFactory = (config: ToolConfigurat
         };
       }
 
-      if (!config.workspaceId) {
+      if (!config.minionId) {
         return {
           success: false,
-          error: "Workspace ID not available",
+          error: "Minion ID not available",
         };
       }
 
-      const processes = await config.backgroundProcessManager.list(config.workspaceId);
+      const processes = await config.backgroundProcessManager.list(config.minionId);
       const now = Date.now();
 
       return {

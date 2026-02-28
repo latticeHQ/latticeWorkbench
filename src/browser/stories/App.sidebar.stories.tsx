@@ -6,20 +6,21 @@ import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import {
   NOW,
   STABLE_TIMESTAMP,
-  createWorkspace,
-  createSSHWorkspace,
-  createLocalWorkspace,
+  createMinion,
+  createSSHMinion,
+  createLocalMinion,
   createUserMessage,
   createStreamingChatHandler,
-  groupWorkspacesByProject,
+  groupMinionsByProject,
   createGitStatusOutput,
   type GitStatusFixture,
 } from "./mockFactory";
 import {
-  clearWorkspaceSelection,
+  clearMinionSelection,
   createOnChatAdapter,
   type ChatHandler,
   expandProjects,
+  setMinionDrafts,
 } from "./storyHelpers";
 import { GIT_STATUS_INDICATOR_MODE_KEY } from "@/common/constants/storage";
 import { within, userEvent, waitFor } from "@storybook/test";
@@ -32,7 +33,7 @@ export default {
   decorators: [
     (Story: () => JSX.Element) => {
       // Sidebar stories are about list organization; keep the main panel unselected.
-      clearWorkspaceSelection();
+      clearMinionSelection();
       return <Story />;
     },
   ],
@@ -103,8 +104,8 @@ function createGitStatusExecutor(gitStatus?: Map<string, GitStatusFixture>) {
     ].join("\n");
   };
 
-  return (workspaceId: string, script: string) => {
-    const status = gitStatus?.get(workspaceId) ?? {};
+  return (minionId: string, script: string) => {
+    const status = gitStatus?.get(minionId) ?? {};
 
     // useGitBranchDetails consolidated script (tooltip content)
     if (script.includes("__LATTICE_BRANCH_DATA__BEGIN_SHOW_BRANCH__")) {
@@ -127,25 +128,25 @@ function createGitStatusExecutor(gitStatus?: Map<string, GitStatusFixture>) {
   };
 }
 
-/** Single project with multiple workspaces including SSH */
+/** Single project with multiple minions including SSH */
 export const SingleProject: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaces = [
-          createWorkspace({ id: "ws-1", name: "main", projectName: "my-app" }),
-          createSSHWorkspace({
+        const minions = [
+          createMinion({ id: "ws-1", name: "main", projectName: "my-app" }),
+          createSSHMinion({
             id: "ws-2",
             name: "feature/auth",
             projectName: "my-app",
             host: "dev-server.example.com",
           }),
-          createWorkspace({ id: "ws-3", name: "bugfix/memory-leak", projectName: "my-app" }),
+          createMinion({ id: "ws-3", name: "bugfix/memory-leak", projectName: "my-app" }),
         ];
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
         });
       }}
     />
@@ -157,31 +158,31 @@ export const MultipleProjects: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaces = [
-          createWorkspace({ id: "ws-1", name: "main", projectName: "frontend" }),
-          createWorkspace({ id: "ws-2", name: "redesign", projectName: "frontend" }),
-          createWorkspace({ id: "ws-3", name: "main", projectName: "backend" }),
-          createWorkspace({ id: "ws-4", name: "api-v2", projectName: "backend" }),
-          createSSHWorkspace({
+        const minions = [
+          createMinion({ id: "ws-1", name: "main", projectName: "frontend" }),
+          createMinion({ id: "ws-2", name: "redesign", projectName: "frontend" }),
+          createMinion({ id: "ws-3", name: "main", projectName: "backend" }),
+          createMinion({ id: "ws-4", name: "api-v2", projectName: "backend" }),
+          createSSHMinion({
             id: "ws-5",
             name: "db-migration",
             projectName: "backend",
             host: "staging.example.com",
           }),
-          createWorkspace({ id: "ws-6", name: "main", projectName: "mobile" }),
+          createMinion({ id: "ws-6", name: "main", projectName: "mobile" }),
         ];
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
         });
       }}
     />
   ),
 };
 
-/** Many workspaces testing sidebar scroll behavior */
-export const ManyWorkspaces: AppStory = {
+/** Many minions testing sidebar scroll behavior */
+export const ManyMinions: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
@@ -200,46 +201,46 @@ export const ManyWorkspaces: AppStory = {
           "release/v1.2.0",
         ];
 
-        const workspaces = names.map((name, i) =>
-          createWorkspace({ id: `ws-${i}`, name, projectName: "big-app" })
+        const minions = names.map((name, i) =>
+          createMinion({ id: `ws-${i}`, name, projectName: "big-app" })
         );
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
         });
       }}
     />
   ),
 };
 
-/** Long workspace names - tests truncation and prevents horizontal scroll regression */
-export const LongWorkspaceNames: AppStory = {
+/** Long minion names - tests truncation and prevents horizontal scroll regression */
+export const LongMinionNames: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaces = [
-          createWorkspace({
+        const minions = [
+          createMinion({
             id: "ws-short",
             name: "main",
             projectName: "my-app",
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-medium",
             name: "feature/user-authentication",
             projectName: "my-app",
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-long",
             name: "feature/implement-oauth2-authentication-with-google-provider",
             projectName: "my-app",
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-very-long",
             name: "bugfix/fix-critical-memory-leak-in-websocket-connection-handler-that-causes-oom",
             projectName: "my-app",
           }),
-          createSSHWorkspace({
+          createSSHMinion({
             id: "ws-ssh-long",
             name: "deploy/production-kubernetes-cluster-rolling-update-with-zero-downtime",
             projectName: "my-app",
@@ -259,8 +260,8 @@ export const LongWorkspaceNames: AppStory = {
         expandProjects(["/home/user/projects/my-app"]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           executeBash: createGitStatusExecutor(gitStatus),
         });
       }}
@@ -283,38 +284,38 @@ export const GitStatusVariations: AppStory = {
       setup={() => {
         window.localStorage.setItem(GIT_STATUS_INDICATOR_MODE_KEY, JSON.stringify("line-delta"));
 
-        const workspaces = [
-          createWorkspace({
+        const minions = [
+          createMinion({
             id: "ws-clean",
             name: "main",
             projectName: "my-app",
             createdAt: new Date(NOW - 3600000).toISOString(),
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-ahead",
             name: "feature/new-ui",
             projectName: "my-app",
             createdAt: new Date(NOW - 7200000).toISOString(),
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-behind",
             name: "feature/api",
             projectName: "my-app",
             createdAt: new Date(NOW - 10800000).toISOString(),
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-dirty",
             name: "bugfix/crash",
             projectName: "my-app",
             createdAt: new Date(NOW - 14400000).toISOString(),
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-diverged",
             name: "refactor/db",
             projectName: "my-app",
             createdAt: new Date(NOW - 18000000).toISOString(),
           }),
-          createSSHWorkspace({
+          createSSHMinion({
             id: "ws-ssh",
             name: "deploy/prod",
             projectName: "my-app",
@@ -347,8 +348,8 @@ export const GitStatusVariations: AppStory = {
         expandProjects(["/home/user/projects/my-app"]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           executeBash: createGitStatusExecutor(gitStatus),
         });
       }}
@@ -356,50 +357,36 @@ export const GitStatusVariations: AppStory = {
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     // Wait for git status to render (fetched async via GitStatusStore polling)
-    await waitFor(
-      () => {
-        const row = canvasElement.querySelector<HTMLElement>('[data-workspace-id="ws-diverged"]');
-        if (!row) throw new Error("ws-diverged row not found");
-        within(row).getByText("+12.3k");
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const row = canvasElement.querySelector<HTMLElement>('[data-minion-id="ws-diverged"]');
+      if (!row) throw new Error("ws-diverged row not found");
+      within(row).getByText("+12.3k");
+    });
 
-    const row = canvasElement.querySelector<HTMLElement>('[data-workspace-id="ws-diverged"]')!;
+    const row = canvasElement.querySelector<HTMLElement>('[data-minion-id="ws-diverged"]')!;
     const plus = within(row).getByText("+12.3k");
 
-    // Hover to open tooltip
-    await userEvent.hover(plus);
+    // Click to open the divergence details dialog.
+    await userEvent.click(plus);
 
-    // HoverCard content is portaled with data-state="open" when visible
-    const getVisibleTooltip = () =>
-      document.body.querySelector<HTMLElement>('.bg-modal-bg[data-state="open"]');
+    await waitFor(() => {
+      within(document.body).getByText("Git divergence details");
+    });
 
-    // Wait for tooltip (portaled) and toggle to commits mode
-    await waitFor(
-      () => {
-        const tooltip = getVisibleTooltip();
-        if (!tooltip) throw new Error("git status tooltip not visible");
-        within(tooltip).getByText("Commits");
-      },
-      { timeout: 5000 }
-    );
+    const dialog = within(document.body).getByRole("dialog", {
+      name: "Git divergence details",
+    });
+    await userEvent.click(within(dialog).getByText("Commits"));
 
-    const tooltip = getVisibleTooltip()!;
-    await userEvent.click(within(tooltip).getByText("Commits"));
-
-    // Verify indicator switches to divergence view for the same workspace row
-    await waitFor(
-      () => {
-        const updatedRow = canvasElement.querySelector<HTMLElement>(
-          '[data-workspace-id="ws-diverged"]'
-        );
-        if (!updatedRow) throw new Error("ws-diverged row not found");
-        within(updatedRow).getByText("↑3");
-        within(updatedRow).getByText("↓2");
-      },
-      { timeout: 2000 }
-    );
+    // Verify indicator switches to divergence view for the same minion row
+    await waitFor(() => {
+      const updatedRow = canvasElement.querySelector<HTMLElement>(
+        '[data-minion-id="ws-diverged"]'
+      );
+      if (!updatedRow) throw new Error("ws-diverged row not found");
+      within(updatedRow).getByText("↑3");
+      within(updatedRow).getByText("↓2");
+    });
   },
 };
 
@@ -410,55 +397,55 @@ export const GitStatusVariations: AppStory = {
  * - Worktree: purple theme
  * - Local: gray theme
  *
- * The streaming workspaces show the "working" state with pulse animation.
+ * The streaming minions show the "working" state with pulse animation.
  */
 export const RuntimeBadgeVariations: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        // Idle workspaces (one of each type)
-        const sshIdle = createSSHWorkspace({
+        // Idle minions (one of each type)
+        const sshIdle = createSSHMinion({
           id: "ws-ssh-idle",
           name: "ssh-idle",
           projectName: "runtime-demo",
           host: "dev.example.com",
           createdAt: new Date(NOW - 3600000).toISOString(),
         });
-        const worktreeIdle = createWorkspace({
+        const worktreeIdle = createMinion({
           id: "ws-worktree-idle",
           name: "worktree-idle",
           projectName: "runtime-demo",
           createdAt: new Date(NOW - 7200000).toISOString(),
         });
-        const localIdle = createLocalWorkspace({
+        const localIdle = createLocalMinion({
           id: "ws-local-idle",
           name: "local-idle",
           projectName: "runtime-demo",
           createdAt: new Date(NOW - 10800000).toISOString(),
         });
 
-        // Working workspaces (streaming - shows pulse animation)
-        const sshWorking = createSSHWorkspace({
+        // Working minions (streaming - shows pulse animation)
+        const sshWorking = createSSHMinion({
           id: "ws-ssh-working",
           name: "ssh-working",
           projectName: "runtime-demo",
           host: "prod.example.com",
           createdAt: new Date(NOW - 1800000).toISOString(),
         });
-        const worktreeWorking = createWorkspace({
+        const worktreeWorking = createMinion({
           id: "ws-worktree-working",
           name: "worktree-working",
           projectName: "runtime-demo",
           createdAt: new Date(NOW - 900000).toISOString(),
         });
-        const localWorking = createLocalWorkspace({
+        const localWorking = createLocalMinion({
           id: "ws-local-working",
           name: "local-working",
           projectName: "runtime-demo",
           createdAt: new Date(NOW - 300000).toISOString(),
         });
 
-        const workspaces = [
+        const minions = [
           sshIdle,
           worktreeIdle,
           localIdle,
@@ -467,7 +454,7 @@ export const RuntimeBadgeVariations: AppStory = {
           localWorking,
         ];
 
-        // Create streaming handlers for working workspaces
+        // Create streaming handlers for working minions
         const workingMessage = createUserMessage("msg-1", "Working on task...", {
           historySequence: 1,
           timestamp: STABLE_TIMESTAMP,
@@ -510,11 +497,259 @@ export const RuntimeBadgeVariations: AppStory = {
         expandProjects(["/home/user/projects/runtime-demo"]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           onChat: createOnChatAdapter(chatHandlers),
         });
       }}
     />
   ),
+};
+
+/**
+ * Minion title hover behavior.
+ * Verifies that hovering a minion title no longer opens a preview card.
+ */
+export const MinionTitleHoverCard: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        const sshMinion = createSSHMinion({
+          id: "ws-ssh-hover",
+          name: "feature-branch",
+          title: "Implement new feature with detailed description",
+          projectName: "hover-demo",
+          host: "dev.example.com",
+          createdAt: new Date(NOW - 3600000).toISOString(),
+        });
+
+        expandProjects(["/home/user/projects/hover-demo"]);
+
+        return createMockORPCClient({
+          projects: groupMinionsByProject([sshMinion]),
+          minions: [sshMinion],
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    // Wait for the minion row to appear
+    await waitFor(() => {
+      const row = canvasElement.querySelector<HTMLElement>('[data-minion-id="ws-ssh-hover"]');
+      if (!row) throw new Error("ws-ssh-hover row not found");
+    });
+
+    const row = canvasElement.querySelector<HTMLElement>('[data-minion-id="ws-ssh-hover"]')!;
+
+    // Hovering titles should no longer open a minion preview card.
+    const titleSpan = within(row).getByText("Implement new feature with detailed description");
+    await userEvent.hover(titleSpan);
+
+    // Wait past the prior HoverCard openDelay window to prove no delayed preview appears.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    const hoverCard = document.body.querySelector<HTMLElement>(
+      "[data-radix-popper-content-wrapper] .bg-modal-bg"
+    );
+    if (hoverCard) {
+      throw new Error("Minion title hover preview should not be visible");
+    }
+  },
+};
+
+/**
+ * Draft minions (UI-only placeholders) in the sidebar.
+ * Shows drafts with various states: empty title, named, with prompt preview.
+ * Drafts are visually differentiated with italic text and dashed selection bar.
+ */
+export const MinionDrafts: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        const projectPath = "/home/user/projects/draft-demo";
+
+        // Create one regular minion to show alongside drafts
+        const regularMinion = createMinion({
+          id: "ws-regular",
+          name: "existing-feature",
+          title: "Existing feature branch",
+          projectName: "draft-demo",
+          projectPath,
+          createdAt: new Date(NOW - 86400000).toISOString(),
+        });
+
+        // Set up minion drafts (UI-only placeholders)
+        setMinionDrafts(projectPath, [
+          {
+            draftId: "draft-1",
+            minionName: "New API endpoint",
+            prompt: "Implement a new REST API endpoint for user authentication",
+            createdAt: NOW - 1000,
+          },
+          {
+            draftId: "draft-2",
+            // No name - will show "Draft"
+            prompt: "Fix the bug where the sidebar flickers on hover",
+            createdAt: NOW - 2000,
+          },
+          {
+            draftId: "draft-3",
+            minionName: "Performance optimization",
+            // No prompt - just title
+            createdAt: NOW - 3000,
+          },
+        ]);
+
+        expandProjects([projectPath]);
+
+        return createMockORPCClient({
+          projects: groupMinionsByProject([regularMinion]),
+          minions: [regularMinion],
+        });
+      }}
+    />
+  ),
+};
+
+/**
+ * Draft minion selected state.
+ * Shows the dashed selection indicator that differentiates drafts from regular minions.
+ * Uses play function to click on a draft and select it.
+ */
+export const MinionDraftSelected: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        const projectPath = "/home/user/projects/draft-selected";
+
+        const regularMinion = createMinion({
+          id: "ws-regular-2",
+          name: "main-branch",
+          title: "Main development branch",
+          projectName: "draft-selected",
+          projectPath,
+          createdAt: new Date(NOW - 86400000).toISOString(),
+        });
+
+        setMinionDrafts(projectPath, [
+          {
+            draftId: "selected-draft",
+            minionName: "My new minion",
+            prompt: "Build a feature that does something amazing",
+            createdAt: NOW,
+          },
+        ]);
+
+        expandProjects([projectPath]);
+
+        return createMockORPCClient({
+          projects: groupMinionsByProject([regularMinion]),
+          minions: [regularMinion],
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    // Wait for the draft row to appear
+    await waitFor(() => {
+      const row = canvasElement.querySelector<HTMLElement>('[data-draft-id="selected-draft"]');
+      if (!row) throw new Error("selected-draft row not found");
+    });
+
+    const row = canvasElement.querySelector<HTMLElement>('[data-draft-id="selected-draft"]')!;
+    await userEvent.click(row);
+  },
+};
+
+/**
+ * Archiving minion alignment regression test.
+ *
+ * When a minion enters the "archiving" transient state, the overflow menu
+ * button is hidden. Without a spacer, the title shifts ~24px to the left.
+ * This story triggers archive on one minion so the "Archiving..." row
+ * stays visible (the mock archive call never resolves).
+ */
+export const ArchivingMinionAlignment: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        const projectPath = "/home/user/projects/my-app";
+        const minions = [
+          createMinion({
+            id: "ws-active-1",
+            name: "main",
+            title: "Main development branch",
+            projectName: "my-app",
+            projectPath,
+            createdAt: new Date(NOW - 3600000).toISOString(),
+          }),
+          createMinion({
+            id: "ws-to-archive",
+            name: "feature/old-experiment",
+            title: "Old experiment minion",
+            projectName: "my-app",
+            projectPath,
+            createdAt: new Date(NOW - 7200000).toISOString(),
+          }),
+          createMinion({
+            id: "ws-active-2",
+            name: "bugfix/login",
+            title: "Fix login redirect",
+            projectName: "my-app",
+            projectPath,
+            createdAt: new Date(NOW - 10800000).toISOString(),
+          }),
+        ];
+
+        expandProjects([projectPath]);
+
+        const client = createMockORPCClient({
+          projects: groupMinionsByProject(minions),
+          minions,
+        });
+
+        // Make archive hang forever so the minion stays in "Archiving..." state
+        // eslint-disable-next-line @typescript-eslint/no-empty-function
+        client.minion.archive = () => new Promise(() => {});
+
+        return client;
+      }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    // Wait for the target minion row to appear
+    await waitFor(() => {
+      const row = canvasElement.querySelector<HTMLElement>('[data-minion-id="ws-to-archive"]');
+      if (!row) throw new Error("ws-to-archive row not found");
+    });
+
+    const row = canvasElement.querySelector<HTMLElement>('[data-minion-id="ws-to-archive"]')!;
+
+    // Hover to reveal the overflow (ellipsis) button
+    await userEvent.hover(row);
+
+    // Click the overflow menu button
+    const menuButton = within(row).getByLabelText("Minion actions for Old experiment minion");
+    await userEvent.click(menuButton);
+
+    // Wait for the popover to open, then click "Archive chat"
+    await waitFor(() => {
+      const archiveButton = document.body.querySelector<HTMLElement>(
+        "[data-radix-popper-content-wrapper] button"
+      );
+      if (!archiveButton) throw new Error("popover not open yet");
+    });
+
+    // Find and click the Archive chat button in the popover
+    const popoverContent = document.body.querySelector<HTMLElement>(
+      "[data-radix-popper-content-wrapper]"
+    )!;
+    const archiveButton = within(popoverContent).getByText("Archive chat").closest("button")!;
+    await userEvent.click(archiveButton);
+
+    // Wait for the "Archiving..." text to appear (confirms the transient state is active)
+    await waitFor(() => {
+      within(canvasElement).getByText("Archiving...");
+    });
+  },
 };

@@ -1,12 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { z } from "zod";
-import type { GitStatus } from "@/common/types/workspace";
+import type { GitStatus } from "@/common/types/minion";
 import {
   parseGitShowBranch,
   type GitCommit,
   type GitBranchHeader,
 } from "@/common/utils/git/parseGitLog";
 import { useAPI } from "@/browser/contexts/API";
+import { getErrorMessage } from "@/common/utils/errors";
 
 const GitBranchDataSchema = z.object({
   showBranch: z.string(),
@@ -141,18 +142,18 @@ export interface GitBranchDetailsResult {
  * Hook for fetching git branch details (show-branch output, dirty files).
  * Implements caching (5s TTL) and debouncing (200ms) to avoid excessive IPC calls.
  *
- * @param workspaceId - Workspace to fetch git details for
+ * @param minionId - Minion to fetch git details for
  * @param gitStatus - Current git status (used to determine if dirty files should be fetched)
  * @param enabled - Whether to fetch data (typically when tooltip should be shown)
  */
 export function useGitBranchDetails(
-  workspaceId: string,
+  minionId: string,
   gitStatus: GitStatus | null,
   enabled: boolean
 ): GitBranchDetailsResult {
   debugAssert(
-    workspaceId.trim().length > 0,
-    "useGitBranchDetails expects a non-empty workspaceId argument."
+    minionId.trim().length > 0,
+    "useGitBranchDetails expects a non-empty minionId argument."
   );
 
   const { api } = useAPI();
@@ -218,8 +219,8 @@ printf '__LATTICE_BRANCH_DATA__BEGIN_DATES__\\n%s\\n__LATTICE_BRANCH_DATA__END_D
 printf '__LATTICE_BRANCH_DATA__BEGIN_DIRTY_FILES__\\n%s\\n__LATTICE_BRANCH_DATA__END_DIRTY_FILES__\\n' "$DIRTY_FILES"
 `;
 
-      const result = await api.workspace.executeBash({
-        workspaceId,
+      const result = await api.minion.executeBash({
+        minionId,
         script,
         options: { timeout_secs: 5 },
       });
@@ -274,14 +275,12 @@ printf '__LATTICE_BRANCH_DATA__BEGIN_DIRTY_FILES__\\n%s\\n__LATTICE_BRANCH_DATA_
         timestamp: Date.now(),
       };
     } catch (error) {
-      setErrorMessage(
-        `Failed to fetch branch info: ${error instanceof Error ? error.message : String(error)}`
-      );
+      setErrorMessage(`Failed to fetch branch info: ${getErrorMessage(error)}`);
       setCommits(null);
     } finally {
       setIsLoading(false);
     }
-  }, [api, workspaceId, gitStatus]);
+  }, [api, minionId, gitStatus]);
 
   useEffect(() => {
     if (!enabled) {
@@ -317,7 +316,7 @@ printf '__LATTICE_BRANCH_DATA__BEGIN_DIRTY_FILES__\\n%s\\n__LATTICE_BRANCH_DATA_
         fetchTimeoutRef.current = null;
       }
     };
-  }, [enabled, workspaceId, gitStatus?.dirty, fetchShowBranch]);
+  }, [enabled, minionId, gitStatus?.dirty, fetchShowBranch]);
 
   return {
     branchHeaders,

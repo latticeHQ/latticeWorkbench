@@ -1,121 +1,181 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
+
 /**
- * Lattice Workbench MCP Server
+ * MCP Server for autonomous LLM control of Lattice.
  *
- * Exposes the workbench's capabilities as MCP tools so any LLM
- * (Claude Code, Cursor, TG bot, etc.) can operate the workbench
- * programmatically — create workspaces, send messages, run bash,
- * manage channels, all from the outside.
+ * This is a standalone stdio-based MCP server that bridges the Model Context
+ * Protocol to the running Lattice backend's oRPC API. It enables external LLMs
+ * (e.g. Claude Code) to fully control Lattice — creating minions, sending
+ * messages to agents, managing projects, running terminals, etc.
+ *
+ * Features:
+ * - 169+ tools across 13 modules (minion, project, terminal, etc.)
+ * - 2 discovery tools for progressive disclosure (search_tools, list_tool_categories)
+ * - 10 MCP resources for efficient data access (projects, config, chat history, etc.)
+ * - 4 MCP prompts for common workflows (create-and-run-task, cost-report, etc.)
+ * - Typed SDK for code execution pattern (sdk/ directory)
+ *
+ * Server discovery order:
+ * 1. LATTICE_SERVER_URL + LATTICE_SERVER_AUTH_TOKEN env vars
+ * 2. ~/.lattice/server.lock lockfile (auto-discovery)
+ * 3. Fallback: http://127.0.0.1:3000
  *
  * Usage:
- *   npx tsx src/mcp-server/index.ts [--workbench-url URL] [--auth-token TOKEN]
+ *   bun run src/mcp-server/index.ts
  *
- * Defaults:
- *   --workbench-url http://localhost:3000
- *   --auth-token   (none, or LATTICE_SERVER_AUTH_TOKEN env var)
+ * Or via .mcp.json:
+ *   { "mcpServers": { "lattice": { "command": "bun", "args": ["run", "src/mcp-server/index.ts"] } } }
  */
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { WorkbenchClient } from "./client.js";
-import { registerWorkspaceTools } from "./tools/workspaces.js";
-import { registerProjectTools } from "./tools/projects.js";
-import { registerChannelTools } from "./tools/channels.js";
-import { registerConfigTools } from "./tools/config.js";
-import { registerSystemTools } from "./tools/system.js";
-import { registerBootstrapTools } from "./tools/bootstrap.js";
-import { registerSwarmTools } from "./tools/swarm.js";
-import { registerCronTools } from "./tools/cron.js";
-import { registerHealthTools } from "./tools/health.js";
-import { registerCodexTools } from "./tools/codex.js";
-import { registerSkillsTools } from "./tools/skills.js";
-import { registerBrowserTools } from "./tools/browser.js";
+import { RPCLink as HTTPRPCLink } from "@orpc/client/fetch";
+import { createORPCClient } from "@orpc/client";
+import type { AppRouter } from "@/node/orpc/router";
+import type { RouterClient } from "@orpc/server";
 
-// ── Parse CLI args ──────────────────────────────────────────────────
+import { discoverServer } from "./utils";
 
-function parseArgs(): { workbenchUrl: string; authToken?: string } {
-  const args = process.argv.slice(2);
-  let workbenchUrl = process.env.LATTICE_WORKBENCH_URL ?? "http://localhost:3000";
-  let authToken = process.env.LATTICE_SERVER_AUTH_TOKEN ?? undefined;
+// Tool modules
+import { registerGeneralTools } from "./tools/general";
+import { registerProjectTools } from "./tools/project";
+import { registerMinionTools } from "./tools/minion";
+import { registerTerminalTools } from "./tools/terminal";
+import { registerConfigTools } from "./tools/config";
+import { registerAgentTools } from "./tools/agents";
+import { registerTaskTools } from "./tools/tasks";
+import { registerMcpManagementTools } from "./tools/mcp-management";
+import { registerSecretsTools } from "./tools/secrets";
+import { registerAnalyticsTools } from "./tools/analytics";
+import { registerServerTools } from "./tools/server";
+import { registerTokenizerTools } from "./tools/tokenizer";
+import { registerOAuthTools } from "./tools/oauth";
+import { registerTerminalProfileTools } from "./tools/terminal-profiles";
 
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--workbench-url" && args[i + 1]) {
-      workbenchUrl = args[++i]!;
-    } else if (args[i] === "--auth-token" && args[i + 1]) {
-      authToken = args[++i]!;
-    }
-  }
+// Discovery, resources, prompts
+import { registerDiscoveryTools, toolCatalog } from "./tools/discovery";
+import { registerResources } from "./resources";
+import { registerPrompts } from "./prompts";
 
-  return { workbenchUrl, authToken };
+/**
+ * Create a typed oRPC HTTP client for the Lattice backend.
+ * Follows the same pattern as src/cli/proxifyOrpc.ts.
+ */
+function createOrpcClient(
+  baseUrl: string,
+  authToken?: string
+): RouterClient<AppRouter> {
+  const link = new HTTPRPCLink({
+    url: `${baseUrl}/orpc`,
+    headers: authToken != null ? { Authorization: `Bearer ${authToken}` } : undefined,
+  });
+  return createORPCClient(link);
 }
 
-// ── Main ────────────────────────────────────────────────────────────
+/**
+ * Helper: register a tool module and capture its tools into the catalog.
+ *
+ * After registration, new tools are detected by diffing the McpServer's
+ * internal tool map (accessed via _registeredTools). Each new tool is
+ * added to the shared toolCatalog with the specified category.
+ */
+function registerAndCatalog(
+  server: McpServer,
+  category: string,
+  registerFn: () => void,
+): void {
+  // _registeredTools may be a Map or a plain object depending on SDK version
+  const internalTools = (server as any)._registeredTools;
+  const getToolNames = (): string[] => {
+    if (!internalTools) return [];
+    if (internalTools instanceof Map) return [...internalTools.keys()];
+    return Object.keys(internalTools);
+  };
+  const before = new Set(getToolNames());
+
+  // Register the tools
+  registerFn();
+
+  // Re-read after registration (reference may have changed)
+  const afterTools = (server as any)._registeredTools;
+  if (!afterTools) return;
+
+  const entries: Array<[string, { description?: string }]> =
+    afterTools instanceof Map
+      ? [...afterTools.entries()]
+      : Object.entries(afterTools);
+
+  for (const [name, tool] of entries) {
+    if (!before.has(name)) {
+      toolCatalog.push({
+        name,
+        category,
+        description: tool.description ?? name,
+      });
+    }
+  }
+}
 
 async function main(): Promise<void> {
-  const { workbenchUrl, authToken } = parseArgs();
+  // Discover the running Lattice backend
+  const connection = await discoverServer();
 
-  // Create the MCP server
-  const server = new McpServer({
-    name: "lattice-workbench",
+  // Log to stderr (stdout is reserved for MCP protocol)
+  process.stderr.write(
+    `[lattice-mcp] Connecting to Lattice backend at ${connection.baseUrl}\n`
+  );
+
+  // Create oRPC client
+  const client = createOrpcClient(connection.baseUrl, connection.authToken);
+
+  // Create MCP server
+  const mcpServer = new McpServer({
+    name: "lattice",
     version: "1.0.0",
   });
 
-  // Create the HTTP client for the workbench API
-  const client = new WorkbenchClient({
-    baseUrl: workbenchUrl,
-    authToken,
-  });
+  // Register all tool modules and build the tool catalog for progressive disclosure.
+  // Each module's tools are captured into toolCatalog with their category.
+  registerAndCatalog(mcpServer, "general", () => registerGeneralTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "project", () => registerProjectTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "minion", () => registerMinionTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "terminal", () => registerTerminalTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "config", () => registerConfigTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "agents", () => registerAgentTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "tasks", () => registerTaskTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "mcp-management", () => registerMcpManagementTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "secrets", () => registerSecretsTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "analytics", () => registerAnalyticsTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "server", () => registerServerTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "tokenizer", () => registerTokenizerTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "oauth", () => registerOAuthTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "terminal-profiles", () => registerTerminalProfileTools(mcpServer, client));
 
-  // Validate auth token against workbench API (if token provided)
-  if (authToken) {
-    console.error(`[lattice-workbench-mcp] Validating auth token against workbench...`);
-    const isValid = await client.ping();
-    if (!isValid) {
-      console.error(
-        `[lattice-workbench-mcp] WARNING: Workbench not reachable — token validation deferred to first request`
-      );
-    } else {
-      console.error(`[lattice-workbench-mcp] Auth token validated successfully`);
-    }
-  }
+  // Register discovery tools (search_tools + list_tool_categories)
+  // These tools use the populated toolCatalog to enable progressive disclosure.
+  registerAndCatalog(mcpServer, "discovery", () => registerDiscoveryTools(mcpServer));
 
-  // Register all tools
-  registerWorkspaceTools(server, client);
-  registerProjectTools(server, client);
-  registerChannelTools(server, client);
-  registerConfigTools(server, client);
-  registerSystemTools(server);
-  registerBootstrapTools(server, client);
-  registerSwarmTools(server, client);
-  registerCronTools(server, client);
-  registerHealthTools(server, client);
-  registerCodexTools(server, client);
-  registerSkillsTools(server, client);
-  registerBrowserTools(server);
+  // Register MCP Resources (read-only data browsing)
+  registerResources(mcpServer, client);
 
-  // Connect via stdio transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // Register MCP Prompts (workflow templates)
+  registerPrompts(mcpServer);
 
-  // Log to stderr (stdout is reserved for MCP protocol)
-  console.error(`[lattice-workbench-mcp] Server started`);
-  console.error(`[lattice-workbench-mcp] Workbench URL: ${workbenchUrl}`);
-  console.error(`[lattice-workbench-mcp] Auth: ${authToken ? "enabled" : "none"}`);
-  console.error(
-    `[lattice-workbench-mcp] Tools registered: workspace, project, channel, config, system, bootstrap, swarm, cron, health, codex, skills, browser`
+  process.stderr.write(
+    `[lattice-mcp] Registered ${toolCatalog.length} tools in catalog, ` +
+      `10 resources, 4 prompts\n`
   );
 
-  // Graceful shutdown — close WebSocket and transport on exit signals
-  const shutdown = async () => {
-    console.error(`[lattice-workbench-mcp] Shutting down...`);
-    client.closeWebSocket();
-    await server.close();
-    process.exit(0);
-  };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  // Connect via stdio transport (stdin/stdout)
+  const transport = new StdioServerTransport();
+  await mcpServer.connect(transport);
+
+  process.stderr.write("[lattice-mcp] MCP server running on stdio\n");
 }
 
-main().catch((error) => {
-  console.error("[lattice-workbench-mcp] Fatal error:", error);
+main().catch((err: unknown) => {
+  process.stderr.write(
+    `[lattice-mcp] Fatal error: ${err instanceof Error ? err.message : String(err)}\n`
+  );
   process.exit(1);
 });

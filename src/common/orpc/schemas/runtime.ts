@@ -1,7 +1,16 @@
 import { z } from "zod";
-import { LatticeWorkspaceConfigSchema } from "./lattice";
+import { LatticeMinionConfigSchema } from "./lattice";
 
 export const RuntimeModeSchema = z.enum(["local", "worktree", "ssh", "docker", "devcontainer"]);
+
+export const RuntimeEnablementIdSchema = z.enum([
+  "local",
+  "worktree",
+  "ssh",
+  "lattice",
+  "docker",
+  "devcontainer",
+]);
 
 /**
  * Runtime configuration union type.
@@ -9,9 +18,9 @@ export const RuntimeModeSchema = z.enum(["local", "worktree", "ssh", "docker", "
  * COMPATIBILITY NOTE:
  * - `type: "local"` with `srcBaseDir` = legacy worktree config (for backward compat)
  * - `type: "local"` without `srcBaseDir` = new project-dir runtime
- * - `type: "worktree"` = explicit worktree runtime (new workspaces)
+ * - `type: "worktree"` = explicit worktree runtime (new minions)
  *
- * This allows two-way compatibility: users can upgrade/downgrade without breaking workspaces.
+ * This allows two-way compatibility: users can upgrade/downgrade without breaking minions.
  */
 // Common field for background process output directory
 const bgOutputDirField = z
@@ -58,7 +67,7 @@ export const RuntimeConfigSchema = z.union([
   z.object({
     type: z.literal("local"),
     srcBaseDir: z.string().meta({
-      description: "Base directory where all workspaces are stored (legacy worktree config)",
+      description: "Base directory where all minions are stored (legacy worktree config)",
     }),
     bgOutputDir: bgOutputDirField,
   }),
@@ -72,9 +81,7 @@ export const RuntimeConfigSchema = z.union([
     type: z.literal("worktree"),
     srcBaseDir: z
       .string()
-      .meta({
-        description: "Base directory where all workspaces are stored (e.g., ~/.lattice/src)",
-      }),
+      .meta({ description: "Base directory where all minions are stored (e.g., ~/.lattice/src)" }),
     bgOutputDir: bgOutputDirField,
   }),
   // SSH runtime
@@ -85,25 +92,25 @@ export const RuntimeConfigSchema = z.union([
       .meta({ description: "SSH host (can be hostname, user@host, or SSH config alias)" }),
     srcBaseDir: z
       .string()
-      .meta({ description: "Base directory on remote host where all workspaces are stored" }),
+      .meta({ description: "Base directory on remote host where all minions are stored" }),
     bgOutputDir: bgOutputDirField,
     identityFile: z
       .string()
       .optional()
       .meta({ description: "Path to SSH private key (if not using ~/.ssh/config or ssh-agent)" }),
     port: z.number().optional().meta({ description: "SSH port (default: 22)" }),
-    lattice: LatticeWorkspaceConfigSchema.optional().meta({
-      description: "Lattice workspace configuration (when using Lattice as SSH backend)",
+    lattice: LatticeMinionConfigSchema.optional().meta({
+      description: "Lattice minion configuration (when using Lattice as SSH backend)",
     }),
   }),
-  // Docker runtime - each workspace runs in its own container
+  // Docker runtime - each minion runs in its own container
   z.object({
     type: z.literal("docker"),
     image: z.string().meta({ description: "Docker image to use (e.g., node:20)" }),
     containerName: z
       .string()
       .optional()
-      .meta({ description: "Container name (populated after workspace creation)" }),
+      .meta({ description: "Container name (populated after minion creation)" }),
     shareCredentials: z.boolean().optional().meta({
       description: "Forward SSH agent and mount ~/.gitconfig read-only",
     }),

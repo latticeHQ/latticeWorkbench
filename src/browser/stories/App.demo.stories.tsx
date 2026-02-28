@@ -6,9 +6,9 @@ import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import {
   NOW,
   STABLE_TIMESTAMP,
-  createWorkspace,
-  createSSHWorkspace,
-  groupWorkspacesByProject,
+  createMinion,
+  createSSHMinion,
+  groupMinionsByProject,
   createUserMessage,
   createAssistantMessage,
   createFileReadTool,
@@ -23,9 +23,9 @@ import {
   createGitStatusExecutor,
   createOnChatAdapter,
   type ChatHandler,
-  selectWorkspace,
-  setWorkspaceInput,
-  setWorkspaceModel,
+  selectMinion,
+  setMinionInput,
+  setMinionModel,
 } from "./storyHelpers";
 import { createMockORPCClient } from "@/browser/stories/mocks/orpc";
 export default {
@@ -37,10 +37,10 @@ export default {
  * Comprehensive story showing all sidebar indicators and chat features.
  *
  * This exercises:
- * - Multiple workspaces with varied git status
+ * - Multiple minions with varied git status
  * - SSH and local runtime badges
- * - Active workspace with full chat history
- * - Streaming workspace showing working state
+ * - Active minion with full chat history
+ * - Streaming minion showing working state
  * - All tool types: read_file, file_edit, terminal, status_set
  * - Reasoning blocks
  * - Agent status indicator
@@ -49,35 +49,35 @@ export const Comprehensive: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const activeWorkspaceId = "ws-active";
-        const streamingWorkspaceId = "ws-streaming";
+        const activeMinionId = "ws-active";
+        const streamingMinionId = "ws-streaming";
 
-        const workspaces = [
-          createWorkspace({
-            id: activeWorkspaceId,
+        const minions = [
+          createMinion({
+            id: activeMinionId,
             name: "feature/auth",
             projectName: "my-app",
             createdAt: new Date(NOW - 7200000).toISOString(),
           }),
-          createWorkspace({
-            id: streamingWorkspaceId,
+          createMinion({
+            id: streamingMinionId,
             name: "feature/streaming",
             projectName: "my-app",
             createdAt: new Date(NOW - 3600000).toISOString(),
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-clean",
             name: "main",
             projectName: "my-app",
             createdAt: new Date(NOW - 10800000).toISOString(),
           }),
-          createWorkspace({
+          createMinion({
             id: "ws-ahead",
             name: "feature/new-ui",
             projectName: "my-app",
             createdAt: new Date(NOW - 14400000).toISOString(),
           }),
-          createSSHWorkspace({
+          createSSHMinion({
             id: "ws-ssh",
             name: "deploy/prod",
             projectName: "my-app",
@@ -85,10 +85,10 @@ export const Comprehensive: AppStory = {
             createdAt: new Date(NOW - 18000000).toISOString(),
           }),
           // Empty project to show that state
-          createWorkspace({ id: "ws-other", name: "main", projectName: "another-app" }),
+          createMinion({ id: "ws-other", name: "main", projectName: "another-app" }),
         ];
 
-        // Active workspace chat with full conversation
+        // Active minion chat with full conversation
         const activeMessages = [
           createUserMessage("msg-1", "Add authentication to the user API endpoint", {
             historySequence: 1,
@@ -178,7 +178,7 @@ export const Comprehensive: AppStory = {
           }),
         ];
 
-        // Streaming workspace messages
+        // Streaming minion messages
         const streamingMessages = [
           createUserMessage("msg-s1", "Refactor the database connection", {
             historySequence: 1,
@@ -187,9 +187,9 @@ export const Comprehensive: AppStory = {
         ];
 
         const chatHandlers = new Map<string, ChatHandler>([
-          [activeWorkspaceId, createStaticChatHandler(activeMessages)],
+          [activeMinionId, createStaticChatHandler(activeMessages)],
           [
-            streamingWorkspaceId,
+            streamingMinionId,
             createStreamingChatHandler({
               messages: streamingMessages,
               streamingMessageId: "msg-s2",
@@ -199,27 +199,27 @@ export const Comprehensive: AppStory = {
               pendingTool: {
                 toolCallId: "call-s1",
                 toolName: "file_read",
-                args: { file_path: "src/db/connection.ts" },
+                args: { path: "src/db/connection.ts" },
               },
             }),
           ],
         ]);
 
         const gitStatus = new Map<string, GitStatusFixture>([
-          [activeWorkspaceId, { ahead: 3, dirty: 3, headCommit: "WIP: Add JWT auth" }],
-          [streamingWorkspaceId, { ahead: 2, dirty: 1, headCommit: "Refactoring db" }],
+          [activeMinionId, { ahead: 3, dirty: 3, headCommit: "WIP: Add JWT auth" }],
+          [streamingMinionId, { ahead: 2, dirty: 1, headCommit: "Refactoring db" }],
           ["ws-clean", {}],
           ["ws-ahead", { ahead: 2, headCommit: "New dashboard design" }],
           ["ws-ssh", { ahead: 1, headCommit: "Production deploy" }],
         ]);
 
-        selectWorkspace(workspaces[0]);
-        setWorkspaceInput(activeWorkspaceId, "Add OAuth2 support with Google and GitHub");
-        setWorkspaceModel(activeWorkspaceId, "anthropic:claude-sonnet-4-5");
+        selectMinion(minions[0]);
+        setMinionInput(activeMinionId, "Add OAuth2 support with Google and GitHub");
+        setMinionModel(activeMinionId, "anthropic:claude-sonnet-4-5");
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           onChat: createOnChatAdapter(chatHandlers),
           executeBash: createGitStatusExecutor(gitStatus),
           providersList: ["anthropic", "openai", "xai"],

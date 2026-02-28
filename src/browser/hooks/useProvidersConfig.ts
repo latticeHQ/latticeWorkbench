@@ -1,6 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAPI } from "@/browser/contexts/API";
-import type { ProvidersConfigMap, ProviderConfigInfo } from "@/common/orpc/types";
+import type {
+  ProviderConfigInfo,
+  ProviderModelEntry,
+  ProvidersConfigMap,
+} from "@/common/orpc/types";
 
 /**
  * Hook to get provider config with automatic refresh on config changes.
@@ -71,7 +75,10 @@ export function useProvidersConfig() {
    * Bumps the fetch version to invalidate any in-flight fetches.
    */
   const updateModelsOptimistically = useCallback(
-    (provider: string, updater: (currentModels: string[]) => string[]): string[] => {
+    (
+      provider: string,
+      updater: (currentModels: ProviderModelEntry[]) => ProviderModelEntry[]
+    ): ProviderModelEntry[] => {
       // Invalidate any in-flight fetches so they don't overwrite our optimistic update
       fetchVersionRef.current++;
 
@@ -95,8 +102,13 @@ export function useProvidersConfig() {
 
   useEffect(() => {
     if (!api) return;
+
     const abortController = new AbortController();
-    const signal = abortController.signal;
+    const { signal } = abortController;
+
+    // Some oRPC iterators don't eagerly close on abort alone.
+    // Ensure we `return()` them so backend subscriptions clean up EventEmitter listeners.
+    let iterator: AsyncIterator<unknown> | null = null;
 
     // Initial fetch
     void refresh();
@@ -104,8 +116,16 @@ export function useProvidersConfig() {
     // Subscribe to provider config changes via oRPC (for external changes)
     (async () => {
       try {
-        const iterator = await api.providers.onConfigChanged(undefined, { signal });
-        for await (const _ of iterator) {
+        const subscribedIterator = await api.providers.onConfigChanged(undefined, { signal });
+
+        if (signal.aborted) {
+          void subscribedIterator.return?.();
+          return;
+        }
+
+        iterator = subscribedIterator;
+
+        for await (const _ of subscribedIterator) {
           if (signal.aborted) break;
           void refresh();
         }
@@ -114,7 +134,10 @@ export function useProvidersConfig() {
       }
     })();
 
-    return () => abortController.abort();
+    return () => {
+      abortController.abort();
+      void iterator?.return?.();
+    };
   }, [api, refresh]);
 
   return { config, loading, refresh, updateOptimistically, updateModelsOptimistically };

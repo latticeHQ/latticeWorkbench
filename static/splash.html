@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lattice</title>
+    <title>lattice - Loading</title>
     <style>
       * {
         margin: 0;
@@ -12,157 +12,99 @@
       }
 
       body {
-        width: 420px;
-        height: 320px;
-        /* Warm dark bg matching app theme (#1A1917) */
-        background: #1A1917;
+        width: 400px;
+        height: 300px;
+        /* Match --color-background (hsl(0 0% 12%)) */
+        background: hsl(0 0% 12%);
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, "Geist", system-ui, "Segoe UI", "Roboto",
-          "Helvetica Neue", Arial, sans-serif;
-        color: #cecdc3;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        /* Match --color-text (hsl(0 0% 83%)) */
+        color: hsl(0 0% 83%);
         overflow: hidden;
-        border-radius: 14px;
-        position: relative;
+        border-radius: 12px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
       }
 
-      /* Subtle ambient glow behind icon */
-      .glow {
+      .logo {
+        font-size: 48px;
+        font-weight: 700;
+        letter-spacing: -2px;
+        margin-bottom: 24px;
+        /* Gradient from plan mode blue to exec mode purple */
+        background: linear-gradient(135deg, hsl(210 70% 45%) 0%, hsl(268.56deg 94.04% 55.19%) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .loading-text {
+        font-size: 16px;
+        /* Match --color-text-secondary (hsl(0 0% 42%)) */
+        color: hsl(0 0% 42%);
+        margin-bottom: 16px;
+      }
+
+      .hex-spinner {
+        width: 48px;
+        height: 48px;
+        animation: hex-rotate 4s linear infinite;
+      }
+
+      .hex-spinner__hex {
+        animation: hex-pulse 2s ease-in-out infinite;
+        stroke-dasharray: 280;
+        stroke-dashoffset: 0;
+      }
+
+      .hex-spinner__node {
+        animation: hex-node-pulse 2s ease-in-out infinite;
+        transform-origin: 78px 78.5px;
+      }
+
+      .hex-spinner__link {
+        animation: hex-link-fade 2s ease-in-out infinite;
+      }
+
+      @keyframes hex-rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes hex-pulse {
+        0%, 100% { opacity: 0.4; stroke-dashoffset: 0; }
+        50% { opacity: 1; stroke-dashoffset: 56; }
+      }
+
+      @keyframes hex-node-pulse {
+        0%, 100% { transform: scale(1); opacity: 0.6; }
+        50% { transform: scale(1.4); opacity: 1; }
+      }
+
+      @keyframes hex-link-fade {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
+      }
+
+      .version {
         position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -60%);
-        width: 120px;
-        height: 120px;
-        background: radial-gradient(circle, rgba(67, 133, 190, 0.12) 0%, transparent 70%);
-        border-radius: 50%;
-        filter: blur(20px);
-        pointer-events: none;
-      }
-
-      /* Lattice hexagon icon */
-      .icon {
-        position: relative;
-        z-index: 1;
-        margin-bottom: 20px;
-        opacity: 0;
-        animation: fadeInUp 0.5s ease-out 0.1s forwards;
-      }
-
-      .icon svg {
-        width: 52px;
-        height: 52px;
-      }
-
-      .wordmark {
-        position: relative;
-        z-index: 1;
-        font-size: 28px;
-        font-weight: 600;
-        letter-spacing: -0.5px;
-        color: #cecdc3;
-        margin-bottom: 28px;
-        opacity: 0;
-        animation: fadeInUp 0.5s ease-out 0.2s forwards;
-      }
-
-      /* Sliding progress bar — modern feel */
-      .progress-track {
-        position: relative;
-        z-index: 1;
-        width: 160px;
-        height: 3px;
-        background: rgba(206, 205, 195, 0.08);
-        border-radius: 2px;
-        overflow: hidden;
-        opacity: 0;
-        animation: fadeInUp 0.5s ease-out 0.35s forwards;
-      }
-
-      .progress-bar {
-        height: 100%;
-        width: 40%;
-        background: linear-gradient(90deg, #4385be, #6b9fd1);
-        border-radius: 2px;
-        animation: progress 1.6s ease-in-out infinite;
-      }
-
-      @keyframes progress {
-        0% {
-          transform: translateX(-100%);
-        }
-        50% {
-          transform: translateX(200%);
-        }
-        100% {
-          transform: translateX(-100%);
-        }
-      }
-
-      .status {
-        position: relative;
-        z-index: 1;
-        font-size: 12px;
-        color: #575653;
-        margin-top: 14px;
-        letter-spacing: 0.2px;
-        opacity: 0;
-        animation: fadeInUp 0.5s ease-out 0.4s forwards;
-      }
-
-      .tagline {
-        position: absolute;
-        bottom: 22px;
-        font-size: 10px;
-        letter-spacing: 1.5px;
-        text-transform: uppercase;
-        color: #3a3835;
-        opacity: 0;
-        animation: fadeIn 0.8s ease-out 0.6s forwards;
-      }
-
-      @keyframes fadeInUp {
-        from {
-          opacity: 0;
-          transform: translateY(8px);
-        }
-        to {
-          opacity: 1;
-          transform: translateY(0);
-        }
-      }
-
-      @keyframes fadeIn {
-        from {
-          opacity: 0;
-        }
-        to {
-          opacity: 1;
-        }
+        bottom: 20px;
+        font-size: 11px;
+        /* Match --color-text-secondary (hsl(0 0% 42%)) */
+        color: hsl(0 0% 42%);
       }
     </style>
   </head>
   <body>
-    <div class="glow"></div>
-
-    <div class="icon">
-      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2L22 7.5V16.5L12 22L2 16.5V7.5L12 2Z" stroke="#878580" stroke-width="1.5" fill="none"/>
-        <circle cx="12" cy="12" r="2" stroke="#878580" stroke-width="1.5" fill="none"/>
-        <path d="M7 12H17" stroke="#878580" stroke-width="1.5"/>
-      </svg>
-    </div>
-
-    <div class="wordmark">Lattice</div>
-
-    <div class="progress-track">
-      <div class="progress-bar"></div>
-    </div>
-
-    <div class="status">Loading services</div>
-
-    <div class="tagline">Agent Infrastructure</div>
+    <div class="logo">lattice</div>
+    <div class="loading-text">Loading services...</div>
+    <svg class="hex-spinner" viewBox="0 0 156 157" xmlns="http://www.w3.org/2000/svg" overflow="hidden">
+      <path class="hex-spinner__hex" d="M39 58.5 78 39 117 58.5 117 97.5 78 117 39 97.5Z" stroke="hsl(0 0% 83%)" stroke-width="2.4375" fill="none"/>
+      <circle class="hex-spinner__node" cx="78" cy="78.5" r="4.875" stroke="hsl(0 0% 83%)" stroke-width="2.4375" fill="none"/>
+      <line class="hex-spinner__link" x1="58.5" y1="78.5" x2="97.5" y2="78.5" stroke="hsl(0 0% 83%)" stroke-width="2.4375"/>
+    </svg>
+    <div class="version">Lattice Workbench</div>
   </body>
 </html>

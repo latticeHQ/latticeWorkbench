@@ -6,7 +6,7 @@ import {
 import type { ChatHostContextValue } from "../../../src/browser/contexts/ChatHostContext";
 
 /**
- * Convenience helper for openagent.md (and any other read-only hosts).
+ * Convenience helper for lattice.md (and any other read-only hosts).
  *
  * The Lattice UI already gates certain affordances behind ChatHostContext uiSupport
  * flags, and all actions are optional. For a viewer, we typically want:

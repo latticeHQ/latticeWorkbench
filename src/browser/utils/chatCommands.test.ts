@@ -37,27 +37,27 @@ beforeEach(() => {
 });
 
 describe("parseRuntimeString", () => {
-  const workspaceName = "test-workspace";
+  const minionName = "test-minion";
 
   test("returns undefined for undefined runtime (default to worktree)", () => {
-    expect(parseRuntimeString(undefined, workspaceName)).toBeUndefined();
+    expect(parseRuntimeString(undefined, minionName)).toBeUndefined();
   });
 
   test("returns undefined for explicit 'worktree' runtime", () => {
-    expect(parseRuntimeString("worktree", workspaceName)).toBeUndefined();
-    expect(parseRuntimeString("WORKTREE", workspaceName)).toBeUndefined();
-    expect(parseRuntimeString(" worktree ", workspaceName)).toBeUndefined();
+    expect(parseRuntimeString("worktree", minionName)).toBeUndefined();
+    expect(parseRuntimeString("WORKTREE", minionName)).toBeUndefined();
+    expect(parseRuntimeString(" worktree ", minionName)).toBeUndefined();
   });
 
   test("returns local config for explicit 'local' runtime", () => {
     // "local" now returns project-dir runtime config (no srcBaseDir)
-    expect(parseRuntimeString("local", workspaceName)).toEqual({ type: "local" });
-    expect(parseRuntimeString("LOCAL", workspaceName)).toEqual({ type: "local" });
-    expect(parseRuntimeString(" local ", workspaceName)).toEqual({ type: "local" });
+    expect(parseRuntimeString("local", minionName)).toEqual({ type: "local" });
+    expect(parseRuntimeString("LOCAL", minionName)).toEqual({ type: "local" });
+    expect(parseRuntimeString(" local ", minionName)).toEqual({ type: "local" });
   });
 
   test("parses valid SSH runtime", () => {
-    const result = parseRuntimeString("ssh user@host", workspaceName);
+    const result = parseRuntimeString("ssh user@host", minionName);
     expect(result).toEqual({
       type: "ssh",
       host: "user@host",
@@ -66,7 +66,7 @@ describe("parseRuntimeString", () => {
   });
 
   test("preserves case in SSH host", () => {
-    const result = parseRuntimeString("ssh User@Host.Example.Com", workspaceName);
+    const result = parseRuntimeString("ssh User@Host.Example.Com", minionName);
     expect(result).toEqual({
       type: "ssh",
       host: "User@Host.Example.Com",
@@ -75,7 +75,7 @@ describe("parseRuntimeString", () => {
   });
 
   test("handles extra whitespace", () => {
-    const result = parseRuntimeString("  ssh   user@host  ", workspaceName);
+    const result = parseRuntimeString("  ssh   user@host  ", minionName);
     expect(result).toEqual({
       type: "ssh",
       host: "user@host",
@@ -84,12 +84,12 @@ describe("parseRuntimeString", () => {
   });
 
   test("throws error for SSH without host", () => {
-    expect(() => parseRuntimeString("ssh", workspaceName)).toThrow("SSH runtime requires host");
-    expect(() => parseRuntimeString("ssh ", workspaceName)).toThrow("SSH runtime requires host");
+    expect(() => parseRuntimeString("ssh", minionName)).toThrow("SSH runtime requires host");
+    expect(() => parseRuntimeString("ssh ", minionName)).toThrow("SSH runtime requires host");
   });
 
   test("accepts SSH with hostname only (user will be inferred)", () => {
-    const result = parseRuntimeString("ssh hostname", workspaceName);
+    const result = parseRuntimeString("ssh hostname", minionName);
     // Uses tilde path - backend will resolve it via runtime.resolvePath()
     expect(result).toEqual({
       type: "ssh",
@@ -99,7 +99,7 @@ describe("parseRuntimeString", () => {
   });
 
   test("accepts SSH with hostname.domain only", () => {
-    const result = parseRuntimeString("ssh dev.example.com", workspaceName);
+    const result = parseRuntimeString("ssh dev.example.com", minionName);
     // Uses tilde path - backend will resolve it via runtime.resolvePath()
     expect(result).toEqual({
       type: "ssh",
@@ -109,7 +109,7 @@ describe("parseRuntimeString", () => {
   });
 
   test("uses tilde path for root user too", () => {
-    const result = parseRuntimeString("ssh root@hostname", workspaceName);
+    const result = parseRuntimeString("ssh root@hostname", minionName);
     // Backend will resolve ~ to /root for root user
     expect(result).toEqual({
       type: "ssh",
@@ -119,7 +119,7 @@ describe("parseRuntimeString", () => {
   });
 
   test("parses docker runtime with image", () => {
-    const result = parseRuntimeString("docker ubuntu:22.04", workspaceName);
+    const result = parseRuntimeString("docker ubuntu:22.04", minionName);
     expect(result).toEqual({
       type: "docker",
       image: "ubuntu:22.04",
@@ -129,7 +129,7 @@ describe("parseRuntimeString", () => {
   test("parses devcontainer runtime with config path", () => {
     const result = parseRuntimeString(
       "devcontainer .devcontainer/devcontainer.json",
-      workspaceName
+      minionName
     );
     expect(result).toEqual({
       type: "devcontainer",
@@ -138,13 +138,13 @@ describe("parseRuntimeString", () => {
   });
 
   test("throws error for devcontainer without config path", () => {
-    expect(() => parseRuntimeString("devcontainer", workspaceName)).toThrow(
+    expect(() => parseRuntimeString("devcontainer", minionName)).toThrow(
       "Dev container runtime requires a config path"
     );
   });
 
   test("parses docker with registry image", () => {
-    const result = parseRuntimeString("docker ghcr.io/myorg/dev:latest", workspaceName);
+    const result = parseRuntimeString("docker ghcr.io/myorg/dev:latest", minionName);
     expect(result).toEqual({
       type: "docker",
       image: "ghcr.io/myorg/dev:latest",
@@ -152,19 +152,19 @@ describe("parseRuntimeString", () => {
   });
 
   test("throws error for docker without image", () => {
-    expect(() => parseRuntimeString("docker", workspaceName)).toThrow(
+    expect(() => parseRuntimeString("docker", minionName)).toThrow(
       "Docker runtime requires image"
     );
-    expect(() => parseRuntimeString("docker ", workspaceName)).toThrow(
+    expect(() => parseRuntimeString("docker ", minionName)).toThrow(
       "Docker runtime requires image"
     );
   });
 
   test("throws error for unknown runtime type", () => {
-    expect(() => parseRuntimeString("remote", workspaceName)).toThrow(
+    expect(() => parseRuntimeString("remote", minionName)).toThrow(
       "Unknown runtime type: 'remote'. Use 'ssh <host>', 'docker <image>', 'devcontainer <config>', 'worktree', or 'local'"
     );
-    expect(() => parseRuntimeString("kubernetes", workspaceName)).toThrow(
+    expect(() => parseRuntimeString("kubernetes", minionName)).toThrow(
       "Unknown runtime type: 'kubernetes'. Use 'ssh <host>', 'docker <image>', 'devcontainer <config>', 'worktree', or 'local'"
     );
   });
@@ -267,7 +267,7 @@ describe("prepareCompactionMessage", () => {
     const sendMessageOptions = createBaseOptions();
 
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       maxOutputTokens: 4096,
       followUpContent: { text: "Keep building" },
       model: "anthropic:claude-3-5-haiku",
@@ -288,7 +288,7 @@ describe("prepareCompactionMessage", () => {
   test("does not create followUpContent when no text or images provided", () => {
     const sendMessageOptions = createBaseOptions();
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       maxOutputTokens: 4096,
       sendMessageOptions,
     });
@@ -311,7 +311,7 @@ describe("prepareCompactionMessage", () => {
     };
 
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: { text: "Continue" },
       sendMessageOptions,
     });
@@ -334,7 +334,7 @@ describe("prepareCompactionMessage", () => {
     };
 
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: { text: "Continue" },
       sendMessageOptions,
     });
@@ -349,7 +349,7 @@ describe("prepareCompactionMessage", () => {
   test("creates followUpContent when text is provided", () => {
     const sendMessageOptions = createBaseOptions();
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: { text: "Continue with this" },
       sendMessageOptions,
     });
@@ -365,7 +365,7 @@ describe("prepareCompactionMessage", () => {
   test("rawCommand includes multiline continue payload", () => {
     const sendMessageOptions = createBaseOptions();
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       maxOutputTokens: 2048,
       model: "anthropic:claude-3-5-haiku",
       followUpContent: { text: "Line 1\nLine 2" },
@@ -384,7 +384,7 @@ describe("prepareCompactionMessage", () => {
   test("omits default resume text from compaction prompt", () => {
     const sendMessageOptions = createBaseOptions();
     const { messageText, metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: { text: "Continue" },
       sendMessageOptions,
     });
@@ -402,7 +402,7 @@ describe("prepareCompactionMessage", () => {
   test("includes non-default continue text in compaction prompt", () => {
     const sendMessageOptions = createBaseOptions();
     const { messageText } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: { text: "fix tests" },
       sendMessageOptions,
     });
@@ -413,7 +413,7 @@ describe("prepareCompactionMessage", () => {
   test("creates followUpContent when images are provided without text", () => {
     const sendMessageOptions = createBaseOptions();
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: {
         text: "",
         fileParts: [{ url: "data:image/png;base64,abc", mediaType: "image/png" }],
@@ -432,7 +432,7 @@ describe("prepareCompactionMessage", () => {
   test("creates followUpContent when reviews are provided without text", () => {
     const sendMessageOptions = createBaseOptions();
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: {
         text: "",
         reviews: [
@@ -459,7 +459,7 @@ describe("prepareCompactionMessage", () => {
   test("creates followUpContent with reviews and text combined", () => {
     const sendMessageOptions = createBaseOptions();
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: {
         text: "Also check the tests",
         reviews: [
@@ -487,7 +487,7 @@ describe("prepareCompactionMessage", () => {
     const sendMessageOptions = createBaseOptions();
 
     const { metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: {
         text: "/tests run all tests",
         latticeMetadata: {
@@ -520,7 +520,7 @@ describe("prepareCompactionMessage", () => {
   test("does not treat 'Continue' as default resume when reviews are present", () => {
     const sendMessageOptions = createBaseOptions();
     const { messageText, metadata } = prepareCompactionMessage({
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       followUpContent: {
         text: "Continue",
         reviews: [
@@ -557,11 +557,11 @@ describe("handlePlanShowCommand", () => {
     const setToast = mock(() => undefined);
 
     return {
-      workspaceId: "test-workspace-id",
+      minionId: "test-minion-id",
       setInput,
       setToast,
       api: {
-        workspace: {
+        minion: {
           getPlanContent: mock(() => Promise.resolve(getPlanContentResult)),
         },
         general: {},
@@ -588,7 +588,7 @@ describe("handlePlanShowCommand", () => {
     expect(context.setToast).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "error",
-        message: "No plan found for this workspace",
+        message: "No plan found for this minion",
       })
     );
   });
@@ -604,8 +604,8 @@ describe("handlePlanShowCommand", () => {
     expect(result.clearInput).toBe(true);
     expect(result.toastShown).toBe(false);
     expect(context.setInput).toHaveBeenCalledWith("");
-    expect(context.api.workspace.getPlanContent).toHaveBeenCalledWith({
-      workspaceId: "test-workspace-id",
+    expect(context.api.minion.getPlanContent).toHaveBeenCalledWith({
+      minionId: "test-minion-id",
     });
   });
 });
@@ -621,11 +621,11 @@ describe("handlePlanOpenCommand", () => {
     const setToast = mock(() => undefined);
 
     return {
-      workspaceId: "test-workspace-id",
+      minionId: "test-minion-id",
       setInput,
       setToast,
       api: {
-        workspace: {
+        minion: {
           getPlanContent: mock(() => Promise.resolve(getPlanContentResult)),
           getInfo: mock(() => Promise.resolve(null)),
         },
@@ -657,10 +657,10 @@ describe("handlePlanOpenCommand", () => {
     expect(context.setToast).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "error",
-        message: "No plan found for this workspace",
+        message: "No plan found for this minion",
       })
     );
-    expect(context.api.workspace.getInfo).not.toHaveBeenCalled();
+    expect(context.api.minion.getInfo).not.toHaveBeenCalled();
     // Should not attempt to open editor
     expect(context.api.general.openInEditor).not.toHaveBeenCalled();
   });
@@ -675,11 +675,11 @@ describe("handlePlanOpenCommand", () => {
 
     expect(result.clearInput).toBe(true);
     expect(context.setInput).toHaveBeenCalledWith("");
-    expect(context.api.workspace.getPlanContent).toHaveBeenCalledWith({
-      workspaceId: "test-workspace-id",
+    expect(context.api.minion.getPlanContent).toHaveBeenCalledWith({
+      minionId: "test-minion-id",
     });
-    expect(context.api.workspace.getInfo).toHaveBeenCalledWith({
-      workspaceId: "test-workspace-id",
+    expect(context.api.minion.getInfo).toHaveBeenCalledWith({
+      minionId: "test-minion-id",
     });
     // Note: Built-in editors (VS Code/Cursor/Zed) now use deep links directly
     // via window.open(), not the backend API. The backend API is only used
@@ -706,14 +706,14 @@ describe("handleCompactCommand", () => {
     const sendMessageMock = mock(() => Promise.resolve(sendMessageResult));
 
     return {
-      workspaceId: "test-workspace-id",
+      minionId: "test-minion-id",
       setInput,
       setToast,
       setAttachments,
       setSendingState,
       reviews: options?.reviews,
       api: {
-        workspace: {
+        minion: {
           sendMessage: sendMessageMock,
         },
       } as unknown as CommandHandlerContext["api"],
@@ -741,13 +741,11 @@ describe("handleCompactCommand", () => {
     await handleCompactCommand({ type: "compact" }, context);
 
     // Verify sendMessage was called with reviews in the metadata
-    const sendMessageMock = context.api.workspace.sendMessage as ReturnType<typeof mock>;
+    const sendMessageMock = context.api.minion.sendMessage as ReturnType<typeof mock>;
     expect(sendMessageMock).toHaveBeenCalled();
 
     const callArgs = sendMessageMock.mock.calls[0][0] as {
-      options?: {
-        latticeMetadata?: { parsed?: { followUpContent?: { reviews?: ReviewNoteData[] } } };
-      };
+      options?: { latticeMetadata?: { parsed?: { followUpContent?: { reviews?: ReviewNoteData[] } } } };
     };
     const followUpContent = callArgs?.options?.latticeMetadata?.parsed?.followUpContent;
 
@@ -771,13 +769,11 @@ describe("handleCompactCommand", () => {
     // No followUpContent text, just reviews
     await handleCompactCommand({ type: "compact" }, context);
 
-    const sendMessageMock = context.api.workspace.sendMessage as ReturnType<typeof mock>;
+    const sendMessageMock = context.api.minion.sendMessage as ReturnType<typeof mock>;
     expect(sendMessageMock).toHaveBeenCalled();
 
     const callArgs = sendMessageMock.mock.calls[0][0] as {
-      options?: {
-        latticeMetadata?: { parsed?: { followUpContent?: { reviews?: ReviewNoteData[] } } };
-      };
+      options?: { latticeMetadata?: { parsed?: { followUpContent?: { reviews?: ReviewNoteData[] } } } };
     };
     const followUpContent = callArgs?.options?.latticeMetadata?.parsed?.followUpContent;
 

@@ -1,0 +1,726 @@
+import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Loader2 } from "lucide-react";
+
+import { resolveLatticeAvailability } from "@/browser/components/ChatInput/LatticeControls";
+import { LatticeInstallDialog } from "@/browser/components/LatticeInstallDialog";
+import { LatticeLoginDialog, extractDeploymentUrl } from "@/browser/components/LatticeLoginDialog";
+import { RuntimeConfigInput } from "@/browser/components/RuntimeConfigInput";
+import { Button } from "@/browser/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/browser/components/ui/select";
+import { Switch } from "@/browser/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/browser/components/ui/tooltip";
+import { useAPI } from "@/browser/contexts/API";
+import { useProjectContext } from "@/browser/contexts/ProjectContext";
+import { useSettings } from "@/browser/contexts/SettingsContext";
+import { usePersistedState } from "@/browser/hooks/usePersistedState";
+import { useRuntimeEnablement } from "@/browser/hooks/useRuntimeEnablement";
+import {
+  RUNTIME_CHOICE_UI,
+  getRuntimeOptionField,
+  type RuntimeUiSpec,
+} from "@/browser/utils/runtimeUi";
+import { cn } from "@/common/lib/utils";
+import { getLastRuntimeConfigKey } from "@/common/constants/storage";
+import type { LatticeInfo, LatticeWhoami } from "@/common/orpc/schemas/lattice";
+import { normalizeRuntimeEnablement, RUNTIME_MODE } from "@/common/types/runtime";
+import type {
+  RuntimeAvailabilityStatus,
+  RuntimeEnablement,
+  RuntimeEnablementId,
+  RuntimeMode,
+} from "@/common/types/runtime";
+
+type RuntimeAvailabilityMap = Record<RuntimeMode, RuntimeAvailabilityStatus>;
+
+type RuntimeRow = { id: RuntimeEnablementId } & RuntimeUiSpec;
+
+type RuntimeAvailabilityState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "failed" }
+  | { status: "loaded"; data: RuntimeAvailabilityMap };
+
+interface RuntimeOverrideCacheEntry {
+  enablement: RuntimeEnablement;
+  defaultRuntime: RuntimeEnablementId | null;
+  pending: boolean;
+  overridesEnabled: boolean;
+}
+
+const ALL_SCOPE_VALUE = "__all__";
+
+const RUNTIME_ROWS: RuntimeRow[] = [
+  { id: "local", ...RUNTIME_CHOICE_UI.local },
+  { id: "worktree", ...RUNTIME_CHOICE_UI.worktree },
+  { id: "ssh", ...RUNTIME_CHOICE_UI.ssh },
+  { id: "lattice", ...RUNTIME_CHOICE_UI.lattice },
+  { id: "docker", ...RUNTIME_CHOICE_UI.docker },
+  { id: "devcontainer", ...RUNTIME_CHOICE_UI.devcontainer },
+];
+
+function getProjectLabel(path: string) {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+function getFallbackRuntime(enablement: RuntimeEnablement): RuntimeEnablementId | null {
+  return RUNTIME_ROWS.find((runtime) => enablement[runtime.id])?.id ?? null;
+}
+
+export function RuntimesSection() {
+  const { api } = useAPI();
+  const { projects, refreshProjects } = useProjectContext();
+  const { enablement, setRuntimeEnabled, defaultRuntime, setDefaultRuntime } =
+    useRuntimeEnablement();
+  const { runtimesProjectPath, setRuntimesProjectPath } = useSettings();
+
+  const projectList = Array.from(projects.keys());
+
+  // Consume one-shot project scope hint from "set defaults" button in creation controls.
+  const initialScope =
+    runtimesProjectPath && projects.has(runtimesProjectPath)
+      ? runtimesProjectPath
+      : ALL_SCOPE_VALUE;
+  const [selectedScope, setSelectedScope] = useState(initialScope);
+  const [projectOverrideEnabled, setProjectOverrideEnabled] = useState(false);
+  const [projectEnablement, setProjectEnablement] = useState<RuntimeEnablement>(enablement);
+  const [projectDefaultRuntime, setProjectDefaultRuntime] = useState<RuntimeEnablementId | null>(
+    defaultRuntime
+  );
+  const [runtimeAvailabilityState, setRuntimeAvailabilityState] =
+    useState<RuntimeAvailabilityState>({ status: "idle" });
+  const [latticeInfo, setLatticeInfo] = useState<LatticeInfo | null>(null);
+  const [latticeWhoami, setLatticeWhoami] = useState<LatticeWhoami | null>(null);
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [installDialogOpen, setInstallDialogOpen] = useState(false);
+  const [overrideCacheVersion, setOverrideCacheVersion] = useState(0);
+  // Cache pending per-project overrides locally while config updates propagate.
+  const overrideCacheRef = useRef<Map<string, RuntimeOverrideCacheEntry>>(new Map());
+
+  // When re-opened with a new project hint (e.g., clicking "set defaults" again for
+  // a different project), sync the scope and clear the one-shot hint.
+  // Only clear the hint once the project is actually found in the project list;
+  // projects load asynchronously, so we must keep the hint alive until then.
+  useEffect(() => {
+    if (!runtimesProjectPath) return;
+    if (!projects.has(runtimesProjectPath)) return;
+    setSelectedScope(runtimesProjectPath);
+    setRuntimesProjectPath(null);
+  }, [runtimesProjectPath, projects, setRuntimesProjectPath]);
+
+  const selectedProjectPath = selectedScope === ALL_SCOPE_VALUE ? null : selectedScope;
+  const isProjectScope = Boolean(selectedProjectPath);
+  const isProjectOverrideActive = isProjectScope && projectOverrideEnabled;
+
+  // Per-project runtime option defaults (SSH host, Docker image, etc.).
+  // Same localStorage keys the creation flow reads, so edits here are reflected immediately.
+  const runtimeConfigKey = selectedProjectPath
+    ? getLastRuntimeConfigKey(selectedProjectPath)
+    : "__no_project_defaults__";
+  type RuntimeOptionConfigs = Partial<Record<string, Record<string, unknown>>>;
+  const [runtimeOptionConfigs, setRuntimeOptionConfigs] = usePersistedState<RuntimeOptionConfigs>(
+    runtimeConfigKey,
+    {},
+    { listener: true }
+  );
+
+  const readOptionField = (runtimeMode: string, field: string): string => {
+    const modeConfig = runtimeOptionConfigs[runtimeMode];
+    if (!modeConfig || typeof modeConfig !== "object") return "";
+    const val = modeConfig[field];
+    return typeof val === "string" ? val : "";
+  };
+
+  const setOptionField = (runtimeMode: string, field: string, value: string) => {
+    setRuntimeOptionConfigs((prev) => {
+      const existing = prev[runtimeMode];
+      const existingObj = existing && typeof existing === "object" ? existing : {};
+      return { ...prev, [runtimeMode]: { ...existingObj, [field]: value } };
+    });
+  };
+
+  const syncProjects = () =>
+    refreshProjects().catch(() => {
+      // Best-effort only.
+    });
+
+  const queueProjectOverrideUpdate = (
+    projectPath: string,
+    entry: RuntimeOverrideCacheEntry,
+    payload: {
+      projectPath: string;
+      runtimeEnablement?: RuntimeEnablement | null;
+      defaultRuntime?: RuntimeEnablementId | null;
+      runtimeOverridesEnabled?: boolean | null;
+    }
+  ) => {
+    overrideCacheRef.current.set(projectPath, entry);
+    const updatePromise = api?.config?.updateRuntimeEnablement(payload);
+    if (!updatePromise) {
+      overrideCacheRef.current.set(projectPath, { ...entry, pending: false });
+      setOverrideCacheVersion((prev) => prev + 1);
+      return;
+    }
+
+    updatePromise
+      .finally(() =>
+        syncProjects().finally(() => {
+          if (overrideCacheRef.current.get(projectPath) === entry) {
+            overrideCacheRef.current.set(projectPath, { ...entry, pending: false });
+            setOverrideCacheVersion((prev) => prev + 1);
+          }
+        })
+      )
+      .catch(() => {
+        // Best-effort only.
+      });
+  };
+
+  useEffect(() => {
+    if (selectedScope === ALL_SCOPE_VALUE) {
+      return;
+    }
+
+    if (!projects.has(selectedScope)) {
+      setSelectedScope(ALL_SCOPE_VALUE);
+    }
+  }, [projects, selectedScope]);
+
+  useEffect(() => {
+    if (!selectedProjectPath) {
+      setProjectOverrideEnabled(false);
+      setProjectEnablement(enablement);
+      setProjectDefaultRuntime(defaultRuntime ?? null);
+      return;
+    }
+
+    const cached = overrideCacheRef.current.get(selectedProjectPath);
+    if (cached?.pending) {
+      // Keep the pending override state stable until refreshProjects completes to avoid
+      // toggling the UI back on/off while backend config is still propagating.
+      const overridesEnabled = cached.overridesEnabled === true;
+      setProjectOverrideEnabled(overridesEnabled);
+      setProjectEnablement(cached.enablement);
+      setProjectDefaultRuntime(cached.defaultRuntime ?? defaultRuntime ?? null);
+      return;
+    }
+
+    const projectConfig = projects.get(selectedProjectPath);
+    const hasOverrides =
+      projectConfig?.runtimeOverridesEnabled === true ||
+      Boolean(projectConfig?.runtimeEnablement) ||
+      projectConfig?.defaultRuntime !== undefined;
+
+    if (hasOverrides) {
+      const resolvedEnablement = normalizeRuntimeEnablement(projectConfig?.runtimeEnablement);
+      setProjectOverrideEnabled(true);
+      // When overrides are active, the project's enablement is independent of global settings
+      // (all-true defaults + only the project's explicit `false` overrides). This matches
+      // the creation flow in ChatInput/index.tsx which uses normalizeRuntimeEnablement directly.
+      setProjectEnablement(resolvedEnablement);
+      setProjectDefaultRuntime(projectConfig?.defaultRuntime ?? defaultRuntime ?? null);
+      overrideCacheRef.current.set(selectedProjectPath, {
+        enablement: resolvedEnablement,
+        defaultRuntime: projectConfig?.defaultRuntime ?? null,
+        pending: false,
+        overridesEnabled: true,
+      });
+      return;
+    }
+
+    overrideCacheRef.current.delete(selectedProjectPath);
+    setProjectOverrideEnabled(false);
+    setProjectEnablement(enablement);
+    setProjectDefaultRuntime(defaultRuntime ?? null);
+  }, [defaultRuntime, enablement, projects, selectedProjectPath, overrideCacheVersion]);
+
+  useEffect(() => {
+    if (!api || !selectedProjectPath) {
+      setRuntimeAvailabilityState({ status: "idle" });
+      return;
+    }
+
+    let active = true;
+    setRuntimeAvailabilityState({ status: "loading" });
+
+    api.projects
+      .runtimeAvailability({ projectPath: selectedProjectPath })
+      .then((availability) => {
+        if (active) {
+          setRuntimeAvailabilityState({ status: "loaded", data: availability });
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRuntimeAvailabilityState({ status: "failed" });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [api, selectedProjectPath]);
+
+  useEffect(() => {
+    if (!api) {
+      setLatticeInfo(null);
+      return;
+    }
+
+    let active = true;
+
+    api.lattice
+      .getInfo()
+      .then((info) => {
+        if (active) {
+          setLatticeInfo(info);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLatticeInfo({
+            state: "unavailable",
+            reason: { kind: "error", message: "Failed to fetch" },
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [api]);
+
+  // Fetch whoami when CLI is available
+  useEffect(() => {
+    if (!api || latticeInfo?.state !== "available") {
+      setLatticeWhoami(null);
+      return;
+    }
+
+    let active = true;
+
+    api.lattice
+      .whoami()
+      .then((whoami) => {
+        if (active) {
+          setLatticeWhoami(whoami);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setLatticeWhoami({ state: "unauthenticated", reason: "Failed to check authentication" });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [api, latticeInfo?.state]);
+
+  const latticeAvailability = resolveLatticeAvailability(latticeInfo, latticeWhoami);
+  const latticeNotLoggedIn = latticeWhoami?.state === "unauthenticated";
+  const latticeMissing =
+    latticeInfo?.state === "unavailable" && latticeInfo.reason === "missing";
+  const latticeLoginDefaultUrl = latticeNotLoggedIn && latticeWhoami.reason
+    ? extractDeploymentUrl(latticeWhoami.reason)
+    : undefined;
+
+  const refreshLatticeInfo = () => {
+    // Re-fetch Lattice info and auth state after successful login or install.
+    api?.lattice
+      .getInfo()
+      .then((info) => setLatticeInfo(info))
+      .catch(() => {});
+    api?.lattice
+      .whoami({ refresh: true })
+      .then((whoami) => setLatticeWhoami(whoami))
+      .catch(() => {});
+  };
+
+  const availabilityMap =
+    runtimeAvailabilityState.status === "loaded" ? runtimeAvailabilityState.data : null;
+
+  const effectiveEnablement = isProjectOverrideActive ? projectEnablement : enablement;
+  const effectiveDefaultRuntime = isProjectOverrideActive ? projectDefaultRuntime : defaultRuntime;
+
+  const enabledRuntimeOptions = RUNTIME_ROWS.filter((runtime) => effectiveEnablement[runtime.id]);
+  const enabledRuntimeCount = enabledRuntimeOptions.length;
+
+  const defaultRuntimeValue =
+    effectiveDefaultRuntime && effectiveEnablement[effectiveDefaultRuntime]
+      ? effectiveDefaultRuntime
+      : "";
+  const defaultRuntimePlaceholder =
+    enabledRuntimeOptions.length === 0 ? "No runtimes enabled" : "Select default runtime";
+  const defaultRuntimeDisabled =
+    enabledRuntimeOptions.length === 0 || (isProjectScope && !projectOverrideEnabled);
+
+  const handleOverrideToggle = (checked: boolean) => {
+    if (!selectedProjectPath) {
+      return;
+    }
+
+    if (!checked) {
+      const cacheEntry: RuntimeOverrideCacheEntry = {
+        enablement,
+        defaultRuntime: defaultRuntime ?? null,
+        pending: true,
+        overridesEnabled: false,
+      };
+      setProjectOverrideEnabled(false);
+      setProjectEnablement(enablement);
+      setProjectDefaultRuntime(defaultRuntime ?? null);
+
+      queueProjectOverrideUpdate(selectedProjectPath, cacheEntry, {
+        projectPath: selectedProjectPath,
+        runtimeEnablement: null,
+        defaultRuntime: null,
+        runtimeOverridesEnabled: null,
+      });
+      return;
+    }
+
+    const nextEnablement = { ...enablement };
+    const cacheEntry: RuntimeOverrideCacheEntry = {
+      enablement: nextEnablement,
+      defaultRuntime: defaultRuntime ?? null,
+      pending: true,
+      overridesEnabled: true,
+    };
+    setProjectOverrideEnabled(true);
+    setProjectEnablement(nextEnablement);
+    setProjectDefaultRuntime(defaultRuntime ?? null);
+
+    queueProjectOverrideUpdate(selectedProjectPath, cacheEntry, {
+      projectPath: selectedProjectPath,
+      runtimeEnablement: nextEnablement,
+      defaultRuntime: defaultRuntime ?? null,
+      runtimeOverridesEnabled: true,
+    });
+  };
+
+  const handleRuntimeToggle = (runtimeId: RuntimeEnablementId, enabled: boolean) => {
+    if (!enabled) {
+      // Keep at least one runtime enabled to avoid leaving users without a fallback.
+      const currentEnabledCount = RUNTIME_ROWS.filter(
+        (runtime) => effectiveEnablement[runtime.id]
+      ).length;
+      if (currentEnabledCount <= 1) {
+        return;
+      }
+    }
+
+    const nextEnablement: RuntimeEnablement = {
+      ...effectiveEnablement,
+      [runtimeId]: enabled,
+    };
+
+    if (!isProjectScope) {
+      const implicitDefault: RuntimeEnablementId = defaultRuntime ?? RUNTIME_MODE.WORKTREE;
+      let nextDefaultRuntime: RuntimeEnablementId | null = implicitDefault;
+      if (!nextEnablement[implicitDefault]) {
+        nextDefaultRuntime = getFallbackRuntime(nextEnablement);
+      }
+
+      const shouldUpdateDefault =
+        defaultRuntime !== null
+          ? nextDefaultRuntime !== defaultRuntime
+          : nextDefaultRuntime !== implicitDefault;
+
+      if (shouldUpdateDefault) {
+        setRuntimeEnabled(runtimeId, enabled, nextDefaultRuntime ?? null);
+      } else {
+        setRuntimeEnabled(runtimeId, enabled);
+      }
+      return;
+    }
+
+    if (!selectedProjectPath || !projectOverrideEnabled) {
+      return;
+    }
+
+    setProjectEnablement(nextEnablement);
+
+    const inheritedDefault = projectDefaultRuntime ?? defaultRuntime ?? null;
+    let nextDefaultRuntime = inheritedDefault;
+    if (nextDefaultRuntime && !nextEnablement[nextDefaultRuntime]) {
+      nextDefaultRuntime = getFallbackRuntime(nextEnablement);
+    }
+    if (nextDefaultRuntime !== projectDefaultRuntime) {
+      setProjectDefaultRuntime(nextDefaultRuntime);
+    }
+    const cacheEntry: RuntimeOverrideCacheEntry = {
+      enablement: nextEnablement,
+      defaultRuntime: nextDefaultRuntime,
+      pending: true,
+      overridesEnabled: true,
+    };
+
+    const updatePayload: {
+      projectPath: string;
+      runtimeEnablement: RuntimeEnablement;
+      defaultRuntime?: RuntimeEnablementId | null;
+      runtimeOverridesEnabled?: boolean;
+    } = {
+      projectPath: selectedProjectPath,
+      runtimeEnablement: nextEnablement,
+      runtimeOverridesEnabled: true,
+    };
+
+    if (nextDefaultRuntime !== projectDefaultRuntime) {
+      updatePayload.defaultRuntime = nextDefaultRuntime ?? null;
+    }
+
+    queueProjectOverrideUpdate(selectedProjectPath, cacheEntry, updatePayload);
+  };
+
+  const handleDefaultRuntimeChange = (value: string) => {
+    const runtimeId = value as RuntimeEnablementId;
+
+    if (!isProjectScope) {
+      setDefaultRuntime(runtimeId);
+      return;
+    }
+
+    if (!selectedProjectPath || !projectOverrideEnabled) {
+      return;
+    }
+
+    setProjectDefaultRuntime(runtimeId);
+    const cacheEntry: RuntimeOverrideCacheEntry = {
+      enablement: projectEnablement,
+      defaultRuntime: runtimeId,
+      pending: true,
+      overridesEnabled: true,
+    };
+    queueProjectOverrideUpdate(selectedProjectPath, cacheEntry, {
+      projectPath: selectedProjectPath,
+      defaultRuntime: runtimeId,
+      runtimeOverridesEnabled: true,
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <div className="text-foreground text-sm">Scope</div>
+            <div className="text-muted text-xs">Manage runtimes globally or per project.</div>
+          </div>
+          <Select value={selectedScope} onValueChange={setSelectedScope}>
+            <SelectTrigger
+              className="border-border-medium bg-background-secondary hover:bg-hover h-9 w-auto min-w-[160px] cursor-pointer rounded-md border px-3 text-sm transition-colors"
+              aria-label="Scope"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_SCOPE_VALUE}>All</SelectItem>
+              {projectList.map((path) => (
+                <SelectItem key={path} value={path}>
+                  {getProjectLabel(path)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        {isProjectScope ? (
+          <div className="border-border-light bg-background-secondary flex items-center justify-between gap-4 rounded-md border px-3 py-2">
+            <div>
+              <div className="text-foreground text-sm">Override project settings</div>
+              <div className="text-muted text-xs">
+                Keep global defaults or customize enabled runtimes for this project.
+              </div>
+            </div>
+            <Switch
+              checked={projectOverrideEnabled}
+              onCheckedChange={handleOverrideToggle}
+              aria-label="Override project runtime settings"
+            />
+          </div>
+        ) : null}
+      </div>
+
+      <div className="space-y-4">
+        <div
+          className={cn(
+            "flex items-center justify-between gap-4",
+            isProjectScope && !projectOverrideEnabled && "opacity-60"
+          )}
+        >
+          <div>
+            <div className="text-foreground text-sm">Default runtime</div>
+            <div className="text-muted text-xs">
+              {isProjectScope
+                ? "Applied to new minions in this project."
+                : "Applied to new minions by default."}
+            </div>
+          </div>
+          <Select
+            value={defaultRuntimeValue}
+            onValueChange={handleDefaultRuntimeChange}
+            disabled={defaultRuntimeDisabled}
+          >
+            <SelectTrigger className="border-border-medium bg-background-secondary hover:bg-hover h-9 w-auto min-w-[180px] cursor-pointer rounded-md border px-3 text-sm transition-colors">
+              <SelectValue placeholder={defaultRuntimePlaceholder} />
+            </SelectTrigger>
+            <SelectContent>
+              {enabledRuntimeOptions.map((runtime) => (
+                <SelectItem key={runtime.id} value={runtime.id}>
+                  {runtime.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="divide-border-light divide-y">
+          {RUNTIME_ROWS.map((runtime) => {
+            const Icon = runtime.Icon;
+            const isLattice = runtime.id === "lattice";
+            const availability = isLattice
+              ? null
+              : (availabilityMap?.[runtime.id as RuntimeMode] ?? null);
+            const availabilityReason = isProjectScope
+              ? isLattice
+                ? latticeAvailability.state !== "available" && latticeAvailability.state !== "loading"
+                  ? latticeAvailability.reason
+                  : null
+                : availability && !availability.available
+                  ? availability.reason
+                  : null
+              : null;
+            const showLoading = isProjectScope
+              ? isLattice
+                ? latticeAvailability.state === "loading"
+                : runtimeAvailabilityState.status === "loading"
+              : false;
+            const rowDisabled = isProjectScope && !projectOverrideEnabled;
+            const isLastEnabled = effectiveEnablement[runtime.id] && enabledRuntimeCount <= 1;
+            const switchDisabled = rowDisabled || isLastEnabled;
+            const optionSpec = getRuntimeOptionField(runtime.id);
+            const optionRuntimeMode = runtime.id === "lattice" ? "ssh" : runtime.id;
+            const switchControl = (
+              <Switch
+                checked={effectiveEnablement[runtime.id]}
+                disabled={switchDisabled}
+                onCheckedChange={(checked) => handleRuntimeToggle(runtime.id, checked)}
+                aria-label={`Toggle ${runtime.label} runtime`}
+              />
+            );
+            const switchNode =
+              isLastEnabled && !rowDisabled ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="inline-flex">{switchControl}</span>
+                  </TooltipTrigger>
+                  <TooltipContent align="end">At least one runtime must be enabled.</TooltipContent>
+                </Tooltip>
+              ) : (
+                switchControl
+              );
+
+            // Inline status indicators keep availability feedback from shifting row layout.
+            return (
+              <div
+                key={runtime.id}
+                className={cn(
+                  "flex items-start justify-between gap-4 py-3",
+                  rowDisabled && "opacity-60"
+                )}
+              >
+                <div className="flex flex-1 gap-3 pr-4">
+                  <Icon size={16} className="text-muted mt-0.5" />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-foreground text-sm">{runtime.label}</div>
+                      {availabilityReason ? (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="bg-warning/10 text-warning border-warning/30 inline-flex cursor-help items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px]">
+                              <AlertTriangle className="h-3 w-3" />
+                              Unavailable
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent align="start" className="max-w-64 whitespace-normal">
+                            {availabilityReason}
+                          </TooltipContent>
+                        </Tooltip>
+                      ) : null}
+                      {isLattice && latticeMissing ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-5 px-2 text-[10px]"
+                          onClick={() => setInstallDialogOpen(true)}
+                        >
+                          Install
+                        </Button>
+                      ) : null}
+                      {isLattice && latticeNotLoggedIn ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-5 px-2 text-[10px]"
+                          onClick={() => setLoginDialogOpen(true)}
+                        >
+                          Login
+                        </Button>
+                      ) : null}
+                    </div>
+                    <div className="text-muted text-xs">{runtime.description}</div>
+                    {/* Configurable option inputs — project scope uses the same labeled
+                        input component and localStorage defaults as the creation flow. */}
+                    {!optionSpec || !selectedProjectPath ? (
+                      runtime.options && !selectedProjectPath ? (
+                        <div className="text-muted/70 text-[11px]">Options: {runtime.options}</div>
+                      ) : null
+                    ) : (
+                      <RuntimeConfigInput
+                        label={optionSpec.label}
+                        value={readOptionField(optionRuntimeMode, optionSpec.field)}
+                        onChange={(value) =>
+                          setOptionField(optionRuntimeMode, optionSpec.field, value)
+                        }
+                        placeholder={optionSpec.placeholder}
+                        disabled={rowDisabled}
+                        className="mt-1.5"
+                        inputClassName="w-full max-w-[260px]"
+                        ariaLabel={`${optionSpec.label} for ${runtime.label}`}
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-4 w-4 items-center justify-center">
+                    {showLoading ? <Loader2 className="text-muted h-4 w-4 animate-spin" /> : null}
+                  </div>
+                  {switchNode}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <LatticeLoginDialog
+        open={loginDialogOpen}
+        onOpenChange={setLoginDialogOpen}
+        onLoginSuccess={refreshLatticeInfo}
+        defaultUrl={latticeLoginDefaultUrl}
+      />
+      <LatticeInstallDialog
+        open={installDialogOpen}
+        onOpenChange={setInstallDialogOpen}
+        onInstallSuccess={refreshLatticeInfo}
+      />
+    </div>
+  );
+}

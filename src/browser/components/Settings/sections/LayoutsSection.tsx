@@ -4,8 +4,9 @@ import { Button } from "@/browser/components/ui/button";
 import assert from "@/common/utils/assert";
 import { KebabMenu, type KebabMenuItem } from "@/browser/components/KebabMenu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/browser/components/ui/tooltip";
-import { useWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
+import { useMinionContext } from "@/browser/contexts/MinionContext";
 import { useUILayouts } from "@/browser/contexts/UILayoutsContext";
+import { useConfirmDialog } from "@/browser/contexts/ConfirmDialogContext";
 import { getEffectiveSlotKeybind } from "@/browser/utils/uiLayouts";
 import { stopKeyboardPropagation } from "@/browser/utils/events";
 import { formatKeybind, isMac, KEYBINDS, matchesKeybind } from "@/browser/utils/ui/keybinds";
@@ -101,13 +102,14 @@ export function LayoutsSection() {
     layoutPresets,
     loaded,
     loadFailed,
-    applySlotToWorkspace,
-    saveCurrentWorkspaceToSlot,
+    applySlotToMinion,
+    saveCurrentMinionToSlot,
     renameSlot,
     deleteSlot,
     setSlotKeybindOverride,
   } = useUILayouts();
-  const { selectedWorkspace } = useWorkspaceContext();
+  const { selectedMinion } = useMinionContext();
+  const { confirm: confirmDialog } = useConfirmDialog();
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<{
@@ -120,9 +122,9 @@ export function LayoutsSection() {
   const [capturingSlot, setCapturingSlot] = useState<LayoutSlotNumber | null>(null);
   const [captureError, setCaptureError] = useState<string | null>(null);
 
-  const workspaceId = selectedWorkspace?.workspaceId ?? null;
-  const selectedWorkspaceLabel = selectedWorkspace
-    ? `${selectedWorkspace.projectName}/${selectedWorkspace.namedWorkspacePath.split("/").pop() ?? selectedWorkspace.namedWorkspacePath}`
+  const minionId = selectedMinion?.minionId ?? null;
+  const selectedMinionLabel = selectedMinion
+    ? `${selectedMinion.projectName}/${selectedMinion.namedMinionPath.split("/").pop() ?? selectedMinion.namedMinionPath}`
     : null;
 
   const existingKeybinds = useMemo(() => {
@@ -194,14 +196,14 @@ export function LayoutsSection() {
   const handleAddLayout = async (): Promise<void> => {
     setActionError(null);
 
-    if (!workspaceId) {
-      setActionError("Select a workspace to capture its layout.");
+    if (!minionId) {
+      setActionError("Select a minion to capture its layout.");
       return;
     }
 
     try {
-      const preset = await saveCurrentWorkspaceToSlot(
-        workspaceId,
+      const preset = await saveCurrentMinionToSlot(
+        minionId,
         nextSlotNumber,
         `Layout ${nextSlotNumber}`
       );
@@ -256,15 +258,15 @@ export function LayoutsSection() {
       <div>
         <h3 className="text-foreground text-sm font-medium">Layout Slots</h3>
         <div className="text-muted mt-1 text-xs">
-          Layouts are saved globally and can be applied to any workspace.
+          Layouts are saved globally and can be applied to any minion.
         </div>
         <div className="text-muted mt-1 text-xs">
           Slots 1–9 have default Ctrl/Cmd+Alt+1..9 hotkeys. Additional layouts can be added and
           assigned custom hotkeys.
         </div>
-        {selectedWorkspaceLabel ? null : (
+        {selectedMinionLabel ? null : (
           <div className="text-muted mt-1 text-xs">
-            Select a workspace to capture or apply layouts.
+            Select a minion to capture or apply layouts.
           </div>
         )}
       </div>
@@ -290,28 +292,28 @@ export function LayoutsSection() {
             const menuItems: KebabMenuItem[] = [
               {
                 label: "Apply",
-                disabled: !workspaceId,
-                tooltip: workspaceId ? undefined : "Select a workspace to apply layouts.",
+                disabled: !minionId,
+                tooltip: minionId ? undefined : "Select a minion to apply layouts.",
                 onClick: () => {
                   setActionError(null);
-                  if (!workspaceId) return;
-                  void applySlotToWorkspace(workspaceId, slot).catch(() => {
+                  if (!minionId) return;
+                  void applySlotToMinion(minionId, slot).catch(() => {
                     setActionError("Failed to apply layout.");
                   });
                 },
               },
               {
-                label: "Update from current workspace",
-                disabled: !workspaceId,
-                tooltip: workspaceId ? undefined : "Select a workspace to capture its layout.",
+                label: "Update from current minion",
+                disabled: !minionId,
+                tooltip: minionId ? undefined : "Select a minion to capture its layout.",
                 onClick: () => {
                   setActionError(null);
-                  if (!workspaceId) {
-                    setActionError("Select a workspace to capture its layout.");
+                  if (!minionId) {
+                    setActionError("Select a minion to capture its layout.");
                     return;
                   }
 
-                  void saveCurrentWorkspaceToSlot(workspaceId, slot).catch(() => {
+                  void saveCurrentMinionToSlot(minionId, slot).catch(() => {
                     setActionError("Failed to update layout.");
                   });
                 },
@@ -319,18 +321,24 @@ export function LayoutsSection() {
               {
                 label: "Delete layout",
                 onClick: () => {
-                  const ok = confirm(`Delete layout "${preset.name}"?`);
-                  if (!ok) return;
+                  void (async () => {
+                    const ok = await confirmDialog({
+                      title: `Delete layout "${preset.name}"?`,
+                      confirmLabel: "Delete",
+                      confirmVariant: "destructive",
+                    });
+                    if (!ok) return;
 
-                  setActionError(null);
+                    setActionError(null);
 
-                  setEditingName(null);
-                  setCapturingSlot(null);
-                  setCaptureError(null);
+                    setEditingName(null);
+                    setCapturingSlot(null);
+                    setCaptureError(null);
 
-                  void deleteSlot(slot).catch(() => {
-                    setActionError("Failed to delete layout.");
-                  });
+                    void deleteSlot(slot).catch(() => {
+                      setActionError("Failed to delete layout.");
+                    });
+                  })();
                 },
               },
             ];
@@ -494,7 +502,7 @@ export function LayoutsSection() {
         variant="secondary"
         size="lg"
         className="w-full"
-        disabled={!workspaceId}
+        disabled={!minionId}
         onClick={() => void handleAddLayout()}
       >
         <Plus />

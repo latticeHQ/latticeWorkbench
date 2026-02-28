@@ -1,6 +1,6 @@
 /**
- * Lattice workspace integration stories.
- * Tests the UI for creating and connecting to Lattice cloud workspaces.
+ * Lattice minion integration stories.
+ * Tests the UI for creating and connecting to Lattice cloud minions.
  */
 
 import { within, userEvent, waitFor } from "@storybook/test";
@@ -9,21 +9,24 @@ import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import { createMockORPCClient } from "@/browser/stories/mocks/orpc";
 import { expandProjects } from "./storyHelpers";
 import type { ProjectConfig } from "@/node/config";
-import type {
-  LatticeTemplate,
-  LatticePreset,
-  LatticeWorkspace,
-} from "@/common/orpc/schemas/lattice";
+import type { LatticeTemplate, LatticePreset, LatticeMinion } from "@/common/orpc/schemas/lattice";
+import { getLastRuntimeConfigKey, getRuntimeKey } from "@/common/constants/storage";
 
 async function openProjectCreationView(storyRoot: HTMLElement): Promise<void> {
-  // App now boots into the built-in lattice-chat workspace.
+  // App now boots into the built-in lattice-chat minion.
   // Navigate to the project creation page so runtime controls are visible.
+  if (typeof localStorage !== "undefined") {
+    // Ensure runtime selection state doesn't leak between stories.
+    localStorage.removeItem(getLastRuntimeConfigKey("/Users/dev/my-project"));
+    localStorage.removeItem(getRuntimeKey("/Users/dev/my-project"));
+  }
+
   const projectRow = await waitFor(
     () => {
       const el = storyRoot.querySelector(
         '[data-project-path="/Users/dev/my-project"][aria-controls]'
       );
-      if (!el) throw new Error("Headquarter row not found");
+      if (!el) throw new Error("Project row not found");
       return el;
     },
     { timeout: 10_000 }
@@ -36,9 +39,9 @@ export default {
   title: "App/Lattice",
 };
 
-/** Helper to create a project config for a path with no workspaces */
-function projectWithNoWorkspaces(path: string): [string, ProjectConfig] {
-  return [path, { workspaces: [] }];
+/** Helper to create a project config for a path with no minions */
+function projectWithNoMinions(path: string): [string, ProjectConfig] {
+  return [path, { minions: [] }];
 }
 
 /** Mock Lattice templates */
@@ -92,8 +95,8 @@ const mockPresetsK8s: LatticePreset[] = [
   },
 ];
 
-/** Mock existing Lattice workspaces */
-const mockWorkspaces: LatticeWorkspace[] = [
+/** Mock existing Lattice minions */
+const mockMinions: LatticeMinion[] = [
   {
     name: "lattice-dev",
     templateName: "lattice-on-lattice",
@@ -114,9 +117,19 @@ const mockWorkspaces: LatticeWorkspace[] = [
   },
 ];
 
+const mockParseError = "Unexpected token u in JSON at position 0";
+
+const mockLatticeInfo = {
+  state: "available" as const,
+  version: "2.28.0",
+  // Include username + URL so Storybook renders the logged-in label in Lattice stories.
+  username: "lattice-user",
+  url: "https://lattice.example.com",
+};
+
 /**
- * SSH runtime with Lattice available - shows Lattice checkbox.
- * When user selects SSH runtime, they can enable Lattice workspace mode.
+ * Lattice available - shows Lattice runtime button.
+ * When Lattice CLI is available, the Lattice button appears in the runtime selector.
  */
 export const SSHWithLatticeAvailable: AppStory = {
   render: () => (
@@ -124,16 +137,16 @@ export const SSHWithLatticeAvailable: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
-          latticeInfo: { state: "available", version: "2.28.0" },
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
           latticeTemplates: mockTemplates,
           latticePresets: new Map([
             ["lattice-on-lattice", mockPresetsLatticeOnLattice],
             ["kubernetes-dev", mockPresetsK8s],
             ["aws-windows", []],
           ]),
-          latticeWorkspaces: mockWorkspaces,
+          latticeMinions: mockMinions,
         });
       }}
     />
@@ -146,41 +159,31 @@ export const SSHWithLatticeAvailable: AppStory = {
     // Wait for the runtime button group to appear
     await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
 
-    // Click SSH runtime button
-    const sshButton = canvas.getByRole("button", { name: /SSH/i });
-    await userEvent.click(sshButton);
-
-    // Wait for SSH mode to be active and Lattice checkbox to appear
-    await waitFor(
-      () => {
-        const latticeCheckbox = canvas.queryByTestId("lattice-checkbox");
-        if (!latticeCheckbox) throw new Error("Lattice checkbox not found");
-      },
-      { timeout: 5000 }
-    );
+    // Lattice button should appear when Lattice CLI is available
+    await canvas.findByRole("button", { name: /Lattice/i });
   },
 };
 
 /**
- * Lattice new workspace flow - shows template and preset dropdowns.
- * User enables Lattice, selects template, and optionally a preset.
+ * Lattice new minion flow - shows template and preset dropdowns.
+ * User clicks Lattice runtime button, then selects template and optionally a preset.
  */
-export const LatticeNewWorkspace: AppStory = {
+export const LatticeNewMinion: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
-          latticeInfo: { state: "available", version: "2.28.0" },
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
           latticeTemplates: mockTemplates,
           latticePresets: new Map([
             ["lattice-on-lattice", mockPresetsLatticeOnLattice],
             ["kubernetes-dev", mockPresetsK8s],
             ["aws-windows", []],
           ]),
-          latticeWorkspaces: mockWorkspaces,
+          latticeMinions: mockMinions,
         });
       }}
     />
@@ -193,42 +196,38 @@ export const LatticeNewWorkspace: AppStory = {
     // Wait for runtime controls
     await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
 
-    // Click SSH runtime button
-    const sshButton = canvas.getByRole("button", { name: /SSH/i });
-    await userEvent.click(sshButton);
-
-    // Enable Lattice
-    const latticeCheckbox = await canvas.findByTestId("lattice-checkbox", {}, { timeout: 5000 });
-    await userEvent.click(latticeCheckbox);
+    // Click Lattice runtime button directly
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.click(latticeButton);
 
     // Wait for Lattice controls to appear
-    await canvas.findByTestId("lattice-controls-inner", {}, { timeout: 5000 });
+    await canvas.findByTestId("lattice-controls-inner");
 
     // The template dropdown should be visible with templates loaded
-    await canvas.findByTestId("lattice-template-select", {}, { timeout: 5000 });
+    await canvas.findByTestId("lattice-template-select");
   },
 };
 
 /**
- * Lattice existing workspace flow - shows workspace dropdown.
- * User switches to "Existing" mode and selects from running workspaces.
+ * Lattice existing minion flow - shows minion dropdown.
+ * User clicks Lattice runtime, switches to "Existing" mode and selects from running minions.
  */
-export const LatticeExistingWorkspace: AppStory = {
+export const LatticeExistingMinion: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
-          latticeInfo: { state: "available", version: "2.28.0" },
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
           latticeTemplates: mockTemplates,
           latticePresets: new Map([
             ["lattice-on-lattice", mockPresetsLatticeOnLattice],
             ["kubernetes-dev", mockPresetsK8s],
             ["aws-windows", []],
           ]),
-          latticeWorkspaces: mockWorkspaces,
+          latticeMinions: mockMinions,
         });
       }}
     />
@@ -241,29 +240,167 @@ export const LatticeExistingWorkspace: AppStory = {
     // Wait for runtime controls
     await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
 
-    // Click SSH runtime button
-    const sshButton = canvas.getByRole("button", { name: /SSH/i });
-    await userEvent.click(sshButton);
-
-    // Enable Lattice
-    const latticeCheckbox = await canvas.findByTestId("lattice-checkbox", {}, { timeout: 5000 });
-    await userEvent.click(latticeCheckbox);
+    // Click Lattice runtime button directly
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.click(latticeButton);
 
     // Wait for Lattice controls
-    await canvas.findByTestId("lattice-controls-inner", {}, { timeout: 5000 });
+    await canvas.findByTestId("lattice-controls-inner");
 
-    // Click "Existing" button
-    const existingButton = canvas.getByRole("button", { name: "Existing" });
+    // Click "Existing" button — use findByRole (retry-capable) to handle
+    // transient DOM gaps between awaits.
+    const existingButton = await canvas.findByRole("button", { name: "Existing" });
     await userEvent.click(existingButton);
 
-    // Wait for workspace dropdown to appear
-    await canvas.findByTestId("lattice-workspace-select", {}, { timeout: 5000 });
+    // Wait for minion dropdown to appear
+    await canvas.findByTestId("lattice-minion-select");
   },
 };
 
 /**
- * Lattice not available - checkbox should not appear.
- * When Lattice CLI is not installed, the SSH runtime shows normal host input.
+ * Lattice existing minion flow with parse error.
+ * Shows the error state when listing minions fails to parse.
+ */
+export const LatticeExistingMinionParseError: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        expandProjects(["/Users/dev/my-project"]);
+        return createMockORPCClient({
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
+          latticeTemplates: mockTemplates,
+          latticePresets: new Map([
+            ["lattice-on-lattice", mockPresetsLatticeOnLattice],
+            ["kubernetes-dev", mockPresetsK8s],
+            ["aws-windows", []],
+          ]),
+          latticeMinions: mockMinions,
+          latticeMinionsResult: { ok: false, error: mockParseError },
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const storyRoot = document.getElementById("storybook-root") ?? canvasElement;
+    await openProjectCreationView(storyRoot);
+    const canvas = within(storyRoot);
+
+    // Wait for runtime controls
+    await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
+
+    // Click Lattice runtime button directly
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.click(latticeButton);
+
+    // Wait for Lattice controls
+    await canvas.findByTestId("lattice-controls-inner");
+
+    // Click "Existing" button — use findByRole (retry-capable) to handle
+    // transient DOM gaps between awaits.
+    const existingButton = await canvas.findByRole("button", { name: "Existing" });
+    await userEvent.click(existingButton);
+
+    // Error message should appear for minion listing
+    await canvas.findByText(mockParseError);
+  },
+};
+
+/**
+ * Lattice new minion flow with template parse error.
+ * Shows the error state when listing templates fails to parse.
+ */
+export const LatticeTemplatesParseError: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        expandProjects(["/Users/dev/my-project"]);
+        return createMockORPCClient({
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
+          latticeTemplatesResult: { ok: false, error: mockParseError },
+          latticeMinions: mockMinions,
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const storyRoot = document.getElementById("storybook-root") ?? canvasElement;
+    await openProjectCreationView(storyRoot);
+    const canvas = within(storyRoot);
+
+    // Wait for runtime controls
+    await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
+
+    // Click Lattice runtime button directly
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.click(latticeButton);
+
+    // Wait for Lattice controls
+    await canvas.findByTestId("lattice-controls-inner");
+
+    await canvas.findByText(mockParseError);
+
+    // Re-query inside waitFor to avoid stale DOM refs after React re-renders.
+    await waitFor(() => {
+      const templateSelect = canvas.queryByTestId("lattice-template-select");
+      if (!templateSelect?.hasAttribute("data-disabled")) {
+        throw new Error("Template dropdown should be disabled when templates fail to load");
+      }
+    });
+  },
+};
+
+/**
+ * Lattice new minion flow with preset parse error.
+ * Shows the error state when listing presets fails to parse.
+ */
+export const LatticePresetsParseError: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        expandProjects(["/Users/dev/my-project"]);
+        return createMockORPCClient({
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
+          latticeTemplates: mockTemplates,
+          latticePresets: new Map([
+            ["lattice-on-lattice", mockPresetsLatticeOnLattice],
+            ["kubernetes-dev", mockPresetsK8s],
+            ["aws-windows", []],
+          ]),
+          latticePresetsResult: new Map([["lattice-on-lattice", { ok: false, error: mockParseError }]]),
+          latticeMinions: mockMinions,
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const storyRoot = document.getElementById("storybook-root") ?? canvasElement;
+    await openProjectCreationView(storyRoot);
+    const canvas = within(storyRoot);
+
+    // Wait for runtime controls
+    await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
+
+    // Click Lattice runtime button directly
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.click(latticeButton);
+
+    // Wait for Lattice controls and template select
+    await canvas.findByTestId("lattice-controls-inner");
+    await canvas.findByTestId("lattice-template-select");
+
+    await canvas.findByText(mockParseError);
+  },
+};
+
+/**
+ * Lattice not available - Lattice button should not appear.
+ * When Lattice CLI is not installed, the runtime selector only shows SSH (no Lattice).
  */
 export const LatticeNotAvailable: AppStory = {
   render: () => (
@@ -271,8 +408,8 @@ export const LatticeNotAvailable: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
           latticeInfo: { state: "unavailable", reason: "missing" },
         });
       }}
@@ -283,33 +420,23 @@ export const LatticeNotAvailable: AppStory = {
     await openProjectCreationView(storyRoot);
     const canvas = within(storyRoot);
 
-    // Wait for runtime controls
+    // Wait for runtime controls to load
     await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
 
-    // Click SSH runtime button
-    const sshButton = canvas.getByRole("button", { name: /SSH/i });
-    await userEvent.click(sshButton);
+    // SSH button should be present
+    await canvas.findByRole("button", { name: /SSH/i });
 
-    // SSH host input should appear (normal SSH mode)
-    await waitFor(
-      () => {
-        const hostInput = canvas.queryByPlaceholderText("user@host");
-        if (!hostInput) throw new Error("SSH host input not found");
-      },
-      { timeout: 5000 }
-    );
-
-    // Lattice checkbox should NOT appear
-    const latticeCheckbox = canvas.queryByTestId("lattice-checkbox");
-    if (latticeCheckbox) {
-      throw new Error("Lattice checkbox should not appear when Lattice is unavailable");
+    // Lattice button should NOT appear when Lattice CLI is unavailable
+    const latticeButton = canvas.queryByRole("button", { name: /Lattice/i });
+    if (latticeButton) {
+      throw new Error("Lattice button should not appear when Lattice CLI is unavailable");
     }
   },
 };
 
 /**
- * Lattice CLI outdated - checkbox appears but is disabled with tooltip.
- * When Lattice CLI is installed but version is below minimum, shows explanation.
+ * Lattice CLI outdated - Lattice button appears but is disabled with tooltip.
+ * When Lattice CLI is installed but version is below minimum, shows explanation on hover.
  */
 export const LatticeOutdated: AppStory = {
   render: () => (
@@ -317,8 +444,8 @@ export const LatticeOutdated: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
           latticeInfo: { state: "outdated", version: "2.20.0", minVersion: "2.25.0" },
         });
       }}
@@ -332,41 +459,31 @@ export const LatticeOutdated: AppStory = {
     // Wait for runtime controls
     await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
 
-    // Click SSH runtime button
-    const sshButton = canvas.getByRole("button", { name: /SSH/i });
-    await userEvent.click(sshButton);
-
-    // Lattice checkbox should appear but be disabled
-    const latticeCheckbox = await canvas.findByTestId("lattice-checkbox", {}, { timeout: 5000 });
+    // Lattice button should appear but be disabled.
+    // Re-query inside waitFor to avoid stale DOM refs after React re-renders.
     await waitFor(() => {
-      if (!(latticeCheckbox instanceof HTMLInputElement)) {
-        throw new Error("Lattice checkbox should be an input element");
-      }
-      if (!latticeCheckbox.disabled) {
-        throw new Error("Lattice checkbox should be disabled when CLI is outdated");
-      }
-      if (latticeCheckbox.checked) {
-        throw new Error("Lattice checkbox should be unchecked when CLI is outdated");
+      const btn = canvas.queryByRole("button", { name: /Lattice/i });
+      if (!btn?.hasAttribute("disabled")) {
+        throw new Error("Lattice button should be disabled when CLI is outdated");
       }
     });
 
-    // Hover over checkbox to trigger tooltip
-    await userEvent.hover(latticeCheckbox.parentElement!);
+    // Hover over Lattice button to trigger tooltip with version error.
+    // Use findByRole (retry-capable) to handle transient DOM gaps between awaits.
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.hover(latticeButton);
 
     // Wait for tooltip to appear with version info
-    await waitFor(
-      () => {
-        const tooltip = document.querySelector('[role="tooltip"]');
-        if (!tooltip) throw new Error("Tooltip not found");
-        if (!tooltip.textContent?.includes("2.20.0")) {
-          throw new Error("Tooltip should mention the current CLI version");
-        }
-        if (!tooltip.textContent?.includes("2.25.0")) {
-          throw new Error("Tooltip should mention the minimum required version");
-        }
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const tooltip = document.querySelector('[role="tooltip"]');
+      if (!tooltip) throw new Error("Tooltip not found");
+      if (!tooltip.textContent?.includes("2.20.0")) {
+        throw new Error("Tooltip should mention the current CLI version");
+      }
+      if (!tooltip.textContent?.includes("2.25.0")) {
+        throw new Error("Tooltip should mention the minimum required version");
+      }
+    });
   },
 };
 
@@ -380,14 +497,14 @@ export const LatticeNoPresets: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
-          latticeInfo: { state: "available", version: "2.28.0" },
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
           latticeTemplates: [
             { name: "simple-vm", displayName: "Simple VM", organizationName: "default" },
           ],
           latticePresets: new Map([["simple-vm", []]]),
-          latticeWorkspaces: [],
+          latticeMinions: [],
         });
       }}
     />
@@ -400,25 +517,22 @@ export const LatticeNoPresets: AppStory = {
     // Wait for runtime controls
     await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
 
-    // Click SSH runtime button
-    const sshButton = canvas.getByRole("button", { name: /SSH/i });
-    await userEvent.click(sshButton);
-
-    // Enable Lattice
-    const latticeCheckbox = await canvas.findByTestId("lattice-checkbox", {}, { timeout: 5000 });
-    await userEvent.click(latticeCheckbox);
+    // Click Lattice runtime button directly
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.click(latticeButton);
 
     // Wait for Lattice controls
-    await canvas.findByTestId("lattice-controls-inner", {}, { timeout: 5000 });
+    await canvas.findByTestId("lattice-controls-inner");
 
     // Template dropdown should be visible
-    await canvas.findByTestId("lattice-template-select", {}, { timeout: 5000 });
+    await canvas.findByTestId("lattice-template-select");
 
-    // Preset dropdown should be visible but disabled (shows "No presets" placeholder)
-    const presetSelect = await canvas.findByTestId("lattice-preset-select", {}, { timeout: 5000 });
+    // Preset dropdown should be visible but disabled (shows "No presets" placeholder).
+    // Re-query inside waitFor to avoid stale DOM refs after React re-renders.
     await waitFor(() => {
       // Radix UI Select sets data-disabled="" (empty string) when disabled
-      if (!presetSelect.hasAttribute("data-disabled")) {
+      const presetSelect = canvas.queryByTestId("lattice-preset-select");
+      if (!presetSelect?.hasAttribute("data-disabled")) {
         throw new Error("Preset dropdown should be disabled when template has no presets");
       }
     });
@@ -426,24 +540,24 @@ export const LatticeNoPresets: AppStory = {
 };
 
 /**
- * Lattice with no running workspaces.
- * When switching to "Existing" mode with no running workspaces, shows empty state.
+ * Lattice with no running minions.
+ * When switching to "Existing" mode with no running minions, shows empty state.
  */
-export const LatticeNoRunningWorkspaces: AppStory = {
+export const LatticeNoRunningMinions: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
-          latticeInfo: { state: "available", version: "2.28.0" },
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
+          latticeInfo: mockLatticeInfo,
           latticeTemplates: mockTemplates,
           latticePresets: new Map([
             ["lattice-on-lattice", mockPresetsLatticeOnLattice],
             ["kubernetes-dev", mockPresetsK8s],
           ]),
-          latticeWorkspaces: [], // No running workspaces
+          latticeMinions: [], // No running minions
         });
       }}
     />
@@ -456,34 +570,22 @@ export const LatticeNoRunningWorkspaces: AppStory = {
     // Wait for runtime controls
     await canvas.findByRole("group", { name: "Runtime type" }, { timeout: 10000 });
 
-    // Click SSH runtime button
-    const sshButton = canvas.getByRole("button", { name: /SSH/i });
-    await userEvent.click(sshButton);
-
-    // Enable Lattice
-    const latticeCheckbox = await canvas.findByTestId("lattice-checkbox", {}, { timeout: 5000 });
-    await userEvent.click(latticeCheckbox);
+    // Click Lattice runtime button directly
+    const latticeButton = await canvas.findByRole("button", { name: /Lattice/i });
+    await userEvent.click(latticeButton);
 
     // Click "Existing" button
-    const existingButton = await canvas.findByRole(
-      "button",
-      { name: "Existing" },
-      { timeout: 5000 }
-    );
+    const existingButton = await canvas.findByRole("button", { name: "Existing" });
     await userEvent.click(existingButton);
 
-    // Workspace dropdown should show "No workspaces found" placeholder
+    // Minion dropdown should show "No minions found" placeholder.
     // Note: Radix UI Select doesn't render native <option> elements - the placeholder
-    // text appears directly in the SelectTrigger element
-    const workspaceSelect = await canvas.findByTestId(
-      "lattice-workspace-select",
-      {},
-      { timeout: 5000 }
-    );
+    // text appears directly in the SelectTrigger element.
+    // Re-query inside waitFor to avoid stale DOM refs after React re-renders.
     await waitFor(() => {
-      const triggerText = workspaceSelect.textContent;
-      if (!triggerText?.includes("No workspaces found")) {
-        throw new Error("Should show 'No workspaces found' placeholder");
+      const minionSelect = canvas.queryByTestId("lattice-minion-select");
+      if (!minionSelect?.textContent?.includes("No minions found")) {
+        throw new Error("Should show 'No minions found' placeholder");
       }
     });
   },

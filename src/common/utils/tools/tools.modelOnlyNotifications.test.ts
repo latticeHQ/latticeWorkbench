@@ -36,10 +36,10 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 describe("getToolsForModel - model-only notifications", () => {
   test("injects __lattice_notifications into tool results after 5 tool calls", async () => {
-    const workspaceSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-ws-"));
+    const minionSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-ws-"));
 
     try {
-      await setTodosForSessionDir("ws-1", workspaceSessionDir, [
+      await setTodosForSessionDir("ws-1", minionSessionDir, [
         { content: "Completed", status: "completed" },
         { content: "In progress", status: "in_progress" },
         { content: "Pending", status: "pending" },
@@ -56,7 +56,7 @@ describe("getToolsForModel - model-only notifications", () => {
           cwd: process.cwd(),
           runtime,
           runtimeTempDir: "/tmp",
-          workspaceSessionDir,
+          minionSessionDir,
         },
         "ws-1",
         initStateManager
@@ -75,15 +75,15 @@ describe("getToolsForModel - model-only notifications", () => {
         "Current TODO List"
       );
     } finally {
-      await fs.rm(workspaceSessionDir, { recursive: true, force: true });
+      await fs.rm(minionSessionDir, { recursive: true, force: true });
     }
   });
 
   test("does not re-wrap cached MCP tools across getToolsForModel() calls", async () => {
-    const workspaceSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-ws-"));
+    const minionSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-ws-"));
 
     try {
-      await setTodosForSessionDir("ws-1", workspaceSessionDir, [
+      await setTodosForSessionDir("ws-1", minionSessionDir, [
         { content: "In progress", status: "in_progress" },
       ]);
 
@@ -103,7 +103,7 @@ describe("getToolsForModel - model-only notifications", () => {
           cwd: process.cwd(),
           runtime,
           runtimeTempDir: "/tmp",
-          workspaceSessionDir,
+          minionSessionDir,
         },
         "ws-1",
         initStateManager,
@@ -123,7 +123,7 @@ describe("getToolsForModel - model-only notifications", () => {
           cwd: process.cwd(),
           runtime,
           runtimeTempDir: "/tmp",
-          workspaceSessionDir,
+          minionSessionDir,
         },
         "ws-1",
         initStateManager,
@@ -140,11 +140,11 @@ describe("getToolsForModel - model-only notifications", () => {
       const fifth = asRecord(await execute2());
       expect(Array.isArray(fifth[MODEL_ONLY_TOOL_NOTIFICATIONS_FIELD])).toBe(true);
     } finally {
-      await fs.rm(workspaceSessionDir, { recursive: true, force: true });
+      await fs.rm(minionSessionDir, { recursive: true, force: true });
     }
   });
 
-  test("does not enable notification injection when workspaceSessionDir is missing", async () => {
+  test("does not enable notification injection when minionSessionDir is missing", async () => {
     const runtime = new LocalRuntime(process.cwd());
     const initStateManager = {
       waitForInit: () => Promise.resolve(),
@@ -177,10 +177,10 @@ describe("getToolsForModel - model-only notifications", () => {
   });
 
   test("only attaches notifications to plain-object tool results", async () => {
-    const workspaceSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-ws-"));
+    const minionSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-ws-"));
 
     try {
-      await setTodosForSessionDir("ws-1", workspaceSessionDir, [
+      await setTodosForSessionDir("ws-1", minionSessionDir, [
         { content: "In progress", status: "in_progress" },
       ]);
 
@@ -200,7 +200,7 @@ describe("getToolsForModel - model-only notifications", () => {
           cwd: process.cwd(),
           runtime,
           runtimeTempDir: "/tmp",
-          workspaceSessionDir,
+          minionSessionDir,
         },
         "ws-1",
         initStateManager,
@@ -219,7 +219,7 @@ describe("getToolsForModel - model-only notifications", () => {
       const fifth = asRecord(await todoReadExecute());
       expect(Array.isArray(fifth[MODEL_ONLY_TOOL_NOTIFICATIONS_FIELD])).toBe(true);
     } finally {
-      await fs.rm(workspaceSessionDir, { recursive: true, force: true });
+      await fs.rm(minionSessionDir, { recursive: true, force: true });
     }
   });
 });

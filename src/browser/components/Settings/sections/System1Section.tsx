@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/browser/components/ui/select";
 import { useAPI } from "@/browser/contexts/API";
-import { useOptionalWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
+import { useOptionalMinionContext } from "@/browser/contexts/MinionContext";
 import { getDefaultModel, getSuggestedModels } from "@/browser/hooks/useModelsFromSettings";
 import { useProvidersConfig } from "@/browser/hooks/useProvidersConfig";
 import { usePersistedState } from "@/browser/hooks/usePersistedState";
@@ -27,9 +27,14 @@ import {
   type TaskSettings,
 } from "@/common/types/tasks";
 import { enforceThinkingPolicy, getThinkingPolicyForModel } from "@/common/utils/thinking/policy";
-import { THINKING_LEVELS, coerceThinkingLevel } from "@/common/types/thinking";
+import {
+  THINKING_LEVELS,
+  coerceThinkingLevel,
+  getThinkingOptionLabel,
+} from "@/common/types/thinking";
 
 import { SearchableModelSelect } from "../components/SearchableModelSelect";
+import { getErrorMessage } from "@/common/utils/errors";
 
 export function System1Section() {
   const { api } = useAPI();
@@ -67,24 +72,24 @@ export function System1Section() {
 
   const system1ThinkingLevel = coerceThinkingLevel(system1ThinkingLevelRaw) ?? "off";
 
-  const workspaceContext = useOptionalWorkspaceContext();
-  const selectedWorkspaceId = workspaceContext?.selectedWorkspace?.workspaceId ?? null;
+  const minionContext = useOptionalMinionContext();
+  const selectedMinionId = minionContext?.selectedMinion?.minionId ?? null;
   const defaultModel = getDefaultModel();
 
-  const workspaceModelStorageKey = selectedWorkspaceId
-    ? getModelKey(selectedWorkspaceId)
-    : "__system1_workspace_model_fallback__";
+  const minionModelStorageKey = selectedMinionId
+    ? getModelKey(selectedMinionId)
+    : "__system1_minion_model_fallback__";
 
-  const [workspaceModelRaw] = usePersistedState<unknown>(workspaceModelStorageKey, defaultModel, {
+  const [minionModelRaw] = usePersistedState<unknown>(minionModelStorageKey, defaultModel, {
     listener: true,
   });
 
   const system1ModelTrimmed = system1Model.trim();
-  const workspaceModelTrimmed =
-    typeof workspaceModelRaw === "string" ? workspaceModelRaw.trim() : "";
+  const minionModelTrimmed =
+    typeof minionModelRaw === "string" ? minionModelRaw.trim() : "";
 
   const effectiveSystem1ModelStringForThinking =
-    system1ModelTrimmed || workspaceModelTrimmed || defaultModel;
+    system1ModelTrimmed || minionModelTrimmed || defaultModel;
 
   const policyThinkingLevels = getThinkingPolicyForModel(effectiveSystem1ModelStringForThinking);
   const allowedThinkingLevels =
@@ -117,7 +122,7 @@ export function System1Section() {
         setLoaded(true);
       })
       .catch((error: unknown) => {
-        setSaveError(error instanceof Error ? error.message : String(error));
+        setSaveError(getErrorMessage(error));
         setLoadFailed(true);
         setLoaded(true);
       });
@@ -174,7 +179,7 @@ export function System1Section() {
             setSaveError(null);
           })
           .catch((error: unknown) => {
-            setSaveError(error instanceof Error ? error.message : String(error));
+            setSaveError(getErrorMessage(error));
           })
           .finally(() => {
             savingRef.current = false;
@@ -323,7 +328,7 @@ export function System1Section() {
                 value={system1Model}
                 onChange={setSystem1Model}
                 models={allModels}
-                emptyOption={{ value: "", label: "Use workspace model" }}
+                emptyOption={{ value: "", label: "Use minion model" }}
               />
             </div>
           </div>
@@ -345,7 +350,7 @@ export function System1Section() {
                 <SelectContent>
                   {allowedThinkingLevels.map((level) => (
                     <SelectItem key={level} value={level}>
-                      {level}
+                      {getThinkingOptionLabel(level, effectiveSystem1ModelStringForThinking)}
                     </SelectItem>
                   ))}
                 </SelectContent>

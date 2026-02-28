@@ -6,15 +6,15 @@ import { clearTodosForSessionDir, getTodosForSessionDir, setTodosForSessionDir }
 import type { TodoItem } from "@/common/types/tools";
 
 describe("Todo Storage", () => {
-  const workspaceId = "test-workspace";
-  let workspaceSessionDir: string;
+  const minionId = "test-minion";
+  let minionSessionDir: string;
 
   beforeEach(async () => {
-    workspaceSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-session-test-"));
+    minionSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "todo-session-test-"));
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceSessionDir, { recursive: true, force: true });
+    await fs.rm(minionSessionDir, { recursive: true, force: true });
   });
 
   describe("setTodosForSessionDir", () => {
@@ -34,9 +34,9 @@ describe("Todo Storage", () => {
         },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, todos);
+      await setTodosForSessionDir(minionId, minionSessionDir, todos);
 
-      const storedTodos = await getTodosForSessionDir(workspaceSessionDir);
+      const storedTodos = await getTodosForSessionDir(minionSessionDir);
       expect(storedTodos).toEqual(todos);
     });
 
@@ -53,7 +53,7 @@ describe("Todo Storage", () => {
         },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, initialTodos);
+      await setTodosForSessionDir(minionId, minionSessionDir, initialTodos);
 
       // Replace with updated list
       const updatedTodos: TodoItem[] = [
@@ -71,16 +71,16 @@ describe("Todo Storage", () => {
         },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, updatedTodos);
+      await setTodosForSessionDir(minionId, minionSessionDir, updatedTodos);
 
       // Verify list was replaced, not merged
-      const storedTodos = await getTodosForSessionDir(workspaceSessionDir);
+      const storedTodos = await getTodosForSessionDir(minionSessionDir);
       expect(storedTodos).toEqual(updatedTodos);
     });
 
     it("should handle empty todo list", async () => {
       // Create initial list
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, [
+      await setTodosForSessionDir(minionId, minionSessionDir, [
         {
           content: "Task 1",
           status: "pending",
@@ -88,9 +88,9 @@ describe("Todo Storage", () => {
       ]);
 
       // Clear list
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, []);
+      await setTodosForSessionDir(minionId, minionSessionDir, []);
 
-      const storedTodos = await getTodosForSessionDir(workspaceSessionDir);
+      const storedTodos = await getTodosForSessionDir(minionSessionDir);
       expect(storedTodos).toEqual([]);
     });
 
@@ -108,10 +108,10 @@ describe("Todo Storage", () => {
       ];
 
       await expect(
-        setTodosForSessionDir(workspaceId, workspaceSessionDir, tooManyTodos)
+        setTodosForSessionDir(minionId, minionSessionDir, tooManyTodos)
       ).rejects.toThrow(/Too many TODOs \(8\/7\)/i);
       await expect(
-        setTodosForSessionDir(workspaceId, workspaceSessionDir, tooManyTodos)
+        setTodosForSessionDir(minionId, minionSessionDir, tooManyTodos)
       ).rejects.toThrow(/Keep high precision at the center/i);
     });
 
@@ -126,8 +126,8 @@ describe("Todo Storage", () => {
         { content: "Future work (5 items)", status: "pending" },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, maxTodos);
-      expect(await getTodosForSessionDir(workspaceSessionDir)).toEqual(maxTodos);
+      await setTodosForSessionDir(minionId, minionSessionDir, maxTodos);
+      expect(await getTodosForSessionDir(minionSessionDir)).toEqual(maxTodos);
     });
 
     it("should reject multiple in_progress tasks", async () => {
@@ -138,7 +138,7 @@ describe("Todo Storage", () => {
         },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, validTodos);
+      await setTodosForSessionDir(minionId, minionSessionDir, validTodos);
 
       const invalidTodos: TodoItem[] = [
         {
@@ -152,11 +152,11 @@ describe("Todo Storage", () => {
       ];
 
       await expect(
-        setTodosForSessionDir(workspaceId, workspaceSessionDir, invalidTodos)
+        setTodosForSessionDir(minionId, minionSessionDir, invalidTodos)
       ).rejects.toThrow(/only one task can be marked as in_progress/i);
 
       // Original todos should remain unchanged on failure
-      expect(await getTodosForSessionDir(workspaceSessionDir)).toEqual(validTodos);
+      expect(await getTodosForSessionDir(minionSessionDir)).toEqual(validTodos);
     });
 
     it("should reject when in_progress tasks appear after pending", async () => {
@@ -172,7 +172,7 @@ describe("Todo Storage", () => {
       ];
 
       await expect(
-        setTodosForSessionDir(workspaceId, workspaceSessionDir, invalidTodos)
+        setTodosForSessionDir(minionId, minionSessionDir, invalidTodos)
       ).rejects.toThrow(/in-progress tasks must appear before pending tasks/i);
     });
 
@@ -189,7 +189,7 @@ describe("Todo Storage", () => {
       ];
 
       await expect(
-        setTodosForSessionDir(workspaceId, workspaceSessionDir, invalidTodos)
+        setTodosForSessionDir(minionId, minionSessionDir, invalidTodos)
       ).rejects.toThrow(/completed tasks must appear before in-progress or pending tasks/i);
     });
 
@@ -205,8 +205,8 @@ describe("Todo Storage", () => {
         },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, todos);
-      expect(await getTodosForSessionDir(workspaceSessionDir)).toEqual(todos);
+      await setTodosForSessionDir(minionId, minionSessionDir, todos);
+      expect(await getTodosForSessionDir(minionSessionDir)).toEqual(todos);
     });
 
     it("should create directory if it doesn't exist", async () => {
@@ -222,7 +222,7 @@ describe("Todo Storage", () => {
         ];
 
         // Should not throw even though directory doesn't exist
-        await setTodosForSessionDir(workspaceId, nonExistentDir, todos);
+        await setTodosForSessionDir(minionId, nonExistentDir, todos);
 
         // Verify the file was created and is readable
         const retrievedTodos = await getTodosForSessionDir(nonExistentDir);
@@ -243,7 +243,7 @@ describe("Todo Storage", () => {
 
   describe("getTodosForSessionDir", () => {
     it("should return empty array when no todos exist", async () => {
-      const todos = await getTodosForSessionDir(workspaceSessionDir);
+      const todos = await getTodosForSessionDir(minionSessionDir);
       expect(todos).toEqual([]);
     });
 
@@ -259,14 +259,14 @@ describe("Todo Storage", () => {
         },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, todos);
+      await setTodosForSessionDir(minionId, minionSessionDir, todos);
 
-      const retrievedTodos = await getTodosForSessionDir(workspaceSessionDir);
+      const retrievedTodos = await getTodosForSessionDir(minionSessionDir);
       expect(retrievedTodos).toEqual(todos);
     });
   });
 
-  describe("workspace isolation", () => {
+  describe("minion isolation", () => {
     it("should isolate todos between different session directories", async () => {
       const tempDir1 = await fs.mkdtemp(path.join(os.tmpdir(), "todo-test-1-"));
       const tempDir2 = await fs.mkdtemp(path.join(os.tmpdir(), "todo-test-2-"));
@@ -313,11 +313,11 @@ describe("Todo Storage", () => {
         },
       ];
 
-      await setTodosForSessionDir(workspaceId, workspaceSessionDir, todos);
-      expect(await getTodosForSessionDir(workspaceSessionDir)).toEqual(todos);
+      await setTodosForSessionDir(minionId, minionSessionDir, todos);
+      expect(await getTodosForSessionDir(minionSessionDir)).toEqual(todos);
 
-      await clearTodosForSessionDir(workspaceId, workspaceSessionDir);
-      expect(await getTodosForSessionDir(workspaceSessionDir)).toEqual([]);
+      await clearTodosForSessionDir(minionId, minionSessionDir);
+      expect(await getTodosForSessionDir(minionSessionDir)).toEqual([]);
     });
   });
 });

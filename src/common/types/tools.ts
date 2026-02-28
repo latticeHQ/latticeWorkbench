@@ -20,36 +20,23 @@ import type {
   LatticeGlobalAgentsReadToolResultSchema,
   LatticeGlobalAgentsWriteToolResultSchema,
   FileReadToolResultSchema,
-  FileWriteToolResultSchema,
   TaskToolResultSchema,
   TaskAwaitToolResultSchema,
+  TaskApplyGitPatchToolResultSchema,
   TaskListToolResultSchema,
   TaskTerminateToolResultSchema,
   TOOL_DEFINITIONS,
   WebFetchToolResultSchema,
-  GlobToolResultSchema,
-  GrepToolResultSchema,
-  NotebookEditToolResultSchema,
-  BrowserToolResultSchema,
 } from "@/common/utils/tools/toolDefinitions";
 
-// Bash Tool Types
-export interface BashToolArgs {
-  script: string;
-  timeout_secs: number; // Required - defaults should be applied by producers
-  run_in_background?: boolean; // Run without blocking (for long-running processes)
-  display_name: string; // Required - used as process identifier if sent to background
-}
+// Bash Tool Types — derived from schema (avoid drift)
+export type BashToolArgs = z.infer<typeof TOOL_DEFINITIONS.bash.schema>;
 
 // BashToolResult derived from Zod schema (single source of truth)
 export type BashToolResult = z.infer<typeof BashToolResultSchema>;
 
-// File Read Tool Types
-export interface FileReadToolArgs {
-  file_path: string;
-  offset?: number; // 1-based starting line number (optional)
-  limit?: number; // number of lines to return from offset (optional)
-}
+// File Read Tool Types — derived from schema (avoid drift)
+export type FileReadToolArgs = z.infer<typeof TOOL_DEFINITIONS.file_read.schema>;
 
 // Agent Skill Tool Types
 // Args derived from schema (avoid drift)
@@ -72,7 +59,7 @@ export interface FileEditUiOnlyPayload {
 
 export interface NotifyUiOnlyPayload {
   notifiedVia: "electron" | "browser";
-  workspaceId?: string;
+  minionId?: string;
 }
 
 export interface ToolOutputUiOnly {
@@ -92,16 +79,12 @@ export type FileReadToolResult = z.infer<typeof FileReadToolResultSchema>;
 export type LatticeGlobalAgentsReadToolArgs = z.infer<
   typeof TOOL_DEFINITIONS.lattice_global_agents_read.schema
 >;
-export type LatticeGlobalAgentsReadToolResult = z.infer<
-  typeof LatticeGlobalAgentsReadToolResultSchema
->;
+export type LatticeGlobalAgentsReadToolResult = z.infer<typeof LatticeGlobalAgentsReadToolResultSchema>;
 
 export type LatticeGlobalAgentsWriteToolArgs = z.infer<
   typeof TOOL_DEFINITIONS.lattice_global_agents_write.schema
 >;
-export type LatticeGlobalAgentsWriteToolResult = z.infer<
-  typeof LatticeGlobalAgentsWriteToolResultSchema
->;
+export type LatticeGlobalAgentsWriteToolResult = z.infer<typeof LatticeGlobalAgentsWriteToolResultSchema>;
 
 export interface FileEditDiffSuccessBase extends ToolOutputUiOnlyFields {
   success: true;
@@ -118,35 +101,24 @@ export interface FileEditErrorResult extends ToolOutputUiOnlyFields {
   note?: string; // Agent-only message (not displayed in UI)
 }
 
-export interface FileEditInsertToolArgs {
-  file_path: string;
-  content: string;
-  /** Optional substring that must appear immediately before the insertion point */
-  before?: string;
-  /** Optional substring that must appear immediately after the insertion point */
-  after?: string;
-}
+// FileEditInsertToolArgs derived from schema (avoid drift)
+export type FileEditInsertToolArgs = z.infer<typeof TOOL_DEFINITIONS.file_edit_insert.schema>;
 
 // FileEditInsertToolResult derived from Zod schema (single source of truth)
 export type FileEditInsertToolResult = z.infer<typeof FileEditInsertToolResultSchema>;
 
-export interface FileEditReplaceStringToolArgs {
-  file_path: string;
-  old_string: string;
-  new_string: string;
-  replace_count?: number;
-}
+// FileEditReplaceStringToolArgs derived from schema (avoid drift)
+export type FileEditReplaceStringToolArgs = z.infer<
+  typeof TOOL_DEFINITIONS.file_edit_replace_string.schema
+>;
 
 // FileEditReplaceStringToolResult derived from Zod schema (single source of truth)
 export type FileEditReplaceStringToolResult = z.infer<typeof FileEditReplaceStringToolResultSchema>;
 
-export interface FileEditReplaceLinesToolArgs {
-  file_path: string;
-  start_line: number;
-  end_line: number;
-  new_lines: string[];
-  expected_lines?: string[];
-}
+// FileEditReplaceLinesToolArgs derived from schema (avoid drift)
+export type FileEditReplaceLinesToolArgs = z.infer<
+  typeof TOOL_DEFINITIONS.file_edit_replace_lines.schema
+>;
 
 export type FileEditReplaceLinesToolResult =
   | (FileEditDiffSuccessBase & {
@@ -228,6 +200,15 @@ export type TaskAwaitToolArgs = z.infer<typeof TOOL_DEFINITIONS.task_await.schem
 
 export type TaskAwaitToolSuccessResult = z.infer<typeof TaskAwaitToolResultSchema>;
 
+// Task Apply Git Patch Tool Types
+export type TaskApplyGitPatchToolArgs = z.infer<
+  typeof TOOL_DEFINITIONS.task_apply_git_patch.schema
+>;
+
+export type TaskApplyGitPatchToolSuccessResult = z.infer<typeof TaskApplyGitPatchToolResultSchema>;
+
+export type TaskApplyGitPatchToolResult = TaskApplyGitPatchToolSuccessResult | ToolErrorResult;
+
 export type TaskAwaitToolResult = TaskAwaitToolSuccessResult | ToolErrorResult;
 
 // Task List Tool Types
@@ -287,43 +268,28 @@ export interface LegacyProposePlanToolResult {
   message: string;
 }
 
-// Todo Tool Types
-export interface TodoItem {
-  content: string;
-  status: "pending" | "in_progress" | "completed";
-}
-
-export interface TodoWriteToolArgs {
-  todos: TodoItem[];
-}
+// Todo Tool Types — derived from schema (avoid drift)
+export type TodoWriteToolArgs = z.infer<typeof TOOL_DEFINITIONS.todo_write.schema>;
+export type TodoItem = TodoWriteToolArgs["todos"][number];
 
 export interface TodoWriteToolResult {
   success: true;
   count: number;
 }
 
-// Status Set Tool Types
-export interface StatusSetToolArgs {
-  emoji: string;
-  message: string;
-  url?: string;
-}
+// Status Set Tool Types — derived from schema (avoid drift)
+export type StatusSetToolArgs = z.infer<typeof TOOL_DEFINITIONS.status_set.schema>;
 
-// Bash Output Tool Types (read incremental output from background processes)
-export interface BashOutputToolArgs {
-  process_id: string;
-  filter?: string;
-  filter_exclude?: boolean;
-  timeout_secs: number;
-}
+// Bash Output Tool Types — derived from schema (avoid drift)
+export type BashOutputToolArgs = z.infer<typeof TOOL_DEFINITIONS.bash_output.schema>;
 
 // BashOutputToolResult derived from Zod schema (single source of truth)
 export type BashOutputToolResult = z.infer<typeof BashOutputToolResultSchema>;
 
-// Bash Background Tool Types
-export interface BashBackgroundTerminateArgs {
-  process_id: string;
-}
+// Bash Background Tool Types — derived from schema (avoid drift)
+export type BashBackgroundTerminateArgs = z.infer<
+  typeof TOOL_DEFINITIONS.bash_background_terminate.schema
+>;
 
 // BashBackgroundTerminateResult derived from Zod schema (single source of truth)
 export type BashBackgroundTerminateResult = z.infer<typeof BashBackgroundTerminateResultSchema>;
@@ -352,16 +318,11 @@ export type StatusSetToolResult =
       error: string;
     };
 
-// Web Fetch Tool Types
-export interface WebFetchToolArgs {
-  url: string;
-}
+// Web Fetch Tool Types — derived from schema (avoid drift)
+export type WebFetchToolArgs = z.infer<typeof TOOL_DEFINITIONS.web_fetch.schema>;
 
 // WebFetchToolResult derived from Zod schema (single source of truth)
 export type WebFetchToolResult = z.infer<typeof WebFetchToolResultSchema>;
-
-// Browser Tool Types
-export type BrowserToolResult = z.infer<typeof BrowserToolResultSchema>;
 
 // Notify Tool Types
 export type NotifyToolResult =
@@ -396,19 +357,3 @@ export interface WithHookOutput {
  * Use this when you need to represent a result that may have hook output attached.
  */
 export type MayHaveHookOutput<T> = T & WithHookOutput;
-
-// File Write Tool Types
-export type FileWriteToolArgs = z.infer<typeof TOOL_DEFINITIONS.file_write.schema>;
-export type FileWriteToolResult = z.infer<typeof FileWriteToolResultSchema>;
-
-// Glob Tool Types
-export type GlobToolArgs = z.infer<typeof TOOL_DEFINITIONS.glob.schema>;
-export type GlobToolResult = z.infer<typeof GlobToolResultSchema>;
-
-// Grep Tool Types
-export type GrepToolArgs = z.infer<typeof TOOL_DEFINITIONS.grep.schema>;
-export type GrepToolResult = z.infer<typeof GrepToolResultSchema>;
-
-// NotebookEdit Tool Types
-export type NotebookEditToolArgs = z.infer<typeof TOOL_DEFINITIONS.notebook_edit.schema>;
-export type NotebookEditToolResult = z.infer<typeof NotebookEditToolResultSchema>;

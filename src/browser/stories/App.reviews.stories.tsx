@@ -7,7 +7,7 @@ import { setupSimpleChatStory, setReviews, createReview } from "./storyHelpers";
 import { blurActiveElement, waitForChatInputAutofocusDone } from "./storyPlayHelpers.js";
 import { createUserMessage, createAssistantMessage } from "./mockFactory";
 import { within, userEvent, waitFor } from "@storybook/test";
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 
 export default {
   ...appMeta,
@@ -22,11 +22,11 @@ export const ReviewsBanner: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-reviews";
+        const minionId = "ws-reviews";
 
         // Use deterministic timestamps so reviews render in stable order
         const baseTime = 1700000000000;
-        setReviews(workspaceId, [
+        setReviews(minionId, [
           createReview(
             "review-1",
             "src/api/auth.ts",
@@ -54,8 +54,8 @@ export const ReviewsBanner: AppStory = {
         ]);
 
         return setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/auth",
+          minionId,
+          minionName: "feature/auth",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Add authentication to the API", { historySequence: 1 }),
@@ -77,8 +77,8 @@ export const NoReviews: AppStory = {
     <AppWithMocks
       setup={() => {
         return setupSimpleChatStory({
-          workspaceId: "ws-no-reviews",
-          workspaceName: "feature/clean",
+          minionId: "ws-no-reviews",
+          minionName: "feature/clean",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Help me refactor this code", { historySequence: 1 }),
@@ -99,11 +99,11 @@ export const AllReviewsChecked: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-all-checked";
+        const minionId = "ws-all-checked";
 
         // Use deterministic timestamps so reviews render in stable order
         const baseTime = 1700000000000;
-        setReviews(workspaceId, [
+        setReviews(minionId, [
           createReview(
             "review-1",
             "src/api/users.ts",
@@ -123,8 +123,8 @@ export const AllReviewsChecked: AppStory = {
         ]);
 
         return setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/fixes",
+          minionId,
+          minionName: "feature/fixes",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Fix the reported issues", { historySequence: 1 }),
@@ -145,7 +145,7 @@ export const ManyReviews: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-many-reviews";
+        const minionId = "ws-many-reviews";
 
         // Create many reviews to test scroll behavior
         // Use deterministic timestamps so reviews render in stable order
@@ -161,11 +161,11 @@ export const ManyReviews: AppStory = {
           )
         );
 
-        setReviews(workspaceId, reviewItems);
+        setReviews(minionId, reviewItems);
 
         return setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/big-refactor",
+          minionId,
+          minionName: "feature/big-refactor",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Review all the changes", { historySequence: 1 }),
@@ -191,11 +191,11 @@ export const BulkReviewActions: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-bulk-reviews";
+        const minionId = "ws-bulk-reviews";
 
         // Use deterministic timestamps so reviews render in stable order
         const baseTime = 1700000000000;
-        setReviews(workspaceId, [
+        setReviews(minionId, [
           // Attached reviews - shown in ChatInput with "Clear all" button
           createReview(
             "review-attached-1",
@@ -249,8 +249,8 @@ export const BulkReviewActions: AppStory = {
         ]);
 
         return setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/auth-improvements",
+          minionId,
+          minionName: "feature/auth-improvements",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Help me fix the authentication issues", {
@@ -289,10 +289,10 @@ export const MultiLineComments: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-multiline-comments";
+        const minionId = "ws-multiline-comments";
 
         const baseTime = 1700000000000;
-        setReviews(workspaceId, [
+        setReviews(minionId, [
           createReview(
             "review-multiline-1",
             "src/api/auth.ts",
@@ -312,8 +312,8 @@ export const MultiLineComments: AppStory = {
         ]);
 
         return setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/code-review",
+          minionId,
+          minionName: "feature/code-review",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Fix these issues", { historySequence: 1 }),
@@ -340,11 +340,11 @@ export const QueuedMessageWithReviews: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-queued-reviews";
+        const minionId = "ws-queued-reviews";
 
         return setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/auth",
+          minionId,
+          minionName: "feature/auth",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Help me fix authentication", { historySequence: 1 }),
@@ -356,7 +356,7 @@ export const QueuedMessageWithReviews: AppStory = {
             // Emit the queued message with reviews (simulating user queued a message with reviews)
             emit({
               type: "queued-message-changed",
-              workspaceId: wsId,
+              minionId: wsId,
               queuedMessages: ["Please also check this issue"],
               displayText: "Please also check this issue",
               reviews: [
@@ -374,7 +374,7 @@ export const QueuedMessageWithReviews: AppStory = {
                   userNote: "This validation could be more robust",
                 },
               ],
-            } as WorkspaceChatMessage);
+            } as MinionChatMessage);
           },
         });
       }}
@@ -399,10 +399,10 @@ export const AttachedReviewHoverActions: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-hover-actions";
+        const minionId = "ws-hover-actions";
 
         const baseTime = 1700000000000;
-        setReviews(workspaceId, [
+        setReviews(minionId, [
           createReview(
             "review-hover-1",
             "src/api/auth.ts",
@@ -414,8 +414,8 @@ export const AttachedReviewHoverActions: AppStory = {
         ]);
 
         return setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/auth",
+          minionId,
+          minionName: "feature/auth",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Fix the auth token handling", { historySequence: 1 }),

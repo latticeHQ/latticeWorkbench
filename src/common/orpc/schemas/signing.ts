@@ -1,7 +1,7 @@
 /**
  * Signing ORPC schemas
  *
- * Defines input/output schemas for openagent.md message signing endpoints.
+ * Defines input/output schemas for lattice.md message signing endpoints.
  * Used for signing shared content with optional GitHub identity attribution.
  */
 
@@ -30,7 +30,7 @@ export const signingCapabilitiesOutput = z.object({
 export type SigningCapabilities = z.infer<typeof signingCapabilitiesOutput>;
 
 // --- signMessage endpoint ---
-// Returns a openagent.md-compatible signature envelope for the provided content.
+// Returns a lattice.md-compatible signature envelope for the provided content.
 
 export const signatureEnvelopeOutput = z.object({
   sig: z.string(),

@@ -3,7 +3,7 @@ import { ModelDisplay } from "@/browser/components/Messages/ModelDisplay";
 import { formatRelativeTime } from "@/browser/utils/ui/dateTime";
 
 /**
- * Compute tooltip content for StatusIndicator based on workspace state.
+ * Compute tooltip content for StatusIndicator based on minion state.
  * Handles both sidebar (with unread/recency) and header (simpler) cases.
  */
 export function getStatusTooltip(options: {
@@ -40,13 +40,14 @@ export function getStatusTooltip(options: {
   if (isStreaming && streamingModel) {
     return (
       <span>
-        <ModelDisplay modelString={streamingModel} showTooltip={false} /> is responding
+        <ModelDisplay modelString={streamingModel} showTooltip={false} />
+        {" - streaming..."}
       </span>
     );
   }
 
   if (isStreaming) {
-    return "Assistant is responding";
+    return "Assistant - streaming...";
   }
 
   // Only show unread if explicitly provided (sidebar only)

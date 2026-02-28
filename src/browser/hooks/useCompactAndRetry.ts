@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAPI } from "@/browser/contexts/API";
-import { buildSendMessageOptions } from "@/browser/hooks/useSendMessageOptions";
+import { usePolicy } from "@/browser/contexts/PolicyContext";
+import { getSendOptionsFromStorage } from "@/browser/utils/messages/sendOptions";
 import { usePersistedState } from "@/browser/hooks/usePersistedState";
-import { useWorkspaceState } from "@/browser/stores/WorkspaceStore";
+import { useMinionState } from "@/browser/stores/MinionStore";
 import {
   formatCompactionCommandLine,
   getFollowUpContentText,
@@ -19,7 +20,6 @@ import type { FilePart, ProvidersConfigMap } from "@/common/orpc/types";
 import {
   buildAgentSkillMetadata,
   type CompactionFollowUpInput,
-  type CompactionFollowUpRequest,
   type DisplayedMessage,
 } from "@/common/types/message";
 
@@ -66,9 +66,12 @@ function buildFollowUpFromSource(
   };
 }
 
-export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRetryState {
-  const workspaceState = useWorkspaceState(props.workspaceId);
+export function useCompactAndRetry(props: { minionId: string }): CompactAndRetryState {
+  const minionState = useMinionState(props.minionId);
   const { api } = useAPI();
+  const policyState = usePolicy();
+  const effectivePolicy =
+    policyState.status.state === "enforced" ? (policyState.policy ?? null) : null;
   const [providersConfig, setProvidersConfig] = useState<ProvidersConfigMap | null>(null);
   const [isRetryingWithCompaction, setIsRetryingWithCompaction] = useState(false);
   const isMountedRef = useRef(true);
@@ -80,14 +83,14 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
     };
   }, []);
 
-  const lastMessage = workspaceState
-    ? workspaceState.messages[workspaceState.messages.length - 1]
+  const lastMessage = minionState
+    ? minionState.messages[minionState.messages.length - 1]
     : undefined;
 
   const triggerUserMessage = useMemo(() => {
-    if (!workspaceState) return null;
-    return findTriggerUserMessage(workspaceState.messages);
-  }, [workspaceState]);
+    if (!minionState) return null;
+    return findTriggerUserMessage(minionState.messages);
+  }, [minionState]);
 
   const isCompactionRecoveryFlow =
     lastMessage?.type === "stream-error" && !!triggerUserMessage?.compactionRequest;
@@ -131,10 +134,10 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
       return triggerUserMessage.compactionRequest.parsed.model;
     }
     if (lastMessage?.type === "stream-error") {
-      return lastMessage.model ?? workspaceState?.currentModel ?? null;
+      return lastMessage.model ?? minionState?.currentModel ?? null;
     }
-    return workspaceState?.currentModel ?? null;
-  }, [showCompactionUI, triggerUserMessage, lastMessage, workspaceState?.currentModel]);
+    return minionState?.currentModel ?? null;
+  }, [showCompactionUI, triggerUserMessage, lastMessage, minionState?.currentModel]);
 
   const compactionSuggestion = useMemo<CompactionSuggestion | null>(() => {
     if (!showCompactionUI || !compactionTargetModel) {
@@ -145,6 +148,7 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
       return getHigherContextCompactionSuggestion({
         currentModel: compactionTargetModel,
         providersConfig,
+        policy: effectivePolicy,
       });
     }
 
@@ -153,6 +157,7 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
       const explicit = getExplicitCompactionSuggestion({
         modelId: preferred,
         providersConfig,
+        policy: effectivePolicy,
       });
       if (explicit) {
         return explicit;
@@ -162,12 +167,14 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
     return getHigherContextCompactionSuggestion({
       currentModel: compactionTargetModel,
       providersConfig,
+      policy: effectivePolicy,
     });
   }, [
     compactionTargetModel,
     showCompactionUI,
     isCompactionRecoveryFlow,
     providersConfig,
+    effectivePolicy,
     preferredCompactionModel,
   ]);
 
@@ -204,7 +211,7 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
       setIsRetryingWithCompaction(true);
     }
     try {
-      const sendMessageOptions = buildSendMessageOptions(props.workspaceId);
+      const sendMessageOptions = getSendOptionsFromStorage(props.minionId);
       const source = triggerUserMessage;
 
       if (!source) {
@@ -214,17 +221,13 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
 
       // For compaction recovery (retrying a failed /compact), preserve the original settings.
       // The nested follow-up content is already in the correct format.
-      // Support both new `followUpContent` and legacy `continueMessage` for backwards compatibility
       if (source.compactionRequest) {
-        const maxOutputTokens = source.compactionRequest.parsed.maxOutputTokens;
-        const parsedCompaction = source.compactionRequest.parsed as {
-          followUpContent?: CompactionFollowUpRequest;
-          continueMessage?: CompactionFollowUpRequest;
-        };
-        const nestedFollowUp = parsedCompaction.followUpContent ?? parsedCompaction.continueMessage;
+        const parsedCompaction = source.compactionRequest.parsed;
+        const maxOutputTokens = parsedCompaction.maxOutputTokens;
+        const nestedFollowUp = parsedCompaction.followUpContent;
         const result = await executeCompaction({
           api,
-          workspaceId: props.workspaceId,
+          minionId: props.minionId,
           sendMessageOptions,
           model: compactionSuggestion.modelId,
           maxOutputTokens,
@@ -257,7 +260,7 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
       const followUpContent = buildFollowUpFromSource(source);
       const result = await executeCompaction({
         api,
-        workspaceId: props.workspaceId,
+        minionId: props.minionId,
         sendMessageOptions,
         model: compactionSuggestion.modelId,
         followUpContent,
@@ -276,7 +279,7 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
         setIsRetryingWithCompaction(false);
       }
     }
-  }, [api, compactionSuggestion, props.workspaceId, triggerUserMessage]);
+  }, [api, compactionSuggestion, props.minionId, triggerUserMessage]);
 
   /**
    * Auto-compact on context_exceeded. Runs silently - never touches chat input.
@@ -292,12 +295,12 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
     }
 
     try {
-      const sendMessageOptions = buildSendMessageOptions(props.workspaceId);
+      const sendMessageOptions = getSendOptionsFromStorage(props.minionId);
       const followUpContent = buildFollowUpFromSource(triggerUserMessage);
 
       const result = await executeCompaction({
         api,
-        workspaceId: props.workspaceId,
+        minionId: props.minionId,
         sendMessageOptions,
         model: compactionSuggestion?.modelId,
         followUpContent,
@@ -316,7 +319,7 @@ export function useCompactAndRetry(props: { workspaceId: string }): CompactAndRe
         setIsRetryingWithCompaction(false);
       }
     }
-  }, [api, compactionSuggestion?.modelId, props.workspaceId, triggerUserMessage]);
+  }, [api, compactionSuggestion?.modelId, props.minionId, triggerUserMessage]);
 
   // Auto-trigger compaction on context_exceeded for seamless recovery.
   // Only auto-compact if we have a compaction suggestion; otherwise show manual UI.

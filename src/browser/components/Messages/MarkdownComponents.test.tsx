@@ -31,7 +31,7 @@ describe("MarkdownComponents command code blocks", () => {
       <ThemeProvider forcedTheme="dark">
         <MessageListProvider
           value={{
-            workspaceId: "ws-1",
+            minionId: "ws-1",
             latestMessageId: null,
             openTerminal,
           }}
@@ -60,7 +60,7 @@ describe("MarkdownComponents command code blocks", () => {
       <ThemeProvider forcedTheme="dark">
         <MessageListProvider
           value={{
-            workspaceId: "ws-1",
+            minionId: "ws-1",
             latestMessageId: null,
             openTerminal,
           }}
@@ -91,7 +91,7 @@ describe("MarkdownComponents command code blocks", () => {
       <ThemeProvider forcedTheme="dark">
         <MessageListProvider
           value={{
-            workspaceId: "ws-1",
+            minionId: "ws-1",
             latestMessageId: null,
             openTerminal,
           }}
@@ -122,7 +122,7 @@ describe("MarkdownComponents command code blocks", () => {
       <ThemeProvider forcedTheme="dark">
         <MessageListProvider
           value={{
-            workspaceId: "ws-1",
+            minionId: "ws-1",
             latestMessageId: null,
             openTerminal,
           }}
@@ -152,7 +152,7 @@ describe("MarkdownComponents command code blocks", () => {
       <ThemeProvider forcedTheme="dark">
         <MessageListProvider
           value={{
-            workspaceId: "ws-1",
+            minionId: "ws-1",
             latestMessageId: null,
             openTerminal,
           }}
@@ -183,7 +183,7 @@ describe("MarkdownComponents command code blocks", () => {
       <ThemeProvider forcedTheme="dark">
         <MessageListProvider
           value={{
-            workspaceId: "ws-1",
+            minionId: "ws-1",
             latestMessageId: null,
             openTerminal,
           }}
@@ -209,7 +209,7 @@ describe("MarkdownComponents command code blocks", () => {
       <ThemeProvider forcedTheme="dark">
         <MessageListProvider
           value={{
-            workspaceId: "ws-1",
+            minionId: "ws-1",
             latestMessageId: null,
             openTerminal,
           }}

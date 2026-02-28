@@ -1,9 +1,10 @@
 import { EventEmitter } from "events";
 import type { Config } from "@/node/config";
 import { EventStore } from "@/node/utils/eventStore";
-import type { WorkspaceInitEvent } from "@/common/orpc/types";
+import type { MinionInitEvent } from "@/common/orpc/types";
 import { log } from "@/node/services/log";
 import { INIT_HOOK_MAX_LINES } from "@/common/constants/toolLimits";
+import { getErrorMessage } from "@/common/utils/errors";
 
 /**
  * Output line with timestamp for replay timing.
@@ -16,12 +17,16 @@ export interface TimedLine {
 
 /**
  * Persisted state for init hooks.
- * Stored in ~/.lattice/sessions/{workspaceId}/init-status.json
+ * Stored in ~/.lattice/sessions/{minionId}/init-status.json
  */
 export interface InitStatus {
   status: "running" | "success" | "error";
+  /** Phase of initialization (optional for backwards compat with persisted data). */
+  phase?: "runtime_setup" | "init_hook";
   hookPath: string;
   startTime: number;
+  /** Timestamp when init hook started (used for timeout calculations). */
+  hookStartTime?: number;
   lines: TimedLine[];
   exitCode: number | null;
   endTime: number | null; // When init-end event occurred
@@ -47,7 +52,7 @@ type InitHookState = InitStatus;
  * Key differences from StreamManager:
  * - Simpler state machine (running → success/error, no abort)
  * - No throttling (init hooks emit discrete lines, not streaming tokens)
- * - Permanent persistence (init logs kept forever as workspace metadata)
+ * - Permanent persistence (init logs kept forever as minion metadata)
  *
  * Lifecycle:
  * 1. startInit() - Create in-memory state, emit init-start, create completion promise
@@ -61,7 +66,7 @@ type InitHookState = InitStatus;
  * endInit(). No event listeners needed, eliminating race conditions.
  */
 export class InitStateManager extends EventEmitter {
-  private readonly store: EventStore<InitHookState, WorkspaceInitEvent & { workspaceId: string }>;
+  private readonly store: EventStore<InitHookState, MinionInitEvent & { minionId: string }>;
 
   /**
    * Promise-based completion tracking for running inits.
@@ -70,12 +75,17 @@ export class InitStateManager extends EventEmitter {
    */
   private readonly initPromises = new Map<
     string,
-    { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }
+    {
+      promise: Promise<void>;
+      resolve: () => void;
+      reject: (error: Error) => void;
+      hookPhasePromise: Promise<void>;
+      resolveHookPhase: () => void;
+    }
   >();
 
   constructor(config: Config) {
     super();
-    this.setMaxListeners(500);
     this.store = new EventStore(
       config,
       "init-status.json",
@@ -90,15 +100,15 @@ export class InitStateManager extends EventEmitter {
    * Used by EventStore.replay() to reconstruct the event stream.
    */
   private serializeInitEvents(
-    state: InitHookState & { workspaceId?: string }
-  ): Array<WorkspaceInitEvent & { workspaceId: string }> {
-    const events: Array<WorkspaceInitEvent & { workspaceId: string }> = [];
-    const workspaceId = state.workspaceId ?? "unknown";
+    state: InitHookState & { minionId?: string }
+  ): Array<MinionInitEvent & { minionId: string }> {
+    const events: Array<MinionInitEvent & { minionId: string }> = [];
+    const minionId = state.minionId ?? "unknown";
 
     // Emit init-start
     events.push({
       type: "init-start",
-      workspaceId,
+      minionId,
       hookPath: state.hookPath,
       timestamp: state.startTime,
     });
@@ -114,7 +124,7 @@ export class InitStateManager extends EventEmitter {
       lines = lines.slice(-INIT_HOOK_MAX_LINES); // Keep tail
       truncatedLines += excessLines;
       log.info(
-        `[InitStateManager] Truncated ${excessLines} lines from old persisted data for ${workspaceId}`
+        `[InitStateManager] Truncated ${excessLines} lines from old persisted data for ${minionId}`
       );
     }
 
@@ -126,7 +136,7 @@ export class InitStateManager extends EventEmitter {
       }
       events.push({
         type: "init-output",
-        workspaceId,
+        minionId,
         line: timedLine.line,
         isError: timedLine.isError,
         timestamp: timedLine.timestamp, // Use original timestamp for replay
@@ -137,7 +147,7 @@ export class InitStateManager extends EventEmitter {
     if (state.exitCode !== null) {
       events.push({
         type: "init-end",
-        workspaceId,
+        minionId,
         exitCode: state.exitCode,
         timestamp: state.endTime ?? state.startTime,
         // Include truncation info so frontend can show indicator
@@ -152,11 +162,12 @@ export class InitStateManager extends EventEmitter {
    * Start tracking a new init hook execution.
    * Creates in-memory state, completion promise, and emits init-start event.
    */
-  startInit(workspaceId: string, hookPath: string): void {
+  startInit(minionId: string, hookPath: string): void {
     const startTime = Date.now();
 
     const state: InitHookState = {
       status: "running",
+      phase: "runtime_setup",
       hookPath,
       startTime,
       lines: [],
@@ -164,32 +175,62 @@ export class InitStateManager extends EventEmitter {
       endTime: null,
     };
 
-    this.store.setState(workspaceId, state);
+    this.store.setState(minionId, state);
 
     // Create completion promise for this init
     // This allows multiple tools to await the same init without event listeners
     let resolve: () => void;
     let reject: (error: Error) => void;
+    let resolveHookPhase: () => void;
     const promise = new Promise<void>((res, rej) => {
       resolve = res;
       reject = rej;
     });
+    // Prevent unhandled rejections if a minion is deleted before any waiters attach.
+    promise.catch(() => undefined);
+    const hookPhasePromise = new Promise<void>((res) => {
+      resolveHookPhase = res;
+    });
 
-    this.initPromises.set(workspaceId, {
+    this.initPromises.set(minionId, {
       promise,
       resolve: resolve!,
       reject: reject!,
+      hookPhasePromise,
+      resolveHookPhase: resolveHookPhase!,
     });
 
-    log.debug(`Init hook started for workspace ${workspaceId}: ${hookPath}`);
+    log.debug(`Init hook started for minion ${minionId}: ${hookPath}`);
 
     // Emit init-start event
     this.emit("init-start", {
       type: "init-start",
-      workspaceId,
+      minionId,
       hookPath,
       timestamp: startTime,
-    } satisfies WorkspaceInitEvent & { workspaceId: string });
+    } satisfies MinionInitEvent & { minionId: string });
+  }
+
+  /**
+   * Signal that the .lattice/init hook is starting.
+   * This marks the transition from runtime provisioning to hook execution so
+   * waitForInit() can start the 5-minute timeout at the right time.
+   */
+  enterHookPhase(minionId: string): void {
+    const state = this.store.getState(minionId);
+    if (state?.status !== "running") {
+      return;
+    }
+
+    if ((state.phase ?? "runtime_setup") === "init_hook") {
+      return;
+    }
+
+    state.phase = "init_hook";
+    state.hookStartTime = Date.now();
+
+    const promiseEntry = this.initPromises.get(minionId);
+    promiseEntry?.resolveHookPhase();
   }
 
   /**
@@ -199,11 +240,11 @@ export class InitStateManager extends EventEmitter {
    * Truncation strategy: Keep only the most recent INIT_HOOK_MAX_LINES lines (tail).
    * Older lines are dropped to prevent OOM with large rsync/build output.
    */
-  appendOutput(workspaceId: string, line: string, isError: boolean): void {
-    const state = this.store.getState(workspaceId);
+  appendOutput(minionId: string, line: string, isError: boolean): void {
+    const state = this.store.getState(minionId);
 
     if (!state) {
-      log.error(`appendOutput called for workspace ${workspaceId} with no active init state`);
+      log.error(`appendOutput called for minion ${minionId} with no active init state`);
       return;
     }
 
@@ -220,11 +261,11 @@ export class InitStateManager extends EventEmitter {
     // Emit init-output event (always emit for live streaming, even if truncated from storage)
     this.emit("init-output", {
       type: "init-output",
-      workspaceId,
+      minionId,
       line,
       isError,
       timestamp,
-    } satisfies WorkspaceInitEvent & { workspaceId: string });
+    } satisfies MinionInitEvent & { minionId: string });
   }
 
   /**
@@ -235,11 +276,11 @@ export class InitStateManager extends EventEmitter {
    * where replay() sees exitCode !== null but the file doesn't exist yet. This ensures
    * the invariant: if init-end is visible (live or replay), the file MUST exist.
    */
-  async endInit(workspaceId: string, exitCode: number): Promise<void> {
-    const state = this.store.getState(workspaceId);
+  async endInit(minionId: string, exitCode: number): Promise<void> {
+    const state = this.store.getState(minionId);
 
     if (!state) {
-      log.error(`endInit called for workspace ${workspaceId} with no active init state`);
+      log.error(`endInit called for minion ${minionId} with no active init state`);
       return;
     }
 
@@ -255,7 +296,10 @@ export class InitStateManager extends EventEmitter {
     };
 
     // Persist FIRST - ensures file exists before in-memory state shows completion
-    await this.store.persist(workspaceId, stateToPerist);
+    await this.store.persist(minionId, stateToPerist, {
+      // If MinionService.remove() cleared init state, do not recreate ~/.lattice/sessions/<id>/
+      shouldWrite: () => this.store.hasState(minionId),
+    });
 
     // NOW update in-memory state (replay will now see file exists)
     state.status = finalStatus;
@@ -263,47 +307,47 @@ export class InitStateManager extends EventEmitter {
     state.endTime = endTime;
 
     log.info(
-      `Init hook ${state.status} for workspace ${workspaceId} (exit code ${exitCode}, duration ${endTime - state.startTime}ms)`
+      `Init hook ${state.status} for minion ${minionId} (exit code ${exitCode}, duration ${endTime - state.startTime}ms)`
     );
 
     // Emit init-end event
     this.emit("init-end", {
       type: "init-end",
-      workspaceId,
+      minionId,
       exitCode,
       timestamp: endTime,
       // Include truncation info so frontend can show indicator
       ...(state.truncatedLines ? { truncatedLines: state.truncatedLines } : {}),
-    } satisfies WorkspaceInitEvent & { workspaceId: string });
+    } satisfies MinionInitEvent & { minionId: string });
 
     // Resolve completion promise for waiting tools
-    const promiseEntry = this.initPromises.get(workspaceId);
+    const promiseEntry = this.initPromises.get(minionId);
     if (promiseEntry) {
       promiseEntry.resolve();
-      this.initPromises.delete(workspaceId);
+      this.initPromises.delete(minionId);
     }
 
     // Keep state in memory for replay (unlike streams which delete immediately)
   }
 
   /**
-   * Get current in-memory init state for a workspace.
+   * Get current in-memory init state for a minion.
    * Returns undefined if no init state exists.
    */
-  getInitState(workspaceId: string): InitHookState | undefined {
-    return this.store.getState(workspaceId);
+  getInitState(minionId: string): InitHookState | undefined {
+    return this.store.getState(minionId);
   }
 
   /**
    * Read persisted init status from disk.
    * Returns null if no status file exists.
    */
-  async readInitStatus(workspaceId: string): Promise<InitStatus | null> {
-    return this.store.readPersisted(workspaceId);
+  async readInitStatus(minionId: string): Promise<InitStatus | null> {
+    return this.store.readPersisted(minionId);
   }
 
   /**
-   * Replay init events for a workspace.
+   * Replay init events for a minion.
    * Delegates to EventStore.replay() which:
    * 1. Checks in-memory state first, then falls back to disk
    * 2. Serializes state into events via serializeInitEvents()
@@ -312,9 +356,9 @@ export class InitStateManager extends EventEmitter {
    * This is called during AgentSession.emitHistoricalEvents() to ensure
    * init state is visible after page reloads.
    */
-  async replayInit(workspaceId: string): Promise<void> {
-    // Pass workspaceId as context for serialization
-    await this.store.replay(workspaceId, { workspaceId });
+  async replayInit(minionId: string): Promise<void> {
+    // Pass minionId as context for serialization
+    await this.store.replay(minionId, { minionId });
   }
 
   /**
@@ -322,36 +366,40 @@ export class InitStateManager extends EventEmitter {
    * Useful for testing or manual cleanup.
    * Does NOT clear in-memory state (for active replay).
    */
-  async deleteInitStatus(workspaceId: string): Promise<void> {
-    await this.store.deletePersisted(workspaceId);
+  async deleteInitStatus(minionId: string): Promise<void> {
+    await this.store.deletePersisted(minionId);
   }
 
   /**
-   * Clear in-memory state for a workspace.
-   * Useful for testing or cleanup after workspace deletion.
+   * Clear in-memory state for a minion.
+   * Useful for testing or cleanup after minion deletion.
    * Does NOT delete disk file (use deleteInitStatus for that).
    *
    * Also cancels any running init promises to prevent orphaned waiters.
    */
-  clearInMemoryState(workspaceId: string): void {
-    this.store.deleteState(workspaceId);
+  clearInMemoryState(minionId: string): void {
+    this.store.deleteState(minionId);
 
-    // Cancel any running init promise for this workspace
-    const promiseEntry = this.initPromises.get(workspaceId);
+    // Cancel any running init promise for this minion
+    const promiseEntry = this.initPromises.get(minionId);
     if (promiseEntry) {
-      promiseEntry.reject(new Error(`Workspace ${workspaceId} was deleted`));
-      this.initPromises.delete(workspaceId);
+      promiseEntry.reject(new Error(`Minion ${minionId} was deleted`));
+      promiseEntry.resolveHookPhase();
+      this.initPromises.delete(minionId);
     }
   }
 
   /**
-   * Wait for workspace initialization to complete.
+   * Wait for minion initialization to complete.
    * Used by tools (bash, file_*) to ensure files are ready before executing.
    *
    * Behavior:
    * - No init state: Returns immediately (init not needed or backwards compat)
    * - Init succeeded/failed: Returns immediately (tools proceed regardless of init outcome)
-   * - Init running: Waits for completion promise (up to 5 minutes, then proceeds anyway)
+   * - Init running: waits for runtime provisioning to reach the hook phase (no timeout),
+   *   then waits up to 5 minutes from hook start before proceeding anyway.
+   * - If abortSignal is provided, resolves early when aborted.
+   * - If the minion is deleted during init, resolves early when state is cleared.
    *
    * This method NEVER throws - tools should always proceed. If init fails or times out,
    * the tool will either succeed (if init wasn't critical) or fail with its own error
@@ -362,10 +410,11 @@ export class InitStateManager extends EventEmitter {
    * - No event cleanup needed (promise auto-resolves once)
    * - Timeout races handled by Promise.race()
    *
-   * @param workspaceId Workspace ID to wait for
+   * @param minionId Minion ID to wait for
+   * @param abortSignal Optional signal to abort the wait early
    */
-  async waitForInit(workspaceId: string, abortSignal?: AbortSignal): Promise<void> {
-    const state = this.getInitState(workspaceId);
+  async waitForInit(minionId: string, abortSignal?: AbortSignal): Promise<void> {
+    const state = this.getInitState(minionId);
 
     // No init state - proceed immediately (backwards compat or init not needed)
     if (!state) {
@@ -384,33 +433,21 @@ export class InitStateManager extends EventEmitter {
     }
 
     // Init is running - wait for completion promise with timeout
-    const promiseEntry = this.initPromises.get(workspaceId);
+    const promiseEntry = this.initPromises.get(minionId);
 
     if (!promiseEntry) {
       // State says running but no promise exists (shouldn't happen, but handle gracefully)
-      log.error(`Init state is running for ${workspaceId} but no promise found, proceeding`);
+      log.error(`Init state is running for ${minionId} but no promise found, proceeding`);
       return;
     }
 
-    const INIT_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    const INIT_HOOK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
     // Track cleanup handlers
     let timeoutId: NodeJS.Timeout | undefined;
     let abortHandler: (() => void) | undefined;
 
     try {
-      const timeoutPromise = new Promise<void>((resolve) => {
-        timeoutId = setTimeout(() => {
-          log.error(
-            `Init timeout for ${workspaceId} after 5 minutes - tools will proceed anyway. ` +
-              `Init will continue in background.`
-          );
-          resolve();
-        }, INIT_TIMEOUT_MS);
-        // Don't keep Node alive just for this timeout (allows tests to exit)
-        timeoutId.unref();
-      });
-
       const abortPromise = new Promise<void>((resolve) => {
         if (!abortSignal) return; // Never resolves if no signal
         if (abortSignal.aborted) {
@@ -421,13 +458,44 @@ export class InitStateManager extends EventEmitter {
         abortSignal.addEventListener("abort", abortHandler, { once: true });
       });
 
+      // Intentional: provisioning (Lattice/devcontainer/etc.) can be long-running, so we
+      // avoid timeouts until .lattice/init begins. The wait is still interruptible via
+      // abortSignal or minion deletion (clearInMemoryState).
+      const phase = state.phase ?? "runtime_setup";
+      if (phase === "runtime_setup") {
+        const first = await Promise.race([
+          promiseEntry.promise.then(() => "complete"),
+          promiseEntry.hookPhasePromise.then(() => "hook"),
+          abortPromise.then(() => "abort"),
+        ]);
+        if (first !== "hook") {
+          return;
+        }
+      }
+
+      const hookStart = state.hookStartTime ?? state.startTime;
+      const elapsed = Date.now() - hookStart;
+      const remaining = Math.max(0, INIT_HOOK_TIMEOUT_MS - elapsed);
+
+      const timeoutPromise = new Promise<void>((resolve) => {
+        timeoutId = setTimeout(() => {
+          log.error(
+            `Init timeout for ${minionId} after 5 minutes - tools will proceed anyway. ` +
+              `Init will continue in background.`
+          );
+          resolve();
+        }, remaining);
+        // Don't keep Node alive just for this timeout (allows tests to exit)
+        timeoutId.unref();
+      });
+
       // Race between completion, timeout, and abort
       await Promise.race([promiseEntry.promise, timeoutPromise, abortPromise]);
     } catch (error) {
-      // Init promise was rejected (e.g., workspace deleted)
+      // Init promise was rejected (e.g., minion deleted)
       // Log and proceed anyway - let the tool fail with its own error if needed
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      log.error(`Init wait interrupted for ${workspaceId}: ${errorMsg} - proceeding anyway`);
+      const errorMsg = getErrorMessage(error);
+      log.error(`Init wait interrupted for ${minionId}: ${errorMsg} - proceeding anyway`);
     } finally {
       // Clean up timeout to prevent spurious error logs
       if (timeoutId) clearTimeout(timeoutId);

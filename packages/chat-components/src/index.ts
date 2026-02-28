@@ -3,7 +3,7 @@
  *
  * Shared chat components for rendering Lattice conversations.
  *
- * Goal: maximize reuse between the Lattice desktop app and openagent.md viewer.
+ * Goal: maximize reuse between the Lattice desktop app and lattice.md viewer.
  * This package intentionally re-exports Lattice's existing chat rendering code
  * (Messages/, tools/, Markdown, DiffRenderer, etc.) instead of maintaining a
  * parallel implementation.

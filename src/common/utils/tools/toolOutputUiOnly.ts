@@ -95,9 +95,9 @@ function isNotifyUiOnly(value: unknown): value is NotifyUiOnlyPayload {
   }
 
   if (
-    "workspaceId" in value &&
-    value.workspaceId !== undefined &&
-    typeof value.workspaceId !== "string"
+    "minionId" in value &&
+    value.minionId !== undefined &&
+    typeof value.minionId !== "string"
   ) {
     return false;
   }

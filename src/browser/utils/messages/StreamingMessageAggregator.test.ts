@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
-import { createLatticeMessage } from "@/common/types/message";
+import { createLatticeMessage, type DisplayedMessage } from "@/common/types/message";
+import { MAX_HISTORY_HIDDEN_SEGMENTS } from "./transcriptTruncationPlan";
 import { StreamingMessageAggregator } from "./StreamingMessageAggregator";
 
 // Test helper: create aggregator with default createdAt for tests
@@ -79,7 +80,7 @@ describe("StreamingMessageAggregator", () => {
       });
 
       const messages1 = aggregator.getDisplayedMessages();
-      const initMsg1 = messages1.find((m) => m.type === "workspace-init");
+      const initMsg1 = messages1.find((m) => m.type === "minion-init");
       expect(initMsg1).toBeDefined();
 
       // Add output
@@ -94,11 +95,11 @@ describe("StreamingMessageAggregator", () => {
       await waitForInitThrottle();
 
       const messages2 = aggregator.getDisplayedMessages();
-      const initMsg2 = messages2.find((m) => m.type === "workspace-init");
+      const initMsg2 = messages2.find((m) => m.type === "minion-init");
       expect(initMsg2).toBeDefined();
 
       // Lines array should be a NEW reference (critical for React.memo)
-      if (initMsg1?.type === "workspace-init" && initMsg2?.type === "workspace-init") {
+      if (initMsg1?.type === "minion-init" && initMsg2?.type === "minion-init") {
         expect(initMsg1.lines).not.toBe(initMsg2.lines);
         expect(initMsg2.lines).toHaveLength(1);
         expect(initMsg2.lines[0]).toEqual({ line: "Line 1", isError: false });
@@ -116,7 +117,7 @@ describe("StreamingMessageAggregator", () => {
       });
 
       const messages1 = aggregator.getDisplayedMessages();
-      const initMsg1 = messages1.find((m) => m.type === "workspace-init");
+      const initMsg1 = messages1.find((m) => m.type === "minion-init");
 
       // Add first output
       aggregator.handleMessage({
@@ -130,7 +131,7 @@ describe("StreamingMessageAggregator", () => {
       await waitForInitThrottle();
 
       const messages2 = aggregator.getDisplayedMessages();
-      const initMsg2 = messages2.find((m) => m.type === "workspace-init");
+      const initMsg2 = messages2.find((m) => m.type === "minion-init");
 
       // Add second output
       aggregator.handleMessage({
@@ -144,7 +145,7 @@ describe("StreamingMessageAggregator", () => {
       await waitForInitThrottle();
 
       const messages3 = aggregator.getDisplayedMessages();
-      const initMsg3 = messages3.find((m) => m.type === "workspace-init");
+      const initMsg3 = messages3.find((m) => m.type === "minion-init");
 
       // Each message object should be a new reference
       expect(initMsg1).not.toBe(initMsg2);
@@ -152,9 +153,9 @@ describe("StreamingMessageAggregator", () => {
 
       // Lines arrays should be different references
       if (
-        initMsg1?.type === "workspace-init" &&
-        initMsg2?.type === "workspace-init" &&
-        initMsg3?.type === "workspace-init"
+        initMsg1?.type === "minion-init" &&
+        initMsg2?.type === "minion-init" &&
+        initMsg3?.type === "minion-init"
       ) {
         expect(initMsg1.lines).not.toBe(initMsg2.lines);
         expect(initMsg2.lines).not.toBe(initMsg3.lines);
@@ -206,6 +207,32 @@ describe("StreamingMessageAggregator", () => {
       expect(contents).toEqual(["hello"]);
     });
 
+    test("should show uiVisible synthetic messages by default", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      const syntheticVisible = createLatticeMessage("s1", "user", "synthetic visible", {
+        timestamp: 1,
+        historySequence: 1,
+        synthetic: true,
+        uiVisible: true,
+      });
+      const user = createLatticeMessage("u1", "user", "hello", {
+        timestamp: 2,
+        historySequence: 2,
+      });
+
+      aggregator.loadHistoricalMessages([syntheticVisible, user], false);
+
+      const displayed = aggregator.getDisplayedMessages();
+      const userMessages = displayed.filter((m) => m.type === "user");
+
+      expect(userMessages).toHaveLength(2);
+      expect(userMessages[0]?.content).toBe("synthetic visible");
+      expect(userMessages[0]?.isSynthetic).toBe(true);
+      expect(userMessages[1]?.content).toBe("hello");
+      expect(userMessages[1]?.isSynthetic).toBeUndefined();
+    });
+
     test("should show synthetic messages when debugLlmRequest is enabled", () => {
       withDebugLlmRequestEnabled(() => {
         const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
@@ -234,6 +261,171 @@ describe("StreamingMessageAggregator", () => {
     });
 
     test("should disable displayed message cap when showAllMessages is enabled", () => {
+      // Test smart truncation: user messages are always kept, while older assistant/tool/
+      // reasoning rows can be filtered behind a history-hidden marker.
+      // Create a mix of message types: user messages with tool-heavy assistant responses.
+      const manyMessages: Parameters<
+        typeof StreamingMessageAggregator.prototype.loadHistoricalMessages
+      >[0] = [];
+      for (let i = 0; i < 100; i++) {
+        const baseSequence = i * 3;
+        // User message (always kept)
+        manyMessages.push(
+          createLatticeMessage(`u${i}`, "user", `msg-${i}`, {
+            timestamp: baseSequence,
+            historySequence: baseSequence,
+          })
+        );
+        // Assistant message that only contains reasoning + tool calls (omitted in old messages)
+        manyMessages.push({
+          id: `tool-msg-${i}`,
+          role: "assistant" as const,
+          parts: [
+            { type: "reasoning" as const, text: `thinking-${i}` },
+            {
+              type: "dynamic-tool" as const,
+              toolCallId: `tool${i}`,
+              toolName: "bash",
+              state: "output-available" as const,
+              input: { script: "echo test" },
+              output: { success: true, output: "test", exitCode: 0 },
+            },
+          ],
+          metadata: {
+            historySequence: baseSequence + 1,
+            timestamp: baseSequence + 1,
+            model: "claude-3-5-sonnet-20241022",
+          },
+        });
+        // Assistant response message (always kept)
+        manyMessages.push(
+          createLatticeMessage(`a${i}`, "assistant", `response-${i}`, {
+            historySequence: baseSequence + 2,
+            timestamp: baseSequence + 2,
+            model: "claude-3-5-sonnet-20241022",
+          })
+        );
+      }
+
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+      aggregator.loadHistoricalMessages(manyMessages, false);
+
+      // Each pair produces 4 DisplayedMessages: user + reasoning + tool + assistant
+      // Total: 100 user + 100 assistant + 100 tool + 100 reasoning = 400 DisplayedMessages
+      // With cap at 64, the first 336 are candidates for filtering.
+      // In those 336: user messages are kept, while assistant/tool/reasoning may be omitted.
+      const capped = aggregator.getDisplayedMessages();
+
+      const expectedHiddenCount = 252;
+      const hiddenMessages = capped.filter(
+        (msg): msg is Extract<DisplayedMessage, { type: "history-hidden" }> => {
+          return msg.type === "history-hidden";
+        }
+      );
+      expect(hiddenMessages).toHaveLength(MAX_HISTORY_HIDDEN_SEGMENTS);
+      expect(hiddenMessages.every((msg) => msg.hiddenCount > 0)).toBe(true);
+      expect(hiddenMessages.reduce((sum, msg) => sum + msg.hiddenCount, 0)).toBe(
+        expectedHiddenCount
+      );
+
+      const firstHiddenIndex = capped.findIndex((msg) => msg.type === "history-hidden");
+      expect(firstHiddenIndex).toBeGreaterThan(0);
+      expect(firstHiddenIndex).toBeLessThan(capped.length - 1);
+      expect(capped[firstHiddenIndex - 1]?.type).toBe("user");
+      expect(capped[firstHiddenIndex + 1]?.type).toBe("user");
+
+      // User prompts remain fully visible; older assistant rows can be omitted.
+      const userMessages = capped.filter((m) => m.type === "user");
+      const assistantMessages = capped.filter((m) => m.type === "assistant");
+      expect(userMessages).toHaveLength(100);
+      expect(assistantMessages.length).toBeLessThan(100);
+      expect(assistantMessages.length).toBeGreaterThan(0);
+
+      // Enable showAllMessages to see full history
+      aggregator.setShowAllMessages(true);
+
+      const displayed = aggregator.getDisplayedMessages();
+      // Now all 400 messages should be visible (100 user + 100 assistant + 100 tool + 100 reasoning)
+      expect(displayed).toHaveLength(400);
+      expect(displayed.some((m) => m.type === "history-hidden")).toBe(false);
+    });
+
+    test("should cap history-hidden markers for alternating user/assistant history", () => {
+      // Alternating user/assistant history creates many tiny omission runs.
+      // We preserve locality for recent runs while capping marker rows to keep DOM size bounded.
+      const manyMessages: Parameters<
+        typeof StreamingMessageAggregator.prototype.loadHistoricalMessages
+      >[0] = [];
+
+      for (let i = 0; i < 200; i++) {
+        const baseSequence = i * 2;
+        manyMessages.push(
+          createLatticeMessage(`u${i}`, "user", `msg-${i}`, {
+            timestamp: baseSequence,
+            historySequence: baseSequence,
+          })
+        );
+        manyMessages.push(
+          createLatticeMessage(`a${i}`, "assistant", `response-${i}`, {
+            historySequence: baseSequence + 1,
+            timestamp: baseSequence + 1,
+            model: "claude-3-5-sonnet-20241022",
+          })
+        );
+      }
+
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+      aggregator.loadHistoricalMessages(manyMessages, false);
+
+      const displayed = aggregator.getDisplayedMessages();
+      const hiddenMarkers = displayed.filter(
+        (msg): msg is Extract<DisplayedMessage, { type: "history-hidden" }> => {
+          return msg.type === "history-hidden";
+        }
+      );
+
+      expect(hiddenMarkers).toHaveLength(MAX_HISTORY_HIDDEN_SEGMENTS);
+      expect(hiddenMarkers.reduce((sum, marker) => sum + marker.hiddenCount, 0)).toBe(168);
+
+      const hiddenIndices = displayed
+        .map((msg, index) => (msg.type === "history-hidden" ? index : -1))
+        .filter((index) => index !== -1);
+      for (const hiddenIndex of hiddenIndices) {
+        expect(hiddenIndex).toBeGreaterThan(0);
+        expect(hiddenIndex).toBeLessThan(displayed.length - 1);
+        expect(displayed[hiddenIndex - 1]?.type).toBe("user");
+        expect(displayed[hiddenIndex + 1]?.type).toBe("user");
+      }
+
+      const userMessages = displayed.filter(
+        (msg): msg is Extract<DisplayedMessage, { type: "user" }> => {
+          return msg.type === "user";
+        }
+      );
+      expect(userMessages).toHaveLength(200);
+
+      // Rendered rows stay well below full history size because hidden markers are capped.
+      expect(displayed.length).toBeLessThan(260);
+    });
+
+    test("should not show history-hidden when messages are below truncation threshold", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+      aggregator.loadHistoricalMessages(
+        [
+          createLatticeMessage("u1", "user", "first", { historySequence: 1, timestamp: 1 }),
+          createLatticeMessage("u2", "user", "second", { historySequence: 2, timestamp: 2 }),
+          createLatticeMessage("u3", "user", "third", { historySequence: 3, timestamp: 3 }),
+        ],
+        false
+      );
+
+      const displayed = aggregator.getDisplayedMessages();
+      expect(displayed).toHaveLength(3);
+      expect(displayed.some((msg) => msg.type === "history-hidden")).toBe(false);
+    });
+
+    test("should not show history-hidden when only user messages exceed cap", () => {
+      // When all messages are user rows (always-keep type), no filtering occurs
       const manyMessages = Array.from({ length: 200 }, (_, i) =>
         createLatticeMessage(`u${i}`, "user", `msg-${i}`, {
           timestamp: i,
@@ -244,18 +436,80 @@ describe("StreamingMessageAggregator", () => {
       const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
       aggregator.loadHistoricalMessages(manyMessages, false);
 
-      const capped = aggregator.getDisplayedMessages();
-      expect(capped).toHaveLength(129);
-      expect(capped[0]?.type).toBe("history-hidden");
-      if (capped[0]?.type === "history-hidden") {
-        expect(capped[0].hiddenCount).toBe(72);
-      }
-
-      aggregator.setShowAllMessages(true);
-
       const displayed = aggregator.getDisplayedMessages();
+      // All 200 user messages are kept (user type is always preserved)
       expect(displayed).toHaveLength(200);
       expect(displayed.some((m) => m.type === "history-hidden")).toBe(false);
+    });
+  });
+
+  describe("agent skill snapshot cache", () => {
+    test("should invalidate cached hover snapshot when frontmatter changes", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      const snapshotText = "<agent-skill>\nBODY\n</agent-skill>";
+
+      const snapshot1 = createLatticeMessage("s1", "assistant", snapshotText, {
+        timestamp: 1,
+        historySequence: 1,
+        synthetic: true,
+        agentSkillSnapshot: {
+          skillName: "test-skill",
+          scope: "project",
+          sha256: "sha-1",
+          frontmatterYaml: "description: v1",
+        },
+      });
+
+      const invocation = createLatticeMessage("u1", "user", "/test-skill", {
+        timestamp: 2,
+        historySequence: 2,
+        latticeMetadata: {
+          type: "agent-skill",
+          rawCommand: "/test-skill",
+          skillName: "test-skill",
+          scope: "project",
+        },
+      });
+
+      aggregator.addMessage(snapshot1);
+      aggregator.addMessage(invocation);
+
+      const displayed1 = aggregator.getDisplayedMessages();
+      const user1 = displayed1.find((m) => m.type === "user" && m.id === "u1");
+      expect(user1).toBeDefined();
+
+      if (user1?.type === "user") {
+        expect(user1.agentSkill?.snapshot?.frontmatterYaml).toBe("description: v1");
+        expect(user1.agentSkill?.snapshot?.body).toBe("BODY");
+      }
+
+      // Update the snapshot frontmatter without changing body or sha256.
+      const snapshot2 = createLatticeMessage("s1", "assistant", snapshotText, {
+        timestamp: 1,
+        historySequence: 1,
+        synthetic: true,
+        agentSkillSnapshot: {
+          skillName: "test-skill",
+          scope: "project",
+          sha256: "sha-1",
+          frontmatterYaml: "description: v2",
+        },
+      });
+
+      aggregator.addMessage(snapshot2);
+
+      const displayed2 = aggregator.getDisplayedMessages();
+      const user2 = displayed2.find((m) => m.type === "user" && m.id === "u1");
+      expect(user2).toBeDefined();
+
+      if (user2?.type === "user") {
+        expect(user2.agentSkill?.snapshot?.frontmatterYaml).toBe("description: v2");
+        expect(user2.agentSkill?.snapshot?.body).toBe("BODY");
+      }
+
+      // Cache should not reuse the prior DisplayedMessage when snapshot metadata changes.
+      expect(user2).not.toBe(user1);
     });
   });
 
@@ -266,7 +520,7 @@ describe("StreamingMessageAggregator", () => {
       // Start a stream
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -287,12 +541,12 @@ describe("StreamingMessageAggregator", () => {
         tokens: 10,
         timestamp: Date.now(),
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
       });
 
       aggregator.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         toolCallId: "tool1",
         toolName: "todo_write",
@@ -307,7 +561,7 @@ describe("StreamingMessageAggregator", () => {
       // End the stream
       aggregator.handleStreamEnd({
         type: "stream-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         metadata: {
           historySequence: 1,
@@ -326,7 +580,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -344,12 +598,12 @@ describe("StreamingMessageAggregator", () => {
         tokens: 10,
         timestamp: Date.now(),
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
       });
 
       aggregator.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         toolCallId: "tool1",
         toolName: "todo_write",
@@ -362,7 +616,7 @@ describe("StreamingMessageAggregator", () => {
       // Abort the stream
       aggregator.handleStreamAbort({
         type: "stream-abort",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         metadata: {},
       });
@@ -462,7 +716,7 @@ describe("StreamingMessageAggregator", () => {
       // Simulate an active stream with todos
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -479,12 +733,12 @@ describe("StreamingMessageAggregator", () => {
         tokens: 10,
         timestamp: Date.now(),
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
       });
 
       aggregator.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         toolCallId: "tool1",
         toolName: "todo_write",
@@ -507,6 +761,699 @@ describe("StreamingMessageAggregator", () => {
       // Todos should be cleared when new user message arrives
       expect(aggregator.getCurrentTodos()).toHaveLength(0);
     });
+  });
+
+  describe("compaction boundary rows", () => {
+    test("inserts a boundary row before compaction summary messages", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      const before = createLatticeMessage("user-before", "user", "Before compaction", {
+        historySequence: 1,
+        timestamp: 1,
+      });
+      const summary = createLatticeMessage("summary-1", "assistant", "Compacted summary", {
+        historySequence: 2,
+        timestamp: 2,
+        compacted: "user",
+        compactionBoundary: true,
+        compactionEpoch: 3,
+        latticeMetadata: { type: "compaction-summary" },
+      });
+      const after = createLatticeMessage("user-after", "user", "After compaction", {
+        historySequence: 3,
+        timestamp: 3,
+      });
+
+      aggregator.loadHistoricalMessages([before, summary, after], false);
+
+      const displayed = aggregator.getDisplayedMessages();
+      expect(displayed.map((message) => message.type)).toEqual([
+        "user",
+        "compaction-boundary",
+        "assistant",
+        "user",
+      ]);
+
+      const boundary = displayed[1];
+      expect(boundary?.type).toBe("compaction-boundary");
+
+      if (boundary?.type === "compaction-boundary") {
+        expect(boundary.position).toBe("start");
+        expect(boundary.compactionEpoch).toBe(3);
+        expect(boundary.historySequence).toBe(2);
+      }
+    });
+
+    test("omits malformed compaction epoch values instead of crashing transcript rendering", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      const before = createLatticeMessage("user-before", "user", "Before compaction", {
+        historySequence: 1,
+        timestamp: 1,
+      });
+      const summaryWithMalformedEpoch = createLatticeMessage(
+        "summary-malformed",
+        "assistant",
+        "Compacted summary",
+        {
+          historySequence: 2,
+          timestamp: 2,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 0,
+          latticeMetadata: { type: "compaction-summary" },
+        }
+      );
+      const after = createLatticeMessage("user-after", "user", "After compaction", {
+        historySequence: 3,
+        timestamp: 3,
+      });
+
+      aggregator.loadHistoricalMessages([before, summaryWithMalformedEpoch, after], false);
+
+      const displayed = aggregator.getDisplayedMessages();
+      const boundaries = displayed.filter((message) => message.type === "compaction-boundary");
+
+      expect(boundaries).toHaveLength(1);
+
+      const boundary = boundaries[0];
+      if (boundary?.type !== "compaction-boundary") {
+        throw new Error("Expected compaction boundary message");
+      }
+      expect(boundary.compactionEpoch).toBeUndefined();
+      expect(boundary.historySequence).toBe(2);
+    });
+  });
+
+  describe("live compaction boundary pruning", () => {
+    // handleMessage expects ChatLatticeMessage (type: "message"), matching how the
+    // backend emits events via emitChatEvent({ ...message, type: "message" }).
+    const asChatMessage = (msg: ReturnType<typeof createLatticeMessage>) => ({
+      ...msg,
+      type: "message" as const,
+    });
+
+    test("prunes older messages on first compaction and keeps the new boundary", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      // Simulate messages accumulated during a live session (no prior compaction)
+      const msg1 = asChatMessage(
+        createLatticeMessage("user-1", "user", "First message", {
+          historySequence: 0,
+          timestamp: 1,
+        })
+      );
+      const msg2 = asChatMessage(
+        createLatticeMessage("assistant-1", "assistant", "Response", {
+          historySequence: 1,
+          timestamp: 2,
+        })
+      );
+
+      aggregator.handleMessage(msg1);
+      aggregator.handleMessage(msg2);
+
+      const summary = asChatMessage(
+        createLatticeMessage("summary-1", "assistant", "Compacted summary", {
+          historySequence: 2,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 1,
+          latticeMetadata: { type: "compaction-summary" },
+        })
+      );
+      aggregator.handleMessage(summary);
+
+      // Existing messages with sequence < incoming boundary (2) are pruned.
+      // The incoming boundary itself is appended after pruning and remains visible.
+      const remaining = aggregator.getAllMessages();
+      expect(remaining).toHaveLength(1);
+      expect(remaining.map((m) => m.id)).toEqual(["summary-1"]);
+    });
+
+    test("keeps only the latest boundary epoch start on subsequent compactions", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      // Epoch 0 messages (before any compaction)
+      const epoch0Msg = asChatMessage(
+        createLatticeMessage("epoch0-user", "user", "Old message", {
+          historySequence: 0,
+          timestamp: 1,
+        })
+      );
+      aggregator.handleMessage(epoch0Msg);
+
+      // First compaction boundary (epoch 1)
+      const boundary1 = asChatMessage(
+        createLatticeMessage("boundary-1", "assistant", "Summary epoch 1", {
+          historySequence: 1,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 1,
+          latticeMetadata: { type: "compaction-summary" },
+        })
+      );
+      aggregator.handleMessage(boundary1);
+
+      // Epoch 1 messages
+      const epoch1Msg = asChatMessage(
+        createLatticeMessage("epoch1-user", "user", "Message in epoch 1", {
+          historySequence: 2,
+          timestamp: 3,
+        })
+      );
+      aggregator.handleMessage(epoch1Msg);
+
+      // First boundary already pruned epoch 0; boundary-1 + epoch1-user remain.
+      expect(aggregator.getAllMessages()).toHaveLength(2);
+
+      // Second compaction boundary (epoch 2): existing messages with sequence < 3
+      // are pruned, then boundary-2 is appended.
+      const boundary2 = asChatMessage(
+        createLatticeMessage("boundary-2", "assistant", "Summary epoch 2", {
+          historySequence: 3,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 2,
+          latticeMetadata: { type: "compaction-summary" },
+        })
+      );
+      aggregator.handleMessage(boundary2);
+
+      const remaining = aggregator.getAllMessages();
+      expect(remaining).toHaveLength(1);
+      expect(remaining.map((m) => m.id)).toEqual(["boundary-2"]);
+    });
+
+    test("updates reconnect cursor floor when a live compaction boundary arrives", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      // Simulate initial replay window starting at historySequence 40.
+      aggregator.loadHistoricalMessages(
+        [
+          createLatticeMessage("history-40", "user", "Historical user", {
+            historySequence: 40,
+            timestamp: 40,
+          }),
+          createLatticeMessage("history-41", "assistant", "Historical assistant", {
+            historySequence: 41,
+            timestamp: 41,
+          }),
+        ],
+        false,
+        { mode: "replace" }
+      );
+
+      const beforeCompactionCursor = aggregator.getOnChatCursor();
+      expect(beforeCompactionCursor?.history?.oldestHistorySequence).toBe(40);
+
+      const boundary = asChatMessage(
+        createLatticeMessage("boundary-60", "assistant", "Summary epoch 60", {
+          historySequence: 60,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 60,
+          latticeMetadata: { type: "compaction-summary" },
+        })
+      );
+      aggregator.handleMessage(boundary);
+
+      const afterCompactionCursor = aggregator.getOnChatCursor();
+      expect(afterCompactionCursor?.history?.oldestHistorySequence).toBe(60);
+    });
+
+    test("does not prune messages when a non-boundary message arrives", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      const msg1 = asChatMessage(
+        createLatticeMessage("user-1", "user", "First message", { historySequence: 0 })
+      );
+      const msg2 = asChatMessage(
+        createLatticeMessage("assistant-1", "assistant", "Normal response", { historySequence: 1 })
+      );
+
+      aggregator.handleMessage(msg1);
+      aggregator.handleMessage(msg2);
+
+      expect(aggregator.getAllMessages()).toHaveLength(2);
+    });
+  });
+
+  describe("recency on stream completion", () => {
+    test("bumps recency on final non-compaction stream end", () => {
+      let callbackCompletedAt: number | null | undefined;
+      const aggregator = new StreamingMessageAggregator(
+        TEST_CREATED_AT,
+        "test-minion-recency-final"
+      );
+      aggregator.onResponseComplete = (_wid, _mid, _isFinal, _text, _compaction, completedAt) => {
+        callbackCompletedAt = completedAt;
+      };
+      const initialRecency = aggregator.getRecencyTimestamp();
+      expect(initialRecency).not.toBeNull();
+
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion-recency-final",
+        messageId: "msg-1",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime: Date.now(),
+      });
+
+      const beforeEnd = Date.now();
+      aggregator.handleStreamEnd({
+        type: "stream-end",
+        minionId: "test-minion-recency-final",
+        messageId: "msg-1",
+        metadata: {
+          historySequence: 1,
+          timestamp: Date.now(),
+          model: "claude-3-5-sonnet-20241022",
+        },
+        parts: [],
+      });
+
+      const recency = aggregator.getRecencyTimestamp();
+      expect(recency).not.toBeNull();
+      if (recency === null) {
+        throw new Error("Expected recency timestamp after stream end");
+      }
+      expect(recency).toBeGreaterThanOrEqual(beforeEnd);
+
+      // The same completion timestamp is passed to the callback so App.tsx
+      // can write an identical lastRead value — no ms-boundary race.
+      expect(callbackCompletedAt).toBe(recency);
+    });
+
+    test("does not bump on compaction stream end", () => {
+      const aggregator = new StreamingMessageAggregator(
+        TEST_CREATED_AT,
+        "test-minion-recency-compaction"
+      );
+
+      let callbackCompletedAt: number | null | undefined;
+      aggregator.onResponseComplete = (_wid, _mid, _isFinal, _text, _compaction, completedAt) => {
+        callbackCompletedAt = completedAt;
+      };
+
+      const initialRecency = aggregator.getRecencyTimestamp();
+      expect(initialRecency).not.toBeNull();
+      if (initialRecency === null) {
+        throw new Error("Expected initial recency timestamp");
+      }
+
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion-recency-compaction",
+        messageId: "msg-1",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime: Date.now(),
+        mode: "compact",
+      });
+
+      const beforeEnd = Date.now();
+      aggregator.handleStreamEnd({
+        type: "stream-end",
+        minionId: "test-minion-recency-compaction",
+        messageId: "msg-1",
+        metadata: {
+          historySequence: 1,
+          timestamp: Date.now(),
+          model: "claude-3-5-sonnet-20241022",
+        },
+        parts: [],
+      });
+
+      const recency = aggregator.getRecencyTimestamp();
+      expect(recency).toBe(initialRecency);
+      if (recency !== null) {
+        expect(recency).toBeLessThan(beforeEnd);
+      }
+
+      // completedAt IS passed to callback — App.tsx can mark active minion as read
+      // even after compaction, preventing false unread indicators.
+      expect(callbackCompletedAt).not.toBeNull();
+      expect(callbackCompletedAt).toBeGreaterThanOrEqual(beforeEnd);
+    });
+
+    test("does not bump on non-final stream end", () => {
+      const aggregator = new StreamingMessageAggregator(
+        TEST_CREATED_AT,
+        "test-minion-recency-non-final"
+      );
+      const initialRecency = aggregator.getRecencyTimestamp();
+      expect(initialRecency).not.toBeNull();
+      if (initialRecency === null) {
+        throw new Error("Expected initial recency timestamp");
+      }
+
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion-recency-non-final",
+        messageId: "msg-1",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime: Date.now(),
+      });
+
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion-recency-non-final",
+        messageId: "msg-2",
+        historySequence: 2,
+        model: "claude-3-5-sonnet-20241022",
+        startTime: Date.now(),
+      });
+
+      const beforeFirstEnd = Date.now();
+      aggregator.handleStreamEnd({
+        type: "stream-end",
+        minionId: "test-minion-recency-non-final",
+        messageId: "msg-1",
+        metadata: {
+          historySequence: 1,
+          timestamp: Date.now(),
+          model: "claude-3-5-sonnet-20241022",
+        },
+        parts: [],
+      });
+
+      const recency = aggregator.getRecencyTimestamp();
+      expect(recency).toBe(initialRecency);
+      if (recency !== null) {
+        expect(recency).toBeLessThan(beforeFirstEnd);
+      }
+    });
+
+    test("does not bump in reconnection branch", () => {
+      const aggregator = new StreamingMessageAggregator(
+        TEST_CREATED_AT,
+        "test-minion-recency-reconnect"
+      );
+      const initialRecency = aggregator.getRecencyTimestamp();
+      expect(initialRecency).not.toBeNull();
+      if (initialRecency === null) {
+        throw new Error("Expected initial recency timestamp");
+      }
+
+      const beforeEnd = Date.now();
+      aggregator.handleStreamEnd({
+        type: "stream-end",
+        minionId: "test-minion-recency-reconnect",
+        messageId: "msg-1",
+        metadata: {
+          historySequence: 1,
+          timestamp: Date.now(),
+          model: "claude-3-5-sonnet-20241022",
+        },
+        parts: [],
+      });
+
+      const recency = aggregator.getRecencyTimestamp();
+      expect(recency).toBe(initialRecency);
+      if (recency !== null) {
+        expect(recency).toBeLessThan(beforeEnd);
+      }
+    });
+  });
+
+  describe("incremental stream replay", () => {
+    test("preserves last stream timestamp when replayed stream-start re-establishes context", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+      const startTime = 1_000;
+      const deltaTimestamp = 1_250;
+
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion",
+        messageId: "msg-replay-1",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime,
+      });
+
+      aggregator.handleStreamDelta({
+        type: "stream-delta",
+        minionId: "test-minion",
+        messageId: "msg-replay-1",
+        delta: "partial",
+        tokens: 1,
+        timestamp: deltaTimestamp,
+      });
+
+      const beforeReplayCursor = aggregator.getOnChatCursor();
+      expect(beforeReplayCursor?.stream?.lastTimestamp).toBe(deltaTimestamp);
+
+      // Since-mode reconnect can replay stream-start without replaying additional parts.
+      // Cursor timestamp must remain monotonic to avoid requesting duplicate events.
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion",
+        messageId: "msg-replay-1",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime,
+        replay: true,
+      });
+
+      const afterReplayCursor = aggregator.getOnChatCursor();
+      expect(afterReplayCursor?.stream?.lastTimestamp).toBe(deltaTimestamp);
+    });
+
+    test("marks streamed assistant rows as replay presentation when stream-start is replayed", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion",
+        messageId: "msg-replay-presentation",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime: 1_000,
+        replay: true,
+      });
+
+      aggregator.handleStreamDelta({
+        type: "stream-delta",
+        minionId: "test-minion",
+        messageId: "msg-replay-presentation",
+        delta: "replayed partial",
+        tokens: 1,
+        timestamp: 1_100,
+        replay: true,
+      });
+
+      const displayed = aggregator.getDisplayedMessages();
+      const assistant = displayed.find(
+        (message): message is Extract<(typeof displayed)[number], { type: "assistant" }> =>
+          message.type === "assistant" && message.historyId === "msg-replay-presentation"
+      );
+
+      expect(assistant).toBeDefined();
+      expect(assistant?.streamPresentation).toEqual({ source: "replay" });
+    });
+    test("switches streaming presentation from replay to live when non-replay delta arrives", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      // Reconnect: stream-start with replay flag
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion",
+        messageId: "msg-replay-to-live",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime: 1_000,
+        replay: true,
+      });
+
+      // Replay catch-up delta (tagged with replay)
+      aggregator.handleStreamDelta({
+        type: "stream-delta",
+        minionId: "test-minion",
+        messageId: "msg-replay-to-live",
+        delta: "cached ",
+        tokens: 1,
+        timestamp: 1_100,
+        replay: true,
+      });
+
+      // During replay: source should be "replay"
+      const duringReplay = aggregator.getDisplayedMessages();
+      const replayRow = duringReplay.find(
+        (message): message is Extract<(typeof duringReplay)[number], { type: "assistant" }> =>
+          message.type === "assistant" && message.historyId === "msg-replay-to-live"
+      );
+      expect(replayRow?.streamPresentation).toEqual({ source: "replay" });
+
+      // Fresh live delta (no replay flag) — catch-up is over
+      aggregator.handleStreamDelta({
+        type: "stream-delta",
+        minionId: "test-minion",
+        messageId: "msg-replay-to-live",
+        delta: "fresh tokens",
+        tokens: 2,
+        timestamp: 1_200,
+      });
+
+      // After live resume: source should flip to "live"
+      const afterLive = aggregator.getDisplayedMessages();
+      const liveRow = afterLive.find(
+        (message): message is Extract<(typeof afterLive)[number], { type: "assistant" }> =>
+          message.type === "assistant" && message.historyId === "msg-replay-to-live"
+      );
+      expect(liveRow?.streamPresentation).toEqual({ source: "live" });
+    });
+
+    test("does not exit replay phase on non-replay tool events arriving before replay text drains", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      // Reconnect: stream-start with replay flag
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion",
+        messageId: "msg-tool-during-replay",
+        historySequence: 1,
+        model: "claude-3-5-sonnet-20241022",
+        startTime: 1_000,
+        replay: true,
+      });
+
+      // Replay catch-up delta
+      aggregator.handleStreamDelta({
+        type: "stream-delta",
+        minionId: "test-minion",
+        messageId: "msg-tool-during-replay",
+        delta: "cached ",
+        tokens: 1,
+        timestamp: 1_100,
+        replay: true,
+      });
+
+      // Non-replay tool event arrives before replay text finishes draining.
+      // Tool events are not buffered by the reconnect relay, so they can
+      // arrive without the replay flag even while replay text is still in-flight.
+      aggregator.handleToolCallStart({
+        type: "tool-call-start",
+        minionId: "test-minion",
+        messageId: "msg-tool-during-replay",
+        toolCallId: "tool-1",
+        toolName: "bash",
+        args: { command: "echo hi" },
+        tokens: 1,
+        timestamp: 1_150,
+      });
+
+      // Another replay delta arrives (still part of catch-up)
+      aggregator.handleStreamDelta({
+        type: "stream-delta",
+        minionId: "test-minion",
+        messageId: "msg-tool-during-replay",
+        delta: "tail",
+        tokens: 1,
+        timestamp: 1_200,
+        replay: true,
+      });
+
+      // Source must still be "replay" — tool event must not have flipped it
+      const displayed = aggregator.getDisplayedMessages();
+      const assistantRows = displayed.filter(
+        (message): message is Extract<(typeof displayed)[number], { type: "assistant" }> =>
+          message.type === "assistant" && message.historyId === "msg-tool-during-replay"
+      );
+      const assistant = assistantRows.at(-1);
+      expect(assistant?.streamPresentation).toEqual({ source: "replay" });
+    });
+  });
+
+  describe("append replay cache invalidation", () => {
+    test("rebuilds displayed rows when append replay overwrites an existing message id", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      const partialMessage = createLatticeMessage("msg-overwrite-1", "assistant", "partial", {
+        historySequence: 1,
+        timestamp: 1,
+      });
+      aggregator.loadHistoricalMessages([partialMessage], false);
+
+      const initialDisplayed = aggregator.getDisplayedMessages();
+      const initialAssistant = initialDisplayed.find(
+        (message): message is Extract<(typeof initialDisplayed)[number], { type: "assistant" }> =>
+          message.type === "assistant" && message.historyId === "msg-overwrite-1"
+      );
+      expect(initialAssistant).toBeDefined();
+      expect(initialAssistant?.content).toBe("partial");
+
+      const finalizedMessage = createLatticeMessage("msg-overwrite-1", "assistant", "finalized", {
+        historySequence: 1,
+        timestamp: 2,
+      });
+      aggregator.loadHistoricalMessages([finalizedMessage], false, { mode: "append" });
+
+      const updatedDisplayed = aggregator.getDisplayedMessages();
+      const updatedAssistant = updatedDisplayed.find(
+        (message): message is Extract<(typeof updatedDisplayed)[number], { type: "assistant" }> =>
+          message.type === "assistant" && message.historyId === "msg-overwrite-1"
+      );
+
+      expect(updatedAssistant).toBeDefined();
+      expect(updatedAssistant?.content).toBe("finalized");
+      expect(updatedAssistant).not.toBe(initialAssistant);
+    });
+  });
+
+  test("keeps richer in-memory parts when append replay sends a stale duplicate", () => {
+    const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+    aggregator.handleStreamStart({
+      type: "stream-start",
+      minionId: "test-minion",
+      messageId: "msg-stale-append",
+      historySequence: 1,
+      model: "claude-3-5-sonnet-20241022",
+      startTime: 1_000,
+    });
+
+    aggregator.handleToolCallStart({
+      type: "tool-call-start",
+      minionId: "test-minion",
+      messageId: "msg-stale-append",
+      toolCallId: "tool-stale-append",
+      toolName: "bash",
+      args: { command: "echo hi" },
+      tokens: 1,
+      timestamp: 1_100,
+    });
+
+    aggregator.handleStreamDelta({
+      type: "stream-delta",
+      minionId: "test-minion",
+      messageId: "msg-stale-append",
+      delta: "tool output pending",
+      tokens: 1,
+      timestamp: 1_200,
+    });
+
+    const existingMessage = aggregator
+      .getAllMessages()
+      .find((message) => message.id === "msg-stale-append");
+    expect(existingMessage).toBeDefined();
+    expect(existingMessage?.parts.length).toBeGreaterThan(1);
+
+    const staleReplayMessage = createLatticeMessage("msg-stale-append", "assistant", "placeholder", {
+      historySequence: 1,
+      timestamp: 1_050,
+    });
+    aggregator.loadHistoricalMessages([staleReplayMessage], true, { mode: "append" });
+
+    const updatedMessage = aggregator
+      .getAllMessages()
+      .find((message) => message.id === "msg-stale-append");
+    expect(updatedMessage).toBeDefined();
+    expect(updatedMessage).toBe(existingMessage);
+    expect(updatedMessage?.parts.length).toBeGreaterThan(1);
+    expect(updatedMessage?.parts.some((part) => part.type === "dynamic-tool")).toBe(true);
   });
 
   describe("compaction detection", () => {
@@ -533,7 +1480,7 @@ describe("StreamingMessageAggregator", () => {
       // Older stream-start events may omit `mode`.
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg2",
         historySequence: 2,
         model: "anthropic:claude-3-5-haiku-20241022",
@@ -567,7 +1514,7 @@ describe("StreamingMessageAggregator", () => {
       // the resolved agent/toolchain), so we must not treat non-compact mode as a negative.
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg2",
         historySequence: 2,
         model: "anthropic:claude-3-5-haiku-20241022",
@@ -599,7 +1546,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg2",
         historySequence: 2,
         model: "anthropic:claude-3-5-haiku-20241022",
@@ -615,7 +1562,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg1",
         historySequence: 1,
         model: "anthropic:claude-3-5-haiku-20241022",
@@ -627,13 +1574,88 @@ describe("StreamingMessageAggregator", () => {
     });
   });
 
+  describe("pending stream model", () => {
+    test("tracks requestedModel for pending user messages", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      aggregator.handleMessage({
+        type: "message",
+        id: "msg1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+        metadata: {
+          historySequence: 1,
+          timestamp: Date.now(),
+          latticeMetadata: {
+            type: "normal",
+            requestedModel: "anthropic:claude-sonnet-4-5",
+          },
+        },
+      });
+
+      expect(aggregator.getPendingStreamModel()).toBe("anthropic:claude-sonnet-4-5");
+    });
+
+    test("tracks requestedModel for compaction requests", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      aggregator.handleMessage({
+        type: "message",
+        id: "msg1",
+        role: "user",
+        parts: [{ type: "text", text: "/compact" }],
+        metadata: {
+          historySequence: 1,
+          timestamp: Date.now(),
+          latticeMetadata: {
+            type: "compaction-request",
+            requestedModel: "anthropic:claude-sonnet-4-5",
+            parsed: { model: "anthropic:claude-sonnet-4-5" },
+          },
+        },
+      });
+
+      expect(aggregator.getPendingStreamModel()).toBe("anthropic:claude-sonnet-4-5");
+    });
+
+    test("clears pending stream model on stream-start", () => {
+      const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
+
+      aggregator.handleMessage({
+        type: "message",
+        id: "msg1",
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+        metadata: {
+          historySequence: 1,
+          timestamp: Date.now(),
+          latticeMetadata: {
+            type: "normal",
+            requestedModel: "anthropic:claude-sonnet-4-5",
+          },
+        },
+      });
+
+      aggregator.handleStreamStart({
+        type: "stream-start",
+        minionId: "test-minion",
+        messageId: "msg2",
+        historySequence: 2,
+        model: "anthropic:claude-sonnet-4-5",
+        startTime: Date.now(),
+      });
+
+      expect(aggregator.getPendingStreamModel()).toBeNull();
+    });
+  });
+
   describe("usage-delta handling", () => {
     test("handleUsageDelta stores usage by messageId", () => {
       const aggregator = new StreamingMessageAggregator(TEST_CREATED_AT);
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -651,7 +1673,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -670,7 +1692,7 @@ describe("StreamingMessageAggregator", () => {
       // First step usage
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -679,7 +1701,7 @@ describe("StreamingMessageAggregator", () => {
       // Second step usage (larger context after tool result added)
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1500, outputTokens: 100, totalTokens: 1600 },
         cumulativeUsage: { inputTokens: 2500, outputTokens: 150, totalTokens: 2650 },
@@ -704,7 +1726,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -712,7 +1734,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-2",
         usage: { inputTokens: 2000, outputTokens: 100, totalTokens: 2100 },
         cumulativeUsage: { inputTokens: 2000, outputTokens: 100, totalTokens: 2100 },
@@ -735,7 +1757,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -754,7 +1776,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -769,7 +1791,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -788,7 +1810,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -803,7 +1825,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -832,7 +1854,7 @@ describe("StreamingMessageAggregator", () => {
       // Step 1: Initial request with cache creation
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
         cumulativeUsage: { inputTokens: 1000, outputTokens: 50, totalTokens: 1050 },
@@ -853,7 +1875,7 @@ describe("StreamingMessageAggregator", () => {
       // Step 2: After tool call, larger context, more cache creation
       aggregator.handleUsageDelta({
         type: "usage-delta",
-        workspaceId: "ws-1",
+        minionId: "ws-1",
         messageId: "msg-1",
         usage: { inputTokens: 1500, outputTokens: 100, totalTokens: 1600 }, // Last step only
         cumulativeUsage: { inputTokens: 2500, outputTokens: 150, totalTokens: 2650 }, // Sum of all
@@ -888,7 +1910,7 @@ describe("StreamingMessageAggregator", () => {
       // Start a stream with a code_execution tool call
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -898,7 +1920,7 @@ describe("StreamingMessageAggregator", () => {
       // Start parent code_execution tool
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "parent-tool-1",
         toolName: "code_execution",
@@ -910,7 +1932,7 @@ describe("StreamingMessageAggregator", () => {
       // Start nested tool call with parentToolCallId
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-tool-1",
         toolName: "file_read",
@@ -943,7 +1965,7 @@ describe("StreamingMessageAggregator", () => {
       // Setup: stream with parent and nested tool
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -952,7 +1974,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "parent-tool-1",
         toolName: "code_execution",
@@ -963,7 +1985,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-tool-1",
         toolName: "file_read",
@@ -976,7 +1998,7 @@ describe("StreamingMessageAggregator", () => {
       // End nested tool call with result
       aggregator.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-tool-1",
         toolName: "file_read",
@@ -1003,7 +2025,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -1012,7 +2034,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "parent-tool-1",
         toolName: "code_execution",
@@ -1024,7 +2046,7 @@ describe("StreamingMessageAggregator", () => {
       // First nested call
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-1",
         toolName: "file_read",
@@ -1036,7 +2058,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-1",
         toolName: "file_read",
@@ -1048,7 +2070,7 @@ describe("StreamingMessageAggregator", () => {
       // Second nested call
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-2",
         toolName: "bash",
@@ -1060,7 +2082,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-2",
         toolName: "bash",
@@ -1091,7 +2113,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -1101,7 +2123,7 @@ describe("StreamingMessageAggregator", () => {
       // Try to add nested call with non-existent parent
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "nested-orphan",
         toolName: "file_read",
@@ -1123,7 +2145,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -1132,7 +2154,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "parent-tool-1",
         toolName: "code_execution",
@@ -1144,7 +2166,7 @@ describe("StreamingMessageAggregator", () => {
       // Try to end a nested call that was never started - should not throw
       aggregator.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         toolCallId: "unknown-nested",
         toolName: "file_read",
@@ -1171,7 +2193,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamAbort({
         type: "stream-abort",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         abortReason: "startup",
       });
@@ -1180,7 +2202,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamStart({
         type: "stream-start",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         historySequence: 1,
         model: "claude-3-5-sonnet-20241022",
@@ -1195,7 +2217,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamAbort({
         type: "stream-abort",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         abortReason: "user",
       });
@@ -1213,7 +2235,7 @@ describe("StreamingMessageAggregator", () => {
 
       aggregator.handleStreamAbort({
         type: "stream-abort",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         messageId: "msg-1",
         abortReason: "user",
       });

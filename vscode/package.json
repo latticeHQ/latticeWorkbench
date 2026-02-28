@@ -33,26 +33,22 @@
     "commands": [
       {
         "command": "lattice.openWorkspace",
-        "title": "Lattice: Open Workspace"
+        "title": "lattice: Open Workspace"
       },
       {
         "command": "lattice.configureConnection",
-        "title": "Lattice: Configure Connection"
+        "title": "lattice: Configure Connection"
       },
       {
         "command": "lattice.debugConnection",
-        "title": "Lattice: Debug Connection"
-      },
-      {
-        "command": "lattice.toggleLmProxy",
-        "title": "Lattice: Toggle Copilot LM Proxy"
+        "title": "lattice: Debug Connection"
       }
     ],
     "viewsContainers": {
       "secondarySidebar": [
         {
           "id": "latticeSecondary",
-          "title": "Lattice",
+          "title": "lattice",
           "icon": "icon.png"
         }
       ]
@@ -67,7 +63,7 @@
       ]
     },
     "configuration": {
-      "title": "Lattice",
+      "title": "lattice",
       "properties": {
         "lattice.connectionMode": {
           "type": "string",
@@ -78,19 +74,13 @@
           ],
           "default": "auto",
           "scope": "machine",
-          "description": "How the Lattice VS Code extension connects to Lattice (prefer server, require server, or use local files)."
+          "description": "How the lattice VS Code extension connects to lattice (prefer server, require server, or use local files)."
         },
         "lattice.serverUrl": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "description": "Override the Lattice server URL (leave empty to auto-discover). Example: http://127.0.0.1:3000"
-        },
-        "lattice.lmProxyPort": {
-          "type": "number",
-          "default": 3941,
-          "scope": "machine",
-          "description": "Port for the Copilot LM Proxy (OpenAI-compatible endpoint bridging VS Code Language Model API). Configure backend with baseURL: http://127.0.0.1:<port>/v1"
+          "description": "Override the lattice server URL (leave empty to auto-discover). Example: http://127.0.0.1:3000"
         }
       }
     }
@@ -107,6 +97,11 @@
     "@vscode/vsce": "^2.22.0",
     "esbuild": "^0.27.0",
     "typescript": "^5.3.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/latticeHQ/latticeWorkbench.git",
+    "directory": "vscode"
   },
   "license": "MIT",
   "packageManager": "bun@1.1.42"

@@ -9,7 +9,7 @@
 import { platform, env } from "node:process";
 
 export interface PathComponents {
-  root: string; // "/" on Lattice, "C:\\" on Windows, "" for relative paths
+  root: string; // "/" on Unix, "C:\\" on Windows, "" for relative paths
   segments: string[]; // Directory segments (excluding basename)
   basename: string; // Final path component
 }
@@ -34,7 +34,7 @@ function getHomeDir(): string {
 }
 
 /**
- * OS-aware path utilities that handle Windows and Lattice paths correctly.
+ * OS-aware path utilities that handle Windows and Unix paths correctly.
  * Main-process version includes environment-aware helpers.
  */
 export class PlatformPaths {
@@ -103,7 +103,7 @@ export class PlatformPaths {
           dir = dir.slice(root.length);
         }
       }
-      // Also treat Lattice-style absolute paths as absolute even on Windows
+      // Also treat Unix-style absolute paths as absolute even on Windows
       if (!root && original.startsWith("/")) {
         root = "/";
         if (dir.startsWith(root)) {
@@ -175,7 +175,7 @@ export class PlatformPaths {
   }
 
   /**
-   * Format home directory path for display (shows ~ on Lattice, full path on Windows)
+   * Format home directory path for display (shows ~ on Unix, full path on Windows)
    */
   static formatHome(filePath: string): string {
     if (!filePath || typeof filePath !== "string") {
@@ -197,7 +197,7 @@ export class PlatformPaths {
 
   /**
    * Expand user home in path (cross-platform)
-   * Handles ~ on Lattice and %USERPROFILE% on Windows
+   * Handles ~ on Unix and %USERPROFILE% on Windows
    */
   static expandHome(filePath: string): string {
     if (!filePath || typeof filePath !== "string") {
@@ -232,7 +232,7 @@ export class PlatformPaths {
       return getHomeDir() || filePath;
     }
 
-    // Handle Lattice-style ~/path
+    // Handle Unix-style ~/path
     if (filePath.startsWith("~/") || filePath.startsWith("~\\")) {
       const home = getHomeDir();
       if (!home) return filePath;

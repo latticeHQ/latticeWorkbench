@@ -1,5 +1,5 @@
 name: "Build VS Code Extension"
-description: "Build the Lattice VS Code extension"
+description: "Build the lattice VS Code extension"
 
 runs:
   using: "composite"

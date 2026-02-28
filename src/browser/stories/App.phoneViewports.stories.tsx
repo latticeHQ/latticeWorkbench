@@ -23,7 +23,7 @@ const IPHONE_16E = {
 
 // NOTE: Lattice's mobile UI tweaks are gated on `@media (max-width: 768px) and (pointer: coarse)`.
 // Chromatic can emulate touch via `hasTouch: true` in modes, which ensures the
-// right sidebar is hidden and the mobile header/sidebar affordances are visible.
+// workbench panel is hidden and the mobile header/sidebar affordances are visible.
 
 const IPHONE_17_PRO_MAX = {
   // Source: https://ios-resolution.info/ (logical resolution)
@@ -61,7 +61,7 @@ const MESSAGES = [
   ),
   createAssistantMessage(
     "msg-2",
-    "Done. Pay extra attention to long paths like `src/browser/components/WorkspaceSidebar/WorkspaceSidebar.tsx` and whether they wrap without horizontal scrolling.",
+    "Done. Pay extra attention to long paths like `src/browser/components/MinionSidebar/MinionSidebar.tsx` and whether they wrap without horizontal scrolling.",
     { historySequence: 2, timestamp: STABLE_TIMESTAMP - 110_000 }
   ),
   createUserMessage(
@@ -88,8 +88,8 @@ export const IPhone16e: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-iphone-16e",
-          workspaceName: "mobile",
+          minionId: "ws-iphone-16e",
+          minionName: "mobile",
           projectName: "lattice",
           messages: [...MESSAGES],
         })
@@ -118,8 +118,8 @@ export const IPhone17ProMax: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-iphone-17-pro-max",
-          workspaceName: "mobile",
+          minionId: "ws-iphone-17-pro-max",
+          minionName: "mobile",
           projectName: "lattice",
           messages: [...MESSAGES],
         })

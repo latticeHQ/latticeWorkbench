@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import React, { createContext, useContext, useEffect, useMemo, useCallback } from "react";
-import type { ThinkingLevel } from "@/common/types/thinking";
+import { THINKING_LEVEL_OFF, type ThinkingLevel } from "@/common/types/thinking";
 import {
   readPersistedState,
   updatePersistedState,
@@ -12,13 +12,18 @@ import {
   getProjectScopeId,
   getThinkingLevelByModelKey,
   getThinkingLevelKey,
-  getWorkspaceAISettingsByAgentKey,
+  getMinionAISettingsByAgentKey,
   GLOBAL_SCOPE_ID,
 } from "@/common/constants/storage";
 import { getDefaultModel } from "@/browser/hooks/useModelsFromSettings";
 import { enforceThinkingPolicy, getThinkingPolicyForModel } from "@/common/utils/thinking/policy";
 import { useAPI } from "@/browser/contexts/API";
+import {
+  clearPendingMinionAiSettings,
+  markPendingMinionAiSettings,
+} from "@/browser/utils/minionAiSettingsSync";
 import { KEYBINDS, matchesKeybind } from "@/browser/utils/ui/keybinds";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
 
 interface ThinkingContextType {
   thinkingLevel: ThinkingLevel;
@@ -28,13 +33,13 @@ interface ThinkingContextType {
 const ThinkingContext = createContext<ThinkingContextType | undefined>(undefined);
 
 interface ThinkingProviderProps {
-  workspaceId?: string; // Workspace-scoped storage (highest priority)
-  projectPath?: string; // Headquarter-scoped storage (fallback if no workspaceId)
+  minionId?: string; // Minion-scoped storage (highest priority)
+  projectPath?: string; // Project-scoped storage (fallback if no minionId)
   children: ReactNode;
 }
 
-function getScopeId(workspaceId: string | undefined, projectPath: string | undefined): string {
-  return workspaceId ?? (projectPath ? getProjectScopeId(projectPath) : GLOBAL_SCOPE_ID);
+function getScopeId(minionId: string | undefined, projectPath: string | undefined): string {
+  return minionId ?? (projectPath ? getProjectScopeId(projectPath) : GLOBAL_SCOPE_ID);
 }
 
 function getCanonicalModelForScope(scopeId: string, fallbackModel: string): string {
@@ -45,17 +50,17 @@ function getCanonicalModelForScope(scopeId: string, fallbackModel: string): stri
 export const ThinkingProvider: React.FC<ThinkingProviderProps> = (props) => {
   const { api } = useAPI();
   const defaultModel = getDefaultModel();
-  const scopeId = getScopeId(props.workspaceId, props.projectPath);
+  const scopeId = getScopeId(props.minionId, props.projectPath);
   const thinkingKey = getThinkingLevelKey(scopeId);
 
-  // Workspace-scoped thinking. (No longer per-model.)
+  // Minion-scoped thinking. (No longer per-model.)
   const [thinkingLevel, setThinkingLevelInternal] = usePersistedState<ThinkingLevel>(
     thinkingKey,
-    "off",
+    THINKING_LEVEL_OFF,
     { listener: true }
   );
 
-  // One-time migration: if the new workspace-scoped key is missing, seed from the legacy per-model key.
+  // One-time migration: if the new minion-scoped key is missing, seed from the legacy per-model key.
   useEffect(() => {
     const existing = readPersistedState<ThinkingLevel | undefined>(thinkingKey, undefined);
     if (existing !== undefined) {
@@ -78,22 +83,26 @@ export const ThinkingProvider: React.FC<ThinkingProviderProps> = (props) => {
 
       setThinkingLevelInternal(level);
 
-      // Workspace variant: persist to backend so settings follow the workspace across devices.
-      if (!props.workspaceId) {
+      // Minion variant: persist to backend so settings follow the minion across devices.
+      if (!props.minionId) {
         return;
       }
 
-      type WorkspaceAISettingsByAgentCache = Partial<
+      const minionId = props.minionId;
+
+      type MinionAISettingsByAgentCache = Partial<
         Record<string, { model: string; thinkingLevel: ThinkingLevel }>
       >;
 
       const normalizedAgentId =
-        readPersistedState<string>(getAgentIdKey(scopeId), "exec").trim().toLowerCase() || "exec";
+        readPersistedState<string>(getAgentIdKey(scopeId), MINION_DEFAULTS.agentId)
+          .trim()
+          .toLowerCase() || MINION_DEFAULTS.agentId;
 
-      updatePersistedState<WorkspaceAISettingsByAgentCache>(
-        getWorkspaceAISettingsByAgentKey(props.workspaceId),
+      updatePersistedState<MinionAISettingsByAgentCache>(
+        getMinionAISettingsByAgentKey(minionId),
         (prev) => {
-          const record: WorkspaceAISettingsByAgentCache =
+          const record: MinionAISettingsByAgentCache =
             prev && typeof prev === "object" ? prev : {};
           return {
             ...record,
@@ -107,22 +116,35 @@ export const ThinkingProvider: React.FC<ThinkingProviderProps> = (props) => {
         return;
       }
 
-      api.workspace
+      // Avoid stale backend metadata clobbering newer local preferences when users
+      // click through levels quickly (tests reproduce this by cycling to xhigh).
+      markPendingMinionAiSettings(minionId, normalizedAgentId, {
+        model,
+        thinkingLevel: level,
+      });
+
+      api.minion
         .updateAgentAISettings({
-          workspaceId: props.workspaceId,
+          minionId,
           agentId: normalizedAgentId,
           aiSettings: { model, thinkingLevel: level },
         })
+        .then((result) => {
+          if (!result.success) {
+            clearPendingMinionAiSettings(minionId, normalizedAgentId);
+          }
+        })
         .catch(() => {
+          clearPendingMinionAiSettings(minionId, normalizedAgentId);
           // Best-effort only. If offline or backend is old, the next sendMessage will persist.
         });
     },
-    [api, defaultModel, props.workspaceId, scopeId, setThinkingLevelInternal]
+    [api, defaultModel, props.minionId, scopeId, setThinkingLevelInternal]
   );
 
   // Global keybind: cycle thinking level (Ctrl/Cmd+Shift+T).
-  // Implemented at the ThinkingProvider level so it works in both the workspace view
-  // and the "New Workspace" creation screen (which doesn't mount AIView).
+  // Implemented at the ThinkingProvider level so it works in both the minion view
+  // and the "New Minion" creation screen (which doesn't mount AIView).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!matchesKeybind(e, KEYBINDS.TOGGLE_THINKING)) {

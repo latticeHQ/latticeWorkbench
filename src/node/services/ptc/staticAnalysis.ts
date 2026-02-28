@@ -15,7 +15,7 @@ import {
   type QuickJSAsyncContext,
 } from "quickjs-emscripten-core";
 import { QuickJSAsyncFFI } from "@jitl/quickjs-wasmfile-release-asyncify/ffi";
-import { validateTypes } from "./typeValidator";
+import { validateTypes, WRAPPER_PREFIX } from "./typeValidator";
 
 /**
  * Identifiers that don't exist in QuickJS and will cause ReferenceError.
@@ -36,6 +36,8 @@ export const UNAVAILABLE_IDENTIFIERS = new Set([
   "fetch",
   "XMLHttpRequest",
 ]);
+
+const WRAPPER_LINE_OFFSET = WRAPPER_PREFIX.split("\n").length - 1;
 
 // ============================================================================
 // Types
@@ -59,28 +61,11 @@ export interface AnalysisResult {
 // Pattern Definitions
 // ============================================================================
 
-/**
- * Patterns that will fail at runtime in QuickJS.
- * We detect these early to give better error messages.
- */
-const UNAVAILABLE_PATTERNS: Array<{
-  pattern: RegExp;
-  type: AnalysisError["type"];
-  message: (match: RegExpMatchArray) => string;
-}> = [
-  {
-    // Dynamic import() - not supported in QuickJS, causes crash
-    pattern: /(?<![.\w])import\s*\(/g,
-    type: "forbidden_construct",
-    message: () => "Dynamic import() is not available in the sandbox",
-  },
-  {
-    // require() - CommonJS import, not in QuickJS
-    pattern: /(?<![.\w])require\s*\(/g,
-    type: "forbidden_construct",
-    message: () => "require() is not available in the sandbox - use lattice.* tools instead",
-  },
-];
+// NOTE: We intentionally avoid regex scanning for substrings like "require(" or "import("
+// because those can appear inside string literals and cause false positives.
+//
+// Instead, we use the TypeScript AST in detectUnavailableGlobals() to detect actual
+// call expressions (require(), import()) and real global references.
 
 // ============================================================================
 // QuickJS Context Management
@@ -119,6 +104,45 @@ async function getValidationContext(): Promise<QuickJSAsyncContext> {
 // ============================================================================
 
 /**
+ * Find lines containing AwaitExpression nodes in the TypeScript AST.
+ *
+ * We intentionally do NOT filter by async context. QuickJS wraps agent code
+ * in a non-async function, so every `await` is illegal from its perspective.
+ * Legal awaits inside user-written `async function` blocks parse fine in
+ * QuickJS and never produce "expecting ';'" — so they never reach the
+ * rewrite path. The only job here is distinguishing real `await` tokens
+ * from `await` text inside strings, comments, or templates.
+ *
+ * Returns empty set when TS has parse diagnostics (ambiguous — don't guess).
+ */
+function findAwaitLines(code: string): Set<number> {
+  const sourceFile = ts.createSourceFile(
+    "analysis.ts",
+    code,
+    ts.ScriptTarget.ES2020,
+    true,
+    ts.ScriptKind.JS
+  );
+
+  // parseDiagnostics exists at runtime but is not declared on this ts.SourceFile type.
+  const parseDiagnostics = (sourceFile as ts.SourceFile & { parseDiagnostics?: ts.Diagnostic[] })
+    .parseDiagnostics;
+  if (parseDiagnostics && parseDiagnostics.length > 0) {
+    return new Set();
+  }
+
+  const lines = new Set<number>();
+  const visit = (node: ts.Node): void => {
+    if (ts.isAwaitExpression(node)) {
+      lines.add(sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return lines;
+}
+
+/**
  * Validate JavaScript syntax using QuickJS parser.
  * Returns syntax error if code is invalid.
  */
@@ -141,14 +165,22 @@ async function validateSyntax(code: string): Promise<AnalysisError | null> {
     let message =
       typeof errorObj.message === "string" ? errorObj.message : JSON.stringify(errorObj);
 
+    const rawLine = typeof errorObj.lineNumber === "number" ? errorObj.lineNumber : undefined;
+
     // Enhance obtuse "expecting ';'" error when await expression is detected.
     // In non-async context, `await foo()` parses as identifier `await` + stray `foo()`,
-    // giving unhelpful "expecting ';'". Detect this pattern and give a clearer message.
-    if (message === "expecting ';'" && /\bawait\s+\w/.test(code)) {
-      message =
-        "`await` is not supported -lattice.* functions return results directly (no await needed)";
+    // giving unhelpful "expecting ';'". Use AST-based detection (not raw regex) to avoid
+    // false positives when `await` appears inside string literals or template content.
+    if (message === "expecting ';'") {
+      const awaitLines = findAwaitLines(code);
+      const likelyAwaitFailure =
+        awaitLines.size > 0 && (rawLine === undefined || awaitLines.has(rawLine));
+
+      if (likelyAwaitFailure) {
+        message =
+          "`await` is not supported - lattice.* functions return results directly (no await needed)";
+      }
     }
-    const rawLine = typeof errorObj.lineNumber === "number" ? errorObj.lineNumber : undefined;
 
     // Only report line if it's within agent code bounds.
     // The wrapper is `(function() { ${code} })` - all on one line with code inlined.
@@ -172,70 +204,89 @@ async function validateSyntax(code: string): Promise<AnalysisError | null> {
 }
 
 /**
- * Find line number for a match position in the source code.
- */
-function getLineNumber(code: string, index: number): number {
-  const upToMatch = code.slice(0, index);
-  return (upToMatch.match(/\n/g) ?? []).length + 1;
-}
-
-/**
- * Detect patterns that will fail at runtime in QuickJS.
- */
-function detectUnavailablePatterns(code: string): AnalysisError[] {
-  const errors: AnalysisError[] = [];
-
-  for (const { pattern, type, message } of UNAVAILABLE_PATTERNS) {
-    // Reset regex state for each scan
-    pattern.lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = pattern.exec(code)) !== null) {
-      errors.push({
-        type,
-        message: message(match),
-        line: getLineNumber(code, match.index),
-      });
-    }
-  }
-
-  return errors;
-}
-
-/**
  * Detect references to unavailable globals (process, window, fetch, etc.)
  * using TypeScript AST to avoid false positives on object keys and string literals.
  */
-function detectUnavailableGlobals(code: string): AnalysisError[] {
+function detectUnavailableGlobals(code: string, sourceFile?: ts.SourceFile): AnalysisError[] {
   const errors: AnalysisError[] = [];
   const seen = new Set<string>();
 
-  const sourceFile = ts.createSourceFile("code.ts", code, ts.ScriptTarget.ES2020, true);
+  const parsedSourceFile =
+    sourceFile ?? ts.createSourceFile("code.ts", code, ts.ScriptTarget.ES2020, true);
+  const codeStartOffset = sourceFile ? WRAPPER_PREFIX.length : 0;
+  const codeEnd = codeStartOffset + code.length;
+  const lineOffset = sourceFile ? WRAPPER_LINE_OFFSET : 0;
 
   function visit(node: ts.Node): void {
+    // If the node isn't within the user-authored code region (e.g., inside the wrapper prefix),
+    // keep traversing but don't report errors for it.
+    const nodeStart = node.getStart(parsedSourceFile);
+    const nodeEnd = node.end;
+    if (nodeStart < codeStartOffset || nodeEnd > codeEnd) {
+      ts.forEachChild(node, visit);
+      return;
+    }
+
+    // Detect forbidden constructs via AST (avoids false positives inside string literals).
+    //
+    // - dynamic import(): ts.CallExpression whose expression is the ImportKeyword
+    // - require(): ts.CallExpression whose expression is identifier "require"
+    if (ts.isCallExpression(node)) {
+      if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        if (!seen.has("import()")) {
+          seen.add("import()");
+          const { line } = parsedSourceFile.getLineAndCharacterOfPosition(
+            node.expression.getStart(parsedSourceFile)
+          );
+          errors.push({
+            type: "forbidden_construct",
+            message: "Dynamic import() is not available in the sandbox",
+            line: line - lineOffset + 1,
+          });
+        }
+        ts.forEachChild(node, visit);
+        return;
+      }
+
+      if (ts.isIdentifier(node.expression) && node.expression.text === "require") {
+        if (!seen.has("require()")) {
+          seen.add("require()");
+          const { line } = parsedSourceFile.getLineAndCharacterOfPosition(
+            node.expression.getStart(parsedSourceFile)
+          );
+          errors.push({
+            type: "forbidden_construct",
+            message: "require() is not available in the sandbox - use lattice.* tools instead",
+            line: line - lineOffset + 1,
+          });
+        }
+        ts.forEachChild(node, visit);
+        return;
+      }
+    }
+
     // Only check identifier nodes
     if (!ts.isIdentifier(node)) {
       ts.forEachChild(node, visit);
       return;
     }
 
+    const start = nodeStart;
     const name = node.text;
 
-    // Skip 'require' - already handled as forbidden_construct pattern
+    // Skip 'require' identifier references - we only want to error on require() calls.
+    // (Keyword substrings inside strings should never trigger any error.)
     if (name === "require") {
-      ts.forEachChild(node, visit);
       return;
     }
 
     // Skip if not an unavailable identifier
     if (!UNAVAILABLE_IDENTIFIERS.has(name)) {
-      ts.forEachChild(node, visit);
       return;
     }
 
     // Skip if already reported
     if (seen.has(name)) {
-      ts.forEachChild(node, visit);
       return;
     }
 
@@ -243,13 +294,11 @@ function detectUnavailableGlobals(code: string): AnalysisError[] {
 
     // Skip property access on RHS (e.g., obj.process)
     if (parent && ts.isPropertyAccessExpression(parent) && parent.name === node) {
-      ts.forEachChild(node, visit);
       return;
     }
 
     // Skip object literal property keys (e.g., { process: ... })
     if (parent && ts.isPropertyAssignment(parent) && parent.name === node) {
-      ts.forEachChild(node, visit);
       return;
     }
 
@@ -258,35 +307,30 @@ function detectUnavailableGlobals(code: string): AnalysisError[] {
 
     // Skip variable declarations (e.g., const process = ...)
     if (parent && ts.isVariableDeclaration(parent) && parent.name === node) {
-      ts.forEachChild(node, visit);
       return;
     }
 
     // Skip function declarations (e.g., function process() {})
     if (parent && ts.isFunctionDeclaration(parent) && parent.name === node) {
-      ts.forEachChild(node, visit);
       return;
     }
 
     // Skip parameter declarations
     if (parent && ts.isParameter(parent) && parent.name === node) {
-      ts.forEachChild(node, visit);
       return;
     }
 
     // This is a real reference to an unavailable global
     seen.add(name);
-    const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart());
+    const { line } = parsedSourceFile.getLineAndCharacterOfPosition(start);
     errors.push({
       type: "unavailable_global",
       message: `'${name}' is not available in the sandbox`,
-      line: line + 1, // 1-indexed
+      line: line - lineOffset + 1, // 1-indexed
     });
-
-    ts.forEachChild(node, visit);
   }
 
-  visit(sourceFile);
+  visit(parsedSourceFile);
   return errors;
 }
 
@@ -299,9 +343,8 @@ function detectUnavailableGlobals(code: string): AnalysisError[] {
  *
  * Performs:
  * 1. Syntax validation via QuickJS parser
- * 2. Unavailable pattern detection (import, require)
- * 3. Unavailable global detection (process, window, etc.)
- * 4. TypeScript type validation (if latticeTypes provided)
+ * 2. Forbidden construct + unavailable global detection via TypeScript AST (require(), import(), process, window, etc.)
+ * 3. TypeScript type validation (if latticeTypes provided)
  *
  * @param code - JavaScript code to analyze
  * @param latticeTypes - Optional .d.ts content for type validation
@@ -318,15 +361,16 @@ export async function analyzeCode(code: string, latticeTypes?: string): Promise<
     return { valid: false, errors };
   }
 
-  // 2. Unavailable pattern detection (import, require)
-  errors.push(...detectUnavailablePatterns(code));
-
-  // 3. Unavailable global detection (process, window, etc.)
-  errors.push(...detectUnavailableGlobals(code));
-
-  // 4. TypeScript type validation (if latticeTypes provided)
+  let typeResult: ReturnType<typeof validateTypes> | undefined;
   if (latticeTypes) {
-    const typeResult = validateTypes(code, latticeTypes);
+    typeResult = validateTypes(code, latticeTypes);
+  }
+
+  // 2. Forbidden construct + unavailable global detection (process, window, require(), import(), etc.)
+  errors.push(...detectUnavailableGlobals(code, typeResult?.sourceFile));
+
+  // 3. TypeScript type validation (if latticeTypes provided)
+  if (typeResult) {
     for (const typeError of typeResult.errors) {
       errors.push({
         type: "type_error",
@@ -344,7 +388,7 @@ export async function analyzeCode(code: string, latticeTypes?: string): Promise<
  * Clean up the cached validation context.
  * Call this when shutting down to free resources.
  *
- * TODO: Wire into app/workspace shutdown to free QuickJS context (Phase 6)
+ * TODO: Wire into app/minion shutdown to free QuickJS context (Phase 6)
  */
 export function disposeAnalysisContext(): void {
   if (cachedContext) {

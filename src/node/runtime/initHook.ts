@@ -41,12 +41,12 @@ export function getInitHookPath(projectPath: string): string {
  * Used by both init hook and regular bash tool calls.
  * @param projectPath - Path to project root (local path for LocalRuntime, remote path for SSHRuntime)
  * @param runtime - Runtime type: "local", "worktree", "ssh", or "docker"
- * @param workspaceName - Name of the workspace (branch name or custom name)
+ * @param minionName - Name of the minion (branch name or custom name)
  */
 export function getLatticeEnv(
   projectPath: string,
   runtime: RuntimeMode,
-  workspaceName: string,
+  minionName: string,
   options?: {
     modelString?: string;
     thinkingLevel?: ThinkingLevel;
@@ -57,14 +57,14 @@ export function getLatticeEnv(
   if (!projectPath) {
     throw new Error("getLatticeEnv: projectPath is required");
   }
-  if (!workspaceName) {
-    throw new Error("getLatticeEnv: workspaceName is required");
+  if (!minionName) {
+    throw new Error("getLatticeEnv: minionName is required");
   }
 
   const env: Record<string, string> = {
     LATTICE_PROJECT_PATH: projectPath,
     LATTICE_RUNTIME: runtime,
-    LATTICE_WORKSPACE_NAME: workspaceName,
+    LATTICE_MINION_NAME: minionName,
   };
 
   if (options?.modelString) {
@@ -163,8 +163,8 @@ export interface InitHookRuntime {
  * Shared implementation used by SSH and Docker runtimes.
  *
  * @param runtime - Runtime instance with exec capability
- * @param hookPath - Full path to the init hook (e.g., "/src/.lattice/init" or "~/lattice/project/workspace/.lattice/init")
- * @param workspacePath - Working directory for the hook
+ * @param hookPath - Full path to the init hook (e.g., "/src/.lattice/init" or "~/lattice/project/minion/.lattice/init")
+ * @param minionPath - Working directory for the hook
  * @param latticeEnv - LATTICE_ environment variables from getLatticeEnv()
  * @param initLogger - Logger for streaming output
  * @param abortSignal - Optional abort signal
@@ -172,7 +172,7 @@ export interface InitHookRuntime {
 export async function runInitHookOnRuntime(
   runtime: InitHookRuntime,
   hookPath: string,
-  workspacePath: string,
+  minionPath: string,
   latticeEnv: Record<string, string>,
   initLogger: InitLogger,
   abortSignal?: AbortSignal
@@ -180,9 +180,13 @@ export async function runInitHookOnRuntime(
   initLogger.logStep(`Running init hook: ${hookPath}`);
 
   const hookStream = await runtime.exec(hookPath, {
-    cwd: workspacePath,
+    cwd: minionPath,
     timeout: 3600, // 1 hour - generous timeout for init hooks
     abortSignal,
+    // When init is cancellable (archive/remove), we want abort to actually stop the remote hook.
+    // With OpenSSH, allocating a PTY ensures the remote process is tied to the session and
+    // receives a hangup when the client disconnects.
+    forcePTY: abortSignal !== undefined,
     env: latticeEnv,
   });
 
@@ -223,7 +227,7 @@ export async function runInitHookOnRuntime(
   // Wait for all streams and exit code
   const [exitCode] = await Promise.all([hookStream.exitCode, readStdout(), readStderr()]);
 
-  // Log completion with exit code - hook failures are non-fatal per docs/hooks/init.mdx
-  // ("failures are logged but don't prevent workspace usage")
+  // Log completion with exit code - hook failures are non-fatal per https://latticeruntime.com/hooks/init
+  // ("failures are logged but don't prevent minion usage")
   initLogger.logComplete(exitCode);
 }

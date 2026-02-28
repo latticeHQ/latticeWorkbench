@@ -273,7 +273,8 @@ if [[ "$mode" == "server" ]]; then
   log "Path aliases resolved, starting backend."
 
   # 4. Backend server with nodemon (restarts on recompile)
-  start_process "Backend" bash -c "${BUN_OR_NPX} nodemon --watch dist/cli/index.js --watch dist/cli/server.js --watch dist/node --delay 3000ms --exec 'NODE_ENV=development node dist/cli/index.js server --host 127.0.0.1 --port ${backend_port}'"
+  # --no-auth: skip token auth for local dev, matching Makefile's dev-server target
+  start_process "Backend" bash -c "${BUN_OR_NPX} nodemon --watch dist/cli/index.js --watch dist/cli/server.js --watch dist/node --delay 3000ms --exec 'NODE_ENV=development node dist/cli/index.js server --no-auth --host 127.0.0.1 --port ${backend_port}'"
 
   # 5. Wait for backend to be ready before starting Vite (avoids EPIPE errors)
   log "Waiting for backend on port ${backend_port}..."

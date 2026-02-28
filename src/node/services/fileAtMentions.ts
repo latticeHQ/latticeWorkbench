@@ -24,26 +24,26 @@ function isAbsolutePathAny(filePath: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(filePath);
 }
 
-function resolveWorkspaceFilePath(
+function resolveMinionFilePath(
   runtime: Runtime,
-  workspacePath: string,
+  minionPath: string,
   filePath: string
 ): string {
   assert(filePath, "filePath is required");
 
   // Disallow absolute and home-relative paths.
   if (isAbsolutePathAny(filePath) || filePath.startsWith("~")) {
-    throw new Error(`Invalid file path in @mention (must be workspace-relative): ${filePath}`);
+    throw new Error(`Invalid file path in @mention (must be minion-relative): ${filePath}`);
   }
 
   // SSH uses POSIX paths; local runtime can use the platform resolver.
   const pathModule = runtime instanceof SSHRuntime ? path.posix : path;
   const cleaned = runtime instanceof SSHRuntime ? filePath.replace(/\\/g, "/") : filePath;
 
-  const resolved = pathModule.resolve(workspacePath, cleaned);
-  const relative = pathModule.relative(workspacePath, resolved);
+  const resolved = pathModule.resolve(minionPath, cleaned);
+  const relative = pathModule.relative(minionPath, resolved);
 
-  // Note: relative === "" means "same directory" (the workspace root itself).
+  // Note: relative === "" means "same directory" (the minion root itself).
   if (relative === "" || relative === ".") {
     throw new Error(`Invalid file path in @mention (expected a file, got directory): ${filePath}`);
   }
@@ -183,7 +183,7 @@ export async function materializeFileAtMentions(
   messageText: string,
   options: {
     runtime: Runtime;
-    workspacePath: string;
+    minionPath: string;
     abortSignal?: AbortSignal;
   }
 ): Promise<MaterializedFileMention[]> {
@@ -218,7 +218,7 @@ export async function materializeFileAtMentions(
     // Resolve the path
     let resolvedPath: string;
     try {
-      resolvedPath = resolveWorkspaceFilePath(options.runtime, options.workspacePath, mention.path);
+      resolvedPath = resolveMinionFilePath(options.runtime, options.minionPath, mention.path);
     } catch {
       seenTokens.add(mention.token);
       continue;
@@ -346,13 +346,13 @@ export async function injectFileAtMentions(
   messages: LatticeMessage[],
   options: {
     runtime: Runtime;
-    workspacePath: string;
+    minionPath: string;
     abortSignal?: AbortSignal;
   }
 ): Promise<LatticeMessage[]> {
   assert(Array.isArray(messages), "messages must be an array");
   assert(options.runtime, "runtime is required");
-  assert(options.workspacePath, "workspacePath is required");
+  assert(options.minionPath, "minionPath is required");
 
   // Expand @file mentions across *all* user-authored messages (not just the last).
   //
@@ -458,9 +458,9 @@ export async function injectFileAtMentions(
 
       let resolvedPath: string;
       try {
-        resolvedPath = resolveWorkspaceFilePath(
+        resolvedPath = resolveMinionFilePath(
           options.runtime,
-          options.workspacePath,
+          options.minionPath,
           mention.path
         );
       } catch {
@@ -590,15 +590,10 @@ export async function injectFileAtMentions(
     const blocks = blocksByTargetIndex.get(i);
     if (blocks && blocks.length > 0) {
       result.push(
-        createLatticeMessage(
-          createFileAtMentionMessageId(createdAt, i),
-          "user",
-          blocks.join("\n\n"),
-          {
-            timestamp: createdAt,
-            synthetic: true,
-          }
-        )
+        createLatticeMessage(createFileAtMentionMessageId(createdAt, i), "user", blocks.join("\n\n"), {
+          timestamp: createdAt,
+          synthetic: true,
+        })
       );
     }
 

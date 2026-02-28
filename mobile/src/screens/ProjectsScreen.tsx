@@ -39,7 +39,7 @@ const EMPTY_ACTIVITY_MAP: Record<string, WorkspaceActivitySnapshot> = {};
 
 function deriveProjectName(projectPath: string): string {
   if (!projectPath) {
-    return "Unknown Headquarter";
+    return "Unknown Project";
   }
   const normalized = projectPath.replace(/\\/g, "/");
   const segments = normalized.split("/").filter(Boolean);
@@ -362,7 +362,7 @@ export function ProjectsScreen(): JSX.Element {
           // Show platform-native action sheet
           Alert.alert(
             metadata.name,
-            `Headquarter: ${metadata.projectName}`,
+            `Project: ${metadata.projectName}`,
             [
               {
                 text: "Rename",
@@ -476,7 +476,7 @@ export function ProjectsScreen(): JSX.Element {
             <View style={{ paddingVertical: spacing.xxl, alignItems: "center" }}>
               <ActivityIndicator size="large" color={theme.colors.accent} />
               <ThemedText variant="caption" style={{ marginTop: spacing.sm }}>
-                Loading workspaces…
+                Loading workspaces...
               </ThemedText>
             </View>
           ) : hasError ? (

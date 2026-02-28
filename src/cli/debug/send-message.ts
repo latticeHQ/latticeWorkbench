@@ -7,28 +7,28 @@ import { defaultModel } from "@/common/utils/ai/models";
 import { getLatticeSessionsDir } from "@/common/constants/paths";
 
 /**
- * Debug command to send a message to a workspace, optionally editing an existing message
- * Usage: bun debug send-message <workspace-id> [--edit <message-id>] [--message <text>]
+ * Debug command to send a message to a minion, optionally editing an existing message
+ * Usage: bun debug send-message <minion-id> [--edit <message-id>] [--message <text>]
  */
 export function sendMessageCommand(
-  workspaceId: string,
+  minionId: string,
   editMessageId?: string,
   messageText?: string
 ) {
   console.log(`\n=== Send Message Debug Tool ===\n`);
-  console.log(`Workspace: ${workspaceId}`);
+  console.log(`Minion: ${minionId}`);
   if (editMessageId) {
     console.log(`Edit Mode: Editing message ${editMessageId}`);
   }
   console.log();
 
   // Load chat history to verify message exists if editing
-  const sessionDir = defaultConfig.getSessionDir(workspaceId);
+  const sessionDir = defaultConfig.getSessionDir(minionId);
   const chatHistoryPath = path.join(sessionDir, "chat.jsonl");
 
   if (!fs.existsSync(chatHistoryPath)) {
     console.error(`❌ No chat history found at: ${chatHistoryPath}`);
-    console.log("\nAvailable workspaces:");
+    console.log("\nAvailable minions:");
     const sessionsDir = getLatticeSessionsDir();
     if (fs.existsSync(sessionsDir)) {
       const sessions = fs.readdirSync(sessionsDir);
@@ -38,31 +38,31 @@ export function sendMessageCommand(
   }
 
   // Read and parse messages
-  // Note: We use a more flexible type here because the on-disk format includes workspaceId
+  // Note: We use a more flexible type here because the on-disk format includes minionId
   // which is not part of the LatticeMessage type (it's metadata that gets stripped)
   const data = fs.readFileSync(chatHistoryPath, "utf-8");
-  const messages: Array<LatticeMessage & { workspaceId?: string }> = data
+  const messages: Array<LatticeMessage & { minionId?: string }> = data
     .split("\n")
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as LatticeMessage & { workspaceId?: string });
+    .map((line) => JSON.parse(line) as LatticeMessage & { minionId?: string });
 
   if (messages.length === 0) {
     console.log("❌ No messages in chat history");
     return;
   }
 
-  // Check for workspace ID mismatches
-  const workspaceIds = new Set(messages.map((m) => m.workspaceId));
-  if (workspaceIds.size > 1) {
-    console.log(`ℹ️  INFO: Multiple workspace IDs found in message history`);
-    console.log(`  Current workspace: ${workspaceId}`);
-    console.log(`  Message workspace IDs: ${Array.from(workspaceIds).join(", ")}`);
-    console.log(`  This can occur after workspace renames. Messages are migrated during rename.\n`);
-  } else if (workspaceIds.size === 1 && !workspaceIds.has(workspaceId)) {
-    console.log(`ℹ️  INFO: Workspace ID mismatch detected`);
-    console.log(`  Current workspace: ${workspaceId}`);
-    console.log(`  Message workspace IDs: ${Array.from(workspaceIds)[0] ?? "unknown"}`);
-    console.log(`  This workspace may have been renamed. Workspace IDs in messages are cosmetic`);
+  // Check for minion ID mismatches
+  const minionIds = new Set(messages.map((m) => m.minionId));
+  if (minionIds.size > 1) {
+    console.log(`ℹ️  INFO: Multiple minion IDs found in message history`);
+    console.log(`  Current minion: ${minionId}`);
+    console.log(`  Message minion IDs: ${Array.from(minionIds).join(", ")}`);
+    console.log(`  This can occur after minion renames. Messages are migrated during rename.\n`);
+  } else if (minionIds.size === 1 && !minionIds.has(minionId)) {
+    console.log(`ℹ️  INFO: Minion ID mismatch detected`);
+    console.log(`  Current minion: ${minionId}`);
+    console.log(`  Message minion IDs: ${Array.from(minionIds)[0] ?? "unknown"}`);
+    console.log(`  This minion may have been renamed. Minion IDs in messages are cosmetic`);
     console.log(`  and get updated automatically during history operations.\n`);
   }
 
@@ -75,7 +75,7 @@ export function sendMessageCommand(
         ? (msg.parts.find((p) => p.type === "text")?.text?.substring(0, 60) ?? "")
         : `[${msg.parts.length} parts]`;
     const indicator = msg.id === editMessageId ? "👉" : "  ";
-    const mismatchIndicator = msg.workspaceId && msg.workspaceId !== workspaceId ? " ℹ️" : "";
+    const mismatchIndicator = msg.minionId && msg.minionId !== minionId ? " ℹ️" : "";
     const sequence = msg.metadata?.historySequence ?? "?";
     console.log(
       `${indicator} [${sequence}] ${msg.role.padEnd(9)} ${msg.id}  ${preview}${mismatchIndicator}`
@@ -115,14 +115,14 @@ export function sendMessageCommand(
   console.log(`\n⚠️  This command currently only displays information.`);
   console.log(`To actually send a message with edit, you would invoke:`);
   console.log(
-    `  window.api.workspace.sendMessage("${workspaceId}", "${textToSend}", ${JSON.stringify(options)})`
+    `  window.api.minion.sendMessage("${minionId}", "${textToSend}", ${JSON.stringify(options)})`
   );
   console.log(
     `\nThis would truncate history after message ${editMessageId ?? "unknown"} and send the new message.`
   );
 
   console.log(`\nTo test in the app:`);
-  console.log(`1. Open the workspace "${workspaceId}"`);
+  console.log(`1. Open the minion "${minionId}"`);
   console.log(`2. Click edit on message ${editMessageId ?? "unknown"}`);
   console.log(`3. Make changes and send`);
   console.log();

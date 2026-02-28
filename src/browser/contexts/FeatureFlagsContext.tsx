@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { useAPI } from "@/browser/contexts/API";
 
 function isStorybook(): boolean {
@@ -69,7 +69,10 @@ export function FeatureFlagsProvider(props: { children: ReactNode }) {
       throw new Error("ORPC client not initialized");
     }
 
-    const state = await api.features.setStatsTabOverride({ override: enabled ? "on" : "off" });
+    const state = await api.features.setStatsTabOverride({
+      // Default-on feature: "enabled" means clearing any local override.
+      override: enabled ? "default" : "off",
+    });
     setStatsTabState({ enabled: state.enabled });
   };
 

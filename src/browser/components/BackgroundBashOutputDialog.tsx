@@ -15,7 +15,7 @@ const BACKGROUND_BASH_POLL_INTERVAL_MS = 500;
 interface BackgroundBashOutputDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  workspaceId: string;
+  minionId: string;
   processId: string;
   displayName?: string;
 }
@@ -34,12 +34,12 @@ export const BackgroundBashOutputDialog: React.FC<BackgroundBashOutputDialogProp
         </DialogTitle>
       </DialogHeader>
 
-      <BackgroundBashOutputViewer workspaceId={props.workspaceId} processId={props.processId} />
+      <BackgroundBashOutputViewer minionId={props.minionId} processId={props.processId} />
     </DialogContent>
   </Dialog>
 );
 
-const BackgroundBashOutputViewer: React.FC<{ workspaceId: string; processId: string }> = (
+const BackgroundBashOutputViewer: React.FC<{ minionId: string; processId: string }> = (
   props
 ) => {
   const { api } = useAPI();
@@ -69,15 +69,15 @@ const BackgroundBashOutputViewer: React.FC<{ workspaceId: string; processId: str
       let offset: number | undefined = undefined;
 
       while (!cancelled) {
-        const result = await api.workspace.backgroundBashes.getOutput(
+        const result = await api.minion.backgroundBashes.getOutput(
           offset === undefined
             ? {
-                workspaceId: props.workspaceId,
+                minionId: props.minionId,
                 processId: props.processId,
                 tailBytes: BACKGROUND_BASH_INITIAL_TAIL_BYTES,
               }
             : {
-                workspaceId: props.workspaceId,
+                minionId: props.minionId,
                 processId: props.processId,
                 fromOffset: offset,
               }
@@ -122,7 +122,7 @@ const BackgroundBashOutputViewer: React.FC<{ workspaceId: string; processId: str
     return () => {
       cancelled = true;
     };
-  }, [api, props.processId, props.workspaceId]);
+  }, [api, props.processId, props.minionId]);
 
   const text = output?.combined ?? "";
   const isTruncatedToMaxBytes = output?.truncated ?? false;

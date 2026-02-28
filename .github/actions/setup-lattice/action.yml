@@ -1,5 +1,5 @@
 name: "Setup Lattice"
-description: "Setup Bun and install dependencies with caching for Lattice"
+description: "Setup Bun and install dependencies with caching"
 inputs:
   skip-build-caches:
     description: "Skip Electron and electron-builder caches (for test-only jobs)"

@@ -4,21 +4,20 @@ import * as path from "path";
 import { EventEmitter } from "events";
 import writeFileAtomic from "write-file-atomic";
 import type { Config } from "@/node/config";
-import { workspaceFileLocks } from "@/node/utils/concurrency/workspaceFileLocks";
-import { normalizeGatewayModel } from "@/common/utils/ai/models";
+import { minionFileLocks } from "@/node/utils/concurrency/minionFileLocks";
 import type { AgentMode } from "@/common/types/mode";
 import {
   ActiveStreamStatsSchema,
   CompletedStreamStatsSchema,
   SessionTimingFileSchema,
-} from "@/common/orpc/schemas/workspaceStats";
+} from "@/common/orpc/schemas/minionStats";
 import type {
   ActiveStreamStats,
   CompletedStreamStats,
   SessionTimingFile,
   TimingAnomaly,
-  WorkspaceStatsSnapshot,
-} from "@/common/orpc/schemas/workspaceStats";
+  MinionStatsSnapshot,
+} from "@/common/orpc/schemas/minionStats";
 import type {
   StreamStartEvent,
   StreamDeltaEvent,
@@ -37,6 +36,11 @@ import { roundToBase2 } from "@/common/telemetry/utils";
 const SESSION_TIMING_FILE = "session-timing.json";
 const SESSION_TIMING_VERSION = 2 as const;
 
+// Token/tool deltas can arrive very quickly; waking subscribers on every delta can create
+// unnecessary pressure throughout the backend. We rate-limit delta-driven change events
+// per-minion.
+const DELTA_EMIT_THROTTLE_MS = 100;
+
 export type StatsTabVariant = "control" | "stats";
 export type StatsTabOverride = "default" | "on" | "off";
 
@@ -47,7 +51,7 @@ export interface StatsTabState {
 }
 
 interface ActiveStreamState {
-  workspaceId: string;
+  minionId: string;
   messageId: string;
   model: string;
   mode?: AgentMode;
@@ -74,7 +78,8 @@ interface ActiveStreamState {
   lastEventTimestampMs: number;
 }
 
-function getModelKey(model: string, mode: AgentMode | undefined): string {
+function getModelKey(model: string, mode: AgentMode | undefined, agentId?: string): string {
+  if (agentId) return `${model}:${agentId}`;
   return mode ? `${model}:${mode}` : model;
 }
 
@@ -159,13 +164,13 @@ function validateTiming(params: {
  *
  * Backend source-of-truth for timing stats.
  * - Keeps active stream timing in memory
- * - Persists cumulative session timing to ~/.lattice/sessions/{workspaceId}/session-timing.json
+ * - Persists cumulative session timing to ~/.lattice/sessions/{minionId}/session-timing.json
  * - Emits snapshots to oRPC subscribers
  */
 export class SessionTimingService {
   private readonly config: Config;
   private readonly telemetryService: TelemetryService;
-  private readonly fileLocks = workspaceFileLocks;
+  private readonly fileLocks = minionFileLocks;
 
   private readonly activeStreams = new Map<string, ActiveStreamState>();
   private readonly timingFileCache = new Map<string, SessionTimingFile>();
@@ -173,10 +178,15 @@ export class SessionTimingService {
   private readonly emitter = new EventEmitter();
   private readonly subscriberCounts = new Map<string, number>();
 
-  // Serialize disk writes per workspace; useful for tests and crash-safe ordering.
+  // Serialize disk writes per minion; useful for tests and crash-safe ordering.
   private readonly pendingWrites = new Map<string, Promise<void>>();
   private readonly writeEpoch = new Map<string, number>();
   private readonly tickIntervals = new Map<string, ReturnType<typeof setInterval>>();
+
+  private readonly deltaEmitState = new Map<
+    string,
+    { lastEmitTimeMs: number; timer?: ReturnType<typeof setTimeout> }
+  >();
 
   private statsTabState: StatsTabState = {
     enabled: false,
@@ -197,66 +207,157 @@ export class SessionTimingService {
     return this.statsTabState.enabled;
   }
 
-  addSubscriber(workspaceId: string): void {
-    const next = (this.subscriberCounts.get(workspaceId) ?? 0) + 1;
-    this.subscriberCounts.set(workspaceId, next);
-    this.ensureTicking(workspaceId);
+  addSubscriber(minionId: string): void {
+    const next = (this.subscriberCounts.get(minionId) ?? 0) + 1;
+    this.subscriberCounts.set(minionId, next);
+    this.ensureTicking(minionId);
   }
 
-  removeSubscriber(workspaceId: string): void {
-    const current = this.subscriberCounts.get(workspaceId) ?? 0;
+  removeSubscriber(minionId: string): void {
+    const current = this.subscriberCounts.get(minionId) ?? 0;
     const next = Math.max(0, current - 1);
     if (next === 0) {
-      this.subscriberCounts.delete(workspaceId);
-      const interval = this.tickIntervals.get(workspaceId);
+      this.subscriberCounts.delete(minionId);
+
+      const interval = this.tickIntervals.get(minionId);
       if (interval) {
         clearInterval(interval);
-        this.tickIntervals.delete(workspaceId);
+        this.tickIntervals.delete(minionId);
       }
+
+      this.clearDeltaEmitState(minionId);
       return;
     }
-    this.subscriberCounts.set(workspaceId, next);
+    this.subscriberCounts.set(minionId, next);
   }
 
-  onStatsChange(listener: (workspaceId: string) => void): void {
+  onStatsChange(listener: (minionId: string) => void): void {
     this.emitter.on("change", listener);
   }
 
-  offStatsChange(listener: (workspaceId: string) => void): void {
+  offStatsChange(listener: (minionId: string) => void): void {
     this.emitter.off("change", listener);
   }
 
-  private emitChange(workspaceId: string): void {
-    // Only wake subscribers if anyone is listening for this workspace.
-    if ((this.subscriberCounts.get(workspaceId) ?? 0) === 0) {
+  private emitChange(minionId: string): void {
+    // Only wake subscribers if anyone is listening for this minion.
+    if ((this.subscriberCounts.get(minionId) ?? 0) === 0) {
       return;
     }
-    this.emitter.emit("change", workspaceId);
+    this.emitter.emit("change", minionId);
   }
 
-  private ensureTicking(workspaceId: string): void {
-    if (this.tickIntervals.has(workspaceId)) {
+  private clearDeltaEmitState(minionId: string): void {
+    const state = this.deltaEmitState.get(minionId);
+    if (!state) {
+      return;
+    }
+
+    if (state.timer) {
+      clearTimeout(state.timer);
+    }
+
+    this.deltaEmitState.delete(minionId);
+  }
+
+  private emitDeltaChangeImmediate(minionId: string): void {
+    // Avoid allocating timers/state when nothing is subscribed.
+    if ((this.subscriberCounts.get(minionId) ?? 0) === 0) {
+      return;
+    }
+
+    const state = this.deltaEmitState.get(minionId);
+    if (state?.timer) {
+      clearTimeout(state.timer);
+    }
+
+    this.deltaEmitState.set(minionId, { lastEmitTimeMs: Date.now() });
+    this.emitChange(minionId);
+  }
+
+  private emitDeltaChangeThrottled(minionId: string): void {
+    // Avoid allocating timers/state when nothing is subscribed.
+    if ((this.subscriberCounts.get(minionId) ?? 0) === 0) {
+      return;
+    }
+
+    const now = Date.now();
+
+    const state = this.deltaEmitState.get(minionId) ?? { lastEmitTimeMs: 0 };
+    const timeSinceLastEmit = now - state.lastEmitTimeMs;
+
+    // If enough time has passed, emit immediately.
+    if (timeSinceLastEmit >= DELTA_EMIT_THROTTLE_MS) {
+      if (state.timer) {
+        clearTimeout(state.timer);
+        state.timer = undefined;
+      }
+
+      state.lastEmitTimeMs = now;
+      this.deltaEmitState.set(minionId, state);
+      this.emitChange(minionId);
+      return;
+    }
+
+    // Otherwise, schedule one trailing emit at the first allowed time.
+    if (state.timer) {
+      this.deltaEmitState.set(minionId, state);
+      return;
+    }
+
+    const remainingTime = Math.max(0, DELTA_EMIT_THROTTLE_MS - timeSinceLastEmit);
+    const timer = setTimeout(() => {
+      // Timer may have been cleared/replaced by an immediate emit.
+      const currentState = this.deltaEmitState.get(minionId);
+      if (currentState?.timer !== timer) {
+        return;
+      }
+
+      currentState.timer = undefined;
+
+      // If there are no subscribers anymore, clean up.
+      if ((this.subscriberCounts.get(minionId) ?? 0) === 0) {
+        this.deltaEmitState.delete(minionId);
+        return;
+      }
+
+      currentState.lastEmitTimeMs = Date.now();
+      this.emitChange(minionId);
+    }, remainingTime);
+
+    // Avoid keeping Node (or Jest workers) alive due to a leaked throttle timer.
+    timer.unref?.();
+
+    state.timer = timer;
+    this.deltaEmitState.set(minionId, state);
+  }
+
+  private ensureTicking(minionId: string): void {
+    if (this.tickIntervals.has(minionId)) {
       return;
     }
 
     // Tick only while there is an active stream.
     const interval = setInterval(() => {
-      if (!this.activeStreams.has(workspaceId)) {
+      if (!this.activeStreams.has(minionId)) {
         return;
       }
-      this.emitChange(workspaceId);
+      this.emitChange(minionId);
     }, 1000);
 
-    this.tickIntervals.set(workspaceId, interval);
+    // Avoid keeping Node (or Jest workers) alive due to a leaked tick interval.
+    interval.unref?.();
+
+    this.tickIntervals.set(minionId, interval);
   }
 
-  private getFilePath(workspaceId: string): string {
-    return path.join(this.config.getSessionDir(workspaceId), SESSION_TIMING_FILE);
+  private getFilePath(minionId: string): string {
+    return path.join(this.config.getSessionDir(minionId), SESSION_TIMING_FILE);
   }
 
-  private async readTimingFile(workspaceId: string): Promise<SessionTimingFile> {
+  private async readTimingFile(minionId: string): Promise<SessionTimingFile> {
     try {
-      const data = await fs.readFile(this.getFilePath(workspaceId), "utf-8");
+      const data = await fs.readFile(this.getFilePath(minionId), "utf-8");
       const parsed = JSON.parse(data) as unknown;
 
       // Stats semantics may change over time. If we can't safely interpret old versions,
@@ -273,19 +374,19 @@ export class SessionTimingService {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
         return createEmptyTimingFile();
       }
-      log.warn(`session-timing.json corrupted for ${workspaceId}; resetting`, { error });
+      log.warn(`session-timing.json corrupted for ${minionId}; resetting`, { error });
       return createEmptyTimingFile();
     }
   }
 
-  private async writeTimingFile(workspaceId: string, data: SessionTimingFile): Promise<void> {
-    const filePath = this.getFilePath(workspaceId);
+  private async writeTimingFile(minionId: string, data: SessionTimingFile): Promise<void> {
+    const filePath = this.getFilePath(minionId);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await writeFileAtomic(filePath, JSON.stringify(data, null, 2));
   }
 
-  async waitForIdle(workspaceId: string): Promise<void> {
-    await (this.pendingWrites.get(workspaceId) ?? Promise.resolve());
+  async waitForIdle(minionId: string): Promise<void> {
+    await (this.pendingWrites.get(minionId) ?? Promise.resolve());
   }
 
   private applyCompletedStreamToFile(
@@ -305,11 +406,12 @@ export class SessionTimingService {
     file.session.totalOutputTokens += completed.outputTokens;
     file.session.totalReasoningTokens += completed.reasoningTokens;
 
-    const key = getModelKey(completed.model, completed.mode);
+    const key = getModelKey(completed.model, completed.mode, completed.agentId);
     const existing = file.session.byModel[key];
     const base = existing ?? {
       model: completed.model,
       mode: completed.mode,
+      agentId: completed.agentId,
       totalDurationMs: 0,
       totalToolExecutionMs: 0,
       totalStreamingMs: 0,
@@ -319,6 +421,10 @@ export class SessionTimingService {
       totalOutputTokens: 0,
       totalReasoningTokens: 0,
     };
+
+    // Upgrade legacy entries (mode-only) as we observe agent ids.
+    base.mode ??= completed.mode;
+    base.agentId ??= completed.agentId;
 
     base.totalDurationMs += completed.totalDurationMs;
     base.totalToolExecutionMs += completed.toolExecutionMs;
@@ -334,28 +440,24 @@ export class SessionTimingService {
     file.session.byModel[key] = base;
   }
 
-  private queuePersistCompletedStream(
-    workspaceId: string,
-    completed: CompletedStreamStats,
-    agentId?: string
-  ): void {
-    const epoch = this.writeEpoch.get(workspaceId) ?? 0;
+  private queuePersistCompletedStream(minionId: string, completed: CompletedStreamStats): void {
+    const epoch = this.writeEpoch.get(minionId) ?? 0;
 
-    const previous = this.pendingWrites.get(workspaceId) ?? Promise.resolve();
+    const previous = this.pendingWrites.get(minionId) ?? Promise.resolve();
 
     const next = previous
       .then(async () => {
-        await this.fileLocks.withLock(workspaceId, async () => {
+        await this.fileLocks.withLock(minionId, async () => {
           // If a clear() happened after this persist was scheduled, skip.
-          if ((this.writeEpoch.get(workspaceId) ?? 0) !== epoch) {
+          if ((this.writeEpoch.get(minionId) ?? 0) !== epoch) {
             return;
           }
 
-          const current = await this.readTimingFile(workspaceId);
+          const current = await this.readTimingFile(minionId);
           this.applyCompletedStreamToFile(current, completed);
 
-          await this.writeTimingFile(workspaceId, current);
-          this.timingFileCache.set(workspaceId, current);
+          await this.writeTimingFile(minionId, current);
+          this.timingFileCache.set(minionId, current);
         });
 
         // Telemetry (only when feature enabled)
@@ -373,7 +475,7 @@ export class SessionTimingService {
               )
             : 0;
 
-        const telemetryAgentId = agentId ?? completed.mode ?? "exec";
+        const telemetryAgentId = completed.agentId ?? completed.mode ?? "exec";
 
         this.telemetryService.capture({
           event: "stream_timing_computed",
@@ -400,32 +502,32 @@ export class SessionTimingService {
         }
       })
       .catch((error) => {
-        log.warn(`Failed to persist session-timing.json for ${workspaceId}`, error);
+        log.warn(`Failed to persist session-timing.json for ${minionId}`, error);
       });
 
-    this.pendingWrites.set(workspaceId, next);
+    this.pendingWrites.set(minionId, next);
   }
-  private async getCachedTimingFile(workspaceId: string): Promise<SessionTimingFile> {
-    const cached = this.timingFileCache.get(workspaceId);
+  private async getCachedTimingFile(minionId: string): Promise<SessionTimingFile> {
+    const cached = this.timingFileCache.get(minionId);
     if (cached) {
       return cached;
     }
 
-    const loaded = await this.fileLocks.withLock(workspaceId, async () => {
-      return this.readTimingFile(workspaceId);
+    const loaded = await this.fileLocks.withLock(minionId, async () => {
+      return this.readTimingFile(minionId);
     });
-    this.timingFileCache.set(workspaceId, loaded);
+    this.timingFileCache.set(minionId, loaded);
     return loaded;
   }
 
-  async clearTimingFile(workspaceId: string): Promise<void> {
+  async clearTimingFile(minionId: string): Promise<void> {
     // Invalidate any pending writes.
-    this.writeEpoch.set(workspaceId, (this.writeEpoch.get(workspaceId) ?? 0) + 1);
+    this.writeEpoch.set(minionId, (this.writeEpoch.get(minionId) ?? 0) + 1);
 
-    await this.fileLocks.withLock(workspaceId, async () => {
-      this.timingFileCache.delete(workspaceId);
+    await this.fileLocks.withLock(minionId, async () => {
+      this.timingFileCache.delete(minionId);
       try {
-        await fs.unlink(this.getFilePath(workspaceId));
+        await fs.unlink(this.getFilePath(minionId));
       } catch (error) {
         if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
           throw error;
@@ -433,44 +535,44 @@ export class SessionTimingService {
       }
     });
 
-    this.emitChange(workspaceId);
+    this.emitChange(minionId);
   }
 
   /**
-   * Merge child timing into the parent workspace.
+   * Merge child timing into the parent minion.
    *
-   * Used to preserve sub-agent timing when the child workspace is deleted.
+   * Used to preserve sidekick timing when the child minion is deleted.
    *
    * IMPORTANT:
    * - Does not update parent's lastRequest
    * - Uses an on-disk idempotency ledger (rolledUpFrom) to prevent double-counting
    */
   async rollUpTimingIntoParent(
-    parentWorkspaceId: string,
-    childWorkspaceId: string
+    parentMinionId: string,
+    childMinionId: string
   ): Promise<{ didRollUp: boolean }> {
-    assert(parentWorkspaceId.trim().length > 0, "rollUpTimingIntoParent: parentWorkspaceId empty");
-    assert(childWorkspaceId.trim().length > 0, "rollUpTimingIntoParent: childWorkspaceId empty");
+    assert(parentMinionId.trim().length > 0, "rollUpTimingIntoParent: parentMinionId empty");
+    assert(childMinionId.trim().length > 0, "rollUpTimingIntoParent: childMinionId empty");
     assert(
-      parentWorkspaceId !== childWorkspaceId,
-      "rollUpTimingIntoParent: parentWorkspaceId must differ from childWorkspaceId"
+      parentMinionId !== childMinionId,
+      "rollUpTimingIntoParent: parentMinionId must differ from childMinionId"
     );
 
     // Defensive: don't create new session dirs for already-deleted parents.
-    if (!this.config.findWorkspace(parentWorkspaceId)) {
+    if (!this.config.findMinion(parentMinionId)) {
       return { didRollUp: false };
     }
 
-    // Read child timing before acquiring parent lock to avoid multi-workspace lock ordering issues.
-    const childTiming = await this.readTimingFile(childWorkspaceId);
+    // Read child timing before acquiring parent lock to avoid multi-minion lock ordering issues.
+    const childTiming = await this.readTimingFile(childMinionId);
     if (childTiming.session.responseCount <= 0) {
       return { didRollUp: false };
     }
 
-    return this.fileLocks.withLock(parentWorkspaceId, async () => {
-      const parentTiming = await this.readTimingFile(parentWorkspaceId);
+    return this.fileLocks.withLock(parentMinionId, async () => {
+      const parentTiming = await this.readTimingFile(parentMinionId);
 
-      if (parentTiming.rolledUpFrom?.[childWorkspaceId]) {
+      if (parentTiming.rolledUpFrom?.[childMinionId]) {
         return { didRollUp: false };
       }
 
@@ -484,11 +586,12 @@ export class SessionTimingService {
       parentTiming.session.totalReasoningTokens += childTiming.session.totalReasoningTokens;
 
       for (const childEntry of Object.values(childTiming.session.byModel)) {
-        const key = getModelKey(childEntry.model, childEntry.mode);
+        const key = getModelKey(childEntry.model, childEntry.mode, childEntry.agentId);
         const existing = parentTiming.session.byModel[key];
         const base = existing ?? {
           model: childEntry.model,
           mode: childEntry.mode,
+          agentId: childEntry.agentId,
           totalDurationMs: 0,
           totalToolExecutionMs: 0,
           totalStreamingMs: 0,
@@ -499,17 +602,24 @@ export class SessionTimingService {
           totalReasoningTokens: 0,
         };
 
+        // Upgrade legacy entries (mode-only) as we observe agent ids.
+        base.mode ??= childEntry.mode;
+        base.agentId ??= childEntry.agentId;
+
         // Defensive: key mismatches should not crash; prefer child data as source of truth.
-        if (
-          existing &&
-          (existing.model !== childEntry.model || existing.mode !== childEntry.mode)
-        ) {
+        const existingSplit = existing?.agentId ?? existing?.mode;
+        const incomingSplit = childEntry.agentId ?? childEntry.mode;
+        if (existing && (existing.model !== childEntry.model || existingSplit !== incomingSplit)) {
           log.warn("Session timing byModel entry mismatch during roll-up", {
-            parentWorkspaceId,
-            childWorkspaceId,
+            parentMinionId,
+            childMinionId,
             key,
-            existing: { model: existing.model, mode: existing.mode },
-            incoming: { model: childEntry.model, mode: childEntry.mode },
+            existing: { model: existing.model, mode: existing.mode, agentId: existing.agentId },
+            incoming: {
+              model: childEntry.model,
+              mode: childEntry.mode,
+              agentId: childEntry.agentId,
+            },
           });
         }
 
@@ -527,20 +637,20 @@ export class SessionTimingService {
 
       parentTiming.rolledUpFrom = {
         ...(parentTiming.rolledUpFrom ?? {}),
-        [childWorkspaceId]: true,
+        [childMinionId]: true,
       };
 
-      await this.writeTimingFile(parentWorkspaceId, parentTiming);
-      this.timingFileCache.set(parentWorkspaceId, parentTiming);
+      await this.writeTimingFile(parentMinionId, parentTiming);
+      this.timingFileCache.set(parentMinionId, parentTiming);
 
-      this.emitChange(parentWorkspaceId);
+      this.emitChange(parentMinionId);
 
       return { didRollUp: true };
     });
   }
 
-  getActiveStreamStats(workspaceId: string): ActiveStreamStats | undefined {
-    const state = this.activeStreams.get(workspaceId);
+  getActiveStreamStats(minionId: string): ActiveStreamStats | undefined {
+    const state = this.activeStreams.get(minionId);
     if (!state) return undefined;
 
     const now = Date.now();
@@ -576,6 +686,7 @@ export class SessionTimingService {
       messageId: state.messageId,
       model: state.model,
       mode: state.mode,
+      agentId: state.agentId,
       elapsedMs,
       ttftMs,
       toolExecutionMs,
@@ -592,12 +703,12 @@ export class SessionTimingService {
     return ActiveStreamStatsSchema.parse(stats);
   }
 
-  async getSnapshot(workspaceId: string): Promise<WorkspaceStatsSnapshot> {
-    const file = await this.getCachedTimingFile(workspaceId);
-    const active = this.getActiveStreamStats(workspaceId);
+  async getSnapshot(minionId: string): Promise<MinionStatsSnapshot> {
+    const file = await this.getCachedTimingFile(minionId);
+    const active = this.getActiveStreamStats(minionId);
 
     return {
-      workspaceId,
+      minionId,
       generatedAt: Date.now(),
       active,
       lastRequest: file.lastRequest,
@@ -611,10 +722,10 @@ export class SessionTimingService {
     if (data.replay === true) return;
     if (!this.isEnabled()) return;
 
-    assert(typeof data.workspaceId === "string" && data.workspaceId.length > 0);
+    assert(typeof data.minionId === "string" && data.minionId.length > 0);
     assert(typeof data.messageId === "string" && data.messageId.length > 0);
 
-    const model = normalizeGatewayModel(data.model);
+    const model = data.model;
 
     // Validate mode: stats schema only accepts "plan" | "exec" for now.
     // Custom modes will need schema updates when supported.
@@ -623,7 +734,7 @@ export class SessionTimingService {
       typeof data.agentId === "string" && data.agentId.trim().length > 0 ? data.agentId : undefined;
 
     const state: ActiveStreamState = {
-      workspaceId: data.workspaceId,
+      minionId: data.minionId,
       messageId: data.messageId,
       model,
       mode,
@@ -639,38 +750,43 @@ export class SessionTimingService {
       lastEventTimestampMs: data.startTime,
     };
 
-    this.activeStreams.set(data.workspaceId, state);
-    this.emitChange(data.workspaceId);
+    this.activeStreams.set(data.minionId, state);
+    this.emitChange(data.minionId);
   }
 
   handleStreamDelta(data: StreamDeltaEvent): void {
     if (data.replay === true) return;
-    const state = this.activeStreams.get(data.workspaceId);
+    const state = this.activeStreams.get(data.minionId);
     if (!state) return;
 
     state.lastEventTimestampMs = Math.max(state.lastEventTimestampMs, data.timestamp);
 
-    if (data.delta.length > 0 && state.firstTokenTimeMs === null) {
+    const isFirstToken = data.delta.length > 0 && state.firstTokenTimeMs === null;
+    if (isFirstToken) {
       state.firstTokenTimeMs = data.timestamp;
-      this.emitChange(data.workspaceId);
     }
 
     state.outputTokensByDelta += data.tokens;
     state.deltaStorage.addDelta({ tokens: data.tokens, timestamp: data.timestamp, type: "text" });
 
-    this.emitChange(data.workspaceId);
+    if (isFirstToken) {
+      // TTFT is user-visible; emit immediately.
+      this.emitDeltaChangeImmediate(data.minionId);
+    } else {
+      this.emitDeltaChangeThrottled(data.minionId);
+    }
   }
 
   handleReasoningDelta(data: ReasoningDeltaEvent): void {
     if (data.replay === true) return;
-    const state = this.activeStreams.get(data.workspaceId);
+    const state = this.activeStreams.get(data.minionId);
     if (!state) return;
 
     state.lastEventTimestampMs = Math.max(state.lastEventTimestampMs, data.timestamp);
 
-    if (data.delta.length > 0 && state.firstTokenTimeMs === null) {
+    const isFirstToken = data.delta.length > 0 && state.firstTokenTimeMs === null;
+    if (isFirstToken) {
       state.firstTokenTimeMs = data.timestamp;
-      this.emitChange(data.workspaceId);
     }
 
     state.reasoningTokensByDelta += data.tokens;
@@ -680,12 +796,17 @@ export class SessionTimingService {
       type: "reasoning",
     });
 
-    this.emitChange(data.workspaceId);
+    if (isFirstToken) {
+      // TTFT is user-visible; emit immediately.
+      this.emitDeltaChangeImmediate(data.minionId);
+    } else {
+      this.emitDeltaChangeThrottled(data.minionId);
+    }
   }
 
   handleToolCallStart(data: ToolCallStartEvent): void {
     if (data.replay === true) return;
-    const state = this.activeStreams.get(data.workspaceId);
+    const state = this.activeStreams.get(data.minionId);
     if (!state) return;
 
     state.lastEventTimestampMs = Math.max(state.lastEventTimestampMs, data.timestamp);
@@ -717,12 +838,12 @@ export class SessionTimingService {
       type: "tool-args",
     });
 
-    this.emitChange(data.workspaceId);
+    this.emitChange(data.minionId);
   }
 
   handleToolCallDelta(data: ToolCallDeltaEvent): void {
     if (data.replay === true) return;
-    const state = this.activeStreams.get(data.workspaceId);
+    const state = this.activeStreams.get(data.minionId);
     if (!state) return;
 
     state.lastEventTimestampMs = Math.max(state.lastEventTimestampMs, data.timestamp);
@@ -732,19 +853,19 @@ export class SessionTimingService {
       type: "tool-args",
     });
 
-    this.emitChange(data.workspaceId);
+    this.emitDeltaChangeThrottled(data.minionId);
   }
 
   handleToolCallEnd(data: ToolCallEndEvent): void {
     if (data.replay === true) return;
-    const state = this.activeStreams.get(data.workspaceId);
+    const state = this.activeStreams.get(data.minionId);
     if (!state) return;
 
     state.lastEventTimestampMs = Math.max(state.lastEventTimestampMs, data.timestamp);
 
     const start = state.pendingToolStarts.get(data.toolCallId);
     if (start === undefined) {
-      this.emitChange(data.workspaceId);
+      this.emitChange(data.minionId);
       return;
     }
 
@@ -757,7 +878,7 @@ export class SessionTimingService {
       state.toolWallStartMs = null;
     }
 
-    this.emitChange(data.workspaceId);
+    this.emitChange(data.minionId);
   }
 
   private isEmptyAbortForTiming(state: ActiveStreamState, usage: unknown): boolean {
@@ -833,6 +954,7 @@ export class SessionTimingService {
       messageId: params.messageId,
       model: state.model,
       mode: state.mode,
+      agentId: state.agentId,
       totalDurationMs: params.durationMs,
       ttftMs,
       toolExecutionMs,
@@ -848,21 +970,21 @@ export class SessionTimingService {
   }
 
   handleStreamAbort(data: StreamAbortEvent): void {
-    const state = this.activeStreams.get(data.workspaceId);
+    const state = this.activeStreams.get(data.minionId);
     if (!state) {
-      this.activeStreams.delete(data.workspaceId);
-      this.emitChange(data.workspaceId);
+      this.activeStreams.delete(data.minionId);
+      this.emitChange(data.minionId);
       return;
     }
 
     // Stop tracking active stream state immediately.
-    this.activeStreams.delete(data.workspaceId);
+    this.activeStreams.delete(data.minionId);
 
     const usage = data.metadata?.usage;
 
     // Ignore aborted streams with no meaningful output or tool activity.
     if (this.isEmptyAbortForTiming(state, usage)) {
-      this.emitChange(data.workspaceId);
+      this.emitChange(data.minionId);
       return;
     }
 
@@ -880,24 +1002,24 @@ export class SessionTimingService {
     });
 
     // Optimistically update cache so subscribers see the updated session immediately.
-    const cached = this.timingFileCache.get(data.workspaceId);
+    const cached = this.timingFileCache.get(data.minionId);
     if (cached) {
       this.applyCompletedStreamToFile(cached, completedValidated);
     }
 
-    this.queuePersistCompletedStream(data.workspaceId, completedValidated, state.agentId);
+    this.queuePersistCompletedStream(data.minionId, completedValidated);
 
-    this.emitChange(data.workspaceId);
+    this.emitChange(data.minionId);
   }
 
   handleStreamEnd(data: StreamEndEvent): void {
-    const state = this.activeStreams.get(data.workspaceId);
+    const state = this.activeStreams.get(data.minionId);
     if (!state) {
       return;
     }
 
     // Stop tracking active stream state immediately.
-    this.activeStreams.delete(data.workspaceId);
+    this.activeStreams.delete(data.minionId);
 
     const durationFromMetadata = data.metadata.duration;
     const durationMs =
@@ -913,13 +1035,13 @@ export class SessionTimingService {
     });
 
     // Optimistically update cache so subscribers see the updated session immediately.
-    const cached = this.timingFileCache.get(data.workspaceId);
+    const cached = this.timingFileCache.get(data.minionId);
     if (cached) {
       this.applyCompletedStreamToFile(cached, completedValidated);
     }
 
-    this.queuePersistCompletedStream(data.workspaceId, completedValidated, state.agentId);
+    this.queuePersistCompletedStream(data.minionId, completedValidated);
 
-    this.emitChange(data.workspaceId);
+    this.emitChange(data.minionId);
   }
 }

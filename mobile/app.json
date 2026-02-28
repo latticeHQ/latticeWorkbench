@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "lattice-mobile",
+    "slug": "lattice-mobile",
+    "version": "0.0.1",
+    "scheme": "lattice",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "newArchEnabled": true,
+    "jsEngine": "hermes",
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "lattice": {},
+      "router": {},
+      "eas": {
+        "projectId": "6e2245c1-ec09-44ef-9b08-a6ba165d8496"
+      }
+    },
+    "plugins": ["expo-router", "expo-secure-store"],
+    "ios": {
+      "bundleIdentifier": "com.lattice.lattice-mobile"
+    },
+    "owner": "lattice-technologies",
+    "android": {
+      "package": "com.lattice.latticemobile"
+    }
+  }
+}

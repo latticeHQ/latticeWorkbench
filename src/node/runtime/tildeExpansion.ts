@@ -25,7 +25,7 @@ import { PlatformPaths } from "@/node/utils/paths.main";
  *
  * @example
  * expandTilde("~")           // => "/home/user"
- * expandTilde("~/workspace") // => "/home/user/workspace"
+ * expandTilde("~/minion") // => "/home/user/minion"
  * expandTilde("/abs/path")   // => "/abs/path"
  */
 export function expandTilde(filePath: string): string {
@@ -69,7 +69,7 @@ export function expandTilde(filePath: string): string {
  *
  * @example
  * expandTildeForSSH("~")           // => "$HOME"
- * expandTildeForSSH("~/workspace") // => "$HOME/workspace"
+ * expandTildeForSSH("~/minion") // => "$HOME/minion"
  * expandTildeForSSH("/abs/path")   // => '"/abs/path"'
  */
 export function expandTildeForSSH(path: string): string {
@@ -99,7 +99,7 @@ export function expandTildeForSSH(path: string): string {
  *
  * @example
  * cdCommandForSSH("~")           // => 'cd "$HOME"'
- * cdCommandForSSH("~/workspace") // => 'cd "$HOME/workspace"'
+ * cdCommandForSSH("~/minion") // => 'cd "$HOME/minion"'
  * cdCommandForSSH("/abs/path")   // => 'cd "/abs/path"'
  */
 export function cdCommandForSSH(path: string): string {

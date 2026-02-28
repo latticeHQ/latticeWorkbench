@@ -1,24 +1,26 @@
 import React from "react";
-import type { FilePart } from "@/common/orpc/types";
 import type { DisplayedMessage } from "@/common/types/message";
 import type { BashOutputGroupInfo } from "@/browser/utils/messages/messageUtils";
+import type { TaskReportLinking } from "@/browser/utils/messages/taskReportLinking";
 import type { ReviewNoteData } from "@/common/types/review";
-import { UserMessage } from "./UserMessage";
+import type { EditingMessageState } from "@/browser/utils/chatEditing";
+import { UserMessage, type UserMessageNavigation } from "./UserMessage";
 import { AssistantMessage } from "./AssistantMessage";
 import { ToolMessage } from "./ToolMessage";
 import { ReasoningMessage } from "./ReasoningMessage";
 import { StreamErrorMessage } from "./StreamErrorMessage";
+import { CompactionBoundaryMessage } from "./CompactionBoundaryMessage";
 import { HistoryHiddenMessage } from "./HistoryHiddenMessage";
 import { InitMessage } from "./InitMessage";
 import { ProposePlanToolCall } from "../tools/ProposePlanToolCall";
-import { removeEphemeralMessage } from "@/browser/stores/WorkspaceStore";
+import { removeEphemeralMessage } from "@/browser/stores/MinionStore";
 
 interface MessageRendererProps {
   message: DisplayedMessage;
   className?: string;
-  onEditUserMessage?: (messageId: string, content: string, fileParts?: FilePart[]) => void;
+  onEditUserMessage?: (message: EditingMessageState) => void;
   onEditQueuedMessage?: () => void;
-  workspaceId?: string;
+  minionId?: string;
   isCompacting?: boolean;
   /** Handler for adding review notes from inline diffs */
   onReviewNote?: (data: ReviewNoteData) => void;
@@ -26,6 +28,10 @@ interface MessageRendererProps {
   isLatestProposePlan?: boolean;
   /** Optional bash_output grouping info (computed at render-time) */
   bashOutputGroup?: BashOutputGroupInfo;
+  /** Optional task report linking context (computed at render-time) */
+  taskReportLinking?: TaskReportLinking;
+  /** Navigation info for user messages (backward/forward between user messages) */
+  userMessageNavigation?: UserMessageNavigation;
 }
 
 // Memoized to prevent unnecessary re-renders when parent (AIView) updates
@@ -34,11 +40,13 @@ export const MessageRenderer = React.memo<MessageRendererProps>(
     message,
     className,
     onEditUserMessage,
-    workspaceId,
+    minionId,
     isCompacting,
     onReviewNote,
     isLatestProposePlan,
     bashOutputGroup,
+    taskReportLinking,
+    userMessageNavigation,
   }) => {
     // Route based on message type
     switch (message.type) {
@@ -49,6 +57,7 @@ export const MessageRenderer = React.memo<MessageRendererProps>(
             className={className}
             onEdit={onEditUserMessage}
             isCompacting={isCompacting}
+            navigation={userMessageNavigation}
           />
         );
       case "assistant":
@@ -56,7 +65,7 @@ export const MessageRenderer = React.memo<MessageRendererProps>(
           <AssistantMessage
             message={message}
             className={className}
-            workspaceId={workspaceId}
+            minionId={minionId}
             isCompacting={isCompacting}
           />
         );
@@ -65,21 +74,24 @@ export const MessageRenderer = React.memo<MessageRendererProps>(
           <ToolMessage
             message={message}
             className={className}
-            workspaceId={workspaceId}
+            minionId={minionId}
             onReviewNote={onReviewNote}
             isLatestProposePlan={isLatestProposePlan}
             bashOutputGroup={bashOutputGroup}
+            taskReportLinking={taskReportLinking}
           />
         );
       case "reasoning":
         return <ReasoningMessage message={message} className={className} />;
       case "stream-error":
         return <StreamErrorMessage message={message} className={className} />;
+      case "compaction-boundary":
+        return <CompactionBoundaryMessage message={message} className={className} />;
       case "history-hidden":
         return (
-          <HistoryHiddenMessage message={message} className={className} workspaceId={workspaceId} />
+          <HistoryHiddenMessage message={message} className={className} minionId={minionId} />
         );
-      case "workspace-init":
+      case "minion-init":
         return <InitMessage message={message} className={className} />;
       case "plan-display":
         return (
@@ -88,10 +100,10 @@ export const MessageRenderer = React.memo<MessageRendererProps>(
             isEphemeralPreview={true}
             content={message.content}
             path={message.path}
-            workspaceId={workspaceId}
+            minionId={minionId}
             onClose={() => {
-              if (workspaceId) {
-                removeEphemeralMessage(workspaceId, message.historyId);
+              if (minionId) {
+                removeEphemeralMessage(minionId, message.historyId);
               }
             }}
             className={className}

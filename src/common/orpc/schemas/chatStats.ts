@@ -32,6 +32,7 @@ export const ChatUsageDisplaySchema = z.object({
   output: ChatUsageComponentSchema,
   reasoning: ChatUsageComponentSchema,
   model: z.string().optional(),
+  costsIncluded: z.boolean().optional(),
 });
 
 export const ChatStatsSchema = z.object({
@@ -55,9 +56,11 @@ export const ChatStatsSchema = z.object({
  */
 export const SessionUsageTokenStatsCacheSchema = z.object({
   version: z.literal(1),
-  computedAt: z
+  computedAt: z.number().meta({ description: "Unix timestamp (ms) when this cache was computed" }),
+  providersConfigVersion: z
     .number()
-    .meta({ description: "Lattice timestamp (ms) when this cache was computed" }),
+    .optional()
+    .meta({ description: "Stable provider-config fingerprint used for this cache" }),
   model: z
     .string()
     .meta({ description: "Model used for tokenization (affects tokenizer + tool definitions)" }),
@@ -67,9 +70,7 @@ export const SessionUsageTokenStatsCacheSchema = z.object({
     maxHistorySequence: z
       .number()
       .optional()
-      .meta({
-        description: "Max LatticeMessage.metadata.historySequence seen in the message list",
-      }),
+      .meta({ description: "Max LatticeMessage.metadata.historySequence seen in the message list" }),
   }),
   consumers: z.array(TokenConsumerSchema).meta({ description: "Sorted descending by token count" }),
   totalTokens: z.number(),
@@ -81,7 +82,7 @@ export const SessionUsageTokenStatsCacheSchema = z.object({
 
 /**
  * Cumulative session usage file format.
- * Stored in ~/.lattice/sessions/{workspaceId}/session-usage.json
+ * Stored in ~/.lattice/sessions/{minionId}/session-usage.json
  */
 export const SessionUsageFileSchema = z.object({
   byModel: z.record(z.string(), ChatUsageDisplaySchema),
@@ -93,8 +94,8 @@ export const SessionUsageFileSchema = z.object({
     })
     .optional(),
   /**
-   * Idempotency ledger for rolled-up sub-agent usage.
-   * Key: child workspaceId, value: true.
+   * Idempotency ledger for rolled-up sidekick usage.
+   * Key: child minionId, value: true.
    */
   rolledUpFrom: z.record(z.string(), z.literal(true)).optional(),
   tokenStatsCache: SessionUsageTokenStatsCacheSchema.optional(),

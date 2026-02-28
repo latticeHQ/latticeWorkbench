@@ -44,7 +44,7 @@ describe("parseDevcontainerStdoutLine", () => {
       outcome: "success",
       containerId: "abc123",
       remoteUser: "node",
-      remoteWorkspaceFolder: "/workspaces/demo",
+      remoteMinionFolder: "/minions/demo",
     });
     const parsed = parseDevcontainerStdoutLine(line);
     expect(parsed?.kind).toBe("result");

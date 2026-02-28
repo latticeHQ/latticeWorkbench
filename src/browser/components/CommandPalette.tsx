@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { useCommandRegistry } from "@/browser/contexts/CommandRegistryContext";
 import { useAPI } from "@/browser/contexts/API";
@@ -14,11 +14,12 @@ import {
 import { stopKeyboardPropagation } from "@/browser/utils/events";
 import { getSlashCommandSuggestions } from "@/browser/utils/slashCommands/suggestions";
 import { CUSTOM_EVENTS, createCustomEvent } from "@/common/constants/events";
-import { getDisableWorkspaceAgentsKey, GLOBAL_SCOPE_ID } from "@/common/constants/storage";
+import { getDisableMinionAgentsKey, GLOBAL_SCOPE_ID } from "@/common/constants/storage";
 import { filterCommandsByPrefix } from "@/browser/utils/commandPaletteFiltering";
+import { rankByPaletteQuery } from "@/browser/utils/commandPaletteRanking";
 
 interface CommandPaletteProps {
-  getSlashContext?: () => { providerNames: string[]; workspaceId?: string };
+  getSlashContext?: () => { minionId?: string };
 }
 
 type PromptDef = NonNullable<NonNullable<CommandAction["prompt"]>>;
@@ -45,17 +46,17 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
   const { api } = useAPI();
 
   const slashContext = getSlashContext?.();
-  const slashWorkspaceId = slashContext?.workspaceId;
+  const slashMinionId = slashContext?.minionId;
 
-  const [disableWorkspaceAgents] = usePersistedState<boolean>(
-    getDisableWorkspaceAgentsKey(slashWorkspaceId ?? GLOBAL_SCOPE_ID),
+  const [disableMinionAgents] = usePersistedState<boolean>(
+    getDisableMinionAgentsKey(slashMinionId ?? GLOBAL_SCOPE_ID),
     false,
     { listener: true }
   );
 
   const [agentSkills, setAgentSkills] = useState<AgentSkillDescriptor[]>([]);
   const agentSkillsCacheRef = useRef<Map<string, AgentSkillDescriptor[]>>(new Map());
-  const { isOpen, close, getActions, addRecent, recent } = useCommandRegistry();
+  const { isOpen, initialQuery, close, getActions, addRecent, recent } = useCommandRegistry();
   const [query, setQuery] = useState("");
   const [activePrompt, setActivePrompt] = useState<null | {
     title?: string;
@@ -76,32 +77,36 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (matchesKeybind(e, KEYBINDS.CANCEL) && isOpen) {
+        // Intercept Escape in capture phase so it doesn't reach global bubble handlers
+        // (e.g., stream interrupt).
         e.preventDefault();
+        e.stopPropagation();
         resetPaletteState();
         close();
       }
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
   }, [isOpen, close, resetPaletteState]);
 
-  // Reset state whenever palette visibility changes
-  useEffect(() => {
-    if (!isOpen) {
-      resetPaletteState();
+  // useLayoutEffect fires after DOM commit but before browser paint —
+  // ensures ">" appears in the input on the very first visible frame
+  // when opening via F1, with no flash.
+  useLayoutEffect(() => {
+    if (isOpen) {
+      setQuery(initialQuery);
     } else {
-      setPromptError(null);
-      setQuery("");
+      resetPaletteState();
     }
-  }, [isOpen, resetPaletteState]);
+  }, [isOpen, initialQuery, resetPaletteState]);
 
   useEffect(() => {
-    if (!isOpen || !api || !slashWorkspaceId) {
+    if (!isOpen || !api || !slashMinionId) {
       setAgentSkills([]);
       return;
     }
 
-    const cacheKey = `${slashWorkspaceId}:${disableWorkspaceAgents ? "project" : "worktree"}`;
+    const cacheKey = `${slashMinionId}:${disableMinionAgents ? "project" : "worktree"}`;
 
     const cached = agentSkillsCacheRef.current.get(cacheKey);
     if (cached) {
@@ -112,8 +117,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
     let cancelled = false;
     api.agentSkills
       .list({
-        workspaceId: slashWorkspaceId,
-        disableWorkspaceAgents: disableWorkspaceAgents || undefined,
+        minionId: slashMinionId,
+        disableMinionAgents: disableMinionAgents || undefined,
       })
       .then((skills) => {
         if (cancelled) return;
@@ -128,7 +133,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
     return () => {
       cancelled = true;
     };
-  }, [api, isOpen, slashWorkspaceId, disableWorkspaceAgents]);
+  }, [api, isOpen, slashMinionId, disableMinionAgents]);
 
   const rawActions = getActions();
 
@@ -236,11 +241,10 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
     const q = query.trim();
 
     if (q.startsWith("/")) {
-      const ctx = getSlashContext?.() ?? { providerNames: [] as string[] };
+      const ctx = getSlashContext?.() ?? {};
       const suggestions = getSlashCommandSuggestions(q, {
-        providerNames: ctx.providerNames,
         agentSkills,
-        variant: ctx.workspaceId ? "workspace" : "creation",
+        variant: ctx.minionId ? "minion" : "creation",
       });
       const section = "Slash Commands";
       const groups: PaletteGroup[] = [
@@ -273,11 +277,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
     // Filter actions based on prefix (extracted to utility for testing)
     const actionsToShow = filterCommandsByPrefix(q, rawActions);
 
-    const filtered = [...actionsToShow].sort((a, b) => {
-      const ai = recentIndex.has(a.id) ? recentIndex.get(a.id)! : 9999;
-      const bi = recentIndex.has(b.id) ? recentIndex.get(b.id)! : 9999;
-      if (ai !== bi) return ai - bi;
-      return a.title.localeCompare(b.title);
+    // Derive search text: strip ">" prefix for command mode, use raw query for minion mode.
+    const searchText = q.startsWith(">") ? q.slice(1).trim() : q;
+
+    const filtered = rankByPaletteQuery({
+      items: actionsToShow,
+      query: searchText,
+      toSearchDoc: (action) => ({
+        primaryText: action.title,
+        secondaryText: [...(action.keywords ?? []), ...(action.subtitle ? [action.subtitle] : [])],
+      }),
+      tieBreak: (a, b) => {
+        const ai = recentIndex.get(a.id) ?? 9999;
+        const bi = recentIndex.get(b.id) ?? 9999;
+        return ai - bi || a.title.localeCompare(b.title);
+      },
     });
 
     const bySection = new Map<string, CommandAction[]>();
@@ -370,22 +384,26 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
     };
   }, [currentField, activePrompt]);
 
-  const isSlashQuery = !currentField && query.trim().startsWith("/");
-  const isCommandQuery = !currentField && query.trim().startsWith(">");
-  // Enable cmdk filtering for all cases except slash queries (which we handle manually)
-  const shouldUseCmdkFilter = currentField ? currentField.type === "select" : !isSlashQuery;
-
   let groups: PaletteGroup[] = generalResults.groups;
   let emptyText: string | undefined = generalResults.emptyText;
 
   if (currentField) {
     const promptTitle = activePrompt?.title ?? currentField.label ?? "Provide details";
     if (currentField.type === "select") {
-      const options = selectOptions;
+      const searchQuery = query.trim();
+      const rankedOptions = rankByPaletteQuery({
+        items: selectOptions.map((opt, idx) => ({ ...opt, _originalIdx: idx })),
+        query: searchQuery,
+        toSearchDoc: (opt) => ({
+          primaryText: opt.label,
+          secondaryText: opt.keywords,
+        }),
+        tieBreak: (a, b) => a._originalIdx - b._originalIdx,
+      });
       groups = [
         {
           name: promptTitle,
-          items: options.map((opt) => ({
+          items: rankedOptions.map((opt) => ({
             id: `prompt-select:${currentField.name}:${opt.id}`,
             title: opt.label,
             section: promptTitle,
@@ -396,9 +414,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
       ];
       emptyText = isLoadingOptions
         ? "Loading options..."
-        : options.length
+        : rankedOptions.length
           ? undefined
-          : "No options";
+          : selectOptions.length
+            ? "No results"
+            : "No options";
     } else {
       const typed = query.trim();
       const fallbackHint = currentField.placeholder ?? "Type value and press Enter";
@@ -437,23 +457,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
       <Command
         className="font-primary w-[min(720px,92vw)] overflow-hidden rounded-lg border border-[var(--color-command-border)] bg-[var(--color-command-surface)] text-[var(--color-command-foreground)] shadow-[0_10px_40px_rgba(0,0,0,0.4)]"
         onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
-        shouldFilter={shouldUseCmdkFilter}
-        filter={(value, search, keywords) => {
-          // Build searchable text from value + keywords
-          const searchableText = keywords
-            ? `${value} ${keywords.join(" ")}`.toLowerCase()
-            : value.toLowerCase();
-          // When using ">" prefix, filter using the text after ">"
-          if (isCommandQuery && search.startsWith(">")) {
-            const actualSearch = search.slice(1).trim().toLowerCase();
-            if (!actualSearch) return 1;
-            if (searchableText.includes(actualSearch)) return 1;
-            return 0;
-          }
-          // Default filtering: match against value + keywords
-          if (searchableText.includes(search.toLowerCase())) return 1;
-          return 0;
-        }}
+        shouldFilter={false}
       >
         <Command.Input
           className="w-full border-b border-[var(--color-command-input-border)] bg-[var(--color-command-input)] px-3.5 py-3 text-sm text-[var(--color-command-foreground)] outline-none placeholder:text-[var(--color-command-subdued)]"
@@ -464,7 +468,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
               ? currentField.type === "text"
                 ? (currentField.placeholder ?? "Type value…")
                 : (currentField.placeholder ?? "Search options…")
-              : `Switch workspaces or type > for all commands, / for slash commands…`
+              : `Switch minions or type > for all commands, / for slash commands…`
           }
           autoFocus
           onKeyDown={(e: React.KeyboardEvent) => {
@@ -497,13 +501,22 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ getSlashContext 
               className="px-1.5 py-2"
             >
               {group.items.map((item) => {
-                // Include subtitle in keywords for filtering if not already provided
-                const itemKeywords =
-                  "keywords" in item && item.keywords
-                    ? item.keywords
-                    : "subtitle" in item && item.subtitle
-                      ? [item.subtitle]
-                      : undefined;
+                // Always include subtitle in keywords so searches can match secondary
+                // info (e.g. minion "streaming" status).
+                const itemKeywords = (() => {
+                  const keywords = [
+                    ...(item.keywords ?? []),
+                    ...(item.subtitle ? [item.subtitle] : []),
+                  ]
+                    .map((k) => k.trim())
+                    .filter((k) => k.length > 0);
+
+                  if (keywords.length === 0) {
+                    return undefined;
+                  }
+
+                  return Array.from(new Set(keywords));
+                })();
                 return (
                   <Command.Item
                     key={item.id}

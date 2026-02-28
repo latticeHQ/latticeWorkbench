@@ -9,7 +9,7 @@ import type { CompletedMessagePart, StreamEndEvent } from "./stream";
  */
 export interface DebugLlmRequestSnapshot {
   capturedAt: number;
-  workspaceId: string;
+  minionId: string;
 
   /**
    * Message ID used for the assistant placeholder / stream.

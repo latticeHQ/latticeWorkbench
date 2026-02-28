@@ -156,7 +156,7 @@ export function SecretsModal({
               </TouchableOpacity>
             </View>
 
-            {/* Headquarter name */}
+            {/* Project name */}
             <View
               style={{
                 paddingHorizontal: spacing.lg,

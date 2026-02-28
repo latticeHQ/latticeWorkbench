@@ -5,24 +5,29 @@
  * making each story file more focused on the specific visual state being tested.
  */
 
-import type { AgentSkillDescriptor } from "@/common/types/agentSkill";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { AgentSkillDescriptor, AgentSkillIssue } from "@/common/types/agentSkill";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type {
-  WorkspaceChatMessage,
+  MinionChatMessage,
   ChatLatticeMessage,
   ProvidersConfigMap,
-  WorkspaceStatsSnapshot,
+  MinionStatsSnapshot,
 } from "@/common/orpc/types";
+import type { LatticeMessage } from "@/common/types/message";
+import type { ThinkingLevel } from "@/common/types/thinking";
 import type { APIClient } from "@/browser/contexts/API";
 import {
-  SELECTED_WORKSPACE_KEY,
+  SELECTED_MINION_KEY,
   EXPANDED_PROJECTS_KEY,
-  RIGHT_SIDEBAR_COLLAPSED_KEY,
+  WORKBENCH_PANEL_COLLAPSED_KEY,
   getInputKey,
   getModelKey,
   getReviewsKey,
   getHunkFirstSeenKey,
   REVIEW_SORT_ORDER_KEY,
+  MINION_DRAFTS_BY_PROJECT_KEY,
+  getDraftScopeId,
+  getMinionNameStateKey,
 } from "@/common/constants/storage";
 import type { ReviewSortOrder } from "@/common/types/review";
 import type { HunkFirstSeenState } from "@/browser/hooks/useHunkFirstSeen";
@@ -30,8 +35,8 @@ import { updatePersistedState } from "@/browser/hooks/usePersistedState";
 import type { Review, ReviewsState } from "@/common/types/review";
 import { DEFAULT_MODEL } from "@/common/constants/knownModels";
 import {
-  createWorkspace,
-  groupWorkspacesByProject,
+  createMinion,
+  groupMinionsByProject,
   createStaticChatHandler,
   createStreamingChatHandler,
   createGitStatusOutput,
@@ -40,35 +45,35 @@ import {
 import { createMockORPCClient, type MockSessionUsage } from "@/browser/stories/mocks/orpc";
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WORKSPACE SELECTION
+// MINION SELECTION
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Set localStorage to select a workspace */
-export function selectWorkspace(workspace: FrontendWorkspaceMetadata): void {
+/** Set localStorage to select a minion */
+export function selectMinion(minion: FrontendMinionMetadata): void {
   localStorage.setItem(
-    SELECTED_WORKSPACE_KEY,
+    SELECTED_MINION_KEY,
     JSON.stringify({
-      workspaceId: workspace.id,
-      projectPath: workspace.projectPath,
-      projectName: workspace.projectName,
-      namedWorkspacePath: workspace.namedWorkspacePath,
+      minionId: minion.id,
+      projectPath: minion.projectPath,
+      projectName: minion.projectName,
+      namedMinionPath: minion.namedMinionPath,
     })
   );
 }
 
-/** Clear workspace selection from localStorage (for sidebar-focused stories) */
-export function clearWorkspaceSelection(): void {
-  localStorage.removeItem(SELECTED_WORKSPACE_KEY);
+/** Clear minion selection from localStorage (for sidebar-focused stories) */
+export function clearMinionSelection(): void {
+  localStorage.removeItem(SELECTED_MINION_KEY);
 }
 
-/** Set input text for a workspace */
-export function setWorkspaceInput(workspaceId: string, text: string): void {
-  localStorage.setItem(getInputKey(workspaceId), JSON.stringify(text));
+/** Set input text for a minion */
+export function setMinionInput(minionId: string, text: string): void {
+  localStorage.setItem(getInputKey(minionId), JSON.stringify(text));
 }
 
-/** Set model for a workspace */
-export function setWorkspaceModel(workspaceId: string, model: string): void {
-  localStorage.setItem(getModelKey(workspaceId), model);
+/** Set model for a minion */
+export function setMinionModel(minionId: string, model: string): void {
+  localStorage.setItem(getModelKey(minionId), model);
 }
 
 /** Expand projects in the sidebar */
@@ -76,30 +81,30 @@ export function expandProjects(projectPaths: string[]): void {
   localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify(projectPaths));
 }
 
-/** Collapse the right sidebar (default for most stories) */
-export function collapseRightSidebar(): void {
-  localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_KEY, JSON.stringify(true));
+/** Collapse the workbench panel (default for most stories) */
+export function collapseWorkbenchPanel(): void {
+  localStorage.setItem(WORKBENCH_PANEL_COLLAPSED_KEY, JSON.stringify(true));
 }
 
-/** Expand the right sidebar (for stories testing it) */
-export function expandRightSidebar(): void {
-  localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_KEY, JSON.stringify(false));
+/** Expand the workbench panel (for stories testing it) */
+export function expandWorkbenchPanel(): void {
+  localStorage.setItem(WORKBENCH_PANEL_COLLAPSED_KEY, JSON.stringify(false));
 }
 
-/** Set reviews for a workspace */
-export function setReviews(workspaceId: string, reviews: Review[]): void {
+/** Set reviews for a minion */
+export function setReviews(minionId: string, reviews: Review[]): void {
   const state: ReviewsState = {
-    workspaceId,
+    minionId,
     reviews: Object.fromEntries(reviews.map((r) => [r.id, r])),
     lastUpdated: Date.now(),
   };
-  updatePersistedState(getReviewsKey(workspaceId), state);
+  updatePersistedState(getReviewsKey(minionId), state);
 }
 
-/** Set hunk first-seen timestamps for a workspace (for storybook) */
-export function setHunkFirstSeen(workspaceId: string, firstSeen: Record<string, number>): void {
+/** Set hunk first-seen timestamps for a minion (for storybook) */
+export function setHunkFirstSeen(minionId: string, firstSeen: Record<string, number>): void {
   const state: HunkFirstSeenState = { firstSeen };
-  updatePersistedState(getHunkFirstSeenKey(workspaceId), state);
+  updatePersistedState(getHunkFirstSeenKey(minionId), state);
 }
 
 /** Set the review panel sort order (global) */
@@ -108,6 +113,60 @@ export function setReviewSortOrder(order: ReviewSortOrder): void {
 }
 
 /** Create a sample review for stories */
+// ═══════════════════════════════════════════════════════════════════════════════
+// MINION DRAFTS
+// ═══════════════════════════════════════════════════════════════════════════════
+
+export interface MinionDraftFixture {
+  draftId: string;
+  /** Optional: crew ID the draft belongs to */
+  crewId?: string | null;
+  /** Optional: draft prompt text */
+  prompt?: string;
+  /** Optional: minion name (either manual or generated) */
+  minionName?: string;
+  /** Optional: timestamp for sorting */
+  createdAt?: number;
+}
+
+/**
+ * Set minion drafts for a project in localStorage.
+ * This seeds the sidebar with UI-only draft placeholders.
+ */
+export function setMinionDrafts(projectPath: string, drafts: MinionDraftFixture[]): void {
+  // Set the drafts index
+  const draftsByProject = JSON.parse(
+    localStorage.getItem(MINION_DRAFTS_BY_PROJECT_KEY) ?? "{}"
+  ) as Record<string, Array<{ draftId: string; crewId?: string | null; createdAt?: number }>>;
+
+  draftsByProject[projectPath] = drafts.map((d) => ({
+    draftId: d.draftId,
+    crewId: d.crewId,
+    createdAt: d.createdAt ?? Date.now(),
+  }));
+
+  localStorage.setItem(MINION_DRAFTS_BY_PROJECT_KEY, JSON.stringify(draftsByProject));
+
+  // Set individual draft data (prompt and name)
+  for (const draft of drafts) {
+    const scopeId = getDraftScopeId(projectPath, draft.draftId);
+
+    // Set prompt if provided
+    if (draft.prompt !== undefined) {
+      localStorage.setItem(getInputKey(scopeId), JSON.stringify(draft.prompt));
+    }
+
+    // Set minion name state if provided
+    if (draft.minionName !== undefined) {
+      const nameState = {
+        autoGenerate: false,
+        manualName: draft.minionName,
+      };
+      localStorage.setItem(getMinionNameStateKey(scopeId), JSON.stringify(nameState));
+    }
+  }
+}
+
 export function createReview(
   id: string,
   filePath: string,
@@ -165,7 +224,7 @@ drwxr-xr-x  2 user group   64 Jan 15 10:00 components
 -rw-r--r--  1 user group  512 Jan 15 10:00 index.ts`;
 
 /**
- * Creates an executeBash function that returns git status and diff output for workspaces.
+ * Creates an executeBash function that returns git status and diff output for minions.
  * Handles: git status, git diff, git diff --numstat, git show (for read-more),
  * git ls-files --others (for untracked files), ls -la (for file explorer), git check-ignore
  */
@@ -173,7 +232,7 @@ export function createGitStatusExecutor(
   gitStatus?: Map<string, GitStatusFixture>,
   gitDiff?: Map<string, GitDiffFixture>
 ) {
-  return (workspaceId: string, script: string) => {
+  return (minionId: string, script: string) => {
     // Handle ls -la for file explorer
     if (script.startsWith("ls -la")) {
       // Check if it's the root or a subdirectory
@@ -190,7 +249,7 @@ export function createGitStatusExecutor(
     }
 
     if (script.includes("git status")) {
-      const status = gitStatus?.get(workspaceId) ?? {};
+      const status = gitStatus?.get(minionId) ?? {};
       // For git status --ignored --porcelain, add !! node_modules to mark it as ignored
       let output = createGitStatusOutput(status);
       if (script.includes("--ignored")) {
@@ -201,21 +260,21 @@ export function createGitStatusExecutor(
 
     // Handle git ls-files --others (untracked files)
     if (script.includes("git ls-files --others")) {
-      const diff = gitDiff?.get(workspaceId);
+      const diff = gitDiff?.get(minionId);
       const output = diff?.untrackedFiles?.join("\n") ?? "";
       return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
     }
 
     // Handle git diff --numstat
     if (script.includes("git diff") && script.includes("--numstat")) {
-      const diff = gitDiff?.get(workspaceId);
+      const diff = gitDiff?.get(minionId);
       const output = diff?.numstatOutput ?? "";
       return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
     }
 
     // Handle git diff (regular diff output)
     if (script.includes("git diff")) {
-      const diff = gitDiff?.get(workspaceId);
+      const diff = gitDiff?.get(minionId);
       const output = diff?.diffOutput ?? "";
       return Promise.resolve({ success: true as const, output, exitCode: 0, wall_duration_ms: 50 });
     }
@@ -227,7 +286,7 @@ export function createGitStatusExecutor(
       const filePath = gitShowMatch[1];
       const startLine = parseInt(sedMatch[1], 10);
       const endLine = parseInt(sedMatch[2], 10);
-      const diff = gitDiff?.get(workspaceId);
+      const diff = gitDiff?.get(minionId);
       const lines = diff?.fileContents?.get(filePath);
       if (lines) {
         // sed uses 1-based indexing
@@ -254,17 +313,18 @@ export function createGitStatusExecutor(
 // CHAT HANDLER ADAPTER
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export type ChatHandler = (callback: (event: WorkspaceChatMessage) => void) => () => void;
+export type ChatHandler = (callback: (event: MinionChatMessage) => void) => () => void;
 
 /** Adapts callback-based chat handlers to ORPC onChat format */
 export function createOnChatAdapter(chatHandlers: Map<string, ChatHandler>) {
-  return (workspaceId: string, emit: (msg: WorkspaceChatMessage) => void) => {
-    const handler = chatHandlers.get(workspaceId);
+  return (minionId: string, emit: (msg: MinionChatMessage) => void) => {
+    const handler = chatHandlers.get(minionId);
     if (handler) {
       return handler(emit);
     }
-    // Default: emit caught-up immediately
-    queueMicrotask(() => emit({ type: "caught-up" }));
+    // Default: emit caught-up immediately. Modern backends include hasOlderHistory
+    // on full replays; default to false in stories to avoid phantom pagination UI.
+    queueMicrotask(() => emit({ type: "caught-up", hasOlderHistory: false }));
     return undefined;
   };
 }
@@ -284,8 +344,8 @@ export interface BackgroundProcessFixture {
 }
 
 export interface SimpleChatSetupOptions {
-  workspaceId?: string;
-  workspaceName?: string;
+  minionId?: string;
+  minionName?: string;
   projectName?: string;
   projectPath?: string;
   messages: ChatLatticeMessage[];
@@ -297,8 +357,13 @@ export interface SimpleChatSetupOptions {
   /** Session usage data for Costs tab */
   statsTabEnabled?: boolean;
   sessionUsage?: MockSessionUsage;
+  /** Mock transcripts for minion.getSidekickTranscript (taskId -> persisted transcript response). */
+  sidekickTranscripts?: Map<
+    string,
+    { messages: LatticeMessage[]; model?: string; thinkingLevel?: ThinkingLevel }
+  >;
   /** Optional custom chat handler for emitting additional events (e.g., queued-message-changed) */
-  onChat?: (workspaceId: string, emit: (msg: WorkspaceChatMessage) => void) => void;
+  onChat?: (minionId: string, emit: (msg: MinionChatMessage) => void) => void;
   /** Idle compaction hours for context meter (null = disabled) */
   idleCompactionHours?: number | null;
   /** Override signing capabilities (for testing warning states) */
@@ -309,50 +374,61 @@ export interface SimpleChatSetupOptions {
   };
   /** Custom executeBash mock (for file viewer stories) */
   executeBash?: (
-    workspaceId: string,
+    minionId: string,
     script: string
   ) => Promise<{ success: true; output: string; exitCode: number; wall_duration_ms: number }>;
   /** Available agent skills for the project */
   agentSkills?: AgentSkillDescriptor[];
+  /** Agent skills that were discovered but couldn't be loaded (SKILL.md parse errors, etc.) */
+  invalidAgentSkills?: AgentSkillIssue[];
+  /** Mock log entries for Output tab */
+  logEntries?: Array<{
+    timestamp: number;
+    level: "error" | "warn" | "info" | "debug";
+    message: string;
+    location: string;
+  }>;
+  /** Mock clearLogs result */
+  clearLogsResult?: { success: boolean; error?: string | null };
 }
 
 /**
- * Setup a simple chat story with one workspace and messages.
+ * Setup a simple chat story with one minion and messages.
  * Returns an APIClient configured with the mock data.
  */
 export function setupSimpleChatStory(opts: SimpleChatSetupOptions): APIClient {
-  const workspaceId = opts.workspaceId ?? "ws-chat";
+  const minionId = opts.minionId ?? "ws-chat";
   const projectName = opts.projectName ?? "my-app";
   const projectPath = opts.projectPath ?? `/home/user/projects/${projectName}`;
-  const workspaces = [
-    createWorkspace({
-      id: workspaceId,
-      name: opts.workspaceName ?? "feature",
+  const minions = [
+    createMinion({
+      id: minionId,
+      name: opts.minionName ?? "feature",
       projectName,
       projectPath,
     }),
   ];
 
-  const chatHandlers = new Map([[workspaceId, createStaticChatHandler(opts.messages)]]);
+  const chatHandlers = new Map([[minionId, createStaticChatHandler(opts.messages)]]);
   const gitStatus = opts.gitStatus
-    ? new Map<string, GitStatusFixture>([[workspaceId, opts.gitStatus]])
+    ? new Map<string, GitStatusFixture>([[minionId, opts.gitStatus]])
     : undefined;
   const gitDiff = opts.gitDiff
-    ? new Map<string, GitDiffFixture>([[workspaceId, opts.gitDiff]])
+    ? new Map<string, GitDiffFixture>([[minionId, opts.gitDiff]])
     : undefined;
 
-  // Set localStorage for workspace selection and collapse right sidebar by default
-  selectWorkspace(workspaces[0]);
-  collapseRightSidebar();
+  // Set localStorage for minion selection and collapse workbench panel by default
+  selectMinion(minions[0]);
+  collapseWorkbenchPanel();
 
   // Set up background processes map
   const bgProcesses = opts.backgroundProcesses
-    ? new Map([[workspaceId, opts.backgroundProcesses]])
+    ? new Map([[minionId, opts.backgroundProcesses]])
     : undefined;
 
   // Set up session usage map
   const sessionUsageMap = opts.sessionUsage
-    ? new Map([[workspaceId, opts.sessionUsage]])
+    ? new Map([[minionId, opts.sessionUsage]])
     : undefined;
 
   // Set up idle compaction hours map
@@ -364,7 +440,7 @@ export function setupSimpleChatStory(opts: SimpleChatSetupOptions): APIClient {
   // Create onChat handler that combines static messages with custom handler
   const baseOnChat = createOnChatAdapter(chatHandlers);
   const onChat = opts.onChat
-    ? (wsId: string, emit: (msg: WorkspaceChatMessage) => void) => {
+    ? (wsId: string, emit: (msg: MinionChatMessage) => void) => {
         const cleanup = baseOnChat(wsId, emit);
         opts.onChat!(wsId, emit);
         return cleanup;
@@ -387,17 +463,21 @@ export function setupSimpleChatStory(opts: SimpleChatSetupOptions): APIClient {
 
   // Return ORPC client
   return createMockORPCClient({
-    projects: groupWorkspacesByProject(workspaces),
-    workspaces,
+    projects: groupMinionsByProject(minions),
+    minions,
     onChat,
     executeBash,
     providersConfig: opts.providersConfig,
     backgroundProcesses: bgProcesses,
     statsTabVariant: opts.statsTabEnabled ? "stats" : "control",
     sessionUsage: sessionUsageMap,
+    sidekickTranscripts: opts.sidekickTranscripts,
     idleCompactionHours,
     signingCapabilities: opts.signingCapabilities,
     agentSkills: opts.agentSkills,
+    invalidAgentSkills: opts.invalidAgentSkills,
+    logEntries: opts.logEntries,
+    clearLogsResult: opts.clearLogsResult,
   });
 }
 
@@ -406,8 +486,8 @@ export function setupSimpleChatStory(opts: SimpleChatSetupOptions): APIClient {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export interface StreamingChatSetupOptions {
-  workspaceId?: string;
-  workspaceName?: string;
+  minionId?: string;
+  minionName?: string;
   projectName?: string;
   messages: ChatLatticeMessage[];
   streamingMessageId: string;
@@ -424,18 +504,18 @@ export interface StreamingChatSetupOptions {
  * Returns an APIClient configured with the mock data.
  */
 export function setupStreamingChatStory(opts: StreamingChatSetupOptions): APIClient {
-  const workspaceId = opts.workspaceId ?? "ws-streaming";
-  const workspaces = [
-    createWorkspace({
-      id: workspaceId,
-      name: opts.workspaceName ?? "feature",
+  const minionId = opts.minionId ?? "ws-streaming";
+  const minions = [
+    createMinion({
+      id: minionId,
+      name: opts.minionName ?? "feature",
       projectName: opts.projectName ?? "my-app",
     }),
   ];
 
   const chatHandlers = new Map([
     [
-      workspaceId,
+      minionId,
       createStreamingChatHandler({
         messages: opts.messages,
         streamingMessageId: opts.streamingMessageId,
@@ -448,17 +528,17 @@ export function setupStreamingChatStory(opts: StreamingChatSetupOptions): APICli
   ]);
 
   const gitStatus = opts.gitStatus
-    ? new Map<string, GitStatusFixture>([[workspaceId, opts.gitStatus]])
+    ? new Map<string, GitStatusFixture>([[minionId, opts.gitStatus]])
     : undefined;
 
-  // Set localStorage for workspace selection and collapse right sidebar by default
-  selectWorkspace(workspaces[0]);
-  collapseRightSidebar();
+  // Set localStorage for minion selection and collapse workbench panel by default
+  selectMinion(minions[0]);
+  collapseWorkbenchPanel();
 
-  const workspaceStatsSnapshots = new Map<string, WorkspaceStatsSnapshot>();
+  const minionStatsSnapshots = new Map<string, MinionStatsSnapshot>();
   if (opts.statsTabEnabled) {
-    workspaceStatsSnapshots.set(workspaceId, {
-      workspaceId,
+    minionStatsSnapshots.set(minionId, {
+      minionId,
       generatedAt: Date.now(),
       active: {
         messageId: opts.streamingMessageId,
@@ -491,11 +571,11 @@ export function setupStreamingChatStory(opts: StreamingChatSetupOptions): APICli
 
   // Return ORPC client
   return createMockORPCClient({
-    projects: groupWorkspacesByProject(workspaces),
-    workspaces,
+    projects: groupMinionsByProject(minions),
+    minions,
     onChat: createOnChatAdapter(chatHandlers),
     executeBash: createGitStatusExecutor(gitStatus),
-    workspaceStatsSnapshots,
+    minionStatsSnapshots,
     statsTabVariant: opts.statsTabEnabled ? "stats" : "control",
   });
 }
@@ -505,8 +585,8 @@ export function setupStreamingChatStory(opts: StreamingChatSetupOptions): APICli
 // ═══════════════════════════════════════════════════════════════════════════════
 
 export interface CustomChatSetupOptions {
-  workspaceId?: string;
-  workspaceName?: string;
+  minionId?: string;
+  minionName?: string;
   projectName?: string;
   providersConfig?: ProvidersConfigMap;
   chatHandler: ChatHandler;
@@ -518,25 +598,25 @@ export interface CustomChatSetupOptions {
  * Returns an APIClient configured with the mock data.
  */
 export function setupCustomChatStory(opts: CustomChatSetupOptions): APIClient {
-  const workspaceId = opts.workspaceId ?? "ws-custom";
-  const workspaces = [
-    createWorkspace({
-      id: workspaceId,
-      name: opts.workspaceName ?? "feature",
+  const minionId = opts.minionId ?? "ws-custom";
+  const minions = [
+    createMinion({
+      id: minionId,
+      name: opts.minionName ?? "feature",
       projectName: opts.projectName ?? "my-app",
     }),
   ];
 
-  const chatHandlers = new Map([[workspaceId, opts.chatHandler]]);
+  const chatHandlers = new Map([[minionId, opts.chatHandler]]);
 
-  // Set localStorage for workspace selection and collapse right sidebar by default
-  selectWorkspace(workspaces[0]);
-  collapseRightSidebar();
+  // Set localStorage for minion selection and collapse workbench panel by default
+  selectMinion(minions[0]);
+  collapseWorkbenchPanel();
 
   // Return ORPC client
   return createMockORPCClient({
-    projects: groupWorkspacesByProject(workspaces),
-    workspaces,
+    projects: groupMinionsByProject(minions),
+    minions,
     onChat: createOnChatAdapter(chatHandlers),
     providersConfig: opts.providersConfig,
   });

@@ -12,7 +12,7 @@ export const AUTO_COMPACTION_THRESHOLD_MAX = 90;
 
 /**
  * Default auto-compaction threshold percentage (50-90 range)
- * Applied when creating new workspaces
+ * Applied when creating new minions
  */
 export const DEFAULT_AUTO_COMPACTION_THRESHOLD_PERCENT = 70;
 
@@ -70,11 +70,19 @@ export const FORCE_COMPACTION_BUFFER_PERCENT = 5;
 export const COPY_FEEDBACK_DURATION_MS = 2000;
 
 /**
- * Predefined color palette for project sections.
+ * Maximum number of log entries retained in memory for Output tab views.
+ *
+ * This cap is shared by the backend log ring buffer and frontend Output tab
+ * state to prevent unbounded growth during long-running verbose sessions.
+ */
+export const MAX_LOG_ENTRIES = 1000;
+
+/**
+ * Predefined color palette for project crews.
  * Each color is designed to work well with the dark theme.
  * Format: [name, hex value]
  */
-export const SECTION_COLOR_PALETTE = [
+export const CREW_COLOR_PALETTE = [
   ["Gray", "#6b7280"],
   ["Slate", "#64748b"],
   ["Blue", "#5a9bd4"],
@@ -87,34 +95,52 @@ export const SECTION_COLOR_PALETTE = [
   ["Pink", "#d465a5"],
 ] as const;
 
-export type SectionColorName = (typeof SECTION_COLOR_PALETTE)[number][0];
+export type SectionColorName = (typeof CREW_COLOR_PALETTE)[number][0];
 
 /**
- * Default color for new sections (neutral gray)
+ * Default color for new crews (neutral gray)
  */
-export const DEFAULT_SECTION_COLOR = SECTION_COLOR_PALETTE[0][1];
+export const DEFAULT_CREW_COLOR = CREW_COLOR_PALETTE[0][1];
 
 /**
- * Resolve a section color string (hex value or preset name) to a canonical hex color.
+ * Default 10-stage software delivery pipeline.
+ * Seeded automatically for projects that have no crews yet.
+ * Order matters — it defines the linked-list sequence in the sidebar.
+ */
+export const DEFAULT_PIPELINE_CREWS: ReadonlyArray<{ name: string; color: string }> = [
+  { name: "Intake", color: "Pink" },
+  { name: "Discovery", color: "Blue" },
+  { name: "Planning", color: "Yellow" },
+  { name: "Build", color: "Green" },
+  { name: "Test", color: "Orange" },
+  { name: "Review", color: "Red" },
+  { name: "Docs", color: "Cyan" },
+  { name: "Deploy", color: "Teal" },
+  { name: "Monitor", color: "Slate" },
+  { name: "Learning", color: "Gray" },
+];
+
+/**
+ * Resolve a crew color string (hex value or preset name) to a canonical hex color.
  *
- * Sections persist their color to config.json as a string, which may be either:
+ * Crews persist their color to config.json as a string, which may be either:
  * - a hex color (e.g. "#5a9bd4")
  * - a palette name (e.g. "Blue")
  *
  * For consistent rendering (and for safely appending hex alpha like "10"), we normalize
  * to a 6-digit "#rrggbb" string.
  */
-export function resolveSectionColor(color: string | null | undefined): string {
+export function resolveCrewColor(color: string | null | undefined): string {
   if (!color) {
-    return DEFAULT_SECTION_COLOR;
+    return DEFAULT_CREW_COLOR;
   }
 
   const trimmed = color.trim();
   if (trimmed.length === 0) {
-    return DEFAULT_SECTION_COLOR;
+    return DEFAULT_CREW_COLOR;
   }
 
-  const paletteMatch = SECTION_COLOR_PALETTE.find(
+  const paletteMatch = CREW_COLOR_PALETTE.find(
     ([name]) => name.toLowerCase() === trimmed.toLowerCase()
   );
   if (paletteMatch) {
@@ -139,5 +165,5 @@ export function resolveSectionColor(color: string | null | undefined): string {
     return `#${hex8Match[1].slice(0, 6)}`.toLowerCase();
   }
 
-  return DEFAULT_SECTION_COLOR;
+  return DEFAULT_CREW_COLOR;
 }

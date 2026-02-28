@@ -154,8 +154,8 @@ function buildTarget(target: string): void {
 
 export const electronTest = base.extend<ElectronFixtures>({
   workspace: async ({}, use, testInfo) => {
-    const originalMuxRoot = process.env.LATTICE_ROOT;
-    const envRoot = originalMuxRoot ?? "";
+    const originalLatticeRoot = process.env.LATTICE_ROOT;
+    const envRoot = originalLatticeRoot ?? "";
     const baseRoot = envRoot || defaultTestRoot;
     const uniqueTestId = testInfo.testId || testInfo.title || `test-${Date.now()}`;
 
@@ -190,10 +190,10 @@ export const electronTest = base.extend<ElectronFixtures>({
         await fsPromises.rm(testRoot, { recursive: true, force: true });
       }
     } finally {
-      if (originalMuxRoot === undefined) {
+      if (originalLatticeRoot === undefined) {
         delete process.env.LATTICE_ROOT;
       } else {
-        process.env.LATTICE_ROOT = originalMuxRoot;
+        process.env.LATTICE_ROOT = originalLatticeRoot;
       }
     }
   },
@@ -272,6 +272,8 @@ export const electronTest = base.extend<ElectronFixtures>({
       recordVideoDir = testInfo.outputPath("electron-video");
       fs.mkdirSync(recordVideoDir, { recursive: true });
 
+      const isPerfScenario = /[\\/]scenarios[\\/]perf\./.test(testInfo.file);
+      const shouldCaptureReactProfile = process.env.LATTICE_PROFILE_REACT === "1" || isPerfScenario;
       const electronEnv: Record<string, string> = {};
       for (const [key, value] of Object.entries(process.env)) {
         if (typeof value === "string") {
@@ -282,6 +284,7 @@ export const electronTest = base.extend<ElectronFixtures>({
       electronEnv.LATTICE_MOCK_AI = electronEnv.LATTICE_MOCK_AI ?? "1";
       electronEnv.LATTICE_ROOT = configRoot;
       electronEnv.LATTICE_E2E = "1";
+      electronEnv.LATTICE_PROFILE_REACT = shouldCaptureReactProfile ? "1" : "0";
       electronEnv.LATTICE_E2E_LOAD_DIST = shouldLoadDist ? "1" : "0";
       electronEnv.VITE_DISABLE_MERMAID = "1";
 
@@ -293,9 +296,11 @@ export const electronTest = base.extend<ElectronFixtures>({
         electronEnv.NODE_ENV = electronEnv.NODE_ENV ?? "production";
       }
 
-      // When running as root (e.g., in Docker/CI), Electron requires --no-sandbox
+      // When running in Linux containers, Electron's chrome-sandbox helper binary is often
+      // present but not configured correctly (setuid root). In that case Electron hard-fails
+      // unless we disable sandboxing.
       const launchArgs = ["."];
-      if (process.getuid?.() === 0) {
+      if (process.platform === "linux" || process.getuid?.() === 0) {
         launchArgs.unshift("--no-sandbox");
       }
 
@@ -314,10 +319,10 @@ export const electronTest = base.extend<ElectronFixtures>({
       if (!pid) {
         throw new Error("Electron launch returned no pid");
       }
-      const electronMuxRoot = readEnvVarFromProcess(pid, "LATTICE_ROOT");
-      if (electronMuxRoot !== configRoot) {
+      const electronLatticeRoot = readEnvVarFromProcess(pid, "LATTICE_ROOT");
+      if (electronLatticeRoot !== configRoot) {
         throw new Error(
-          `E2E harness bug: Electron process LATTICE_ROOT mismatch. Expected ${configRoot}, got ${electronMuxRoot ?? "<unset>"}`
+          `E2E harness bug: Electron process LATTICE_ROOT mismatch. Expected ${configRoot}, got ${electronLatticeRoot ?? "<unset>"}`
         );
       }
 

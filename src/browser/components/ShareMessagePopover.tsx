@@ -7,23 +7,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/browser/components/ui/select";
-import {
-  Tooltip,
-  TooltipTrigger,
-  TooltipContent,
-  HelpIndicator,
-} from "@/browser/components/ui/tooltip";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@/browser/components/ui/tooltip";
 import { Button } from "@/browser/components/ui/button";
-import {
-  AlertTriangle,
-  Check,
-  ExternalLink,
-  Link2,
-  Loader2,
-  Lock,
-  PenTool,
-  Trash2,
-} from "lucide-react";
+import { Check, ExternalLink, Link2, Loader2, Trash2 } from "lucide-react";
 import { CopyIcon } from "@/browser/components/icons/CopyIcon";
 import { copyToClipboard } from "@/browser/utils/clipboard";
 
@@ -41,6 +27,13 @@ import {
   type ShareData,
 } from "@/browser/utils/sharedUrlCache";
 import { cn } from "@/common/lib/utils";
+import {
+  type ExpirationValue,
+  EXPIRATION_OPTIONS,
+  expirationToMs,
+  timestampToExpiration,
+  formatExpiration,
+} from "@/common/lib/shareExpiration";
 import { SHARE_EXPIRATION_KEY, SHARE_SIGNING_KEY } from "@/common/constants/storage";
 import {
   readPersistedState,
@@ -50,225 +43,15 @@ import {
 import { useLinkSharingEnabled } from "@/browser/contexts/TelemetryEnabledContext";
 import { useAPI } from "@/browser/contexts/API";
 import type { SigningCapabilities } from "@/common/orpc/schemas";
-
-/** Encryption info tooltip shown next to share headers */
-const EncryptionBadge = () => (
-  <Tooltip>
-    <TooltipTrigger asChild>
-      <HelpIndicator className="text-[11px]">?</HelpIndicator>
-    </TooltipTrigger>
-    <TooltipContent className="max-w-[240px]">
-      <p className="flex items-center gap-1.5 font-medium">
-        <Lock aria-hidden="true" className="h-3 w-3" />
-        End-to-end encrypted
-      </p>
-      <p className="text-muted-foreground mt-1 text-[11px]">
-        Content is encrypted in your browser (AES-256-GCM). The key stays in the URL fragment and is
-        never sent to the server.
-      </p>
-    </TooltipContent>
-  </Tooltip>
-);
-
-/** Signing status badge - interactive button with full signing info tooltip */
-interface SigningBadgeProps {
-  /** Whether signing is/was enabled for this share */
-  signed: boolean;
-  /** Signing capabilities from backend */
-  capabilities: SigningCapabilities | null;
-  /** Whether signing is globally enabled */
-  signingEnabled: boolean;
-  /** Toggle signing on/off */
-  onToggleSigning?: () => void;
-  /** Callback to retry key detection (only shown when no key) */
-  onRetryKeyDetection?: () => void;
-}
-
-/** Truncate public key for display */
-function truncatePublicKey(key: string): string {
-  // Format: "ssh-ed25519 AAAA...XXXX comment"
-  const parts = key.split(" ");
-  if (parts.length < 2) return key;
-  const keyType = parts[0];
-  const keyData = parts[1];
-  if (keyData.length <= 16) return key;
-  return `${keyType} ${keyData.slice(0, 8)}...${keyData.slice(-8)}`;
-}
-
-const SigningBadge = ({
-  signed,
-  capabilities,
-  signingEnabled,
-  onToggleSigning,
-  onRetryKeyDetection,
-}: SigningBadgeProps) => {
-  const hasKey = Boolean(capabilities?.publicKey);
-  const hasEncryptedKey = capabilities?.error?.hasEncryptedKey ?? false;
-
-  // Color states:
-  // - blue = signed/enabled with key
-  // - yellow/warning = encrypted key found but unusable
-  // - muted = disabled or no key at all
-  const isActive = signed || (signingEnabled && hasKey);
-  const iconColor = isActive ? "text-blue-400" : hasEncryptedKey ? "text-yellow-500" : "text-muted";
-
-  // Determine status header content
-  const getStatusHeader = (): React.ReactNode => {
-    if (signed) {
-      return (
-        <span className="flex items-center gap-1.5">
-          <Check aria-hidden="true" className="h-3 w-3" />
-          Signed
-        </span>
-      );
-    }
-    if (signingEnabled && hasKey) return "Signing enabled";
-    if (hasEncryptedKey) {
-      return (
-        <span className="flex items-center gap-1.5">
-          <AlertTriangle aria-hidden="true" className="h-3 w-3" />
-          Key requires passphrase
-        </span>
-      );
-    }
-    return "Signing disabled";
-  };
-
-  // Build tooltip content with full signing info
-  const tooltipContent = (
-    <div className="space-y-1.5">
-      {/* Status header */}
-      <p className="font-medium">{getStatusHeader()}</p>
-
-      {/* Show signing details when key is available */}
-      {hasKey && capabilities && (
-        <div className="text-muted-foreground space-y-0.5 text-[10px]">
-          {capabilities.githubUser && <p>GitHub: @{capabilities.githubUser}</p>}
-          {capabilities.publicKey && (
-            <p className="font-mono">{truncatePublicKey(capabilities.publicKey)}</p>
-          )}
-        </div>
-      )}
-
-      {/* Encrypted key warning message */}
-      {!hasKey && hasEncryptedKey && (
-        <p className="text-muted-foreground text-[10px]">
-          Use an unencrypted key file, or ensure your SSH agent (e.g. 1Password) is running and
-          SSH_AUTH_SOCK is set
-          {onRetryKeyDetection && (
-            <>
-              {" · "}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRetryKeyDetection();
-                }}
-                className="text-foreground underline hover:no-underline"
-              >
-                Retry
-              </button>
-            </>
-          )}
-        </p>
-      )}
-
-      {/* No key message + retry */}
-      {!hasKey && !hasEncryptedKey && (
-        <p className="text-muted-foreground text-[10px]">
-          No signing key found
-          {onRetryKeyDetection && (
-            <>
-              {" · "}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRetryKeyDetection();
-                }}
-                className="text-foreground underline hover:no-underline"
-              >
-                Retry
-              </button>
-            </>
-          )}
-        </p>
-      )}
-
-      {/* Docs link removed - internal use */}
-    </div>
-  );
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          onClick={onToggleSigning}
-          disabled={!hasKey}
-          tabIndex={-1}
-          className={cn(
-            "flex items-center justify-center rounded p-0.5 transition-colors",
-            hasKey ? "hover:bg-muted/50 cursor-pointer" : "cursor-default",
-            iconColor
-          )}
-          aria-label={signingEnabled ? "Disable signing" : "Enable signing"}
-        >
-          <PenTool className="h-3 w-3" />
-        </button>
-      </TooltipTrigger>
-      <TooltipContent className="max-w-[240px]">{tooltipContent}</TooltipContent>
-    </Tooltip>
-  );
-};
-
-/** Expiration options with human-readable labels */
-const EXPIRATION_OPTIONS = [
-  { value: "1h", label: "1 hour", ms: 60 * 60 * 1000 },
-  { value: "24h", label: "24 hours", ms: 24 * 60 * 60 * 1000 },
-  { value: "7d", label: "7 days", ms: 7 * 24 * 60 * 60 * 1000 },
-  { value: "30d", label: "30 days", ms: 30 * 24 * 60 * 60 * 1000 },
-  { value: "never", label: "Never", ms: null },
-] as const;
-
-type ExpirationValue = (typeof EXPIRATION_OPTIONS)[number]["value"];
-
-/** Convert expiration value to milliseconds from now, or undefined for "never" */
-function expirationToMs(value: ExpirationValue): number | null {
-  const opt = EXPIRATION_OPTIONS.find((o) => o.value === value);
-  return opt?.ms ?? null;
-}
-
-/** Convert timestamp to expiration value (best fit) */
-function timestampToExpiration(expiresAt: number | undefined): ExpirationValue {
-  if (!expiresAt) return "never";
-  const remaining = expiresAt - Date.now();
-  if (remaining <= 0) return "1h"; // Already expired, default to shortest
-  // Find the closest option
-  for (const opt of EXPIRATION_OPTIONS) {
-    if (opt.ms && remaining <= opt.ms * 1.5) return opt.value;
-  }
-  return "never";
-}
-
-/** Format expiration for display */
-function formatExpiration(expiresAt: number | undefined): string {
-  if (!expiresAt) return "Never";
-  const date = new Date(expiresAt);
-  const now = Date.now();
-  const diff = expiresAt - now;
-
-  if (diff <= 0) return "Expired";
-  if (diff < 60 * 60 * 1000) return `${Math.ceil(diff / (60 * 1000))}m`;
-  if (diff < 24 * 60 * 60 * 1000) return `${Math.ceil(diff / (60 * 60 * 1000))}h`;
-  if (diff < 7 * 24 * 60 * 60 * 1000) return `${Math.ceil(diff / (24 * 60 * 60 * 1000))}d`;
-  return date.toLocaleDateString();
-}
+import { EncryptionBadge, SigningBadge } from "./ShareSigningBadges";
 
 interface ShareMessagePopoverProps {
   content: string;
   model?: string;
   thinking?: string;
   disabled?: boolean;
-  /** Workspace name used for uploaded filename (e.g., "my-workspace" -> "my-workspace.md") */
-  workspaceName?: string;
+  /** Minion name used for uploaded filename (e.g., "my-minion" -> "my-minion.md") */
+  minionName?: string;
 }
 
 export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
@@ -276,7 +59,7 @@ export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
   model,
   thinking,
   disabled = false,
-  workspaceName,
+  minionName,
 }) => {
   // Hide share button when user explicitly disabled telemetry
   const linkSharingEnabled = useLinkSharingEnabled();
@@ -369,11 +152,11 @@ export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
     }
   };
 
-  // Derive filename: prefer workspaceName, fallback to default
+  // Derive filename: prefer minionName, fallback to default
   const getFileName = (): string => {
-    if (workspaceName) {
-      // Sanitize workspace name for filename (remove unsafe chars)
-      const safeName = workspaceName.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-");
+    if (minionName) {
+      // Sanitize minion name for filename (remove unsafe chars)
+      const safeName = minionName.replace(/[^a-zA-Z0-9_-]/g, "-").replace(/-+/g, "-");
       return `${safeName}.md`;
     }
     return "message.md";
@@ -392,7 +175,7 @@ export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
       const ms = expirationToMs(preferred);
       const expiresAt = ms ? new Date(Date.now() + ms) : undefined;
 
-      // Request a openagent.md signature envelope from the backend when signing is enabled.
+      // Request a lattice.md signature envelope from the backend when signing is enabled.
       let signature: SignatureEnvelope | undefined;
       if (signingEnabled && signingCapabilities?.publicKey && api) {
         try {
@@ -420,7 +203,6 @@ export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
         id: result.id,
         mutateKey: result.mutateKey,
         expiresAt: result.expiresAt,
-        cachedAt: Date.now(),
         signed: Boolean(signature),
       };
 
@@ -513,7 +295,7 @@ export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
         await deleteFromLatticeMd(shareData.id, shareData.mutateKey);
         removeShareData(content);
 
-        // Request a openagent.md signature envelope from the backend if signing is now enabled.
+        // Request a lattice.md signature envelope from the backend if signing is now enabled.
         let signature: SignatureEnvelope | undefined;
         if (newSigningEnabled && signingCapabilities?.publicKey && api) {
           try {
@@ -545,7 +327,6 @@ export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
           id: result.id,
           mutateKey: result.mutateKey,
           expiresAt: result.expiresAt,
-          cachedAt: Date.now(),
           signed: Boolean(signature),
         };
 

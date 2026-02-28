@@ -11,7 +11,7 @@ import {
   dedupeStrings,
   parseToolResult,
   requireTaskService,
-  requireWorkspaceId,
+  requireMinionId,
 } from "./toolUtils";
 
 export const createTaskTerminateTool: ToolFactory = (config: ToolConfiguration) => {
@@ -19,7 +19,7 @@ export const createTaskTerminateTool: ToolFactory = (config: ToolConfiguration) 
     description: TOOL_DEFINITIONS.task_terminate.description,
     inputSchema: TOOL_DEFINITIONS.task_terminate.schema,
     execute: async (args): Promise<unknown> => {
-      const workspaceId = requireWorkspaceId(config, "task_terminate");
+      const minionId = requireMinionId(config, "task_terminate");
       const taskService = requireTaskService(config, "task_terminate");
 
       const uniqueTaskIds = dedupeStrings(args.task_ids);
@@ -46,8 +46,8 @@ export const createTaskTerminateTool: ToolFactory = (config: ToolConfiguration) 
             }
 
             const inScope =
-              proc.workspaceId === workspaceId ||
-              taskService.isDescendantAgentTask(workspaceId, proc.workspaceId);
+              proc.minionId === minionId ||
+              (await taskService.isDescendantAgentTask(minionId, proc.minionId));
             if (!inScope) {
               return { status: "invalid_scope" as const, taskId };
             }
@@ -65,7 +65,7 @@ export const createTaskTerminateTool: ToolFactory = (config: ToolConfiguration) 
           }
 
           const terminateResult = await taskService.terminateDescendantAgentTask(
-            workspaceId,
+            minionId,
             taskId
           );
           if (!terminateResult.success) {

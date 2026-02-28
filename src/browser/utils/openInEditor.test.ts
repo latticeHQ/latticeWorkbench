@@ -25,7 +25,7 @@ async function withWindow<T>(windowValue: unknown, fn: () => Promise<T> | T): Pr
 }
 
 describe("openInEditor", () => {
-  const workspaceId = "ws-123";
+  const minionId = "ws-123";
   const filePath = "/home/user/project/plan.md";
   const parentDir = "/home/user/project";
 
@@ -53,7 +53,7 @@ describe("openInEditor", () => {
     const result = await withWindow(createMockWindow(calls), () =>
       openInEditor({
         api: null,
-        workspaceId,
+        minionId,
         targetPath: filePath,
         runtimeConfig,
         isFile: true,
@@ -78,12 +78,12 @@ describe("openInEditor", () => {
     };
 
     const api = {
-      workspace: {
+      minion: {
         getDevcontainerInfo: () =>
           Promise.resolve({
             containerName: "jovial_newton",
-            containerWorkspacePath: "/workspaces/myapp",
-            hostWorkspacePath: "/Users/me/projects/myapp",
+            containerMinionPath: "/minions/myapp",
+            hostMinionPath: "/Users/me/projects/myapp",
           }),
       },
     } as unknown as APIClient;
@@ -91,7 +91,7 @@ describe("openInEditor", () => {
     const result = await withWindow(createMockWindow(calls), () =>
       openInEditor({
         api,
-        workspaceId,
+        minionId,
         targetPath: "/Users/me/projects/myapp/src/app.ts",
         runtimeConfig,
         isFile: true,
@@ -103,7 +103,7 @@ describe("openInEditor", () => {
 
     const [url, target] = calls[0];
     expect(target).toBe("_blank");
-    expect(url).toMatch(/dev-container\+[0-9a-f]+\/workspaces\/myapp\/src$/);
+    expect(url).toMatch(/dev-container\+[0-9a-f]+\/minions\/myapp\/src$/);
   });
 
   test("opens Docker deep links at parent dir when targetPath is a file", async () => {
@@ -112,13 +112,13 @@ describe("openInEditor", () => {
     const runtimeConfig: RuntimeConfig = {
       type: "docker",
       image: "node:20",
-      containerName: "lattice-workspace-123",
+      containerName: "lattice-minion-123",
     };
 
     const result = await withWindow(createMockWindow(calls), () =>
       openInEditor({
         api: null,
-        workspaceId,
+        minionId,
         targetPath: filePath,
         runtimeConfig,
         isFile: true,

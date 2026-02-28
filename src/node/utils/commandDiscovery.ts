@@ -4,7 +4,8 @@
  */
 
 import * as fs from "fs/promises";
-import { spawn } from "child_process";
+import { spawnSync } from "child_process";
+import { homedir } from "os";
 
 /** Known installation paths for GUI editors on macOS */
 const MACOS_APP_PATHS: Record<string, string[]> = {
@@ -43,24 +44,9 @@ export async function isCommandAvailable(command: string): Promise<boolean> {
   }
 
   // Fall back to which (inherits enriched PATH from process.env)
-  // Use async spawn to avoid blocking the event loop (spawnSync blocks heartbeats).
   try {
-    const exitCode = await new Promise<number | null>((resolve) => {
-      const child = spawn("which", [command], { stdio: "ignore" });
-      const timeout = setTimeout(() => {
-        child.kill();
-        resolve(null);
-      }, 5000);
-      child.on("error", () => {
-        clearTimeout(timeout);
-        resolve(null);
-      });
-      child.on("close", (code) => {
-        clearTimeout(timeout);
-        resolve(code);
-      });
-    });
-    return exitCode === 0;
+    const result = spawnSync("which", [command], { encoding: "utf8" });
+    return result.status === 0;
   } catch {
     return false;
   }
@@ -77,6 +63,50 @@ export async function findAvailableCommand(commands: string[]): Promise<string |
     }
   }
   return null;
+}
+
+/**
+ * Check if a command is available, trying aliases and known paths in addition
+ * to the primary command. Returns the first found command name (or path).
+ *
+ * Order: knownPaths → primary command → aliases
+ */
+export async function findCommandWithAliases(
+  command: string,
+  aliases?: string[],
+  knownPaths?: string[]
+): Promise<{ found: boolean; resolvedCommand?: string }> {
+  // Check known paths first (fast stat check, no PATH search)
+  if (knownPaths && process.platform === "darwin") {
+    for (const rawPath of knownPaths) {
+      // Expand ~ to home directory (Node fs doesn't expand tilde)
+      const knownPath = rawPath.startsWith("~") ? rawPath.replace("~", homedir()) : rawPath;
+      try {
+        const stats = await fs.stat(knownPath);
+        if (stats.isFile() && (stats.mode & 0o111) !== 0) {
+          return { found: true, resolvedCommand: knownPath };
+        }
+      } catch {
+        // Try next
+      }
+    }
+  }
+
+  // Try primary command
+  if (await isCommandAvailable(command)) {
+    return { found: true, resolvedCommand: command };
+  }
+
+  // Try aliases
+  if (aliases) {
+    for (const alias of aliases) {
+      if (await isCommandAvailable(alias)) {
+        return { found: true, resolvedCommand: alias };
+      }
+    }
+  }
+
+  return { found: false };
 }
 
 /** GUI editors that spawn detached (no terminal needed) */

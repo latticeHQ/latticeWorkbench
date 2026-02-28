@@ -4,7 +4,7 @@ import type { DisplayedMessage } from "@/common/types/message";
 import { copyToClipboard } from "@/browser/utils/clipboard";
 import { Clipboard, ClipboardCheck, FileText, ListStart, Moon, Package } from "lucide-react";
 import { ShareMessagePopover } from "@/browser/components/ShareMessagePopover";
-import { useOptionalWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
+import { useOptionalMinionContext } from "@/browser/contexts/MinionContext";
 import { Button } from "../ui/button";
 import React, { useState } from "react";
 import { CompactingMessageContent } from "./CompactingMessageContent";
@@ -18,7 +18,7 @@ import { TypewriterMarkdown } from "./TypewriterMarkdown";
 interface AssistantMessageProps {
   message: DisplayedMessage & { type: "assistant" };
   className?: string;
-  workspaceId?: string;
+  minionId?: string;
   isCompacting?: boolean;
   clipboardWriteText?: (data: string) => Promise<void>;
 }
@@ -26,16 +26,16 @@ interface AssistantMessageProps {
 export const AssistantMessage: React.FC<AssistantMessageProps> = ({
   message,
   className,
-  workspaceId,
+  minionId,
   isCompacting = false,
   clipboardWriteText = copyToClipboard,
 }) => {
   const [showRaw, setShowRaw] = useState(false);
-  const workspaceContext = useOptionalWorkspaceContext();
+  const minionContext = useOptionalMinionContext();
 
-  // Get workspace name from context for share filename
-  const workspaceName = workspaceId
-    ? workspaceContext?.workspaceMetadata.get(workspaceId)?.name
+  // Get minion name from context for share filename
+  const minionName = minionId
+    ? minionContext?.minionMetadata.get(minionId)?.name
     : undefined;
 
   const content = message.content;
@@ -49,7 +49,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
     buttonLabel: startHereLabel,
     disabled: startHereDisabled,
     modal: startHereModal,
-  } = useStartHere(workspaceId, content, isCompacted, {
+  } = useStartHere(minionId, content, isCompacted, {
     // Preserve legacy plan/exec markers so Start Here keeps plan→exec handoff for old history.
     sourceAgentId: message.agentId ?? message.mode,
   });
@@ -72,7 +72,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
       label: startHereLabel,
       onClick: openStartHereModal,
       disabled: startHereDisabled,
-      tooltip: "Replace all chat history with this message",
+      tooltip: "Start a new context from this message and preserve earlier chat history",
       icon: <ListStart />,
     });
     buttons.push({
@@ -82,7 +82,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
           content={content}
           model={message.model}
           disabled={!content}
-          workspaceName={workspaceName}
+          minionName={minionName}
         />
       ),
     });
@@ -103,7 +103,14 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
 
     // Streaming text gets typewriter effect
     if (isStreaming) {
-      const contentElement = <TypewriterMarkdown deltas={[content]} isComplete={false} />;
+      const contentElement = (
+        <TypewriterMarkdown
+          deltas={[content]}
+          isComplete={false}
+          streamKey={message.historyId}
+          streamSource={message.streamPresentation?.source}
+        />
+      );
 
       // Wrap streaming compaction in special container
       if (isStreamingCompaction) {
@@ -113,7 +120,7 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
       return contentElement;
     }
 
-    // Completed text renders as static content
+    // Completed text renders as static content so hydrated history never replays via typewriter.
     return content ? (
       showRaw ? (
         <div className="relative">
@@ -147,7 +154,11 @@ export const AssistantMessage: React.FC<AssistantMessageProps> = ({
 
     return (
       <div className="flex items-center gap-2">
-        {modelName && <ModelDisplay modelString={modelName} />}
+        {modelName && (
+          <ModelDisplay
+            modelString={modelName}
+          />
+        )}
         {isCompacted && (
           <span className="text-plan-mode bg-plan-mode/10 inline-flex items-center gap-1 rounded-sm px-1.5 py-0.5 text-[10px] font-medium uppercase">
             {isIdleCompacted ? (

@@ -17,20 +17,23 @@ if (process.platform === "darwin") {
 import { randomBytes } from "crypto";
 import { RPCHandler } from "@orpc/server/message-port";
 import { onError } from "@orpc/server";
-import { router } from "@/node/orpc/router";
-import { formatOrpcError } from "@/node/orpc/formatOrpcError";
-import { ServerLockfile } from "@/node/services/serverLockfile";
+import { router } from "../node/orpc/router";
+import { formatOrpcError } from "../node/orpc/formatOrpcError";
+import { ServerLockfile } from "../node/services/serverLockfile";
 import "disposablestack/auto";
 
-import type { MenuItemConstructorOptions } from "electron";
+import type { MenuItemConstructorOptions, MessageBoxOptions } from "electron";
 import {
   app,
   BrowserWindow,
   ipcMain as electronIpcMain,
   Menu,
-  shell,
+  Tray,
   dialog,
+  nativeImage,
+  nativeTheme,
   screen,
+  shell,
 } from "electron";
 
 // Increase renderer V8 heap limit from default ~4GB to 8GB.
@@ -41,15 +44,22 @@ app.commandLine.appendSwitch("js-flags", "--max-old-space-size=8192");
 
 import * as fs from "fs";
 import * as path from "path";
-import type { Config } from "@/node/config";
-import type { ServiceContainer } from "@/node/services/serviceContainer";
-import { VERSION } from "@/version";
-import { getLatticeHome, migrateLegacyLatticeHome } from "@/common/constants/paths";
+import type { Config } from "../node/config";
+import type { ServiceContainer } from "../node/services/serviceContainer";
+import { VERSION } from "../version";
+import { getLatticeHome, migrateLegacyLatticeHome } from "../common/constants/paths";
+import type { LatticeDeepLinkPayload } from "../common/types/deepLink";
+import type { UpdateStatus } from "../common/orpc/types";
+import { parseLatticeDeepLink } from "../common/utils/deepLink";
 
-import assert from "@/common/utils/assert";
-import { loadTokenizerModules } from "@/node/utils/main/tokenizer";
+import assert from "../common/utils/assert";
+import { setOpenSSHHostKeyPolicyMode } from "@/node/runtime/sshConnectionPool";
+import { loadTokenizerModules } from "../node/utils/main/tokenizer";
+import { isBashAvailable } from "../node/utils/main/bashPath";
 import windowStateKeeper from "electron-window-state";
-import { getTitleBarOptions } from "@/desktop/titleBarOptions";
+import { getTitleBarOptions } from "./titleBarOptions";
+import { isUpdateInstallInProgress } from "./updateInstallState";
+import { getErrorMessage } from "@/common/utils/errors";
 
 // React DevTools for development profiling
 // Using dynamic import() to avoid loading electron-devtools-installer at module init time
@@ -103,7 +113,7 @@ if (process.env.LATTICE_DEBUG_START_TIME === "1") {
 process.on("uncaughtException", (error: unknown) => {
   console.error("Uncaught Exception:", error);
 
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getErrorMessage(error);
   const stack = error instanceof Error ? error.stack : undefined;
 
   console.error("Stack:", stack);
@@ -122,7 +132,7 @@ process.on("unhandledRejection", (reason, promise) => {
   console.error("Reason:", reason);
 
   if (app.isPackaged) {
-    const message = reason instanceof Error ? reason.message : String(reason);
+    const message = getErrorMessage(reason);
     const stack = reason instanceof Error ? reason.stack : undefined;
     dialog.showErrorBox(
       "Unhandled Promise Rejection",
@@ -143,18 +153,111 @@ if (!gotTheLock) {
 } else {
   // This is the primary instance
   console.log("This is the primary instance");
-  app.on("second-instance", () => {
+  app.on("second-instance", (_event, argv) => {
     // Someone tried to run a second instance, focus our window instead
     console.log("Second instance attempted to start");
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+
+    try {
+      handleArgvLatticeDeepLinks(argv);
+    } catch (error) {
+      console.debug("[deep-link] Failed to parse second-instance argv for lattice deep links:", error);
     }
+
+    focusMainWindow();
   });
 }
 
 let mainWindow: BrowserWindow | null = null;
 let splashWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
+let latestUpdateStatus: UpdateStatus = { type: "idle" };
+let isUpdateClosePromptOpen = false;
+
+// lattice:// deep links can arrive before the main window exists / finishes loading.
+const bufferedLatticeDeepLinks: LatticeDeepLinkPayload[] = [];
+let mainWindowFinishedLoading = false;
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  // Closing Lattice on Windows hides to tray; show it again when a second-instance launch occurs.
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+function flushBufferedLatticeDeepLinks() {
+  if (!mainWindow || !mainWindowFinishedLoading) return;
+
+  while (bufferedLatticeDeepLinks.length > 0) {
+    const payload = bufferedLatticeDeepLinks[0];
+    try {
+      mainWindow.webContents.send("lattice:deep-link", payload);
+      bufferedLatticeDeepLinks.shift();
+    } catch (error) {
+      // Best-effort: never crash startup if the renderer isn't ready.
+      console.debug("[deep-link] Failed to send lattice deep link payload:", error);
+      return;
+    }
+  }
+}
+
+function handleLatticeDeepLink(raw: string) {
+  try {
+    const payload = parseLatticeDeepLink(raw);
+    if (!payload) return;
+
+    // Buffer until the renderer has finished loading.
+    if (!mainWindow || !mainWindowFinishedLoading) {
+      bufferedLatticeDeepLinks.push(payload);
+      return;
+    }
+
+    mainWindow.webContents.send("lattice:deep-link", payload);
+  } catch (error) {
+    // Best-effort: never crash startup if argv parsing/protocol handling is weird.
+    console.debug(`[deep-link] Failed to handle lattice deep link: ${raw}`, error);
+  }
+}
+
+function handleArgvLatticeDeepLinks(argv: string[]) {
+  for (const arg of argv) {
+    if (arg.startsWith("lattice:")) {
+      handleLatticeDeepLink(arg);
+    }
+  }
+}
+
+// macOS deep links arrive via open-url (must be registered before ready)
+if (process.platform === "darwin") {
+  app.on("open-url", (event, url) => {
+    event.preventDefault();
+    handleLatticeDeepLink(url);
+    focusMainWindow();
+  });
+}
+
+// Initial launch: Windows/Linux deep links are passed in argv.
+try {
+  handleArgvLatticeDeepLinks(process.argv);
+} catch (error) {
+  console.debug("[deep-link] Failed to parse initial argv for lattice deep links:", error);
+}
+
+function registerLatticeProtocolClient() {
+  try {
+    if (!app.isPackaged && process.defaultApp && process.argv[1]) {
+      // On Windows dev builds, Electron needs the executable + app path to register.
+      app.setAsDefaultProtocolClient("lattice", process.execPath, [path.resolve(process.argv[1])]);
+      return;
+    }
+
+    app.setAsDefaultProtocolClient("lattice");
+  } catch (error) {
+    // Best-effort: never crash startup if protocol registration fails.
+    console.debug("[deep-link] Failed to register lattice:// protocol handler:", error);
+  }
+}
 
 /**
  * Format timestamp as HH:MM:SS.mmm for readable logging
@@ -198,7 +301,8 @@ function createMenu() {
         { role: "toggleDevTools" },
         { type: "separator" },
         { role: "resetZoom" },
-        { role: "zoomIn" },
+        // Bind zoom-in to Ctrl/Cmd+= so the standard shortcut works without requiring Shift.
+        { role: "zoomIn", accelerator: "CommandOrControl+=" },
         { role: "zoomOut" },
         { type: "separator" },
         {
@@ -243,6 +347,124 @@ function createMenu() {
 }
 
 /**
+ * System tray (Windows/Linux) / menu bar (macOS) icon.
+ *
+ * - macOS: use a template image (always the black asset) so the system
+ *   automatically adapts to light/dark menu bar appearances.
+ * - Windows/Linux: switch between black/white assets based on the OS theme.
+ *
+ * Tray icon assets are expected in the built dist root (copied from /public),
+ * alongside splash.html.
+ */
+function getTrayIconPath(): string {
+  if (process.platform === "darwin") {
+    return path.join(__dirname, "../tray-icon-black.png");
+  }
+
+  const fileName = nativeTheme.shouldUseDarkColors ? "tray-icon-white.png" : "tray-icon-black.png";
+  return path.join(__dirname, `../${fileName}`);
+}
+
+function loadTrayIconImage() {
+  const iconPath = getTrayIconPath();
+
+  // Tray icons are 24×24 PNGs with cropped viewBox. We manually add @2x and
+  // @3x representations so macOS picks the sharpest variant for the display's
+  // scale factor. Electron auto-detects @2x from the path naming convention
+  // but only when both files exist – and it doesn't look for @3x at all.
+  const image = nativeImage.createFromPath(iconPath);
+
+  if (image.isEmpty()) {
+    console.warn(`[${timestamp()}] [tray] Tray icon missing or unreadable: ${iconPath}`);
+    return null;
+  }
+
+  for (const scaleFactor of [2, 3] as const) {
+    const hqPath = iconPath.replace(/\.png$/, `@${scaleFactor}x.png`);
+    const hqImage = nativeImage.createFromPath(hqPath);
+    if (!hqImage.isEmpty()) {
+      image.addRepresentation({ scaleFactor, buffer: hqImage.toPNG() });
+    }
+  }
+
+  if (process.platform === "darwin") {
+    image.setTemplateImage(true);
+  }
+
+  return image;
+}
+
+function openLatticeFromTray() {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    return;
+  }
+
+  // On macOS the app stays open after all windows are closed; recreate the window.
+  if (process.platform === "darwin") {
+    if (!services) {
+      console.warn(`[${timestamp()}] [tray] Cannot open lattice (services not loaded yet)`);
+      return;
+    }
+
+    createWindow();
+  }
+}
+
+function updateTrayIcon() {
+  if (!tray) return;
+
+  const image = loadTrayIconImage();
+  if (!image) {
+    return;
+  }
+
+  tray.setImage(image);
+}
+
+function createTray() {
+  if (tray) return;
+
+  const image = loadTrayIconImage();
+  if (!image) {
+    console.warn(`[${timestamp()}] [tray] Skipping tray creation (icon unavailable)`);
+    return;
+  }
+
+  try {
+    tray = new Tray(image);
+  } catch (error) {
+    console.warn(`[${timestamp()}] [tray] Failed to create tray:`, error);
+    tray = null;
+    return;
+  }
+
+  const menu = Menu.buildFromTemplate([
+    {
+      label: "Open lattice",
+      click: () => {
+        openLatticeFromTray();
+      },
+    },
+    {
+      label: "Exit",
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setContextMenu(menu);
+
+  // Best-effort: update tray icon when OS appearance changes.
+  nativeTheme.on("updated", () => {
+    updateTrayIcon();
+  });
+}
+
+/**
  * Create and show splash screen - instant visual feedback (<100ms)
  *
  * Shows a lightweight native window with static HTML while services load.
@@ -253,11 +475,11 @@ async function showSplashScreen() {
   console.log(`[${timestamp()}] Showing splash screen...`);
 
   splashWindow = new BrowserWindow({
-    width: 420,
-    height: 320,
+    width: 400,
+    height: 300,
     frame: false,
     transparent: false,
-    backgroundColor: "#1A1917", // Match splash HTML background - warm dark theme
+    backgroundColor: "#1f1f1f", // Match splash HTML background (hsl(0 0% 12%)) - prevents white flash
     alwaysOnTop: true,
     center: true,
     resizable: false,
@@ -323,21 +545,24 @@ async function loadServices(): Promise<void> {
     { ServiceContainer: ServiceContainerClass },
     { TerminalWindowManager: TerminalWindowManagerClass },
   ] = await Promise.all([
-    import("@/node/config"),
-    import("@/node/services/serviceContainer"),
-    import("@/desktop/terminalWindowManager"),
+    import("../node/config"),
+    import("../node/services/serviceContainer"),
+    import("./terminalWindowManager"),
   ]);
   /* eslint-enable no-restricted-syntax */
   config = new ConfigClass();
 
   services = new ServiceContainerClass(config);
+  // Desktop bootstrap owns interactive host-key trust policy
+  setOpenSSHHostKeyPolicyMode("strict");
   await services.initialize();
+  // Keep the latest update status in main so close-to-tray can prompt for installs.
+  services.updateService.onStatus((status) => {
+    latestUpdateStatus = status;
+  });
 
   // Generate auth token (use env var or random per-session)
-  const authToken =
-    process.env.LATTICE_SERVER_AUTH_TOKEN ??
-    process.env.LATTICE_SERVER_AUTH_TOKEN ??
-    randomBytes(32).toString("hex");
+  const authToken = process.env.LATTICE_SERVER_AUTH_TOKEN ?? randomBytes(32).toString("hex");
 
   // Store auth token so the API server can be restarted via Settings.
   services.serverService.setApiAuthToken(authToken);
@@ -354,43 +579,7 @@ async function loadServices(): Promise<void> {
     ],
   });
 
-  // Build the oRPC context with all services
-  const orpcContext = {
-    config: services.config,
-    aiService: services.aiService,
-    projectService: services.projectService,
-    workspaceService: services.workspaceService,
-    taskService: services.taskService,
-    providerService: services.providerService,
-    terminalService: services.terminalService,
-    editorService: services.editorService,
-    windowService: services.windowService,
-    updateService: services.updateService,
-    tokenizerService: services.tokenizerService,
-    serverService: services.serverService,
-    featureFlagService: services.featureFlagService,
-    sessionTimingService: services.sessionTimingService,
-    workspaceMcpOverridesService: services.workspaceMcpOverridesService,
-    mcpConfigService: services.mcpConfigService,
-    mcpServerManager: services.mcpServerManager,
-    menuEventService: services.menuEventService,
-    voiceService: services.voiceService,
-    telemetryService: services.telemetryService,
-    experimentsService: services.experimentsService,
-    sessionUsageService: services.sessionUsageService,
-    signingService: services.signingService,
-    latticeService: services.latticeService,
-    inferenceService: services.inferenceService,
-    inferenceSetupService: services.inferenceSetupService,
-    channelService: services.channelService,
-    channelSessionRouter: services.channelSessionRouter,
-    browserSessionManager: services.browserSessionManager,
-    pluginPackService: services.pluginPackService,
-    cliAgentDetectionService: services.cliAgentDetectionService,
-    cliAgentOrchestrationService: services.cliAgentOrchestrationService,
-    cliAgentPreferencesService: services.cliAgentPreferencesService,
-    terminalScrollbackService: services.terminalScrollbackService,
-  };
+  const orpcContext = services.toORPCContext();
 
   electronIpcMain.handle("lattice:get-is-rosetta", async () => {
     if (process.platform !== "darwin") {
@@ -422,29 +611,40 @@ async function loadServices(): Promise<void> {
       );
     };
 
+    // Check if the default shell appears to be WSL.
+    let looksLikeWsl = false;
+
     const envShell = process.env.SHELL?.trim();
     if (envShell && isWslLauncher(normalize(envShell))) {
-      return true;
+      looksLikeWsl = true;
+    } else {
+      try {
+        // Intentionally lazy import to keep startup fast and avoid bundling concerns.
+        // eslint-disable-next-line no-restricted-syntax -- main-process-only builtin
+        const { execSync } = await import("node:child_process");
+        const result = execSync("where bash", {
+          encoding: "utf8",
+          stdio: ["pipe", "pipe", "ignore"],
+          windowsHide: true,
+        });
+        const firstPath = result
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .find((line) => line.length > 0);
+
+        looksLikeWsl = firstPath ? isWslLauncher(normalize(firstPath)) : false;
+      } catch {
+        // Ignore
+      }
     }
 
-    try {
-      // Intentionally lazy import to keep startup fast and avoid bundling concerns.
-      // eslint-disable-next-line no-restricted-syntax -- main-process-only builtin
-      const { execSync } = await import("node:child_process");
-      const result = execSync("where bash", {
-        encoding: "utf8",
-        stdio: ["pipe", "pipe", "ignore"],
-        windowsHide: true,
-      });
-      const firstPath = result
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .find((line) => line.length > 0);
-
-      return firstPath ? isWslLauncher(normalize(firstPath)) : false;
-    } catch {
+    // Even if WSL is the default, don't warn if Git for Windows bash is available
+    // (Lattice will use that instead).
+    if (looksLikeWsl && isBashAvailable()) {
       return false;
     }
+
+    return looksLikeWsl;
   });
 
   electronIpcMain.on("start-orpc-server", (event) => {
@@ -510,9 +710,10 @@ async function loadServices(): Promise<void> {
     if (!win) return null;
 
     const res = await dialog.showOpenDialog(win, {
-      properties: ["openDirectory", "createDirectory", "showHiddenFiles"],
-      title: "Select Headquarter Directory",
-      buttonLabel: "Select Headquarter",
+      // Hide hidden entries so the new-project picker stays focused on visible folders.
+      properties: ["openDirectory", "createDirectory"],
+      title: "Select Project Directory",
+      buttonLabel: "Select Project",
     });
 
     return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0];
@@ -533,6 +734,8 @@ async function loadServices(): Promise<void> {
 
 function createWindow() {
   assert(services, "Services must be loaded before creating window");
+
+  mainWindowFinishedLoading = false;
 
   // Calculate default window size (80% of screen)
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -555,10 +758,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, "../preload.js"),
-      // Enable <webview> tag for embedding live browser sessions in the BrowserTab panel
-      webviewTag: true,
     },
-    title: "LATTICE WORKBENCH",
+    title: "lattice - Lattice Workbench",
     // Hide menu bar on Linux by default (like VS Code)
     // User can press Alt to toggle it
     autoHideMenuBar: process.platform === "linux",
@@ -567,12 +768,68 @@ function createWindow() {
     ...getTitleBarOptions(),
   });
 
+
+
   // Track window state (handles resize, move, maximize, fullscreen)
   windowState.manage(mainWindow);
 
   // Register window service with the main window
   console.log(`[${timestamp()}] [window] Registering window service...`);
   services.windowService.setMainWindow(mainWindow);
+
+  mainWindow.on("close", (event) => {
+    // Close-to-tray behavior: when the user closes the main window, keep lattice
+    // running in the tray/menu bar so it can be re-opened from there.
+    //
+    // Only hide when the tray exists to avoid trapping the user with no UI path
+    // to restore the app.
+    if (isQuitting || isUpdateInstallInProgress() || !tray) {
+      return;
+    }
+
+    if (latestUpdateStatus.type === "downloaded") {
+      // If an update is ready, prompt before hiding to tray so users can install immediately.
+      event.preventDefault();
+
+      if (isUpdateClosePromptOpen) {
+        return;
+      }
+
+      isUpdateClosePromptOpen = true;
+      const messageBoxOptions: MessageBoxOptions = {
+        type: "question",
+        buttons: ["Install & restart", "Later", "Cancel"],
+        defaultId: 0,
+        cancelId: 2,
+        message: "An update is ready to install.",
+        detail: "Install now to restart and apply the update, or keep Lattice running in the tray.",
+      };
+
+      const promptWindow = mainWindow;
+      const prompt = promptWindow
+        ? dialog.showMessageBox(promptWindow, messageBoxOptions)
+        : dialog.showMessageBox(messageBoxOptions);
+
+      void prompt
+        .then(({ response }) => {
+          if (response === 0) {
+            services?.updateService.install();
+            return;
+          }
+
+          if (response === 1) {
+            mainWindow?.hide();
+          }
+        })
+        .finally(() => {
+          isUpdateClosePromptOpen = false;
+        });
+      return;
+    }
+
+    event.preventDefault();
+    mainWindow?.hide();
+  });
 
   // Show window once it's ready and close splash
   console.time("main window startup");
@@ -626,6 +883,9 @@ function createWindow() {
     console.timeEnd("[window] Content load");
     console.log(`[${timestamp()}] [window] Content finished loading`);
 
+    mainWindowFinishedLoading = true;
+    flushBufferedLatticeDeepLinks();
+
     // NOTE: Tokenizer modules are NOT loaded at startup anymore!
     // The Proxy in tokenizer.ts loads them on-demand when first accessed.
     // This reduces startup time from ~8s to <1s.
@@ -634,6 +894,7 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    mainWindowFinishedLoading = false;
   });
 }
 
@@ -643,7 +904,9 @@ if (gotTheLock) {
     try {
       console.log("App ready, creating window...");
 
-      // Migrate from legacy to .lattice directory structure if needed
+      registerLatticeProtocolClient();
+
+      // Migrate from .clattice to .lattice directory structure if needed
       migrateLegacyLatticeHome();
 
       // Install React DevTools in development
@@ -675,6 +938,7 @@ if (gotTheLock) {
       }
       await loadServices();
       createWindow();
+      createTray();
       // Note: splash closes in ready-to-show event handler
 
       // Tokenizer modules load in background after did-finish-load event (see createWindow())
@@ -701,6 +965,21 @@ if (gotTheLock) {
   let isDisposing = false;
 
   app.on("before-quit", (event) => {
+    // Ensure window close handlers don't block an explicit quit.
+    // IMPORTANT: must be set before any early returns.
+    isQuitting = true;
+    if (isUpdateInstallInProgress()) {
+      // Don't block updater-driven quitAndInstall() — let Electron quit immediately
+      // so the platform installer can take over. Best-effort cleanup only.
+      if (services && !isDisposing) {
+        isDisposing = true;
+        void services.dispose().catch((err) => {
+          console.error("Error during ServiceContainer dispose (update install):", err);
+        });
+      }
+      return;
+    }
+
     // Skip if already disposing or no services to clean up
     if (isDisposing || !services) {
       return;
@@ -736,10 +1015,12 @@ if (gotTheLock) {
   });
 
   app.on("activate", () => {
-    // Skip splash on reactivation - services already loaded, window creation is fast
-    // Guard: services must be loaded (prevents race if activate fires during startup)
-    if (app.isReady() && mainWindow === null && services) {
-      createWindow();
+    // Skip splash on reactivation - services already loaded, window creation is fast.
+    // Clicking the Dock icon should also re-open the existing window if it was
+    // hidden by close-to-tray.
+    // Guard: services must be loaded (prevents race if activate fires during startup).
+    if (app.isReady() && services) {
+      openLatticeFromTray();
     }
   });
 }

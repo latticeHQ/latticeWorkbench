@@ -1,28 +1,10 @@
-import { defineConfig, createLogger } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import topLevelAwait from "vite-plugin-top-level-await";
 import svgr from "vite-plugin-svgr";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import { fileURLToPath } from "url";
-
-// Custom logger that suppresses noisy EPIPE/ECONNRESET proxy errors during dev.
-// These are harmless race conditions when WebSocket reconnects before the backend is ready.
-const logger = createLogger();
-const originalError = logger.error.bind(logger);
-logger.error = (msg, options) => {
-  if (typeof msg === "string" && (msg.includes("EPIPE") || msg.includes("ECONNRESET"))) {
-    return; // Suppress
-  }
-  originalError(msg, options);
-};
-const originalWarn = logger.warn.bind(logger);
-logger.warn = (msg, options) => {
-  if (typeof msg === "string" && (msg.includes("ws proxy error") || msg.includes("ws proxy socket error"))) {
-    return; // Suppress
-  }
-  originalWarn(msg, options);
-};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const disableMermaid = process.env.VITE_DISABLE_MERMAID === "1";
@@ -128,16 +110,16 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    customLogger: logger,
     // This prevents mermaid initialization errors in production while allowing dev to work
     plugins: mode === "development" ? [...basePlugins, topLevelAwait()] : basePlugins,
     resolve: {
       alias: aliasMap,
     },
-    ...(isProfiling ? { define: { __PROFILE__: "true" } } : {}),
-    // When embedded in latticeRuntime, Lattice is served at /app/*.
-    // Use env var to switch between standalone ("./") and embedded ("/app/") mode.
-    base: process.env.LATTICE_EMBED ? "/app/" : "./",
+    define: {
+      "globalThis.__LATTICE_MD_URL_OVERRIDE__": JSON.stringify(process.env.LATTICE_MD_URL_OVERRIDE ?? ""),
+      ...(isProfiling ? { __PROFILE__: "true" } : {}),
+    },
+    base: "./",
     build: {
       outDir: "dist",
       assetsDir: ".",
@@ -182,36 +164,29 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/orpc": {
           target: backendProxyTarget,
-          changeOrigin: true,
+          // Preserve the original Host so backend origin validation compares against
+          // the public dev-server origin (localhost:5173) instead of 127.0.0.1:3000.
+          changeOrigin: false,
           ws: true,
-          configure: (proxy) => {
-            proxy.on("error", () => {});
-            proxy.on("proxyReqWs", (_proxyReq, _req, socket) => {
-              socket.on("error", () => {});
-            });
-          },
         },
         "/api": {
           target: backendProxyTarget,
-          changeOrigin: true,
-          configure: (proxy) => { proxy.on("error", () => {}); },
+          // Preserve Host for backend origin validation (same rationale as /orpc).
+          changeOrigin: false,
         },
         "/auth": {
           target: backendProxyTarget,
-          // Preserve the original Host so Lattice can generate OAuth redirect URLs that
+          // Preserve the original Host so lattice can generate OAuth redirect URLs that
           // point back to the public dev-server origin (not 127.0.0.1:3000).
           changeOrigin: false,
-          configure: (proxy) => { proxy.on("error", () => {}); },
         },
         "/health": {
           target: backendProxyTarget,
           changeOrigin: true,
-          configure: (proxy) => { proxy.on("error", () => {}); },
         },
         "/version": {
           target: backendProxyTarget,
           changeOrigin: true,
-          configure: (proxy) => { proxy.on("error", () => {}); },
         },
       },
       sourcemapIgnoreList: () => false, // Show all sources in DevTools

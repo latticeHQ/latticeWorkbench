@@ -4,7 +4,7 @@ import React, { Component } from "react";
 interface Props {
   children: ReactNode;
   fallback?: ReactNode;
-  workspaceInfo?: string;
+  minionInfo?: string;
 }
 
 interface State {
@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="bg-error-bg-dark border-danger-soft text-danger-soft m-5 rounded border p-5">
           <h3 className="m-0 mb-2.5 text-base">
-            Something went wrong{this.props.workspaceInfo && ` in ${this.props.workspaceInfo}`}
+            Something went wrong{this.props.minionInfo && ` in ${this.props.minionInfo}`}
           </h3>
           {this.state.error && (
             <pre className="my-2.5 rounded-sm bg-black/30 p-2.5 text-xs break-all whitespace-pre-wrap">

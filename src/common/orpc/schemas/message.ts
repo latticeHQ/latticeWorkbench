@@ -45,7 +45,8 @@ export const NestedToolCallSchema = z.object({
   toolName: z.string(),
   input: z.unknown(),
   output: z.unknown().optional(),
-  state: z.enum(["input-available", "output-available"]),
+  state: z.enum(["input-available", "output-available", "output-redacted"]),
+  failed: z.boolean().optional(),
   timestamp: z.number().optional(),
 });
 
@@ -62,10 +63,16 @@ export const DynamicToolPartAvailableSchema = LatticeToolPartBase.extend({
   output: z.unknown(),
   nestedCalls: z.array(NestedToolCallSchema).optional(),
 });
+export const DynamicToolPartRedactedSchema = LatticeToolPartBase.extend({
+  state: z.literal("output-redacted"),
+  failed: z.boolean().optional(),
+  nestedCalls: z.array(NestedToolCallSchema).optional(),
+});
 
 export const DynamicToolPartSchema = z.discriminatedUnion("state", [
   DynamicToolPartAvailableSchema,
   DynamicToolPartPendingSchema,
+  DynamicToolPartRedactedSchema,
 ]);
 
 // Alias for message schemas
@@ -78,6 +85,14 @@ export const LatticeFilePartSchema = FilePartSchema.extend({
 // Export types inferred from schemas for reuse across app/test code.
 export type FilePart = z.infer<typeof FilePartSchema>;
 export type LatticeFilePart = z.infer<typeof LatticeFilePartSchema>;
+
+const CompactionEpochSchema = z.optional(
+  z.preprocess(
+    (value) =>
+      typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined,
+    z.number().int().positive().or(z.undefined())
+  )
+);
 
 // LatticeMessage (simplified)
 export const LatticeMessageSchema = z.object({
@@ -97,26 +112,39 @@ export const LatticeMessageSchema = z.object({
       historySequence: z.number().optional(),
       timestamp: z.number().optional(),
       model: z.string().optional(),
+      thinkingLevel: z.enum(["off", "low", "medium", "high", "xhigh", "max"]).optional(),
       usage: z.any().optional(),
       contextUsage: z.any().optional(),
       providerMetadata: z.record(z.string(), z.unknown()).optional(),
       contextProviderMetadata: z.record(z.string(), z.unknown()).optional(),
       duration: z.number().optional(),
+      ttftMs: z.number().optional(),
       systemMessageTokens: z.number().optional(),
       latticeMetadata: z.any().optional(),
       clatticeMetadata: z.any().optional(), // Legacy field for backward compatibility
+      // ACP prompt correlation id for reconnect/diagnostic continuity.
+      acpPromptId: z.string().optional(),
       // Compaction source: "user" (manual), "idle" (auto), or legacy boolean (true)
       compacted: z.union([z.literal("user"), z.literal("idle"), z.boolean()]).optional(),
+      // Monotonic compaction epoch id. Incremented whenever compaction succeeds.
+      // Self-healing read path: malformed persisted compactionEpoch is ignored.
+      compactionEpoch: CompactionEpochSchema,
+      // Durable boundary marker for compaction summaries.
+      compactionBoundary: z.boolean().optional(),
       toolPolicy: z.any().optional(),
+      disableMinionAgents: z.boolean().optional(),
+      retrySendOptions: z.any().optional(),
       agentId: AgentIdSchema.optional().catch(undefined),
       partial: z.boolean().optional(),
       synthetic: z.boolean().optional(),
+      uiVisible: z.boolean().optional(),
 
       agentSkillSnapshot: z
         .object({
           skillName: SkillNameSchema,
           scope: AgentSkillScopeSchema,
           sha256: z.string(),
+          frontmatterYaml: z.string().optional(),
         })
         .optional(),
       error: z.string().optional(),

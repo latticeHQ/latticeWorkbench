@@ -7193,7 +7193,7 @@
     "supports_system_messages": true,
     "supports_tool_choice": false
   },
-  "dashscope/qwen-coder": {
+  "dashscope/qwen-lattice": {
     "input_cost_per_token": 3e-7,
     "litellm_provider": "dashscope",
     "max_input_tokens": 1000000,
@@ -7460,7 +7460,7 @@
     "supports_reasoning": true,
     "supports_tool_choice": true
   },
-  "dashscope/qwen3-coder-flash": {
+  "dashscope/qwen3-lattice-flash": {
     "litellm_provider": "dashscope",
     "max_input_tokens": 997952,
     "max_output_tokens": 65536,
@@ -7497,7 +7497,7 @@
       }
     ]
   },
-  "dashscope/qwen3-coder-flash-2025-07-28": {
+  "dashscope/qwen3-lattice-flash-2025-07-28": {
     "litellm_provider": "dashscope",
     "max_input_tokens": 997952,
     "max_output_tokens": 65536,
@@ -7530,7 +7530,7 @@
       }
     ]
   },
-  "dashscope/qwen3-coder-plus": {
+  "dashscope/qwen3-lattice-plus": {
     "litellm_provider": "dashscope",
     "max_input_tokens": 997952,
     "max_output_tokens": 65536,
@@ -7567,7 +7567,7 @@
       }
     ]
   },
-  "dashscope/qwen3-coder-plus-2025-07-22": {
+  "dashscope/qwen3-lattice-plus-2025-07-22": {
     "litellm_provider": "dashscope",
     "max_input_tokens": 997952,
     "max_output_tokens": 65536,
@@ -8676,7 +8676,7 @@
     "mode": "chat",
     "supports_tool_choice": true
   },
-  "deepinfra/Qwen/Qwen3-Coder-480B-A35B-Instruct": {
+  "deepinfra/Qwen/Qwen3-Lattice-480B-A35B-Instruct": {
     "max_tokens": 262144,
     "max_input_tokens": 262144,
     "max_output_tokens": 262144,
@@ -8686,7 +8686,7 @@
     "mode": "chat",
     "supports_tool_choice": true
   },
-  "deepinfra/Qwen/Qwen3-Coder-480B-A35B-Instruct-Turbo": {
+  "deepinfra/Qwen/Qwen3-Lattice-480B-A35B-Instruct-Turbo": {
     "max_tokens": 262144,
     "max_input_tokens": 262144,
     "max_output_tokens": 262144,
@@ -9238,7 +9238,7 @@
     "supports_prompt_caching": true,
     "supports_tool_choice": true
   },
-  "deepseek/deepseek-coder": {
+  "deepseek/deepseek-lattice": {
     "input_cost_per_token": 1.4e-7,
     "input_cost_per_token_cache_hit": 1.4e-8,
     "litellm_provider": "deepseek",
@@ -10010,7 +10010,7 @@
     "output_cost_per_token": 0,
     "source": "https://fireworks.ai/pricing"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-v2-instruct": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-v2-instruct": {
     "input_cost_per_token": 0.0000012,
     "litellm_provider": "fireworks_ai",
     "max_input_tokens": 65536,
@@ -10375,7 +10375,7 @@
     "supports_response_schema": true,
     "supports_tool_choice": false
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-32b-instruct": {
     "input_cost_per_token": 9e-7,
     "litellm_provider": "fireworks_ai",
     "max_input_tokens": 4096,
@@ -16955,7 +16955,7 @@
     "supported_modalities": ["text"],
     "supports_tool_choice": false
   },
-  "lemonade/Qwen3-Coder-30B-A3B-Instruct-GGUF": {
+  "lemonade/Qwen3-Lattice-30B-A3B-Instruct-GGUF": {
     "input_cost_per_token": 0,
     "litellm_provider": "lemonade",
     "max_tokens": 32768,
@@ -17331,7 +17331,7 @@
     "supports_system_messages": true,
     "supports_tool_choice": true
   },
-  "hyperbolic/Qwen/Qwen2.5-Coder-32B-Instruct": {
+  "hyperbolic/Qwen/Qwen2.5-Lattice-32B-Instruct": {
     "input_cost_per_token": 1.2e-7,
     "litellm_provider": "hyperbolic",
     "max_input_tokens": 32768,
@@ -17917,7 +17917,7 @@
     "supports_system_messages": true,
     "supports_tool_choice": true
   },
-  "lambda_ai/qwen25-coder-32b-instruct": {
+  "lambda_ai/qwen25-lattice-32b-instruct": {
     "input_cost_per_token": 5e-8,
     "litellm_provider": "lambda_ai",
     "max_input_tokens": 131072,
@@ -19361,21 +19361,21 @@
     "output_cost_per_token": 2e-7,
     "source": "https://docs.nscale.com/docs/inference/serverless-models/current#chat-models"
   },
-  "nscale/Qwen/Qwen2.5-Coder-32B-Instruct": {
+  "nscale/Qwen/Qwen2.5-Lattice-32B-Instruct": {
     "input_cost_per_token": 6e-8,
     "litellm_provider": "nscale",
     "mode": "chat",
     "output_cost_per_token": 2e-7,
     "source": "https://docs.nscale.com/docs/inference/serverless-models/current#chat-models"
   },
-  "nscale/Qwen/Qwen2.5-Coder-3B-Instruct": {
+  "nscale/Qwen/Qwen2.5-Lattice-3B-Instruct": {
     "input_cost_per_token": 1e-8,
     "litellm_provider": "nscale",
     "mode": "chat",
     "output_cost_per_token": 3e-8,
     "source": "https://docs.nscale.com/docs/inference/serverless-models/current#chat-models"
   },
-  "nscale/Qwen/Qwen2.5-Coder-7B-Instruct": {
+  "nscale/Qwen/Qwen2.5-Lattice-7B-Instruct": {
     "input_cost_per_token": 1e-8,
     "litellm_provider": "nscale",
     "mode": "chat",
@@ -20120,7 +20120,7 @@
     "mode": "completion",
     "output_cost_per_token": 0
   },
-  "ollama/deepseek-coder-v2-base": {
+  "ollama/deepseek-lattice-v2-base": {
     "input_cost_per_token": 0,
     "litellm_provider": "ollama",
     "max_input_tokens": 8192,
@@ -20130,7 +20130,7 @@
     "output_cost_per_token": 0,
     "supports_function_calling": true
   },
-  "ollama/deepseek-coder-v2-instruct": {
+  "ollama/deepseek-lattice-v2-instruct": {
     "input_cost_per_token": 0,
     "litellm_provider": "ollama",
     "max_input_tokens": 32768,
@@ -20140,7 +20140,7 @@
     "output_cost_per_token": 0,
     "supports_function_calling": true
   },
-  "ollama/deepseek-coder-v2-lite-base": {
+  "ollama/deepseek-lattice-v2-lite-base": {
     "input_cost_per_token": 0,
     "litellm_provider": "ollama",
     "max_input_tokens": 8192,
@@ -20150,7 +20150,7 @@
     "output_cost_per_token": 0,
     "supports_function_calling": true
   },
-  "ollama/deepseek-coder-v2-lite-instruct": {
+  "ollama/deepseek-lattice-v2-lite-instruct": {
     "input_cost_per_token": 0,
     "litellm_provider": "ollama",
     "max_input_tokens": 32768,
@@ -20351,7 +20351,7 @@
     "mode": "completion",
     "output_cost_per_token": 0
   },
-  "ollama/qwen3-coder:480b-cloud": {
+  "ollama/qwen3-lattice:480b-cloud": {
     "input_cost_per_token": 0,
     "litellm_provider": "ollama",
     "max_input_tokens": 262144,
@@ -20821,7 +20821,7 @@
     "supports_reasoning": false,
     "supports_tool_choice": true
   },
-  "openrouter/deepseek/deepseek-coder": {
+  "openrouter/deepseek/deepseek-lattice": {
     "input_cost_per_token": 1.4e-7,
     "litellm_provider": "openrouter",
     "max_input_tokens": 66000,
@@ -21717,7 +21717,7 @@
     "output_cost_per_token": 0.000001875,
     "supports_tool_choice": true
   },
-  "openrouter/qwen/qwen-2.5-coder-32b-instruct": {
+  "openrouter/qwen/qwen-2.5-lattice-32b-instruct": {
     "input_cost_per_token": 1.8e-7,
     "litellm_provider": "openrouter",
     "max_input_tokens": 33792,
@@ -21738,7 +21738,7 @@
     "supports_tool_choice": true,
     "supports_vision": true
   },
-  "openrouter/qwen/qwen3-coder": {
+  "openrouter/qwen/qwen3-lattice": {
     "input_cost_per_token": 2.2e-7,
     "litellm_provider": "openrouter",
     "max_input_tokens": 262100,
@@ -21746,7 +21746,7 @@
     "max_tokens": 262100,
     "mode": "chat",
     "output_cost_per_token": 9.5e-7,
-    "source": "https://openrouter.ai/qwen/qwen3-coder",
+    "source": "https://openrouter.ai/qwen/qwen3-lattice",
     "supports_tool_choice": true,
     "supports_function_calling": true
   },
@@ -21929,7 +21929,7 @@
     "supports_response_schema": true,
     "supports_tool_choice": false
   },
-  "ovhcloud/Qwen2.5-Coder-32B-Instruct": {
+  "ovhcloud/Qwen2.5-Lattice-32B-Instruct": {
     "input_cost_per_token": 8.7e-7,
     "litellm_provider": "ovhcloud",
     "max_input_tokens": 32000,
@@ -21937,7 +21937,7 @@
     "max_tokens": 32000,
     "mode": "chat",
     "output_cost_per_token": 8.7e-7,
-    "source": "https://endpoints.ai.cloud.ovh.net/models/qwen2-5-coder-32b-instruct",
+    "source": "https://endpoints.ai.cloud.ovh.net/models/qwen2-5-lattice-32b-instruct",
     "supports_function_calling": false,
     "supports_response_schema": true,
     "supports_tool_choice": false
@@ -22470,7 +22470,7 @@
     "supports_tool_choice": true,
     "supports_reasoning": true
   },
-  "qwen.qwen3-coder-480b-a35b-v1:0": {
+  "qwen.qwen3-lattice-480b-a35b-v1:0": {
     "input_cost_per_token": 2.2e-7,
     "litellm_provider": "bedrock_converse",
     "max_input_tokens": 262000,
@@ -22494,7 +22494,7 @@
     "supports_reasoning": true,
     "supports_tool_choice": true
   },
-  "qwen.qwen3-coder-30b-a3b-v1:0": {
+  "qwen.qwen3-lattice-30b-a3b-v1:0": {
     "input_cost_per_token": 1.5e-7,
     "litellm_provider": "bedrock_converse",
     "max_input_tokens": 262144,
@@ -24169,13 +24169,13 @@
     "supports_parallel_function_calling": false,
     "supports_tool_choice": false
   },
-  "together_ai/Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8": {
+  "together_ai/Qwen/Qwen3-Lattice-480B-A35B-Instruct-FP8": {
     "input_cost_per_token": 0.000002,
     "litellm_provider": "together_ai",
     "max_input_tokens": 256000,
     "mode": "chat",
     "output_cost_per_token": 0.000002,
-    "source": "https://www.together.ai/models/qwen3-coder-480b-a35b-instruct",
+    "source": "https://www.together.ai/models/qwen3-lattice-480b-a35b-instruct",
     "supports_function_calling": true,
     "supports_parallel_function_calling": true,
     "supports_response_schema": true,
@@ -25096,7 +25096,7 @@
     "mode": "chat",
     "output_cost_per_token": 3e-7
   },
-  "vercel_ai_gateway/alibaba/qwen3-coder": {
+  "vercel_ai_gateway/alibaba/qwen3-lattice": {
     "input_cost_per_token": 4e-7,
     "litellm_provider": "vercel_ai_gateway",
     "max_input_tokens": 262144,
@@ -25353,7 +25353,7 @@
     "mode": "embedding",
     "output_cost_per_token": 0
   },
-  "vercel_ai_gateway/inception/mercury-coder-small": {
+  "vercel_ai_gateway/inception/mercury-lattice-small": {
     "input_cost_per_token": 2.5e-7,
     "litellm_provider": "vercel_ai_gateway",
     "max_input_tokens": 32000,
@@ -27021,7 +27021,7 @@
     "supports_function_calling": true,
     "supports_tool_choice": true
   },
-  "vertex_ai/qwen/qwen3-coder-480b-a35b-instruct-maas": {
+  "vertex_ai/qwen/qwen3-lattice-480b-a35b-instruct-maas": {
     "input_cost_per_token": 0.000001,
     "litellm_provider": "vertex_ai-qwen_models",
     "max_input_tokens": 262144,
@@ -27345,7 +27345,7 @@
     "litellm_provider": "wandb",
     "mode": "chat"
   },
-  "wandb/Qwen/Qwen3-Coder-480B-A35B-Instruct": {
+  "wandb/Qwen/Qwen3-Lattice-480B-A35B-Instruct": {
     "max_tokens": 262144,
     "max_input_tokens": 262144,
     "max_output_tokens": 262144,
@@ -28506,7 +28506,7 @@
       "comment": "Estimated cost based on standard TTS pricing. RunwayML uses ElevenLabs models."
     }
   },
-  "fireworks_ai/accounts/fireworks/models/qwen3-coder-480b-a35b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen3-lattice-480b-a35b-instruct": {
     "max_tokens": 262144,
     "max_input_tokens": 262144,
     "max_output_tokens": 262144,
@@ -28750,7 +28750,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-1b-base": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-1b-base": {
     "max_tokens": 16384,
     "max_input_tokens": 16384,
     "max_output_tokens": 16384,
@@ -28759,7 +28759,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-33b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-33b-instruct": {
     "max_tokens": 16384,
     "max_input_tokens": 16384,
     "max_output_tokens": 16384,
@@ -28768,7 +28768,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-7b-base": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-7b-base": {
     "max_tokens": 4096,
     "max_input_tokens": 4096,
     "max_output_tokens": 4096,
@@ -28777,7 +28777,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-7b-base-v1p5": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-7b-base-v1p5": {
     "max_tokens": 4096,
     "max_input_tokens": 4096,
     "max_output_tokens": 4096,
@@ -28786,7 +28786,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-7b-instruct-v1p5": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-7b-instruct-v1p5": {
     "max_tokens": 4096,
     "max_input_tokens": 4096,
     "max_output_tokens": 4096,
@@ -28795,7 +28795,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-v2-lite-base": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-v2-lite-base": {
     "max_tokens": 163840,
     "max_input_tokens": 163840,
     "max_output_tokens": 163840,
@@ -28804,7 +28804,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/deepseek-coder-v2-lite-instruct": {
+  "fireworks_ai/accounts/fireworks/models/deepseek-lattice-v2-lite-instruct": {
     "max_tokens": 163840,
     "max_input_tokens": 163840,
     "max_output_tokens": 163840,
@@ -29183,7 +29183,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "image_generation"
   },
-  "fireworks_ai/accounts/fireworks/models/kat-coder": {
+  "fireworks_ai/accounts/fireworks/models/kat-lattice": {
     "max_tokens": 262144,
     "max_input_tokens": 262144,
     "max_output_tokens": 262144,
@@ -29930,7 +29930,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-0p5b": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-0p5b": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -29939,7 +29939,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-0p5b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-0p5b-instruct": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -29948,7 +29948,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-14b": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-14b": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -29957,7 +29957,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-14b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-14b-instruct": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -29966,7 +29966,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-1p5b": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-1p5b": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -29975,7 +29975,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-1p5b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-1p5b-instruct": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -29984,7 +29984,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-32b": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -29993,7 +29993,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct-128k": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-32b-instruct-128k": {
     "max_tokens": 131072,
     "max_input_tokens": 131072,
     "max_output_tokens": 131072,
@@ -30002,7 +30002,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct-32k-rope": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-32b-instruct-32k-rope": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -30011,7 +30011,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-32b-instruct-64k": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-32b-instruct-64k": {
     "max_tokens": 65536,
     "max_input_tokens": 65536,
     "max_output_tokens": 65536,
@@ -30020,7 +30020,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-3b": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-3b": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -30029,7 +30029,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-3b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-3b-instruct": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -30038,7 +30038,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-7b": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-7b": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -30047,7 +30047,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen2p5-coder-7b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen2p5-lattice-7b-instruct": {
     "max_tokens": 32768,
     "max_input_tokens": 32768,
     "max_output_tokens": 32768,
@@ -30247,7 +30247,7 @@
     "mode": "chat",
     "supports_reasoning": true
   },
-  "fireworks_ai/accounts/fireworks/models/qwen3-coder-30b-a3b-instruct": {
+  "fireworks_ai/accounts/fireworks/models/qwen3-lattice-30b-a3b-instruct": {
     "max_tokens": 262144,
     "max_input_tokens": 262144,
     "max_output_tokens": 262144,
@@ -30256,7 +30256,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/qwen3-coder-480b-instruct-bf16": {
+  "fireworks_ai/accounts/fireworks/models/qwen3-lattice-480b-instruct-bf16": {
     "max_tokens": 4096,
     "max_input_tokens": 4096,
     "max_output_tokens": 4096,
@@ -30436,7 +30436,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/starcoder-16b": {
+  "fireworks_ai/accounts/fireworks/models/starlattice-16b": {
     "max_tokens": 8192,
     "max_input_tokens": 8192,
     "max_output_tokens": 8192,
@@ -30445,7 +30445,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/starcoder-7b": {
+  "fireworks_ai/accounts/fireworks/models/starlattice-7b": {
     "max_tokens": 8192,
     "max_input_tokens": 8192,
     "max_output_tokens": 8192,
@@ -30454,7 +30454,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/starcoder2-15b": {
+  "fireworks_ai/accounts/fireworks/models/starlattice2-15b": {
     "max_tokens": 16384,
     "max_input_tokens": 16384,
     "max_output_tokens": 16384,
@@ -30463,7 +30463,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/starcoder2-3b": {
+  "fireworks_ai/accounts/fireworks/models/starlattice2-3b": {
     "max_tokens": 16384,
     "max_input_tokens": 16384,
     "max_output_tokens": 16384,
@@ -30472,7 +30472,7 @@
     "litellm_provider": "fireworks_ai",
     "mode": "chat"
   },
-  "fireworks_ai/accounts/fireworks/models/starcoder2-7b": {
+  "fireworks_ai/accounts/fireworks/models/starlattice2-7b": {
     "max_tokens": 16384,
     "max_input_tokens": 16384,
     "max_output_tokens": 16384,
@@ -30735,7 +30735,7 @@
     "input_cost_per_token_cache_hit": 1.1e-7,
     "supports_reasoning": true
   },
-  "novita/kwaipilot/kat-coder-pro": {
+  "novita/kwaipilot/kat-lattice-pro": {
     "litellm_provider": "novita",
     "mode": "chat",
     "input_cost_per_token": 3e-7,
@@ -30883,7 +30883,7 @@
     "supports_system_messages": true,
     "supports_response_schema": true
   },
-  "novita/qwen/qwen3-coder-480b-a35b-instruct": {
+  "novita/qwen/qwen3-lattice-480b-a35b-instruct": {
     "litellm_provider": "novita",
     "mode": "chat",
     "input_cost_per_token": 3e-7,
@@ -30897,7 +30897,7 @@
     "supports_system_messages": true,
     "supports_response_schema": true
   },
-  "novita/qwen/qwen3-coder-30b-a3b-instruct": {
+  "novita/qwen/qwen3-lattice-30b-a3b-instruct": {
     "litellm_provider": "novita",
     "mode": "chat",
     "input_cost_per_token": 7e-8,
@@ -31772,7 +31772,7 @@
     "supports_response_schema": true,
     "supports_reasoning": true
   },
-  "llamagate/qwen2.5-coder-7b": {
+  "llamagate/qwen2.5-lattice-7b": {
     "max_tokens": 8192,
     "max_input_tokens": 32768,
     "max_output_tokens": 8192,
@@ -31783,7 +31783,7 @@
     "supports_function_calling": true,
     "supports_response_schema": true
   },
-  "llamagate/deepseek-coder-6.7b": {
+  "llamagate/deepseek-lattice-6.7b": {
     "max_tokens": 4096,
     "max_input_tokens": 16384,
     "max_output_tokens": 4096,

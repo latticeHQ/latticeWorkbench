@@ -16,8 +16,13 @@ import { createSSHTransport } from "./transports";
  * Only mocks methods used by the tested code paths.
  */
 function createMockLatticeService(overrides?: Partial<LatticeService>): LatticeService {
+  const provisioningSession = {
+    token: "token",
+    dispose: mock(() => Promise.resolve()),
+  };
+
   return {
-    createWorkspace: mock(() =>
+    createMinion: mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
         // default: no output
@@ -26,12 +31,19 @@ function createMockLatticeService(overrides?: Partial<LatticeService>): LatticeS
         }
       })()
     ),
-    deleteWorkspace: mock(() => Promise.resolve()),
+    deleteMinion: mock(() => Promise.resolve()),
+    deleteMinionEventually: mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    ),
+    ensureProvisioningSession: mock(() => Promise.resolve(provisioningSession)),
+    takeProvisioningSession: mock(() => provisioningSession),
+    disposeProvisioningSession: mock(() => Promise.resolve()),
+    fetchDeploymentSshConfig: mock(() => Promise.resolve({ hostnameSuffix: "lattice" })),
     ensureSSHConfig: mock(() => Promise.resolve()),
-    getWorkspaceStatus: mock(() =>
+    getMinionStatus: mock(() =>
       Promise.resolve({ kind: "ok" as const, status: "running" as const })
     ),
-    listWorkspaces: mock(() => Promise.resolve([])),
+    listMinions: mock(() => Promise.resolve({ ok: true, minions: [] })),
     waitForStartupScripts: mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
@@ -41,7 +53,7 @@ function createMockLatticeService(overrides?: Partial<LatticeService>): LatticeS
         }
       })()
     ),
-    workspaceExists: mock(() => Promise.resolve(false)),
+    minionExists: mock(() => Promise.resolve(false)),
     ...overrides,
   } as unknown as LatticeService;
 }
@@ -51,8 +63,8 @@ function createMockLatticeService(overrides?: Partial<LatticeService>): LatticeS
  */
 function createRuntime(
   latticeConfig: {
-    existingWorkspace?: boolean;
-    workspaceName?: string;
+    existingMinion?: boolean;
+    minionName?: string;
     template?: string;
   },
   latticeService: LatticeService
@@ -63,8 +75,8 @@ function createRuntime(
     host: "placeholder.lattice",
     srcBaseDir: "~/src",
     lattice: {
-      existingWorkspace: latticeConfig.existingWorkspace ?? false,
-      workspaceName: latticeConfig.workspaceName,
+      existingMinion: latticeConfig.existingMinion ?? false,
+      minionName: latticeConfig.minionName,
       template,
     },
   };
@@ -76,16 +88,16 @@ function createRuntime(
  * Create an SSH+Lattice RuntimeConfig for finalizeConfig tests.
  */
 function createSSHLatticeConfig(lattice: {
-  existingWorkspace?: boolean;
-  workspaceName?: string;
+  existingMinion?: boolean;
+  minionName?: string;
 }): RuntimeConfig {
   return {
     type: "ssh",
     host: "placeholder.lattice",
     srcBaseDir: "~/src",
     lattice: {
-      existingWorkspace: lattice.existingWorkspace ?? false,
-      workspaceName: lattice.workspaceName,
+      existingMinion: lattice.existingMinion ?? false,
+      minionName: lattice.minionName,
       template: "default-template",
     },
   };
@@ -104,44 +116,58 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
     runtime = createRuntime({}, latticeService);
   });
 
-  describe("new workspace mode", () => {
+  describe("new minion mode", () => {
+    it("uses hostname suffix from deployment SSH config", async () => {
+      const fetchDeploymentSshConfig = mock(() => Promise.resolve({ hostnameSuffix: "corp" }));
+      latticeService = createMockLatticeService({ fetchDeploymentSshConfig });
+      runtime = createRuntime({}, latticeService);
+
+      const config = createSSHLatticeConfig({ existingMinion: false });
+      const result = await runtime.finalizeConfig("my-feature", config);
+
+      expect(result.success).toBe(true);
+      if (result.success && result.data.type === "ssh") {
+        expect(result.data.host).toBe("lattice-my-feature.corp");
+      }
+      expect(fetchDeploymentSshConfig).toHaveBeenCalled();
+    });
     it("derives Lattice name from branch name when not provided", async () => {
-      const config = createSSHLatticeConfig({ existingWorkspace: false });
+      const config = createSSHLatticeConfig({ existingMinion: false });
       const result = await runtime.finalizeConfig("my-feature", config);
 
       expect(result.success).toBe(true);
       if (result.success) {
         expect(result.data.type).toBe("ssh");
         if (result.data.type === "ssh") {
-          expect(result.data.lattice?.workspaceName).toBe("lattice-my-feature");
-          expect(result.data.host).toBe("lattice.lattice-my-feature");
+          expect(result.data.lattice?.minionName).toBe("lattice-my-feature");
+          expect(result.data.host).toBe("lattice-my-feature.lattice");
         }
       }
     });
 
     it("converts underscores to hyphens", async () => {
-      const config = createSSHLatticeConfig({ existingWorkspace: false });
+      const config = createSSHLatticeConfig({ existingMinion: false });
       const result = await runtime.finalizeConfig("my_feature_branch", config);
 
       expect(result.success).toBe(true);
       if (result.success && result.data.type === "ssh") {
-        expect(result.data.lattice?.workspaceName).toBe("lattice-my-feature-branch");
-        expect(result.data.host).toBe("lattice.lattice-my-feature-branch");
+        expect(result.data.lattice?.minionName).toBe("lattice-my-feature-branch");
+        expect(result.data.host).toBe("lattice-my-feature-branch.lattice");
       }
     });
 
     it("collapses multiple hyphens and trims leading/trailing", async () => {
-      const config = createSSHLatticeConfig({ existingWorkspace: false });
+      const config = createSSHLatticeConfig({ existingMinion: false });
       const result = await runtime.finalizeConfig("--my--feature--", config);
 
       expect(result.success).toBe(true);
       if (result.success && result.data.type === "ssh") {
-        expect(result.data.lattice?.workspaceName).toBe("lattice-my-feature");
+        expect(result.data.lattice?.minionName).toBe("lattice-my-feature");
       }
     });
 
     it("rejects names that fail regex after conversion", async () => {
-      const config = createSSHLatticeConfig({ existingWorkspace: false });
+      const config = createSSHLatticeConfig({ existingMinion: false });
       // Name with special chars that can't form a valid Lattice name (only hyphens/underscores become invalid)
       const result = await runtime.finalizeConfig("@#$%", config);
 
@@ -151,43 +177,71 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
       }
     });
 
-    it("uses provided workspaceName over branch name", async () => {
+    it("returns error when deployment SSH config fetch fails", async () => {
+      const provisioningSession = {
+        token: "token",
+        dispose: mock(() => Promise.resolve()),
+      };
+      const ensureProvisioningSession = mock(() => Promise.resolve(provisioningSession));
+      const fetchDeploymentSshConfig = mock(() => Promise.reject(new Error("nope")));
+      const disposeProvisioningSession = mock(() => Promise.resolve());
+
+      latticeService = createMockLatticeService({
+        ensureProvisioningSession,
+        fetchDeploymentSshConfig,
+        disposeProvisioningSession,
+      });
+      runtime = createRuntime({}, latticeService);
+
+      const config = createSSHLatticeConfig({ existingMinion: false });
+      const result = await runtime.finalizeConfig("branch", config);
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.error).toContain("Failed to read Lattice deployment SSH config");
+        expect(result.error).toContain("nope");
+      }
+      expect(ensureProvisioningSession).toHaveBeenCalledWith("lattice-branch");
+      expect(fetchDeploymentSshConfig).toHaveBeenCalledWith(provisioningSession);
+      expect(disposeProvisioningSession).toHaveBeenCalledWith("lattice-branch");
+    });
+    it("uses provided minionName over branch name", async () => {
       const config = createSSHLatticeConfig({
-        existingWorkspace: false,
-        workspaceName: "custom-name",
+        existingMinion: false,
+        minionName: "custom-name",
       });
       const result = await runtime.finalizeConfig("branch-name", config);
 
       expect(result.success).toBe(true);
       if (result.success && result.data.type === "ssh") {
-        expect(result.data.lattice?.workspaceName).toBe("custom-name");
-        expect(result.data.host).toBe("lattice.custom-name");
+        expect(result.data.lattice?.minionName).toBe("custom-name");
+        expect(result.data.host).toBe("custom-name.lattice");
       }
     });
   });
 
-  describe("existing workspace mode", () => {
-    it("requires workspaceName to be provided", async () => {
-      const config = createSSHLatticeConfig({ existingWorkspace: true });
+  describe("existing minion mode", () => {
+    it("requires minionName to be provided", async () => {
+      const config = createSSHLatticeConfig({ existingMinion: true });
       const result = await runtime.finalizeConfig("branch-name", config);
 
       expect(result.success).toBe(false);
       if (!result.success) {
-        expect(result.error).toContain("required for existing workspaces");
+        expect(result.error).toContain("required for existing minions");
       }
     });
 
-    it("keeps provided workspaceName and sets host", async () => {
+    it("keeps provided minionName and sets host", async () => {
       const config = createSSHLatticeConfig({
-        existingWorkspace: true,
-        workspaceName: "existing-ws",
+        existingMinion: true,
+        minionName: "existing-ws",
       });
       const result = await runtime.finalizeConfig("branch-name", config);
 
       expect(result.success).toBe(true);
       if (result.success && result.data.type === "ssh") {
-        expect(result.data.lattice?.workspaceName).toBe("existing-ws");
-        expect(result.data.host).toBe("lattice.existing-ws");
+        expect(result.data.lattice?.minionName).toBe("existing-ws");
+        expect(result.data.host).toBe("existing-ws.lattice");
       }
     });
   });
@@ -214,18 +268,18 @@ describe("LatticeSSHRuntime.finalizeConfig", () => {
 });
 
 // =============================================================================
-// Test Suite 2: deleteWorkspace behavior
+// Test Suite 2: deleteMinion behavior
 // =============================================================================
 
-describe("LatticeSSHRuntime.deleteWorkspace", () => {
+describe("LatticeSSHRuntime.deleteMinion", () => {
   /**
-   * For deleteWorkspace tests, we mock SSHRuntime.prototype.deleteWorkspace
+   * For deleteMinion tests, we mock SSHRuntime.prototype.deleteMinion
    * to control the parent class behavior.
    */
-  let sshDeleteSpy: Mock<typeof SSHRuntime.prototype.deleteWorkspace>;
+  let sshDeleteSpy: Mock<typeof SSHRuntime.prototype.deleteMinion>;
 
   beforeEach(() => {
-    sshDeleteSpy = spyOn(SSHRuntime.prototype, "deleteWorkspace").mockResolvedValue({
+    sshDeleteSpy = spyOn(SSHRuntime.prototype, "deleteMinion").mockResolvedValue({
       success: true,
       deletedPath: "/path",
     });
@@ -235,72 +289,86 @@ describe("LatticeSSHRuntime.deleteWorkspace", () => {
     sshDeleteSpy.mockRestore();
   });
 
-  it("never calls latticeService.deleteWorkspace when existingWorkspace=true", async () => {
-    const deleteWorkspace = mock(() => Promise.resolve());
-    const latticeService = createMockLatticeService({ deleteWorkspace });
+  it("never calls latticeService.deleteMinionEventually when existingMinion=true", async () => {
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ deleteMinionEventually });
 
     const runtime = createRuntime(
-      { existingWorkspace: true, workspaceName: "existing-ws" },
+      { existingMinion: true, minionName: "existing-ws" },
       latticeService
     );
 
-    await runtime.deleteWorkspace("/project", "ws", false);
-    expect(deleteWorkspace).not.toHaveBeenCalled();
+    await runtime.deleteMinion("/project", "ws", false);
+    expect(deleteMinionEventually).not.toHaveBeenCalled();
   });
 
-  it("skips Lattice deletion when workspaceName is not set", async () => {
-    const deleteWorkspace = mock(() => Promise.resolve());
-    const latticeService = createMockLatticeService({ deleteWorkspace });
+  it("skips Lattice deletion when minionName is not set", async () => {
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ deleteMinionEventually });
 
-    // No workspaceName provided
-    const runtime = createRuntime({ existingWorkspace: false }, latticeService);
+    // No minionName provided
+    const runtime = createRuntime({ existingMinion: false }, latticeService);
 
-    const result = await runtime.deleteWorkspace("/project", "ws", false);
-    expect(deleteWorkspace).not.toHaveBeenCalled();
+    const result = await runtime.deleteMinion("/project", "ws", false);
+    expect(deleteMinionEventually).not.toHaveBeenCalled();
     expect(result.success).toBe(true);
   });
 
   it("skips Lattice deletion when SSH delete fails and force=false", async () => {
-    sshDeleteSpy.mockResolvedValue({ success: false, error: "dirty workspace" });
+    sshDeleteSpy.mockResolvedValue({ success: false, error: "dirty minion" });
 
-    const deleteWorkspace = mock(() => Promise.resolve());
-    const latticeService = createMockLatticeService({ deleteWorkspace });
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ deleteMinionEventually });
 
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws" },
+      { existingMinion: false, minionName: "my-ws" },
       latticeService
     );
 
-    const result = await runtime.deleteWorkspace("/project", "ws", false);
-    expect(deleteWorkspace).not.toHaveBeenCalled();
+    const result = await runtime.deleteMinion("/project", "ws", false);
+    expect(deleteMinionEventually).not.toHaveBeenCalled();
     expect(result.success).toBe(false);
   });
 
-  it("calls Lattice deletion when SSH delete fails but force=true", async () => {
-    sshDeleteSpy.mockResolvedValue({ success: false, error: "dirty workspace" });
+  it("calls Lattice deletion (no SSH) when force=true", async () => {
+    sshDeleteSpy.mockResolvedValue({ success: false, error: "dirty minion" });
 
-    const deleteWorkspace = mock(() => Promise.resolve());
-    const latticeService = createMockLatticeService({ deleteWorkspace });
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ deleteMinionEventually });
 
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws" },
+      { existingMinion: false, minionName: "my-ws" },
       latticeService
     );
 
-    await runtime.deleteWorkspace("/project", "ws", true);
-    expect(deleteWorkspace).toHaveBeenCalledWith("my-ws");
+    await runtime.deleteMinion("/project", "ws", true);
+    expect(sshDeleteSpy).not.toHaveBeenCalled();
+    expect(deleteMinionEventually).toHaveBeenCalledWith(
+      "my-ws",
+      expect.objectContaining({ waitForExistence: true, waitForExistenceTimeoutMs: 10_000 })
+    );
   });
 
-  it("returns combined error when SSH succeeds but Lattice delete throws", async () => {
-    const deleteWorkspace = mock(() => Promise.reject(new Error("Lattice API error")));
-    const latticeService = createMockLatticeService({ deleteWorkspace });
+  it("returns combined error when SSH succeeds but Lattice delete fails", async () => {
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: false as const, error: "Lattice API error" })
+    );
+    const latticeService = createMockLatticeService({ deleteMinionEventually });
 
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws" },
+      { existingMinion: false, minionName: "my-ws" },
       latticeService
     );
 
-    const result = await runtime.deleteWorkspace("/project", "ws", false);
+    const result = await runtime.deleteMinion("/project", "ws", false);
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error).toContain("SSH delete succeeded");
@@ -308,64 +376,93 @@ describe("LatticeSSHRuntime.deleteWorkspace", () => {
     }
   });
 
-  it("succeeds immediately when Lattice workspace is already deleted", async () => {
-    // getWorkspaceStatus returns { kind: "not_found" } when workspace doesn't exist
-    const getWorkspaceStatus = mock(() => Promise.resolve({ kind: "not_found" as const }));
-    const deleteWorkspace = mock(() => Promise.resolve());
-    const latticeService = createMockLatticeService({ getWorkspaceStatus, deleteWorkspace });
+  it("succeeds immediately when Lattice minion is already deleted", async () => {
+    // getMinionStatus returns { kind: "not_found" } when minion doesn't exist
+    const getMinionStatus = mock(() => Promise.resolve({ kind: "not_found" as const }));
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ getMinionStatus, deleteMinionEventually });
 
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws" },
+      { existingMinion: false, minionName: "my-ws" },
       latticeService
     );
 
-    const result = await runtime.deleteWorkspace("/project", "ws", false);
+    const result = await runtime.deleteMinion("/project", "ws", false);
 
     // Should succeed without calling SSH delete or Lattice delete
     expect(result.success).toBe(true);
     expect(sshDeleteSpy).not.toHaveBeenCalled();
-    expect(deleteWorkspace).not.toHaveBeenCalled();
+    expect(deleteMinionEventually).not.toHaveBeenCalled();
   });
 
   it("proceeds with SSH cleanup when status check fails with API error", async () => {
     // API error (auth, network) - should NOT treat as "already deleted"
-    const getWorkspaceStatus = mock(() =>
+    const getMinionStatus = mock(() =>
       Promise.resolve({ kind: "error" as const, error: "lattice timed out" })
     );
-    const deleteWorkspace = mock(() => Promise.resolve());
-    const latticeService = createMockLatticeService({ getWorkspaceStatus, deleteWorkspace });
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ getMinionStatus, deleteMinionEventually });
 
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws" },
+      { existingMinion: false, minionName: "my-ws" },
       latticeService
     );
 
-    const result = await runtime.deleteWorkspace("/project", "ws", false);
+    const result = await runtime.deleteMinion("/project", "ws", false);
 
     // Should proceed with SSH cleanup (which succeeds), then Lattice delete
     expect(sshDeleteSpy).toHaveBeenCalled();
-    expect(deleteWorkspace).toHaveBeenCalled();
+    expect(deleteMinionEventually).toHaveBeenCalled();
     expect(result.success).toBe(true);
   });
 
-  it("succeeds immediately when Lattice workspace status is 'deleting'", async () => {
-    const getWorkspaceStatus = mock(() =>
-      Promise.resolve({ kind: "ok" as const, status: "deleting" as const })
+  it("deletes stopped Lattice minion without SSH cleanup", async () => {
+    const getMinionStatus = mock(() =>
+      Promise.resolve({ kind: "ok" as const, status: "stopped" as const })
     );
-    const deleteWorkspace = mock(() => Promise.resolve());
-    const latticeService = createMockLatticeService({ getWorkspaceStatus, deleteWorkspace });
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ getMinionStatus, deleteMinionEventually });
 
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws" },
+      { existingMinion: false, minionName: "my-ws" },
       latticeService
     );
 
-    const result = await runtime.deleteWorkspace("/project", "ws", false);
+    const result = await runtime.deleteMinion("/project", "ws", false);
 
-    // Should succeed without calling SSH delete or Lattice delete (workspace already dying)
     expect(result.success).toBe(true);
     expect(sshDeleteSpy).not.toHaveBeenCalled();
-    expect(deleteWorkspace).not.toHaveBeenCalled();
+    expect(deleteMinionEventually).toHaveBeenCalledWith(
+      "my-ws",
+      expect.objectContaining({ waitForExistence: false })
+    );
+  });
+  it("succeeds immediately when Lattice minion status is 'deleting'", async () => {
+    const getMinionStatus = mock(() =>
+      Promise.resolve({ kind: "ok" as const, status: "deleting" as const })
+    );
+    const deleteMinionEventually = mock(() =>
+      Promise.resolve({ success: true as const, data: undefined })
+    );
+    const latticeService = createMockLatticeService({ getMinionStatus, deleteMinionEventually });
+
+    const runtime = createRuntime(
+      { existingMinion: false, minionName: "my-ws" },
+      latticeService
+    );
+
+    const result = await runtime.deleteMinion("/project", "ws", false);
+
+    // Should succeed without calling SSH delete or Lattice delete (minion already dying)
+    expect(result.success).toBe(true);
+    expect(sshDeleteSpy).not.toHaveBeenCalled();
+    expect(deleteMinionEventually).not.toHaveBeenCalled();
   });
 });
 
@@ -374,14 +471,14 @@ describe("LatticeSSHRuntime.deleteWorkspace", () => {
 // =============================================================================
 
 describe("LatticeSSHRuntime.validateBeforePersist", () => {
-  it("returns error when Lattice workspace already exists", async () => {
-    const workspaceExists = mock(() => Promise.resolve(true));
-    const latticeService = createMockLatticeService({ workspaceExists });
+  it("returns error when Lattice minion already exists", async () => {
+    const minionExists = mock(() => Promise.resolve(true));
+    const latticeService = createMockLatticeService({ minionExists });
     const runtime = createRuntime({}, latticeService);
 
     const config = createSSHLatticeConfig({
-      existingWorkspace: false,
-      workspaceName: "my-ws",
+      existingMinion: false,
+      minionName: "my-ws",
     });
 
     const result = await runtime.validateBeforePersist("branch", config);
@@ -389,22 +486,22 @@ describe("LatticeSSHRuntime.validateBeforePersist", () => {
     if (!result.success) {
       expect(result.error).toContain("already exists");
     }
-    expect(workspaceExists).toHaveBeenCalledWith("my-ws");
+    expect(minionExists).toHaveBeenCalledWith("my-ws");
   });
 
-  it("skips collision check for existingWorkspace=true", async () => {
-    const workspaceExists = mock(() => Promise.resolve(true));
-    const latticeService = createMockLatticeService({ workspaceExists });
+  it("skips collision check for existingMinion=true", async () => {
+    const minionExists = mock(() => Promise.resolve(true));
+    const latticeService = createMockLatticeService({ minionExists });
     const runtime = createRuntime({}, latticeService);
 
     const config = createSSHLatticeConfig({
-      existingWorkspace: true,
-      workspaceName: "existing-ws",
+      existingMinion: true,
+      minionName: "existing-ws",
     });
 
     const result = await runtime.validateBeforePersist("branch", config);
     expect(result.success).toBe(true);
-    expect(workspaceExists).not.toHaveBeenCalled();
+    expect(minionExists).not.toHaveBeenCalled();
   });
 });
 
@@ -428,8 +525,8 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
     execBufferedSpy.mockRestore();
   });
 
-  it("creates a new Lattice workspace and prepares the directory", async () => {
-    const createWorkspace = mock(() =>
+  it("creates a new Lattice minion and prepares the directory", async () => {
+    const createMinion = mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
         yield "build line 1";
@@ -437,36 +534,42 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
       })()
     );
     const ensureSSHConfig = mock(() => Promise.resolve());
+    const provisioningSession = {
+      token: "token",
+      dispose: mock(() => Promise.resolve()),
+    };
+    const takeProvisioningSession = mock(() => provisioningSession);
 
-    // Start with workspace not found, then return running after creation
-    let workspaceCreated = false;
-    const getWorkspaceStatus = mock(() =>
+    // Start with minion not found, then return running after creation
+    let minionCreated = false;
+    const getMinionStatus = mock(() =>
       Promise.resolve(
-        workspaceCreated
+        minionCreated
           ? { kind: "ok" as const, status: "running" as const }
           : { kind: "not_found" as const }
       )
     );
 
     const latticeService = createMockLatticeService({
-      createWorkspace,
+      createMinion,
       ensureSSHConfig,
-      getWorkspaceStatus,
+      getMinionStatus,
+      takeProvisioningSession,
     });
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws", template: "my-template" },
+      { existingMinion: false, minionName: "my-ws", template: "my-template" },
       latticeService
     );
 
-    // Before postCreateSetup, ensureReady should fail (workspace doesn't exist on server)
+    // Before postCreateSetup, ensureReady should fail (minion doesn't exist on server)
     const beforeReady = await runtime.ensureReady();
     expect(beforeReady.ready).toBe(false);
     if (!beforeReady.ready) {
       expect(beforeReady.errorType).toBe("runtime_not_ready");
     }
 
-    // Simulate workspace being created by postCreateSetup
-    workspaceCreated = true;
+    // Simulate minion being created by postCreateSetup
+    minionCreated = true;
 
     const steps: string[] = [];
     const stdout: string[] = [];
@@ -489,32 +592,89 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
       projectPath: "/project",
       branchName: "branch",
       trunkBranch: "main",
-      workspacePath: "/home/user/src/my-project/my-ws",
+      minionPath: "/home/user/src/my-project/my-ws",
     });
 
-    expect(createWorkspace).toHaveBeenCalledWith(
+    expect(takeProvisioningSession).toHaveBeenCalledWith("my-ws");
+    expect(createMinion).toHaveBeenCalledWith(
       "my-ws",
       "my-template",
       undefined,
       undefined,
-      undefined
+      undefined,
+      provisioningSession
     );
+    expect(provisioningSession.dispose).toHaveBeenCalled();
     expect(ensureSSHConfig).toHaveBeenCalled();
     expect(execBufferedSpy).toHaveBeenCalled();
 
-    // After postCreateSetup, ensureReady should succeed (workspace exists on server)
+    // After postCreateSetup, ensureReady should succeed (minion exists on server)
     const afterReady = await runtime.ensureReady();
     expect(afterReady.ready).toBe(true);
 
     expect(stdout).toEqual(["build line 1", "build line 2"]);
     expect(stderr).toEqual([]);
-    expect(steps.join("\n")).toContain("Creating Lattice workspace");
+    expect(steps.join("\n")).toContain("Creating Lattice minion");
     expect(steps.join("\n")).toContain("Configuring SSH");
-    expect(steps.join("\n")).toContain("Preparing workspace directory");
+    expect(steps.join("\n")).toContain("Preparing minion directory");
   });
 
-  it("skips workspace creation when existingWorkspace=true and workspace is running", async () => {
-    const createWorkspace = mock(() =>
+  it("disposes provisioning session when minion creation fails", async () => {
+    const createMinion = mock(() =>
+      (async function* (): AsyncGenerator<string, void, unknown> {
+        yield "Starting minion...";
+        await Promise.resolve();
+        throw new Error("boom");
+      })()
+    );
+    const provisioningSession = {
+      token: "token",
+      dispose: mock(() => Promise.resolve()),
+    };
+    const takeProvisioningSession = mock(() => provisioningSession);
+
+    const latticeService = createMockLatticeService({
+      createMinion,
+      takeProvisioningSession,
+    });
+    const runtime = createRuntime(
+      { existingMinion: false, minionName: "my-ws", template: "my-template" },
+      latticeService
+    );
+
+    let caughtError: Error | undefined;
+    try {
+      await runtime.postCreateSetup({
+        initLogger: {
+          logStep: noop,
+          logStdout: noop,
+          logStderr: noop,
+          logComplete: noop,
+        },
+        projectPath: "/project",
+        branchName: "branch",
+        trunkBranch: "main",
+        minionPath: "/home/user/src/my-project/my-ws",
+      });
+    } catch (err) {
+      caughtError = err as Error;
+    }
+
+    expect(caughtError?.message).toContain("Failed to create Lattice minion");
+    expect(takeProvisioningSession).toHaveBeenCalledWith("my-ws");
+    expect(createMinion).toHaveBeenCalledWith(
+      "my-ws",
+      "my-template",
+      undefined,
+      undefined,
+      undefined,
+      provisioningSession
+    );
+    expect(provisioningSession.dispose).toHaveBeenCalled();
+  });
+
+  it("skips minion creation when existingMinion=true and minion is running", async () => {
+    const createMinion = mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
         yield "should not happen";
@@ -527,18 +687,18 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
       })()
     );
     const ensureSSHConfig = mock(() => Promise.resolve());
-    const getWorkspaceStatus = mock(() =>
+    const getMinionStatus = mock(() =>
       Promise.resolve({ kind: "ok" as const, status: "running" as const })
     );
 
     const latticeService = createMockLatticeService({
-      createWorkspace,
+      createMinion,
       waitForStartupScripts,
       ensureSSHConfig,
-      getWorkspaceStatus,
+      getMinionStatus,
     });
     const runtime = createRuntime(
-      { existingWorkspace: true, workspaceName: "existing-ws" },
+      { existingMinion: true, minionName: "existing-ws" },
       latticeService
     );
 
@@ -552,18 +712,18 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
       projectPath: "/project",
       branchName: "branch",
       trunkBranch: "main",
-      workspacePath: "/home/user/src/my-project/existing-ws",
+      minionPath: "/home/user/src/my-project/existing-ws",
     });
 
-    expect(createWorkspace).not.toHaveBeenCalled();
-    // waitForStartupScripts is called (it handles running workspaces quickly)
+    expect(createMinion).not.toHaveBeenCalled();
+    // waitForStartupScripts is called (it handles running minions quickly)
     expect(waitForStartupScripts).toHaveBeenCalled();
     expect(ensureSSHConfig).toHaveBeenCalled();
     expect(execBufferedSpy).toHaveBeenCalled();
   });
 
-  it("uses waitForStartupScripts for existing stopped workspace (auto-starts via lattice ssh)", async () => {
-    const createWorkspace = mock(() =>
+  it("uses waitForStartupScripts for existing stopped minion (auto-starts via lattice ssh)", async () => {
+    const createMinion = mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
         yield "should not happen";
@@ -572,24 +732,24 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
     const waitForStartupScripts = mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
-        yield "Starting workspace...";
+        yield "Starting minion...";
         yield "Build complete";
         yield "Startup scripts finished";
       })()
     );
     const ensureSSHConfig = mock(() => Promise.resolve());
-    const getWorkspaceStatus = mock(() =>
+    const getMinionStatus = mock(() =>
       Promise.resolve({ kind: "ok" as const, status: "stopped" as const })
     );
 
     const latticeService = createMockLatticeService({
-      createWorkspace,
+      createMinion,
       waitForStartupScripts,
       ensureSSHConfig,
-      getWorkspaceStatus,
+      getMinionStatus,
     });
     const runtime = createRuntime(
-      { existingWorkspace: true, workspaceName: "existing-ws" },
+      { existingMinion: true, minionName: "existing-ws" },
       latticeService
     );
 
@@ -604,19 +764,19 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
       projectPath: "/project",
       branchName: "branch",
       trunkBranch: "main",
-      workspacePath: "/home/user/src/my-project/existing-ws",
+      minionPath: "/home/user/src/my-project/existing-ws",
     });
 
-    expect(createWorkspace).not.toHaveBeenCalled();
+    expect(createMinion).not.toHaveBeenCalled();
     expect(waitForStartupScripts).toHaveBeenCalled();
-    expect(loggedStdout).toContain("Starting workspace...");
+    expect(loggedStdout).toContain("Starting minion...");
     expect(loggedStdout).toContain("Startup scripts finished");
     expect(ensureSSHConfig).toHaveBeenCalled();
   });
 
-  it("polls until stopping workspace becomes stopped before connecting", async () => {
+  it("polls until stopping minion becomes stopped before connecting", async () => {
     let pollCount = 0;
-    const getWorkspaceStatus = mock(() => {
+    const getMinionStatus = mock(() => {
       pollCount++;
       // First 2 calls return "stopping", then "stopped"
       if (pollCount <= 2) {
@@ -633,13 +793,13 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
     const ensureSSHConfig = mock(() => Promise.resolve());
 
     const latticeService = createMockLatticeService({
-      getWorkspaceStatus,
+      getMinionStatus,
       waitForStartupScripts,
       ensureSSHConfig,
     });
 
     const runtime = createRuntime(
-      { existingWorkspace: true, workspaceName: "stopping-ws" },
+      { existingMinion: true, minionName: "stopping-ws" },
       latticeService
     );
 
@@ -660,18 +820,18 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
       projectPath: "/project",
       branchName: "branch",
       trunkBranch: "main",
-      workspacePath: "/home/user/src/my-project/stopping-ws",
+      minionPath: "/home/user/src/my-project/stopping-ws",
     });
 
     // Should have polled status multiple times
     expect(pollCount).toBeGreaterThan(2);
-    expect(loggedSteps.some((s) => s.includes("Waiting for Lattice workspace"))).toBe(true);
+    expect(loggedSteps.some((s) => s.includes("Waiting for Lattice minion"))).toBe(true);
     expect(waitForStartupScripts).toHaveBeenCalled();
   });
 
-  it("throws when workspaceName is missing", () => {
+  it("throws when minionName is missing", () => {
     const latticeService = createMockLatticeService();
-    const runtime = createRuntime({ existingWorkspace: false, template: "tmpl" }, latticeService);
+    const runtime = createRuntime({ existingMinion: false, template: "tmpl" }, latticeService);
 
     return expect(
       runtime.postCreateSetup({
@@ -684,15 +844,15 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
         projectPath: "/project",
         branchName: "branch",
         trunkBranch: "main",
-        workspacePath: "/home/user/src/my-project/ws",
+        minionPath: "/home/user/src/my-project/ws",
       })
-    ).rejects.toThrow("Lattice workspace name is required");
+    ).rejects.toThrow("Lattice minion name is required");
   });
 
-  it("throws when template is missing for new workspaces", () => {
+  it("throws when template is missing for new minions", () => {
     const latticeService = createMockLatticeService();
     const runtime = createRuntime(
-      { existingWorkspace: false, workspaceName: "my-ws", template: undefined },
+      { existingMinion: false, minionName: "my-ws", template: undefined },
       latticeService
     );
 
@@ -707,7 +867,7 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
         projectPath: "/project",
         branchName: "branch",
         trunkBranch: "main",
-        workspacePath: "/home/user/src/my-project/ws",
+        minionPath: "/home/user/src/my-project/ws",
       })
     ).rejects.toThrow("Lattice template is required");
   });
@@ -718,8 +878,8 @@ describe("LatticeSSHRuntime.postCreateSetup", () => {
 // =============================================================================
 
 describe("LatticeSSHRuntime.ensureReady", () => {
-  it("returns ready when workspace is already running", async () => {
-    const getWorkspaceStatus = mock(() =>
+  it("returns ready when minion is already running", async () => {
+    const getMinionStatus = mock(() =>
       Promise.resolve({ kind: "ok" as const, status: "running" as const })
     );
     const waitForStartupScripts = mock(() =>
@@ -728,10 +888,10 @@ describe("LatticeSSHRuntime.ensureReady", () => {
         yield "should not be called";
       })()
     );
-    const latticeService = createMockLatticeService({ getWorkspaceStatus, waitForStartupScripts });
+    const latticeService = createMockLatticeService({ getMinionStatus, waitForStartupScripts });
 
     const runtime = createRuntime(
-      { existingWorkspace: true, workspaceName: "my-ws" },
+      { existingMinion: true, minionName: "my-ws" },
       latticeService
     );
 
@@ -741,7 +901,7 @@ describe("LatticeSSHRuntime.ensureReady", () => {
     });
 
     expect(result).toEqual({ ready: true });
-    expect(getWorkspaceStatus).toHaveBeenCalled();
+    expect(getMinionStatus).toHaveBeenCalled();
     // Short-circuited because status is already "running"
     expect(waitForStartupScripts).not.toHaveBeenCalled();
     expect(events.map((e) => e.phase)).toEqual(["checking", "ready"]);
@@ -749,20 +909,20 @@ describe("LatticeSSHRuntime.ensureReady", () => {
   });
 
   it("connects via waitForStartupScripts when status is stopped (auto-starts)", async () => {
-    const getWorkspaceStatus = mock(() =>
+    const getMinionStatus = mock(() =>
       Promise.resolve({ kind: "ok" as const, status: "stopped" as const })
     );
     const waitForStartupScripts = mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
-        yield "Starting workspace...";
-        yield "Workspace started";
+        yield "Starting minion...";
+        yield "Minion started";
       })()
     );
-    const latticeService = createMockLatticeService({ getWorkspaceStatus, waitForStartupScripts });
+    const latticeService = createMockLatticeService({ getMinionStatus, waitForStartupScripts });
 
     const runtime = createRuntime(
-      { existingWorkspace: true, workspaceName: "my-ws" },
+      { existingMinion: true, minionName: "my-ws" },
       latticeService
     );
 
@@ -780,20 +940,20 @@ describe("LatticeSSHRuntime.ensureReady", () => {
   });
 
   it("returns runtime_start_failed when waitForStartupScripts fails", async () => {
-    const getWorkspaceStatus = mock(() =>
+    const getMinionStatus = mock(() =>
       Promise.resolve({ kind: "ok" as const, status: "stopped" as const })
     );
     const waitForStartupScripts = mock(() =>
       (async function* (): AsyncGenerator<string, void, unknown> {
         await Promise.resolve();
-        yield "Starting workspace...";
+        yield "Starting minion...";
         throw new Error("connection failed");
       })()
     );
-    const latticeService = createMockLatticeService({ getWorkspaceStatus, waitForStartupScripts });
+    const latticeService = createMockLatticeService({ getMinionStatus, waitForStartupScripts });
 
     const runtime = createRuntime(
-      { existingWorkspace: true, workspaceName: "my-ws" },
+      { existingMinion: true, minionName: "my-ws" },
       latticeService
     );
 

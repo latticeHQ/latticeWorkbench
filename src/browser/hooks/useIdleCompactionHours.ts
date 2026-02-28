@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAPI } from "@/browser/contexts/API";
 
 interface UseIdleCompactionHoursParams {
-  /** Headquarter path for backend persistence */
+  /** Project path for backend persistence */
   projectPath: string | null;
 }
 
@@ -22,7 +22,7 @@ export interface UseIdleCompactionHoursResult {
 
 /**
  * Hook for idle compaction hours setting.
- * - Setting is per-project (idle compaction is about workspace inactivity, not model context)
+ * - Setting is per-project (idle compaction is about minion inactivity, not model context)
  * - null means disabled for that project
  * - Persists to backend so idleCompactionService can read it
  *

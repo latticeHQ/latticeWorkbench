@@ -21,18 +21,37 @@ import {
   withHookOutput,
 } from "./mockFactory";
 
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 import { updatePersistedState } from "@/browser/hooks/usePersistedState";
+import { setMinionModelWithOrigin } from "@/browser/utils/modelChange";
 import { getModelKey } from "@/common/constants/storage";
 import { waitForChatMessagesLoaded } from "./storyPlayHelpers.js";
-import { setupSimpleChatStory, setupStreamingChatStory, setWorkspaceInput } from "./storyHelpers";
+import { setupSimpleChatStory, setupStreamingChatStory, setMinionInput } from "./storyHelpers";
 import { within, userEvent, waitFor } from "@storybook/test";
 import { warmHashCache, setShareData } from "@/browser/utils/sharedUrlCache";
+
+import { MODEL_ABBREVIATION_EXAMPLES } from "@/common/constants/knownModels";
+import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
+import {
+  HelpIndicator,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/browser/components/ui/tooltip";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
+import {
+  PLAN_AUTO_ROUTING_STATUS_EMOJI,
+  PLAN_AUTO_ROUTING_STATUS_MESSAGE,
+} from "@/common/constants/planAutoRoutingStatus";
 
 export default {
   ...appMeta,
   title: "App/Chat",
 };
+
+const DEFAULT_AGENT_LABEL =
+  MINION_DEFAULTS.agentId.slice(0, 1).toUpperCase() + MINION_DEFAULTS.agentId.slice(1);
 
 /** Chat showing loaded skills via agent_skill_read tool calls */
 export const WithLoadedSkills: AppStory = {
@@ -40,7 +59,7 @@ export const WithLoadedSkills: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-skills-loaded",
+          minionId: "ws-skills-loaded",
           messages: [
             createUserMessage("msg-1", "Help me write tests for this component", {
               historySequence: 1,
@@ -83,10 +102,10 @@ export const WithLoadedSkills: AppStory = {
               }
             ),
           ],
-          // Available skills organized by scope: Headquarter (3), Global (1), Built-in (1)
+          // Available skills organized by scope: Project (3), Global (1), Built-in (1)
           // Loaded: tests, react-effects
           agentSkills: [
-            // Headquarter skills
+            // Project skills
             {
               name: "tests",
               description: "Testing doctrine, commands, and test layout conventions",
@@ -127,7 +146,7 @@ export const WithSkillCommand: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-skill",
+          minionId: "ws-skill",
           messages: [
             createUserMessage("msg-1", "/react-effects Audit this effect for stale closures", {
               historySequence: 1,
@@ -222,12 +241,70 @@ export const Conversation: AppStory = {
 };
 
 /** Chat with reasoning/thinking blocks */
+/** Synthetic auto-resume messages shown with "AUTO" badge and dimmed opacity */
+export const SyntheticAutoResumeMessages: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSimpleChatStory({
+          messages: [
+            createUserMessage("msg-1", "Run the full test suite and fix any failures", {
+              historySequence: 1,
+              timestamp: STABLE_TIMESTAMP - 300000,
+            }),
+            createAssistantMessage(
+              "msg-2",
+              "I'll run the tests now. Let me spawn a sub-agent to handle the test execution.",
+              {
+                historySequence: 2,
+                timestamp: STABLE_TIMESTAMP - 295000,
+              }
+            ),
+            createUserMessage(
+              "msg-3",
+              "You have active background sub-agent task(s) (task-abc123). " +
+                "You MUST NOT end your turn while any sub-agent tasks are queued/running/awaiting_report. " +
+                "Call task_await now to wait for them to finish.",
+              {
+                historySequence: 3,
+                timestamp: STABLE_TIMESTAMP - 290000,
+                synthetic: true,
+              }
+            ),
+            createAssistantMessage("msg-4", "I'll wait for the sub-agent to complete its work.", {
+              historySequence: 4,
+              timestamp: STABLE_TIMESTAMP - 285000,
+            }),
+            createUserMessage(
+              "msg-5",
+              "Your background sub-agent task(s) have completed. Use task_await to retrieve their reports and integrate the results.",
+              {
+                historySequence: 5,
+                timestamp: STABLE_TIMESTAMP - 280000,
+                synthetic: true,
+              }
+            ),
+            createAssistantMessage(
+              "msg-6",
+              "The sub-agent has finished. All 47 tests passed successfully — no failures found.",
+              {
+                historySequence: 6,
+                timestamp: STABLE_TIMESTAMP - 275000,
+              }
+            ),
+          ],
+        })
+      }
+    />
+  ),
+};
+
 export const WithReasoning: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-reasoning",
+          minionId: "ws-reasoning",
           messages: [
             createUserMessage("msg-1", "What about error handling if the JWT library throws?", {
               historySequence: 1,
@@ -265,7 +342,7 @@ export const WithTerminal: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-terminal",
+          minionId: "ws-terminal",
           messages: [
             createUserMessage("msg-1", "Can you run the tests?", {
               historySequence: 1,
@@ -324,7 +401,7 @@ export const WithAgentStatus: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-status",
+          minionId: "ws-status",
           messages: [
             createUserMessage("msg-1", "Create a PR for the auth changes", {
               historySequence: 1,
@@ -353,6 +430,55 @@ export const WithAgentStatus: AppStory = {
   ),
 };
 
+/** switch_agent tool call rendered with custom handoff card UI */
+export const SwitchAgentHandoff: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSimpleChatStory({
+          minionId: "ws-switch-agent",
+          messages: [
+            createUserMessage("msg-1", "Should we plan this migration before editing files?", {
+              historySequence: 1,
+              timestamp: STABLE_TIMESTAMP - 100000,
+            }),
+            createAssistantMessage("msg-2", "I'll hand this off to the planning agent first.", {
+              historySequence: 2,
+              timestamp: STABLE_TIMESTAMP - 90000,
+              toolCalls: [
+                createGenericTool(
+                  "call-switch-agent-1",
+                  "switch_agent",
+                  {
+                    agentId: "plan",
+                    reason:
+                      "This requires a scoped rollout plan with risk assessment before making code edits.",
+                    followUp:
+                      "Draft a migration plan that lists dependencies, sequencing, and rollback steps.",
+                  },
+                  {
+                    ok: true,
+                    agentId: "plan",
+                  }
+                ),
+              ],
+            }),
+            createUserMessage(
+              "msg-3",
+              "Draft a migration plan that lists dependencies, sequencing, and rollback steps.",
+              {
+                historySequence: 3,
+                timestamp: STABLE_TIMESTAMP - 85000,
+                synthetic: true,
+              }
+            ),
+          ],
+        })
+      }
+    />
+  ),
+};
+
 /** Voice input button shows user education when OpenAI API key is not set */
 export const VoiceInputNoApiKey: AppStory = {
   render: () => (
@@ -362,7 +488,7 @@ export const VoiceInputNoApiKey: AppStory = {
           messages: [],
           // No OpenAI key configured - voice button should be disabled with tooltip
           providersConfig: {
-            anthropic: { apiKeySet: true, isConfigured: true },
+            anthropic: { apiKeySet: true, isEnabled: true, isConfigured: true },
             // openai deliberately missing
           },
         })
@@ -397,7 +523,7 @@ export const Streaming: AppStory = {
           pendingTool: {
             toolCallId: "call-1",
             toolName: "file_read",
-            args: { file_path: "src/db/connection.ts" },
+            args: { path: "src/db/connection.ts" },
           },
           gitStatus: { dirty: 1 },
         })
@@ -464,8 +590,10 @@ export const AskUserQuestionPending: AppStory = {
       await userEvent.click(toolTitle);
     }
 
-    const getSectionButton = (prefix: string): HTMLElement => {
-      const buttons = canvas.getAllByRole("button");
+    // Use findAllByRole (retry-capable) instead of getAllByRole to handle
+    // transient DOM gaps when the Storybook iframe remounts between awaits.
+    const getSectionButton = async (prefix: string): Promise<HTMLElement> => {
+      const buttons = await canvas.findAllByRole("button");
       const btn = buttons.find(
         (el) => el.tagName === "BUTTON" && (el.textContent ?? "").startsWith(prefix)
       );
@@ -474,7 +602,7 @@ export const AskUserQuestionPending: AppStory = {
     };
 
     // Ensure we're on the first question.
-    await userEvent.click(getSectionButton("Approach"));
+    await userEvent.click(await getSectionButton("Approach"));
 
     // Wait for the first question to render.
     try {
@@ -488,13 +616,13 @@ export const AskUserQuestionPending: AppStory = {
     }
 
     // Selecting a single-select option should auto-advance.
-    await userEvent.click(canvas.getByText("Approach A"));
-    await canvas.findByText("Which platforms do we need to support?", {}, { timeout: 2000 });
+    await userEvent.click(await canvas.findByText("Approach A"));
+    await canvas.findByText("Which platforms do we need to support?");
 
-    // Regression: you must be able to jump back to a previous section after answering it.
-    await userEvent.click(getSectionButton("Approach"));
+    // Regression: you must be able to jump back to a previous crew after answering it.
+    await userEvent.click(await getSectionButton("Approach"));
 
-    await canvas.findByText("Which approach should we take?", {}, { timeout: 2000 });
+    await canvas.findByText("Which approach should we take?");
 
     // Give React a tick to run any pending effects; we should still be on question 1.
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -504,7 +632,7 @@ export const AskUserQuestionPending: AppStory = {
 
     // Changing the answer should still auto-advance.
     await userEvent.click(canvas.getByText("Approach B"));
-    await canvas.findByText("Which platforms do we need to support?", {}, { timeout: 2000 });
+    await canvas.findByText("Which platforms do we need to support?");
   },
 };
 
@@ -668,7 +796,7 @@ export const StreamingCompaction: AppStory = {
     <AppWithMocks
       setup={() =>
         setupStreamingChatStory({
-          workspaceId: "ws-compaction",
+          minionId: "ws-compaction",
           messages: [
             createUserMessage("msg-1", "Help me refactor this codebase", {
               historySequence: 1,
@@ -714,7 +842,7 @@ export const StreamingCompactionWithConfigureHint: AppStory = {
         localStorage.removeItem("preferredCompactionModel");
 
         return setupStreamingChatStory({
-          workspaceId: "ws-compaction-hint",
+          minionId: "ws-compaction-hint",
           messages: [
             createUserMessage("msg-1", "Help me with this project", {
               historySequence: 1,
@@ -829,45 +957,124 @@ export const BackgroundProcesses: AppStory = {
  */
 export const ModeHelpTooltip: AppStory = {
   render: () => (
-    <AppWithMocks
-      setup={() =>
-        setupSimpleChatStory({
-          messages: [],
-        })
-      }
-    />
+    <TooltipProvider>
+      <div className="bg-background flex min-h-[180px] items-start p-6">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <HelpIndicator data-testid="mode-help-indicator">?</HelpIndicator>
+          </TooltipTrigger>
+          <TooltipContent align="start" className="max-w-80 whitespace-normal">
+            <strong>Click to edit</strong>
+            <br />
+            <strong>{formatKeybind(KEYBINDS.CYCLE_MODEL)}</strong> to cycle models
+            <br />
+            <br />
+            <strong>Abbreviations:</strong>
+            {MODEL_ABBREVIATION_EXAMPLES.map((ex) => (
+              <span key={ex.abbrev}>
+                <br />• <code>/model {ex.abbrev}</code> - {ex.displayName}
+              </span>
+            ))}
+            <br />
+            <br />
+            <strong>Full format:</strong>
+            <br />
+            <code>/model provider:model-name</code>
+            <br />
+            (e.g., <code>/model anthropic:claude-sonnet-4-5</code>)
+          </TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
   ),
   play: async ({ canvasElement }) => {
-    const storyRoot = document.getElementById("storybook-root") ?? canvasElement;
-    const canvas = within(storyRoot);
+    const canvas = within(canvasElement);
+    const helpIndicator = await canvas.findByTestId("mode-help-indicator");
 
-    // Wait for app to fully load - the chat input with mode selector should be present
-    await canvas.findAllByText("Exec", {}, { timeout: 10000 });
-
-    // Find the help indicator "?" - should be a span with cursor-help styling
-    const helpIndicators = canvas.getAllByText("?");
-    const helpIndicator = helpIndicators.find(
-      (el) => el.tagName === "SPAN" && el.className.includes("cursor-help")
-    );
-    if (!helpIndicator) throw new Error("HelpIndicator not found");
-
-    // Hover to open the tooltip and leave it visible for the visual snapshot
     await userEvent.hover(helpIndicator);
 
-    // Wait for tooltip to fully appear (Radix has 200ms delay)
     await waitFor(
       () => {
         const tooltip = document.querySelector('[role="tooltip"]');
-        if (!tooltip) throw new Error("Tooltip not visible");
+        if (!(tooltip instanceof HTMLElement)) {
+          throw new Error("Tooltip not visible");
+        }
+        if (!tooltip.textContent?.includes("Click to edit")) {
+          throw new Error("Expected model help tooltip content to be visible");
+        }
       },
-      { timeout: 2000, interval: 50 }
+      { interval: 50, timeout: 5000 }
     );
+  },
+
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Verifies the model help tooltip trigger works and renders the shortcut/abbreviation guidance content.",
+      },
+    },
+  },
+};
+
+/**
+ * Model selector dropdown open, showing icon alignment.
+ * The default star icons should appear properly aligned without gaps.
+ */
+export const ModelSelectorDropdownOpen: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        const minionId = "ws-model-dropdown";
+        const baseModel = "openai:gpt-4o";
+
+        // Set the selected model for this minion
+        updatePersistedState(getModelKey(minionId), baseModel);
+
+        return setupSimpleChatStory({
+          minionId,
+          messages: [],
+          providersConfig: {
+            openai: { apiKeySet: true, isEnabled: true, couponCodeSet: false, isConfigured: true },
+            anthropic: {
+              apiKeySet: true,
+              isEnabled: true,
+              couponCodeSet: false,
+              isConfigured: true,
+            },
+          },
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    const canvas = within(canvasElement);
+
+    // Wait for chat input to mount
+    await canvas.findAllByText(DEFAULT_AGENT_LABEL, {}, { timeout: 15000 });
+
+    // Wait for model selector to be clickable (shows pretty name "GPT-4o")
+    const modelSelector = await waitFor(() => {
+      const el = canvas.getByText("GPT-4o");
+      if (!el) throw new Error("Model selector not found");
+      return el;
+    });
+
+    // Click to open the selector (enters editing mode, shows dropdown)
+    await userEvent.click(modelSelector);
+
+    // Wait for the dropdown to appear. The dropdown is rendered inline (not via Radix Portal),
+    // so the search input is a reliable signal that it opened.
+    await canvas.findByPlaceholderText(/Search \[provider:model-name\]/i);
+
+    // Double RAF for visual stability after dropdown renders
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
   },
   parameters: {
     docs: {
       description: {
         story:
-          "Verifies the HelpIndicator tooltip works by focusing the ? icon. The tooltip should appear with Exec/Plan mode explanations.",
+          "Model selector dropdown open, showing default star icons properly aligned without gaps.",
       },
     },
   },
@@ -881,14 +1088,14 @@ export const EditingMessage: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-editing";
+        const minionId = "ws-editing";
 
         // Ensure a deterministic starting state (Chromatic/Storybook can preserve localStorage
         // across story runs in the same session).
-        setWorkspaceInput(workspaceId, "");
+        setMinionInput(minionId, "");
 
         return setupSimpleChatStory({
-          workspaceId,
+          minionId,
           messages: [
             createUserMessage("msg-1", "Add authentication to the user API endpoint", {
               historySequence: 1,
@@ -938,22 +1145,15 @@ export const EditingMessage: AppStory = {
     await userEvent.click(editButtons[0]);
 
     // Wait for the editing state to be applied
-    await waitFor(
-      () => {
-        const textarea = canvas.getByLabelText("Edit your last message");
-        if (!textarea.className.includes("border-editing-mode")) {
-          throw new Error("Textarea not in editing state");
-        }
-      },
-      { timeout: 2000 }
-    );
+    await waitFor(() => {
+      const textarea = canvas.getByLabelText("Edit your last message");
+      if (!textarea.className.includes("border-editing-mode")) {
+        throw new Error("Textarea not in editing state");
+      }
+    });
 
     // Verify the edit cutoff barrier appears
-    await canvas.findByText(
-      "Messages below will be removed when you submit",
-      {},
-      { timeout: 2000 }
-    );
+    await canvas.findByText("Messages below will be removed when you submit");
   },
   parameters: {
     docs: {
@@ -979,7 +1179,7 @@ export const DiffPaddingColors: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-diff-padding",
+          minionId: "ws-diff-padding",
           messages: [
             createUserMessage("msg-1", "Show me different diff edge cases", {
               historySequence: 1,
@@ -1068,7 +1268,7 @@ export const DiffPaddingAlignment: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-diff-alignment",
+          minionId: "ws-diff-alignment",
           messages: [
             createUserMessage("msg-1", "Show me a diff with high line numbers", {
               historySequence: 1,
@@ -1131,7 +1331,7 @@ export const DiffHorizontalScroll: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-diff-scroll",
+          minionId: "ws-diff-scroll",
           messages: [
             createUserMessage("msg-1", "Show me a diff with very long lines", {
               historySequence: 1,
@@ -1181,14 +1381,14 @@ export const DiffHorizontalScroll: AppStory = {
 
 /**
  * Story showing the InitMessage component in success state.
- * Tests the workspace init hook display with completed status.
+ * Tests the minion init hook display with completed status.
  */
 export const InitHookSuccess: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-init-success",
+          minionId: "ws-init-success",
           messages: [
             createUserMessage("msg-1", "Start working on the project", {
               historySequence: 1,
@@ -1202,27 +1402,27 @@ export const InitHookSuccess: AppStory = {
                 type: "init-start",
                 hookPath: "/home/user/projects/my-app/.lattice/init.sh",
                 timestamp: STABLE_TIMESTAMP - 110000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-output",
                 line: "Installing dependencies...",
                 timestamp: STABLE_TIMESTAMP - 109000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-output",
                 line: "Setting up environment variables...",
                 timestamp: STABLE_TIMESTAMP - 108000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-output",
                 line: "Starting development server...",
                 timestamp: STABLE_TIMESTAMP - 107000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-end",
                 exitCode: 0,
                 timestamp: STABLE_TIMESTAMP - 106000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
             }, 100);
           },
         })
@@ -1242,14 +1442,14 @@ export const InitHookSuccess: AppStory = {
 
 /**
  * Story showing the InitMessage component in error state.
- * Tests the workspace init hook display with failed status.
+ * Tests the minion init hook display with failed status.
  */
 export const InitHookError: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-init-error",
+          minionId: "ws-init-error",
           messages: [
             createUserMessage("msg-1", "Start working on the project", {
               historySequence: 1,
@@ -1263,29 +1463,29 @@ export const InitHookError: AppStory = {
                 type: "init-start",
                 hookPath: "/home/user/projects/my-app/.lattice/init.sh",
                 timestamp: STABLE_TIMESTAMP - 110000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-output",
                 line: "Installing dependencies...",
                 timestamp: STABLE_TIMESTAMP - 109000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-output",
                 line: "Failed to install package 'missing-dep'",
                 timestamp: STABLE_TIMESTAMP - 108000,
                 isError: true,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-output",
                 line: "npm ERR! code E404",
                 timestamp: STABLE_TIMESTAMP - 107500,
                 isError: true,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
               emit({
                 type: "init-end",
                 exitCode: 1,
                 timestamp: STABLE_TIMESTAMP - 107000,
-              } as WorkspaceChatMessage);
+              } as MinionChatMessage);
             }, 100);
           },
         })
@@ -1313,8 +1513,8 @@ export const ContextMeterWithIdleCompaction: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-context-meter",
-          workspaceName: "feature/auth",
+          minionId: "ws-context-meter",
+          minionName: "feature/auth",
           projectName: "my-app",
           idleCompactionHours: 4,
           messages: [
@@ -1347,13 +1547,10 @@ export const ContextMeterWithIdleCompaction: AppStory = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     // Wait for the context meter to appear (it shows token usage)
-    await waitFor(
-      () => {
-        // Look for the context meter button which shows token counts
-        canvas.getByRole("button", { name: /context/i });
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      // Look for the context meter button which shows token counts
+      canvas.getByRole("button", { name: /context/i });
+    });
   },
   parameters: {
     docs: {
@@ -1375,7 +1572,7 @@ export const ProposePlan: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-plan",
+          minionId: "ws-plan",
           messages: [
             createUserMessage("msg-1", "Help me refactor the authentication module", {
               historySequence: 1,
@@ -1442,6 +1639,105 @@ graph TD
 };
 
 /**
+ * Captures the handoff pause after a plan is presented and before the executor stream starts.
+ *
+ * This reproduces the visual state where the sidebar shows "Deciding execution strategy…"
+ * while the proposed plan remains visible in the conversation.
+ */
+export const ProposePlanAutoRoutingDecisionGap: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSimpleChatStory({
+          minionId: "ws-plan-auto-routing-gap",
+          minionName: "feature/plan-auto-routing",
+          messages: [
+            createUserMessage(
+              "msg-1",
+              "Plan and implement a safe migration rollout for auth tokens.",
+              {
+                historySequence: 1,
+                timestamp: STABLE_TIMESTAMP - 240000,
+              }
+            ),
+            createAssistantMessage("msg-2", "Here is the implementation plan.", {
+              historySequence: 2,
+              timestamp: STABLE_TIMESTAMP - 230000,
+              toolCalls: [
+                createProposePlanTool(
+                  "call-plan-1",
+                  `# Auth Token Migration Rollout
+
+## Goals
+
+- Migrate token validation to the new signing service.
+- Maintain compatibility during rollout.
+- Keep rollback simple and low risk.
+
+## Steps
+
+1. Add dual-read token validation behind a feature flag.
+2. Ship telemetry for token verification outcomes.
+3. Enable new validator for 10% of traffic.
+4. Ramp to 100% after stability checks.
+5. Remove legacy validator once metrics stay healthy.
+
+## Rollback
+
+- Disable the rollout flag to return to legacy validation immediately.
+- Keep telemetry running to confirm recovery.`
+                ),
+              ],
+            }),
+            createAssistantMessage("msg-3", "Selecting the right executor for this plan.", {
+              historySequence: 3,
+              timestamp: STABLE_TIMESTAMP - 220000,
+              toolCalls: [
+                createStatusTool(
+                  "call-status-1",
+                  PLAN_AUTO_ROUTING_STATUS_EMOJI,
+                  PLAN_AUTO_ROUTING_STATUS_MESSAGE
+                ),
+              ],
+            }),
+          ],
+        })
+      }
+    />
+  ),
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Chromatic regression story for the plan auto-routing gap: after `propose_plan` succeeds, " +
+          "the sidebar stays in a working state with a 'Deciding execution strategy…' status before executor kickoff.",
+      },
+    },
+  },
+};
+
+/**
+ * Mobile viewport version of ProposePlan.
+ *
+ * Verifies that on narrow screens the primary plan actions (Implement / Start Orchestrator)
+ * render as shortcut icons in the left action row (instead of right-aligned buttons).
+ */
+export const ProposePlanMobile: AppStory = {
+  ...ProposePlan,
+  parameters: {
+    ...ProposePlan.parameters,
+    viewport: { defaultViewport: "mobile1" },
+    docs: {
+      description: {
+        story:
+          "Renders ProposePlan at an iPhone-sized viewport to verify that Implement / Start Orchestrator " +
+          "appear as shortcut icons in the left action row (preventing right-side overflow on small screens).",
+      },
+    },
+  },
+};
+
+/**
  * Story showing a propose_plan with a code block containing long horizontal content.
  * Tests that code blocks wrap correctly instead of overflowing the container.
  */
@@ -1450,7 +1746,7 @@ export const ProposePlanWithLongCodeBlock: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-plan-overflow",
+          minionId: "ws-plan-overflow",
           messages: [
             createUserMessage("msg-1", "The CI is failing with this error, can you help?", {
               historySequence: 1,
@@ -1505,7 +1801,7 @@ export const TodoWriteWithLongTodos: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-todo-overflow",
+          minionId: "ws-todo-overflow",
           messages: [
             createUserMessage("msg-1", "Can you track tasks in a todo list?", {
               historySequence: 1,
@@ -1576,15 +1872,12 @@ export const TodoWriteWithLongTodos: AppStory = {
     }
 
     // Verify that todo content rows are using truncation.
-    await waitFor(
-      () => {
-        const firstTodo = canvas.getByText(/Create British-themed layout \(HTML\)/);
-        if (!firstTodo.classList.contains("truncate")) {
-          throw new Error("Expected todo row to have Tailwind 'truncate' class");
-        }
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const firstTodo = canvas.getByText(/Create British-themed layout \(HTML\)/);
+      if (!firstTodo.classList.contains("truncate")) {
+        throw new Error("Expected todo row to have Tailwind 'truncate' class");
+      }
+    });
 
     // Verify chat pane doesn't gain horizontal overflow.
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -1617,7 +1910,7 @@ export const SigningBadgePassphraseWarning: AppStory = {
       await warmHashCache(SIGNING_WARNING_MESSAGE_CONTENT);
       // Now set share data with the warmed hash
       setShareData(SIGNING_WARNING_MESSAGE_CONTENT, {
-        url: "https://openagent.md/story-test#fake-key",
+        url: "https://lattice.md/story-test#fake-key",
         id: "story-share-id",
         mutateKey: "story-mutate-key",
         expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
@@ -1630,7 +1923,7 @@ export const SigningBadgePassphraseWarning: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-signing-warning",
+          minionId: "ws-signing-warning",
           messages: [
             createUserMessage("msg-1", "Hello", {
               historySequence: 1,
@@ -1659,26 +1952,23 @@ export const SigningBadgePassphraseWarning: AppStory = {
     const canvas = within(storyRoot);
 
     // Wait for the assistant message to appear
-    await canvas.findByText(SIGNING_WARNING_MESSAGE_CONTENT, {}, { timeout: 5000 });
+    await canvas.findByText(SIGNING_WARNING_MESSAGE_CONTENT);
 
     // Wait for React to finish any pending updates after rendering
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     // Find and click the Share button (should show "Already shared" due to loader)
-    const shareButton = await canvas.findByLabelText("Already shared", {}, { timeout: 3000 });
+    const shareButton = await canvas.findByLabelText("Already shared");
 
     // Wait a bit for button to be fully interactive
     await new Promise((r) => setTimeout(r, 100));
     await userEvent.click(shareButton);
 
     // Wait for the popover to open (renders in a portal, so search document)
-    await waitFor(
-      () => {
-        const popover = document.querySelector('[role="dialog"]');
-        if (!popover) throw new Error("Share popover not found");
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const popover = document.querySelector('[role="dialog"]');
+      if (!popover) throw new Error("Share popover not found");
+    });
 
     // Allow the signing badge to render with its warning state
     await new Promise((r) => setTimeout(r, 200));
@@ -1699,7 +1989,7 @@ export const ToolHooksOutput: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-tool-hooks",
+          minionId: "ws-tool-hooks",
           messages: [
             createUserMessage("msg-1", "Can you fix the lint errors in app.ts?", {
               historySequence: 1,
@@ -1778,7 +2068,7 @@ export const ToolHooksOutputExpanded: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-tool-hooks-expanded",
+          minionId: "ws-tool-hooks-expanded",
           messages: [
             createUserMessage("msg-1", "Run the formatter", {
               historySequence: 1,
@@ -1812,23 +2102,82 @@ export const ToolHooksOutputExpanded: AppStory = {
     const canvas = within(canvasElement);
 
     // Wait for the tool to render
-    await canvas.findByText("npx prettier --write .", {}, { timeout: 5000 });
+    await canvas.findByText("npx prettier --write .");
 
     // Wait for rendering to complete
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
     // Find and click the hook output button to expand it
-    const hookButton = await canvas.findByText("hook output", {}, { timeout: 3000 });
+    const hookButton = await canvas.findByText("hook output");
     await userEvent.click(hookButton);
 
     // Wait for the expanded content to be visible
-    await canvas.findByText(/post-hook: git status check/, {}, { timeout: 3000 });
+    await canvas.findByText(/post-hook: git status check/);
   },
   parameters: {
     docs: {
       description: {
         story:
           "Shows the hook output display in its expanded state, revealing the full hook output.",
+      },
+    },
+  },
+};
+
+/**
+ * Context switch warning banner - shows when switching to a model that can't fit current context.
+ *
+ * Scenario: Minion has ~150K tokens of context. The user switches from Sonnet (200K+ limit)
+ * to GPT-4o (128K limit). Since 150K > 90% of 128K, the warning banner appears.
+ */
+const contextSwitchMinionId = "ws-context-switch";
+
+export const ContextSwitchWarning: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        // Start on Sonnet so the explicit switch to GPT-4o triggers the warning.
+        updatePersistedState(getModelKey(contextSwitchMinionId), "anthropic:claude-sonnet-4-5");
+
+        return setupSimpleChatStory({
+          minionId: contextSwitchMinionId,
+          messages: [
+            createUserMessage("msg-1", "Help me refactor this large codebase", {
+              historySequence: 1,
+              timestamp: STABLE_TIMESTAMP - 300000,
+            }),
+            // Large context usage - 150K tokens from Sonnet (which handles 200K+)
+            // Now switching to GPT-4o (128K limit): 150K > 90% of 128K triggers warning
+            createAssistantMessage(
+              "msg-2",
+              "I've analyzed the codebase. Here's my refactoring plan...",
+              {
+                historySequence: 2,
+                timestamp: STABLE_TIMESTAMP - 290000,
+                model: "anthropic:claude-sonnet-4-5",
+                contextUsage: {
+                  inputTokens: 150000,
+                  outputTokens: 2000,
+                },
+              }
+            ),
+          ],
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const storyRoot = document.getElementById("storybook-root") ?? canvasElement;
+    await waitForChatMessagesLoaded(storyRoot);
+    setMinionModelWithOrigin(contextSwitchMinionId, "openai:gpt-4o", "user");
+  },
+  parameters: {
+    docs: {
+      description: {
+        story:
+          "Shows the context switch warning banner. Previous message used Sonnet (150K tokens), " +
+          "but minion is now set to GPT-4o (128K limit). Since 150K exceeds 90% of 128K, " +
+          "the warning banner appears offering a one-click compact action.",
       },
     },
   },

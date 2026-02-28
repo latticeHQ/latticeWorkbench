@@ -28,32 +28,32 @@ function createNullInitLogger(): InitLogger {
 
 describe("WorktreeManager constructor", () => {
   it("should expand tilde in srcBaseDir", () => {
-    const manager = new WorktreeManager("~/workspace");
-    const workspacePath = manager.getWorkspacePath("/home/user/project", "branch");
+    const manager = new WorktreeManager("~/minion");
+    const minionPath = manager.getMinionPath("/home/user/project", "branch");
 
-    // The workspace path should use the expanded home directory
-    const expected = path.join(os.homedir(), "workspace", "project", "branch");
-    expect(workspacePath).toBe(expected);
+    // The minion path should use the expanded home directory
+    const expected = path.join(os.homedir(), "minion", "project", "branch");
+    expect(minionPath).toBe(expected);
   });
 
   it("should handle absolute paths without expansion", () => {
     const manager = new WorktreeManager("/absolute/path");
-    const workspacePath = manager.getWorkspacePath("/home/user/project", "branch");
+    const minionPath = manager.getMinionPath("/home/user/project", "branch");
 
     const expected = path.join("/absolute/path", "project", "branch");
-    expect(workspacePath).toBe(expected);
+    expect(minionPath).toBe(expected);
   });
 
   it("should handle bare tilde", () => {
     const manager = new WorktreeManager("~");
-    const workspacePath = manager.getWorkspacePath("/home/user/project", "branch");
+    const minionPath = manager.getMinionPath("/home/user/project", "branch");
 
     const expected = path.join(os.homedir(), "project", "branch");
-    expect(workspacePath).toBe(expected);
+    expect(minionPath).toBe(expected);
   });
 });
 
-describe("WorktreeManager.deleteWorkspace", () => {
+describe("WorktreeManager.deleteMinion", () => {
   it("deletes non-agent branches when removing worktrees (force)", async () => {
     const rootDir = await fsPromises.realpath(
       await fsPromises.mkdtemp(path.join(os.tmpdir(), "worktree-manager-delete-"))
@@ -71,7 +71,7 @@ describe("WorktreeManager.deleteWorkspace", () => {
       const initLogger = createNullInitLogger();
 
       const branchName = "feature_aaaaaaaaaa";
-      const createResult = await manager.createWorkspace({
+      const createResult = await manager.createMinion({
         projectPath,
         branchName,
         trunkBranch: "main",
@@ -79,20 +79,20 @@ describe("WorktreeManager.deleteWorkspace", () => {
       });
       expect(createResult.success).toBe(true);
       if (!createResult.success) return;
-      if (!createResult.workspacePath) {
-        throw new Error("Expected workspacePath from createWorkspace");
+      if (!createResult.minionPath) {
+        throw new Error("Expected minionPath from createMinion");
       }
-      const workspacePath = createResult.workspacePath;
+      const minionPath = createResult.minionPath;
 
       // Make the branch unmerged (so -d would fail); force delete should still delete it.
       execSync("bash -lc 'echo \"change\" >> README.md'", {
-        cwd: workspacePath,
+        cwd: minionPath,
         stdio: "ignore",
       });
-      execSync("git add README.md", { cwd: workspacePath, stdio: "ignore" });
-      execSync('git commit -m "change"', { cwd: workspacePath, stdio: "ignore" });
+      execSync("git add README.md", { cwd: minionPath, stdio: "ignore" });
+      execSync('git commit -m "change"', { cwd: minionPath, stdio: "ignore" });
 
-      const deleteResult = await manager.deleteWorkspace(projectPath, branchName, true);
+      const deleteResult = await manager.deleteMinion(projectPath, branchName, true);
       expect(deleteResult.success).toBe(true);
 
       const after = execSync(`git branch --list "${branchName}"`, {
@@ -124,7 +124,7 @@ describe("WorktreeManager.deleteWorkspace", () => {
       const initLogger = createNullInitLogger();
 
       const branchName = "feature_merge_aaaaaaaaaa";
-      const createResult = await manager.createWorkspace({
+      const createResult = await manager.createMinion({
         projectPath,
         branchName,
         trunkBranch: "main",
@@ -132,26 +132,26 @@ describe("WorktreeManager.deleteWorkspace", () => {
       });
       expect(createResult.success).toBe(true);
       if (!createResult.success) return;
-      if (!createResult.workspacePath) {
-        throw new Error("Expected workspacePath from createWorkspace");
+      if (!createResult.minionPath) {
+        throw new Error("Expected minionPath from createMinion");
       }
-      const workspacePath = createResult.workspacePath;
+      const minionPath = createResult.minionPath;
 
-      // Commit on the workspace branch.
+      // Commit on the minion branch.
       execSync("bash -lc 'echo \"merged-change\" >> README.md'", {
-        cwd: workspacePath,
+        cwd: minionPath,
         stdio: "ignore",
       });
-      execSync("git add README.md", { cwd: workspacePath, stdio: "ignore" });
+      execSync("git add README.md", { cwd: minionPath, stdio: "ignore" });
       execSync('git commit -m "merged-change"', {
-        cwd: workspacePath,
+        cwd: minionPath,
         stdio: "ignore",
       });
 
       // Merge into main so `git branch -d` succeeds.
       execSync(`git merge "${branchName}"`, { cwd: projectPath, stdio: "ignore" });
 
-      const deleteResult = await manager.deleteWorkspace(projectPath, branchName, false);
+      const deleteResult = await manager.deleteMinion(projectPath, branchName, false);
       expect(deleteResult.success).toBe(true);
 
       const after = execSync(`git branch --list "${branchName}"`, {
@@ -186,7 +186,7 @@ describe("WorktreeManager.deleteWorkspace", () => {
       const initLogger = createNullInitLogger();
 
       const branchName = "main";
-      const createResult = await manager.createWorkspace({
+      const createResult = await manager.createMinion({
         projectPath,
         branchName,
         trunkBranch: "main",
@@ -194,18 +194,18 @@ describe("WorktreeManager.deleteWorkspace", () => {
       });
       expect(createResult.success).toBe(true);
       if (!createResult.success) return;
-      if (!createResult.workspacePath) {
-        throw new Error("Expected workspacePath from createWorkspace");
+      if (!createResult.minionPath) {
+        throw new Error("Expected minionPath from createMinion");
       }
-      const workspacePath = createResult.workspacePath;
+      const minionPath = createResult.minionPath;
 
-      const deleteResult = await manager.deleteWorkspace(projectPath, branchName, true);
+      const deleteResult = await manager.deleteMinion(projectPath, branchName, true);
       expect(deleteResult.success).toBe(true);
 
       // The worktree directory should be removed.
       let worktreeExists = true;
       try {
-        await fsPromises.access(workspacePath);
+        await fsPromises.access(minionPath);
       } catch {
         worktreeExists = false;
       }

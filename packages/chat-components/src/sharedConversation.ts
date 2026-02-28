@@ -10,9 +10,9 @@ export interface SharedConversationMetadata {
 }
 
 /**
- * Conversation format stored in openagent.md (client-side encrypted).
+ * Conversation format stored in lattice.md (client-side encrypted).
  *
- * NOTE: This intentionally stores raw LatticeMessage[] so that openagent.md can render
+ * NOTE: This intentionally stores raw LatticeMessage[] so that lattice.md can render
  * conversations using the same transformation + UI components as Lattice.
  */
 export interface SharedConversation {

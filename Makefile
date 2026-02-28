@@ -46,7 +46,7 @@ MAKEFLAGS += -j
 endif
 
 # Common esbuild flags for CLI API bundle (ESM format for trpc-cli)
-ESBUILD_CLI_FLAGS := --bundle --format=esm --platform=node --target=node20 --outfile=dist/cli/api.mjs --external:zod --external:commander --external:jsonc-parser --external:@trpc/server --external:ssh2 --external:cpu-features --external:trpc-cli --external:@orpc/client --external:@orpc/client/fetch --external:@orpc/server --external:ai --banner:js="import{createRequire}from'module';globalThis.require=createRequire(import.meta.url);"
+ESBUILD_CLI_FLAGS := --bundle --format=esm --platform=node --target=node20 --outfile=dist/cli/api.mjs --external:zod --external:commander --external:jsonc-parser --external:@trpc/server --external:ssh2 --external:cpu-features --banner:js="import{createRequire}from'module';globalThis.require=createRequire(import.meta.url);"
 
 # Include formatting rules
 include fmt.mk
@@ -54,19 +54,16 @@ include fmt.mk
 .PHONY: all build dev start clean help
 .PHONY: build-renderer version build-icons build-static
 .PHONY: lint lint-fix typecheck typecheck-react-native static-check
-.PHONY: test test-unit test-integration test-watch test-coverage test-e2e smoke-test
+.PHONY: test test-unit test-integration test-watch test-coverage test-e2e test-e2e-perf smoke-test
 .PHONY: dist dist-mac dist-win dist-linux install-mac-arm64
 .PHONY: vscode-ext vscode-ext-install
-.PHONY: docs-server check-docs-links
 .PHONY: storybook storybook-build test-storybook chromatic
 .PHONY: benchmark-terminal
 .PHONY: ensure-deps rebuild-native lattice
 .PHONY: check-eager-imports check-bundle-size check-startup
 
-# Build tools - use bun if available, fall back to npx/node
-BUN_OR_NPX := $(shell command -v bun >/dev/null 2>&1 && echo "bun x" || echo "npx")
-BUN_OR_NODE := $(shell command -v bun >/dev/null 2>&1 && echo "bun run" || echo "node")
-TSGO := $(BUN_OR_NODE) node_modules/@typescript/native-preview/bin/tsgo.js
+# Build tools
+TSGO := bun run node_modules/@typescript/native-preview/bin/tsgo.js
 
 # Node.js version check
 REQUIRED_NODE_VERSION := 20
@@ -90,6 +87,7 @@ endef
 HAS_BROWSER_OPENER := $(shell command -v xdg-open >/dev/null 2>&1 && echo "yes" || echo "no")
 STORYBOOK_OPEN_FLAG := $(if $(filter yes,$(HAS_BROWSER_OPENER)),,--no-open)
 
+# docs/ was removed — keep the variable empty so downstream deps still work
 DOCS_SOURCES :=
 
 TS_SOURCES := $(shell find src -type f \( -name '*.ts' -o -name '*.tsx' \))
@@ -99,35 +97,25 @@ all: build
 
 # Sentinel file to track when dependencies are installed
 # Depends on package.json and bun.lock - rebuilds if either changes
-# If node_modules exists but .installed is stale, touch it (offline/archive mode)
 node_modules/.installed: package.json bun.lock
-	@if [ -d node_modules ] && ! command -v bun >/dev/null 2>&1; then \
-		echo "bun not found but node_modules exists — using existing dependencies (offline mode)"; \
-		touch node_modules/.installed; \
-	else \
-		echo "Dependencies out of date or missing, running bun install..."; \
-		bun install; \
-		touch node_modules/.installed; \
-	fi
+	@echo "Dependencies out of date or missing, running bun install..."
+	@bun install
+	@touch node_modules/.installed
 
 # Mobile dependencies - separate from main project
 mobile/node_modules/.installed: mobile/package.json mobile/bun.lock
-	@if [ -d mobile/node_modules ] && ! command -v bun >/dev/null 2>&1; then \
-		echo "bun not found but mobile/node_modules exists — using existing dependencies"; \
-		touch mobile/node_modules/.installed; \
-	else \
-		echo "Installing mobile dependencies..."; \
-		cd mobile && bun install; \
-		touch mobile/node_modules/.installed; \
-	fi
+	@echo "Installing mobile dependencies..."
+	@cd mobile && bun install
+	@touch mobile/node_modules/.installed
 
 # Legacy target for backwards compatibility
 ensure-deps: node_modules/.installed
 
 # Rebuild native modules for Electron
-rebuild-native: node_modules/.installed ## Rebuild native modules (node-pty) for Electron
+rebuild-native: node_modules/.installed ## Rebuild native modules (node-pty, DuckDB) for Electron
 	@echo "Rebuilding native modules for Electron..."
 	@npx @electron/rebuild -f -m node_modules/node-pty
+	@npx @electron/rebuild -f -m node_modules/@duckdb/node-bindings
 	@echo "Native modules rebuilt successfully"
 
 # Run compiled CLI with trailing arguments (builds only if missing)
@@ -156,14 +144,14 @@ dev: node_modules/.installed build-main ## Start development server (Vite + node
 	# https://github.com/oven-sh/bun/issues/18275
 	@NODE_OPTIONS="--max-old-space-size=4096" \
 		npm x concurrently -k --raw \
-		"$(BUN_OR_NPX) nodemon --watch src --watch tsconfig.main.json --watch tsconfig.json --ext ts,tsx,json --ignore dist --ignore node_modules --exec node scripts/build-main-watch.js" \
+		"bun x nodemon --watch src --watch tsconfig.main.json --watch tsconfig.json --ext ts,tsx,json --ignore dist --ignore node_modules --exec node scripts/build-main-watch.js" \
 		'npx esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS) --watch' \
 		"vite"
 else
 dev: node_modules/.installed build-main build-preload ## Start development server (Vite + tsgo watcher for 10x faster type checking)
-	@$(BUN_OR_NPX) concurrently -k \
-		"$(BUN_OR_NPX) concurrently \"$(TSGO) -w -p tsconfig.main.json\" \"$(BUN_OR_NPX) tsc-alias -w -p tsconfig.main.json\"" \
-		'$(BUN_OR_NPX) esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS) --watch' \
+	@bun x concurrently -k \
+		"bun x concurrently \"$(TSGO) -w -p tsconfig.main.json\" \"bun x tsc-alias -w -p tsconfig.main.json\"" \
+		'bun x esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS) --watch' \
 		"vite"
 endif
 
@@ -178,7 +166,7 @@ dev-server: node_modules/.installed build-main ## Start server mode with hot rel
 	@npm x concurrently -k \
 		"nodemon --watch src --watch tsconfig.main.json --watch tsconfig.json --ext ts,tsx,json --ignore dist --ignore node_modules scripts/build-main-watch.js" \
 		'npx esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS) --watch' \
-		"set NODE_ENV=development&& nodemon --watch dist/cli/index.js --watch dist/cli/server.js --delay 500ms dist/cli/index.js server --host $(or $(BACKEND_HOST),127.0.0.1) --port $(or $(BACKEND_PORT),3000)" \
+		"set NODE_ENV=development&& nodemon --watch dist/cli/index.js --watch dist/cli/server.js --delay 500ms dist/cli/index.js server --no-auth --host $(or $(BACKEND_HOST),127.0.0.1) --port $(or $(BACKEND_PORT),3000)" \
 		"set LATTICE_VITE_HOST=$(or $(VITE_HOST),127.0.0.1)&& set LATTICE_VITE_PORT=$(or $(VITE_PORT),5173)&& set LATTICE_VITE_ALLOWED_HOSTS=$(VITE_ALLOWED_HOSTS)&& set LATTICE_BACKEND_PORT=$(or $(BACKEND_PORT),3000)&& vite"
 else
 dev-server: node_modules/.installed build-main ## Start server mode with hot reload (backend :3000 + frontend :5173). Use VITE_HOST=0.0.0.0 VITE_ALLOWED_HOSTS=<public-host> for remote access
@@ -187,20 +175,20 @@ dev-server: node_modules/.installed build-main ## Start server mode with hot rel
 	@echo "  Frontend (with HMR):     http://$(or $(VITE_HOST),localhost):$(or $(VITE_PORT),5173)"
 	@echo ""
 	@echo "For remote access: make dev-server VITE_HOST=0.0.0.0 VITE_ALLOWED_HOSTS=<public-host>"
-	@$(BUN_OR_NPX) concurrently -k \
-		"$(BUN_OR_NPX) concurrently \"$(TSGO) -w -p tsconfig.main.json\" \"$(BUN_OR_NPX) tsc-alias -w -p tsconfig.main.json\"" \
-		'$(BUN_OR_NPX) esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS) --watch' \
-		"$(BUN_OR_NPX) nodemon --watch dist/cli/index.js --watch dist/cli/server.js --watch dist/node --delay 3000ms --exec 'NODE_ENV=development node dist/cli/index.js server --host $(or $(BACKEND_HOST),127.0.0.1) --port $(or $(BACKEND_PORT),3000)'" \
-		"echo '[Frontend] Waiting for backend on port $(or $(BACKEND_PORT),3000)...' && until curl -sf http://$(or $(BACKEND_HOST),127.0.0.1):$(or $(BACKEND_PORT),3000)/health > /dev/null 2>&1; do sleep 0.5; done && echo '[Frontend] Backend ready, starting Vite...' && LATTICE_VITE_HOST=$(or $(VITE_HOST),127.0.0.1) LATTICE_VITE_PORT=$(or $(VITE_PORT),5173) LATTICE_VITE_ALLOWED_HOSTS=$(VITE_ALLOWED_HOSTS) LATTICE_BACKEND_PORT=$(or $(BACKEND_PORT),3000) vite"
+	@bun x concurrently -k \
+		"bun x concurrently \"$(TSGO) -w -p tsconfig.main.json\" \"bun x tsc-alias -w -p tsconfig.main.json\"" \
+		'bun x esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS) --watch' \
+		"bun x nodemon --watch dist/cli/index.js --watch dist/cli/server.js --delay 500ms --exec 'NODE_ENV=development node dist/cli/index.js server --no-auth --host $(or $(BACKEND_HOST),127.0.0.1) --port $(or $(BACKEND_PORT),3000)'" \
+		"LATTICE_VITE_HOST=$(or $(VITE_HOST),127.0.0.1) LATTICE_VITE_PORT=$(or $(VITE_PORT),5173) LATTICE_VITE_ALLOWED_HOSTS=$(VITE_ALLOWED_HOSTS) LATTICE_BACKEND_PORT=$(or $(BACKEND_PORT),3000) vite"
 endif
 
 
 
 
 dev-desktop-sandbox: ## Start an isolated Electron dev instance (fresh LATTICE_ROOT + free ports)
-	@bun scripts/dev-desktop-sandbox.ts
+	@bun scripts/dev-desktop-sandbox.ts $(DEV_DESKTOP_SANDBOX_ARGS)
 dev-server-sandbox: ## Start an isolated dev-server instance (fresh LATTICE_ROOT + free ports)
-	@bun scripts/dev-server-sandbox.ts
+	@bun scripts/dev-server-sandbox.ts $(DEV_SERVER_SANDBOX_ARGS)
 
 start: node_modules/.installed build-main build-preload build-static ## Build and start Electron app
 	@NODE_ENV=development bunx electron --remote-debugging-port=9222 .
@@ -212,23 +200,22 @@ build-main: node_modules/.installed dist/cli/index.js dist/cli/api.mjs ## Build 
 
 BUILTIN_AGENTS_GENERATED := src/node/services/agentDefinitions/builtInAgentContent.generated.ts
 BUILTIN_SKILLS_GENERATED := src/node/services/agentSkills/builtInSkillContent.generated.ts
-BUILTIN_PLUGINS_GENERATED := src/node/services/pluginPacks/builtInPluginRegistry.generated.ts
 
 $(BUILTIN_AGENTS_GENERATED): src/node/builtinAgents/*.md scripts/generate-builtin-agents.sh
 	@./scripts/generate-builtin-agents.sh
 
-$(BUILTIN_SKILLS_GENERATED) $(BUILTIN_PLUGINS_GENERATED): src/node/builtinSkills/*.md $(DOCS_SOURCES) scripts/generate-builtin-skills.sh scripts/gen_builtin_skills.ts scripts/gen_builtin_plugins.ts
+$(BUILTIN_SKILLS_GENERATED): src/node/builtinSkills/*.md $(DOCS_SOURCES) scripts/generate-builtin-skills.sh scripts/gen_builtin_skills.ts
 	@./scripts/generate-builtin-skills.sh
 
-dist/cli/index.js: src/cli/index.ts src/desktop/main.ts src/cli/server.ts src/version.ts tsconfig.main.json tsconfig.json $(TS_SOURCES) $(BUILTIN_AGENTS_GENERATED) $(BUILTIN_SKILLS_GENERATED) $(BUILTIN_PLUGINS_GENERATED)
+dist/cli/index.js: src/cli/index.ts src/desktop/main.ts src/cli/server.ts src/version.ts tsconfig.main.json tsconfig.json $(TS_SOURCES) $(BUILTIN_AGENTS_GENERATED) $(BUILTIN_SKILLS_GENERATED)
 	@echo "Building main process..."
 	@NODE_ENV=production $(TSGO) -p tsconfig.main.json
-	@NODE_ENV=production $(BUN_OR_NPX) tsc-alias -p tsconfig.main.json
+	@NODE_ENV=production bun x tsc-alias -p tsconfig.main.json
 
 # Build API CLI as ESM bundle (trpc-cli requires ESM with top-level await)
 dist/cli/api.mjs: src/cli/api.ts src/cli/proxifyOrpc.ts $(TS_SOURCES)
 	@echo "Building API CLI (ESM)..."
-	@$(BUN_OR_NPX) esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS)
+	@bun x esbuild src/cli/api.ts $(ESBUILD_CLI_FLAGS)
 
 build-preload: node_modules/.installed dist/preload.js ## Build preload script
 
@@ -243,39 +230,13 @@ dist/preload.js: src/desktop/preload.ts $(TS_SOURCES)
 
 build-renderer: node_modules/.installed src/version.ts ## Build renderer process
 	@echo "Building renderer..."
-	@$(BUN_OR_NPX) vite build
+	@bun x vite build
 
-## Go inference binary
-INFERRED_GOOS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
-INFERRED_GOARCH := $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
-
-build-inferred: ## Build the Go inference binary for current platform (skipped if submodule missing)
-	@if [ -f vendor/latticeInference/go.mod ]; then \
-		echo "Building latticeinference for $(INFERRED_GOOS)/$(INFERRED_GOARCH)..."; \
-		mkdir -p dist/inference/bin; \
-		cd vendor/latticeInference && GOOS=$(INFERRED_GOOS) GOARCH=$(INFERRED_GOARCH) CGO_ENABLED=0 go build \
-			-ldflags "-s -w" \
-			-o ../../dist/inference/bin/latticeinference \
-			./cmd/latticeinference; \
-	else \
-		echo "Skipping latticeinference build (submodule not available)"; \
-	fi
-
-build-static: build-inferred ## Copy static assets to dist
+build-static: ## Copy static assets to dist
 	@echo "Copying static assets..."
 	@mkdir -p dist
 	@cp static/splash.html dist/splash.html
 	@cp -r public/* dist/
-	@# Bundle Python inference worker from latticeInference submodule (if available)
-	@if [ -d vendor/latticeInference/python ]; then \
-		mkdir -p dist/inference/python; \
-		cp -r vendor/latticeInference/python/worker.py dist/inference/python/; \
-		cp -r vendor/latticeInference/python/backends dist/inference/python/; \
-		cp -r vendor/latticeInference/python/models dist/inference/python/; \
-		cp vendor/latticeInference/python/pyproject.toml dist/inference/python/; \
-	else \
-		echo "Skipping inference python bundle (submodule not available)"; \
-	fi
 	@# Copy TypeScript lib files for PTC runtime type validation (es5 through es2023).
 	@# electron-builder ignores .d.ts files by default and this cannot be overridden:
 	@# https://github.com/electron-userland/electron-builder/issues/5064
@@ -304,19 +265,19 @@ src/version.ts: version
 ifeq ($(shell uname), Darwin)
 build-icons: build/icon.icns build/icon.png ## Generate Electron app icons from logo (macOS builds both)
 
-build/icon.icns: public/icon-512.png scripts/generate-icons.ts
+build/icon.icns: static/logo-white.svg scripts/generate-icons.ts
 	@echo "Generating macOS ICNS icon..."
 	@bun scripts/generate-icons.ts icns
 else
 build-icons: build/icon.png ## Generate Electron app icons from logo (Linux builds PNG only)
 endif
 
-build/icon.png: public/icon-512.png scripts/generate-icons.ts
+build/icon.png: static/logo-white.svg scripts/generate-icons.ts
 	@echo "Generating PNG icon..."
 	@bun scripts/generate-icons.ts png
 
 ## Quality checks (can run in parallel)
-static-check: lint typecheck fmt-check check-eager-imports check-bench-agent check-docs-links check-code-docs-links lint-shellcheck ## Run all static checks
+static-check: lint typecheck fmt-check check-eager-imports check-bench-agent lint-shellcheck flake-hash-check ## Run all static checks (lint + typecheck + fmt-check)
 
 check-bench-agent: node_modules/.installed src/version.ts $(BUILTIN_SKILLS_GENERATED) ## Verify terminal-bench agent configuration and imports
 	@./scripts/check-bench-agent.sh
@@ -336,7 +297,7 @@ lint-zizmor: ## Run zizmor security analysis on GitHub Actions workflows
 	@./scripts/zizmor.sh --min-confidence high .
 
 # Shell files to lint (excludes node_modules, build artifacts, .git)
-SHELL_SRC_FILES := $(shell find . -not \( -path '*/.git/*' -o -path './node_modules/*' -o -path './build/*' -o -path './dist/*' -o -path './benchmarks/terminal_bench/.leaderboard_cache/*' \) -type f -name '*.sh' 2>/dev/null)
+SHELL_SRC_FILES := $(shell find . -not \( -path '*/.git/*' -o -path './node_modules/*' -o -path './build/*' -o -path './dist/*' -o -path './release/*' -o -path './benchmarks/terminal_bench/.leaderboard_cache/*' \) -type f -name '*.sh' 2>/dev/null)
 
 lint-shellcheck: ## Run shellcheck on shell scripts
 	shellcheck --external-sources $(SHELL_SRC_FILES)
@@ -345,14 +306,14 @@ pin-actions: ## Pin GitHub Actions to SHA hashes (requires GH_TOKEN or gh CLI)
 	./scripts/pin-actions.sh .github/workflows/*.yml .github/actions/*/action.yml
 
 ifeq ($(OS),Windows_NT)
-typecheck: node_modules/.installed src/version.ts $(BUILTIN_AGENTS_GENERATED) $(BUILTIN_SKILLS_GENERATED) $(BUILTIN_PLUGINS_GENERATED) ## Run TypeScript type checking (uses tsgo for 10x speedup)
-	@# On Windows, use npm run because $(BUN_OR_NPX) doesn't correctly pass arguments
+typecheck: node_modules/.installed src/version.ts $(BUILTIN_AGENTS_GENERATED) $(BUILTIN_SKILLS_GENERATED) ## Run TypeScript type checking (uses tsgo for 10x speedup)
+	@# On Windows, use npm run because bun x doesn't correctly pass arguments
 	@npm x concurrently -g \
 		"$(TSGO) --noEmit" \
 		"$(TSGO) --noEmit -p tsconfig.main.json"
 else
-typecheck: node_modules/.installed src/version.ts $(BUILTIN_AGENTS_GENERATED) $(BUILTIN_SKILLS_GENERATED) $(BUILTIN_PLUGINS_GENERATED)
-	@$(BUN_OR_NPX) concurrently -g \
+typecheck: node_modules/.installed src/version.ts $(BUILTIN_AGENTS_GENERATED) $(BUILTIN_SKILLS_GENERATED)
+	@bun x concurrently -g \
 		"$(TSGO) --noEmit" \
 		"$(TSGO) --noEmit -p tsconfig.main.json"
 endif
@@ -365,7 +326,7 @@ check-deadcode: node_modules/.installed ## Check for potential dead code (manual
 	@echo "Checking for potential dead code with ts-prune..."
 	@echo "(Note: Some unused exports are legitimate - types, public APIs, entry points, etc.)"
 	@echo ""
-	@$(BUN_OR_NPX) ts-prune -i '(test|spec|mock|bench|debug|storybook)' \
+	@bun x ts-prune -i '(test|spec|mock|bench|debug|storybook)' \
 		| grep -v "used in module" \
 		| grep -v "src/App.tsx.*default" \
 		| grep -v "src/types/" \
@@ -375,7 +336,7 @@ check-deadcode: node_modules/.installed ## Check for potential dead code (manual
 ## Testing
 test-integration: node_modules/.installed build-main ## Run all tests (unit + integration)
 	@bun test src
-	@TEST_INTEGRATION=1 $(BUN_OR_NPX) jest tests
+	@TEST_INTEGRATION=1 bun x jest tests
 
 test-unit: node_modules/.installed build-main ## Run unit tests
 	@bun test src
@@ -401,36 +362,40 @@ smoke-test: build ## Run smoke test on npm package
 
 test-e2e: ## Run end-to-end tests
 	@$(MAKE) build
-	@LATTICE_E2E_LOAD_DIST=1 LATTICE_E2E_SKIP_BUILD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 $(BUN_OR_NPX) playwright test --project=electron $(PLAYWRIGHT_ARGS)
+	@LATTICE_E2E_LOAD_DIST=1 LATTICE_E2E_SKIP_BUILD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 bun x playwright test --project=electron $(PLAYWRIGHT_ARGS)
+
+test-e2e-perf: ## Run automated workspace-load perf profiling scenarios
+	@$(MAKE) build
+	@LATTICE_E2E_RUN_PERF=1 LATTICE_PROFILE_REACT=1 LATTICE_E2E_LOAD_DIST=1 LATTICE_E2E_SKIP_BUILD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 bun x playwright test --project=electron tests/e2e/scenarios/perf.workspaceOpen.spec.ts $(PLAYWRIGHT_ARGS)
 
 ## Distribution
 dist: build ## Build distributable packages
-	@$(BUN_OR_NPX) electron-builder --publish never
+	@bun x electron-builder --publish never
 
 dist-mac: build ## Build macOS distributables (x64 + arm64)
 	@if [ -n "$$CSC_LINK" ]; then \
 		echo "🔐 Code signing enabled - using unified build for correct yml..."; \
-		$(BUN_OR_NPX) electron-builder --mac --x64 --arm64 --publish never; \
+		bun x electron-builder --mac --x64 --arm64 --publish never; \
 	else \
 		echo "Building macOS architectures in parallel..."; \
-		$(BUN_OR_NPX) electron-builder --mac --x64 --publish never & pid1=$$! ; \
-		$(BUN_OR_NPX) electron-builder --mac --arm64 --publish never & pid2=$$! ; \
+		bun x electron-builder --mac --x64 --publish never & pid1=$$! ; \
+		bun x electron-builder --mac --arm64 --publish never & pid2=$$! ; \
 		wait $$pid1 && wait $$pid2; \
 	fi
 	@echo "✅ Both architectures built successfully"
 
 dist-mac-release: build ## Build and publish macOS distributables (x64 + arm64)
 	@echo "🔐 Building macOS x64 + arm64 (unified for correct yml)..."
-	@$(BUN_OR_NPX) electron-builder --mac --x64 --arm64 --publish always
+	@bun x electron-builder --mac --x64 --arm64 --publish always
 	@echo "✅ Both architectures built and published successfully"
 
 dist-mac-x64: build ## Build macOS x64 distributable only
 	@echo "Building macOS x64..."
-	@$(BUN_OR_NPX) electron-builder --mac --x64 --publish never
+	@bun x electron-builder --mac --x64 --publish never
 
 dist-mac-arm64: build ## Build macOS arm64 distributable only
 	@echo "Building macOS arm64..."
-	@$(BUN_OR_NPX) electron-builder --mac --arm64 --publish never
+	@bun x electron-builder --mac --arm64 --publish never
 
 install-mac-arm64: dist-mac-arm64 ## Build and install macOS arm64 app to /Applications
 	@echo "Installing lattice.app to /Applications..."
@@ -439,13 +404,10 @@ install-mac-arm64: dist-mac-arm64 ## Build and install macOS arm64 app to /Appli
 	@echo "Installed lattice.app to /Applications"
 
 dist-win: build ## Build Windows distributable
-	@$(BUN_OR_NPX) electron-builder --win --publish never
+	@bun x electron-builder --win --publish never
 
 dist-linux: build ## Build Linux distributable
-	@$(BUN_OR_NPX) electron-builder --linux --publish never
-
-release: ## Build all platforms and create GitHub release (patch bump). Use RELEASE_ARGS for options (e.g., --minor, --draft)
-	@./scripts/release.sh $(RELEASE_ARGS)
+	@bun x electron-builder --linux --publish never
 
 ## VS Code Extension (delegates to vscode/Makefile)
 
@@ -455,33 +417,27 @@ vscode-ext: ## Build VS Code extension (.vsix)
 vscode-ext-install: ## Build and install VS Code extension locally
 	@$(MAKE) -C vscode install
 
-## Documentation
-docs-server: node_modules/.installed ## Serve documentation locally (Mintlify dev server)
-	@cd docs && npx mintlify dev
-
-check-docs-links: ## Check documentation for broken links
-	@echo "🔗 Checking documentation links..."
-	@cd docs && npx mintlify broken-links
-
-check-code-docs-links: ## Validate code references to docs paths
-	@./scripts/check-code-docs-links.sh
-
 ## Storybook
 storybook: node_modules/.installed src/version.ts ## Start Storybook development server
 	$(check_node_version)
-	@$(BUN_OR_NPX) storybook dev -p 6006 $(STORYBOOK_OPEN_FLAG)
+	@bun x storybook dev -p 6006 $(STORYBOOK_OPEN_FLAG)
 
 storybook-build: node_modules/.installed src/version.ts ## Build static Storybook
 	$(check_node_version)
-	@$(BUN_OR_NPX) storybook build
+	@bun x storybook build
+
+capture-readme-screenshots: node_modules/.installed src/version.ts ## Capture README screenshots from running Storybook
+	@echo "Capturing README screenshots from Storybook (must be running on port 6006)..."
+	@bun run scripts/capture-readme-screenshots.ts
 
 test-storybook: node_modules/.installed ## Run Storybook interaction tests (requires Storybook to be running or built)
 	$(check_node_version)
-	@$(BUN_OR_NPX) test-storybook
+	@# Storybook story transitions can exceed Jest's default 15s timeout on loaded CI runners.
+	@bun x test-storybook --testTimeout 30000
 
 chromatic: node_modules/.installed ## Run Chromatic for visual regression testing
 	$(check_node_version)
-	@$(BUN_OR_NPX) chromatic --exit-zero-on-changes
+	@bun x chromatic --exit-zero-on-changes
 
 ## Benchmarks
 benchmark-terminal: ## Run Terminal-Bench 2.0 with Harbor (use TB_DATASET/TB_CONCURRENCY/TB_TIMEOUT/TB_ENV/TB_MODEL/TB_ARGS to customize)

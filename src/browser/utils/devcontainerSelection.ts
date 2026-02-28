@@ -3,18 +3,18 @@
  *
  * This module provides a single source of truth for devcontainer config
  * resolution, used by both UI (CreationControls) and creation logic
- * (useCreationWorkspace). All edge cases (loading/failed/loaded) are
+ * (useCreationMinion). All edge cases (loading/failed/loaded) are
  * handled here to prevent drift between UI and validation.
  */
 
 import type { ParsedRuntime, DevcontainerConfigInfo } from "@/common/types/runtime";
 import { RUNTIME_MODE, getDevcontainerConfigs } from "@/common/types/runtime";
-import type { RuntimeAvailabilityState } from "@/browser/components/ChatInput/useCreationWorkspace";
+import type { RuntimeAvailabilityState } from "@/browser/components/ChatInput/useCreationMinion";
 
 export const DEFAULT_DEVCONTAINER_CONFIG_PATH = ".devcontainer/devcontainer.json";
 
 /** UI mode for devcontainer config controls */
-export type DevcontainerUiMode = "hidden" | "dropdown" | "input";
+export type DevcontainerUiMode = "hidden" | "loading" | "dropdown" | "input";
 
 /** Result of devcontainer selection resolution */
 export interface DevcontainerSelection {
@@ -26,7 +26,7 @@ export interface DevcontainerSelection {
   uiMode: DevcontainerUiMode;
   /** Helper text to display (null if none needed) */
   helperText: string | null;
-  /** Whether workspace creation can proceed (false if config path required but empty) */
+  /** Whether minion creation can proceed (false if config path required but empty) */
   isCreatable: boolean;
 }
 
@@ -63,14 +63,14 @@ export function resolveDevcontainerSelection(
 
   const selectedPath = selectedRuntime.configPath.trim();
 
-  // Loading state - show input, no implicit default (P2 fix)
+  // Loading state - show skeleton placeholder to avoid flash when switching to dropdown
   if (availabilityState.status === "loading") {
     return {
       configPath: selectedPath,
       configs: [],
-      uiMode: "input",
-      helperText: "Loading configs…",
-      isCreatable: selectedPath.length > 0,
+      uiMode: "loading",
+      helperText: null,
+      isCreatable: false, // Block creation until configs loaded
     };
   }
 

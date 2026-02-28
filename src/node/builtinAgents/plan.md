@@ -3,13 +3,16 @@ name: Plan
 description: Create a plan before coding
 ui:
   color: var(--color-plan-mode)
-subagent:
-  runnable: false
+sidekick:
+  runnable: true
 tools:
   add:
     # Allow all tools by default (includes MCP tools which have dynamic names)
     # Use tools.remove in child agents to restrict specific tools
     - .*
+  remove:
+    # Plan should not apply sub-agent patches.
+    - task_apply_git_patch
   # Note: file_edit_* tools ARE available but restricted to plan file only at runtime
   # Note: task tools ARE enabled - Plan delegates to Explore sub-agents
 ---
@@ -39,5 +42,9 @@ through larger files.
 - Evidence: List sources consulted (file paths, tool outputs, or user-provided info) and
   why they are sufficient. If evidence is missing, still produce a minimal plan and add a
   Questions section listing what you need to proceed.
+
+- Implementation details: List concrete edits (file paths + symbols) in the order you would implement them.
+  - Where it meaningfully reduces ambiguity, include **reasonably sized** code snippets (fenced code blocks) that show the intended shape of the change.
+  - Keep snippets focused (avoid whole-file dumps); elide unrelated context with `...`.
 
 Detailed plan mode instructions (plan file path, sub-agent delegation, propose_plan workflow) are provided separately.

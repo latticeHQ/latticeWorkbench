@@ -11,7 +11,7 @@ coverage:
   range: 70..100
 
   status:
-    # Headquarter coverage status - informational only
+    # Project coverage status - informational only
     project:
       default:
         target: auto # Compare to base commit

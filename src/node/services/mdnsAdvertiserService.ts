@@ -65,9 +65,7 @@ export interface BuildLatticeMdnsServiceOptions {
   networkInterfaces?: NetworkInterfaces;
 }
 
-export function buildLatticeMdnsServiceOptions(
-  options: BuildLatticeMdnsServiceOptions
-): ServiceOptions {
+export function buildLatticeMdnsServiceOptions(options: BuildLatticeMdnsServiceOptions): ServiceOptions {
   const bindHost = options.bindHost.trim();
   assert(bindHost, "bindHost is required");
 

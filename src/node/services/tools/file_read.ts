@@ -2,14 +2,10 @@ import { tool } from "ai";
 import type { FileReadToolResult } from "@/common/types/tools";
 import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools";
 import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
-import {
-  validatePathInCwd,
-  validateFileSize,
-  validateAndCorrectPath,
-  isPlanFilePath,
-} from "./fileCommon";
+import { validateFileSize, validateAndCorrectPath } from "./fileCommon";
 import { RuntimeError } from "@/node/runtime/Runtime";
 import { readFileString } from "@/node/utils/runtime/helpers";
+import { getErrorMessage } from "@/common/utils/errors";
 
 /**
  * File read tool factory for AI assistant
@@ -21,12 +17,12 @@ export const createFileReadTool: ToolFactory = (config: ToolConfiguration) => {
     description: TOOL_DEFINITIONS.file_read.description,
     inputSchema: TOOL_DEFINITIONS.file_read.schema,
     execute: async (
-      { file_path, offset, limit },
+      { path, offset, limit },
       { abortSignal: _abortSignal }
     ): Promise<FileReadToolResult> => {
       // Note: abortSignal available but not used - file reads are fast and complete quickly
 
-      let filePath = file_path;
+      let filePath = path;
       try {
         // Validate and auto-correct redundant path prefix
         const { correctedPath: validatedPath, warning: pathWarning } = validateAndCorrectPath(
@@ -38,26 +34,6 @@ export const createFileReadTool: ToolFactory = (config: ToolConfiguration) => {
 
         // Use runtime's normalizePath method to resolve paths correctly for both local and SSH runtimes
         const resolvedPath = config.runtime.normalizePath(filePath, config.cwd);
-
-        // Validate that the path is within the working directory
-        // Exception: allow reading the plan file in plan mode (it may be outside workspace cwd)
-        // Allow reading stream-scoped runtimeTempDir (e.g., full bash output saved during compaction).
-        if (!(await isPlanFilePath(filePath, config))) {
-          const pathValidation = validatePathInCwd(filePath, config.cwd, config.runtime, [
-            config.runtimeTempDir,
-          ]);
-          if (pathValidation) {
-            // In plan mode, hint about the plan file path to help model recover
-            const hint =
-              config.planFileOnly && config.planFilePath
-                ? ` In the plan agent, use the exact plan file path string as provided: ${config.planFilePath}`
-                : "";
-            return {
-              success: false,
-              error: pathValidation.error + hint,
-            };
-          }
-        }
 
         // Check if file exists using runtime
         let fileStat;
@@ -106,7 +82,7 @@ export const createFileReadTool: ToolFactory = (config: ToolConfiguration) => {
         const startLineNumber = offset ?? 1;
 
         // Validate offset
-        if (offset !== undefined && offset < 1) {
+        if (offset != null && offset < 1) {
           return {
             success: false,
             error: `Offset must be positive (got ${offset})`,
@@ -118,7 +94,7 @@ export const createFileReadTool: ToolFactory = (config: ToolConfiguration) => {
         const lines = fullContent === "" ? [] : fullContent.split("\n");
 
         // Validate offset
-        if (offset !== undefined && offset > lines.length) {
+        if (offset != null && offset > lines.length) {
           return {
             success: false,
             error: `Offset ${offset} is beyond file length`,
@@ -133,7 +109,7 @@ export const createFileReadTool: ToolFactory = (config: ToolConfiguration) => {
 
         // Process lines with offset and limit
         const startIdx = startLineNumber - 1; // Convert to 0-based index
-        const endIdx = limit !== undefined ? startIdx + limit : lines.length;
+        const endIdx = limit != null ? startIdx + limit : lines.length;
 
         for (let i = startIdx; i < Math.min(endIdx, lines.length); i++) {
           const line = lines[i];
@@ -203,7 +179,7 @@ export const createFileReadTool: ToolFactory = (config: ToolConfiguration) => {
         }
 
         // Generic error
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return {
           success: false,
           error: `Failed to read file: ${message}`,

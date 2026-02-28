@@ -26,11 +26,9 @@ import type {
 import { isAllowedOrpcPath } from "./orpcAllowlist";
 import { parseWebviewToExtensionMessage } from "./parseWebviewToExtensionMessage";
 import { openWorkspace } from "./workspaceOpener";
-import { CopilotLmProxy } from "./lmProxy";
 
 let sessionPreferredMode: "api" | "file" | null = null;
 let didShowFallbackPrompt = false;
-let lmProxy: CopilotLmProxy | null = null;
 
 const ACTION_FIX_CONNECTION_CONFIG = "Fix connection config";
 const ACTION_USE_LOCAL_FILES = "Use local file access";
@@ -235,11 +233,11 @@ function formatError(error: unknown): string {
 function describeFailure(failure: ApiConnectionFailure): string {
   switch (failure.kind) {
     case "unreachable":
-      return `Lattice server is not reachable at ${failure.baseUrl}`;
+      return `lattice server is not reachable at ${failure.baseUrl}`;
     case "unauthorized":
-      return `Lattice server rejected the auth token at ${failure.baseUrl}`;
+      return `lattice server rejected the auth token at ${failure.baseUrl}`;
     case "error":
-      return `Lattice server connection failed at ${failure.baseUrl}`;
+      return `lattice server connection failed at ${failure.baseUrl}`;
   }
 }
 
@@ -369,7 +367,7 @@ async function getWorkspacesForCommand(
   if (didShowFallbackPrompt) {
     sessionPreferredMode = "file";
     void vscode.window.showWarningMessage(
-      `lattice: ${describeFailure(failure)}. Falling back to local file access. Run "Lattice: Configure Connection" to fix.`
+      `lattice: ${describeFailure(failure)}. Falling back to local file access. Run "lattice: Configure Connection" to fix.`
     );
     return getAllWorkspacesFromFiles();
   }
@@ -426,7 +424,7 @@ function getRuntimeIcon(runtimeConfig: WorkspaceWithContext["runtimeConfig"]): s
   if ("srcBaseDir" in runtimeConfig && runtimeConfig.srcBaseDir) {
     return "$(git-branch)"; // Legacy worktree
   }
-  return "$(folder)"; // Headquarter-dir local
+  return "$(folder)"; // Project-dir local
 }
 
 /**
@@ -519,13 +517,13 @@ async function openWorkspaceCommand(
 
   if (workspaces.length === 0) {
     const selection = await vscode.window.showInformationMessage(
-      "No Lattice workspaces found. Create a workspace in Lattice first.",
-      "Open Lattice"
+      "No lattice workspaces found. Create a workspace in lattice first.",
+      "Open lattice"
     );
 
     // User can't easily open lattice from VS Code, so just inform them
-    if (selection === "Open Lattice") {
-      vscode.window.showInformationMessage("Please open the Lattice application to create workspaces.");
+    if (selection === "Open lattice") {
+      vscode.window.showInformationMessage("Please open the lattice application to create workspaces.");
     }
     return;
   }
@@ -537,7 +535,7 @@ async function openWorkspaceCommand(
   const quickPick = vscode.window.createQuickPick<
     vscode.QuickPickItem & { workspace: WorkspaceWithContext }
   >();
-  quickPick.placeholder = "Select a Lattice workspace to open";
+  quickPick.placeholder = "Select a lattice workspace to open";
   quickPick.matchOnDescription = true;
   quickPick.matchOnDetail = false;
   quickPick.items = allItems;
@@ -616,7 +614,7 @@ async function configureConnectionCommand(context: vscode.ExtensionContext): Pro
         ...(hasToken ? ([{ label: "Clear auth token" }] as const) : ([] as const)),
         { label: "Done" },
       ],
-      { placeHolder: "Configure Lattice server connection" }
+      { placeHolder: "Configure lattice server connection" }
     );
 
     if (!pick || pick.label === "Done") {
@@ -625,7 +623,7 @@ async function configureConnectionCommand(context: vscode.ExtensionContext): Pro
 
     if (pick.label === "Set server URL") {
       const value = await vscode.window.showInputBox({
-        title: "Lattice server URL",
+        title: "lattice server URL",
         value: currentUrl,
         prompt: "Example: http://127.0.0.1:3000 (leave blank for auto-discovery)",
         validateInput(input) {
@@ -665,8 +663,8 @@ async function configureConnectionCommand(context: vscode.ExtensionContext): Pro
 
     if (pick.label === "Set auth token") {
       const token = await vscode.window.showInputBox({
-        title: "Lattice server auth token",
-        prompt: "Paste the Lattice server auth token",
+        title: "lattice server auth token",
+        prompt: "Paste the lattice server auth token",
         password: true,
         validateInput(input) {
           return input.trim().length > 0 ? null : "Token cannot be empty";
@@ -732,7 +730,7 @@ async function debugConnectionCommand(context: vscode.ExtensionContext): Promise
   if (auth.status !== "ok") {
     const hint =
       auth.status === "unauthorized"
-        ? ' Run "Lattice: Configure Connection" to update the auth token.'
+        ? ' Run "lattice: Configure Connection" to update the auth token.'
         : "";
 
     void vscode.window.showErrorMessage(
@@ -899,7 +897,7 @@ function renderChatViewHtml(
     `script-src ${webview.cspSource} 'nonce-${nonce}'`,
     `font-src ${webview.cspSource} https: data:`,
     // Allow webview to fetch additional local assets (e.g. source maps, wasm) without
-    // enabling arbitrary network access to the Lattice server.
+    // enabling arbitrary network access to the lattice server.
     `connect-src ${webview.cspSource}`,
     // Shiki uses a Web Worker when available.
     `worker-src ${webview.cspSource} blob:`,
@@ -1131,7 +1129,7 @@ class LatticeChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       latticeLogDebug("lattice.chatView: setting webview.html", { traceId, htmlLength: html.length });
       view.webview.html = html;
 
-      // While debugging the stuck "LoadingLattice..." state, this sends a message to the webview
+      // While debugging the stuck "Loading lattice..." state, this sends a message to the webview
       // at a fixed interval until we get a "ready" message back.
       let probeAttempts = 0;
       this.readyProbeInterval = setInterval(() => {
@@ -1577,7 +1575,7 @@ class LatticeChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
           type: "orpcResponse",
           requestId: args.requestId,
           ok: false,
-          error: "Lattice server connection required",
+          error: "lattice server connection required",
         });
         return;
       }
@@ -1710,7 +1708,7 @@ class LatticeChatViewProvider implements vscode.WebviewViewProvider, vscode.Disp
       this.postMessage({
         type: "uiNotice",
         level: "error",
-        message: this.connectionStatus.error ?? "Lattice server unavailable",
+        message: this.connectionStatus.error ?? "lattice server unavailable",
       });
 
       controller.abort();
@@ -1834,55 +1832,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand("lattice.debugConnection", () => debugConnectionCommand(context))
   );
 
-  // Start the Copilot LM Proxy (OpenAI-compatible bridge to VS Code Language Model API)
-  const proxyPort = vscode.workspace.getConfiguration("lattice").get<number>("lmProxyPort") ?? 3941;
-  lmProxy = new CopilotLmProxy(proxyPort, getLatticeLogChannel());
-  try {
-    const actualPort = await lmProxy.start();
-    latticeLogInfo("lattice: Copilot LM Proxy started", { port: actualPort });
-
-    // Show status bar item with proxy info
-    const statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-    statusBarItem.text = `$(plug) LM Proxy :${actualPort}`;
-    statusBarItem.tooltip = `Lattice LM Proxy running on http://127.0.0.1:${actualPort}\nConfigure providers.jsonc with baseURL: "http://127.0.0.1:${actualPort}/v1"`;
-    statusBarItem.command = "lattice.toggleLmProxy";
-    statusBarItem.show();
-    context.subscriptions.push(statusBarItem);
-  } catch (err) {
-    latticeLogError("lattice: Failed to start Copilot LM Proxy", { error: formatError(err) });
-  }
-
-  // Register LM Proxy toggle command
-  context.subscriptions.push(
-    vscode.commands.registerCommand("lattice.toggleLmProxy", async () => {
-      if (lmProxy?.isRunning()) {
-        lmProxy.stop();
-        vscode.window.showInformationMessage("Lattice LM Proxy stopped.");
-      } else {
-        if (!lmProxy) {
-          lmProxy = new CopilotLmProxy(proxyPort, getLatticeLogChannel());
-        }
-        try {
-          const port = await lmProxy.start();
-          vscode.window.showInformationMessage(
-            `LATTICE WORKBENCH LM Proxy started on http://127.0.0.1:${port}`
-          );
-        } catch (err) {
-          vscode.window.showErrorMessage(`Failed to start LM Proxy: ${formatError(err)}`);
-        }
-      }
-    })
-  );
-
   await maybeAutoRevealChatViewFromPendingSelection(context, chatViewProvider);
 }
 
 /**
  * Deactivate the extension
  */
-export function deactivate() {
-  if (lmProxy) {
-    lmProxy.stop();
-    lmProxy = null;
-  }
-}
+export function deactivate() {}

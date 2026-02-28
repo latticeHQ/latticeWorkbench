@@ -3,19 +3,19 @@ import * as path from "path";
 import { Readable, Writable } from "stream";
 import type {
   RuntimeCreateFlags,
-  WorkspaceCreationParams,
-  WorkspaceCreationResult,
-  WorkspaceForkParams,
-  WorkspaceForkResult,
-  WorkspaceInitParams,
-  WorkspaceInitResult,
+  MinionCreationParams,
+  MinionCreationResult,
+  MinionForkParams,
+  MinionForkResult,
+  MinionInitParams,
+  MinionInitResult,
   ExecOptions,
   ExecStream,
   EnsureReadyResult,
   EnsureReadyOptions,
   FileStat,
 } from "./Runtime";
-import { RuntimeError } from "./Runtime";
+import { RuntimeError, MINION_REPO_MISSING_ERROR } from "./Runtime";
 import { LocalBaseRuntime } from "./LocalBaseRuntime";
 import { WorktreeManager } from "@/node/worktree/WorktreeManager";
 import { expandTildeForSSH } from "./tildeExpansion";
@@ -33,7 +33,7 @@ import { EXIT_CODE_ABORTED, EXIT_CODE_TIMEOUT } from "@/common/constants/exitCod
 import { NON_INTERACTIVE_ENV_VARS } from "@/common/constants/env";
 import { getErrorMessage } from "@/common/utils/errors";
 import { log } from "@/node/services/log";
-import { stripTrailingSlashes } from "@/node/utils/pathUtils";
+import { isGitRepository, stripTrailingSlashes } from "@/node/utils/pathUtils";
 
 export interface DevcontainerRuntimeOptions {
   srcBaseDir: string;
@@ -55,7 +55,6 @@ export interface DevcontainerRuntimeOptions {
  */
 export class DevcontainerRuntime extends LocalBaseRuntime {
   private readonly worktreeManager: WorktreeManager;
-  private readonly srcBaseDir: string;
   private readonly configPath: string;
 
   // Cached env used for credential forwarding
@@ -64,11 +63,11 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
 
   // Cached from devcontainer up output
   private remoteHomeDir?: string;
-  private remoteWorkspaceFolder?: string;
+  private remoteMinionFolder?: string;
   private remoteUser?: string;
 
-  // Current workspace context (set during postCreateSetup/ensureReady)
-  private currentWorkspacePath?: string;
+  // Current minion context (set during postCreateSetup/ensureReady)
+  private currentMinionPath?: string;
 
   readonly createFlags: RuntimeCreateFlags = {
     deferredRuntimeAccess: true,
@@ -102,26 +101,26 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
   }
 
   private mapContainerPathToHost(containerPath: string): string | null {
-    if (!this.remoteWorkspaceFolder || !this.currentWorkspacePath) return null;
+    if (!this.remoteMinionFolder || !this.currentMinionPath) return null;
 
-    const remoteRoot = this.remoteWorkspaceFolder.replace(/\/+$/, "");
+    const remoteRoot = this.remoteMinionFolder.replace(/\/+$/, "");
     if (containerPath !== remoteRoot && !containerPath.startsWith(`${remoteRoot}/`)) return null;
 
     const suffix = containerPath.slice(remoteRoot.length).replace(/^\/+/, "");
     return suffix.length === 0
-      ? this.currentWorkspacePath
-      : path.join(this.currentWorkspacePath, suffix);
+      ? this.currentMinionPath
+      : path.join(this.currentMinionPath, suffix);
   }
 
   private getContainerBasePath(): string {
-    return this.remoteWorkspaceFolder ?? "/";
+    return this.remoteMinionFolder ?? "/";
   }
 
   private resolveHostPathForMounted(filePath: string): string | null {
-    if (this.currentWorkspacePath) {
+    if (this.currentMinionPath) {
       const normalizedFilePath = filePath.replaceAll("\\", "/");
       const normalizedHostRoot = stripTrailingSlashes(
-        this.currentWorkspacePath.replaceAll("\\", "/")
+        this.currentMinionPath.replaceAll("\\", "/")
       );
       if (
         normalizedFilePath === normalizedHostRoot ||
@@ -206,10 +205,10 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
   }
 
   private async fetchRemoteHome(): Promise<void> {
-    if (!this.currentWorkspacePath) return;
+    if (!this.currentMinionPath) return;
     try {
       const stream = await this.exec('printf "%s" "$HOME"', {
-        cwd: this.remoteWorkspaceFolder ?? "/",
+        cwd: this.remoteMinionFolder ?? "/",
         timeout: 10,
       });
       await stream.stdin.close();
@@ -255,7 +254,7 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
           } else {
             controller.error(
               new RuntimeError(
-                `Failed to read file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+                `Failed to read file ${filePath}: ${getErrorMessage(err)}`,
                 "file_io",
                 err instanceof Error ? err : undefined
               )
@@ -338,7 +337,8 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
   }
 
   private async statViaExec(filePath: string, abortSignal?: AbortSignal): Promise<FileStat> {
-    const stream = await this.exec(`stat -c '%s %Y %F' ${this.quoteForContainer(filePath)}`, {
+    // -L follows symlinks so symlinked paths report the target's type
+    const stream = await this.exec(`stat -L -c '%s %Y %F' ${this.quoteForContainer(filePath)}`, {
       cwd: this.getContainerBasePath(),
       timeout: 10,
       abortSignal,
@@ -370,29 +370,29 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
     };
   }
   private mapHostPathToContainer(hostPath: string): string | null {
-    if (!this.remoteWorkspaceFolder || !this.currentWorkspacePath) return null;
+    if (!this.remoteMinionFolder || !this.currentMinionPath) return null;
 
     // Normalize to forward slashes for cross-platform comparison (Windows uses backslashes)
     const normalizedHostPath = hostPath.replaceAll("\\", "/");
-    const hostRoot = this.currentWorkspacePath.replaceAll("\\", "/").replace(/\/+$/, "");
+    const hostRoot = this.currentMinionPath.replaceAll("\\", "/").replace(/\/+$/, "");
     if (normalizedHostPath !== hostRoot && !normalizedHostPath.startsWith(`${hostRoot}/`))
       return null;
 
     const suffix = normalizedHostPath.slice(hostRoot.length).replace(/^\/+/, "");
     return suffix.length === 0
-      ? this.remoteWorkspaceFolder
-      : path.posix.join(this.remoteWorkspaceFolder, suffix);
+      ? this.remoteMinionFolder
+      : path.posix.join(this.remoteMinionFolder, suffix);
   }
 
   /**
    * Resolve cwd for container exec, filtering out unmappable host paths.
    * Only uses options.cwd if it looks like a valid container path (POSIX absolute, no Windows drive letters).
    */
-  private resolveContainerCwd(optionsCwd: string | undefined, workspaceFolder: string): string {
+  private resolveContainerCwd(optionsCwd: string | undefined, minionFolder: string): string {
     if (optionsCwd && this.looksLikeContainerPath(optionsCwd)) {
       return optionsCwd;
     }
-    return this.remoteWorkspaceFolder ?? workspaceFolder;
+    return this.remoteMinionFolder ?? minionFolder;
   }
 
   /**
@@ -409,18 +409,17 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
 
   constructor(options: DevcontainerRuntimeOptions) {
     super();
-    this.srcBaseDir = options.srcBaseDir;
     this.worktreeManager = new WorktreeManager(options.srcBaseDir);
     this.configPath = options.configPath;
     this.shareCredentials = options.shareCredentials ?? false;
   }
 
-  getWorkspacePath(projectPath: string, workspaceName: string): string {
-    return this.worktreeManager.getWorkspacePath(projectPath, workspaceName);
+  getMinionPath(projectPath: string, minionName: string): string {
+    return this.worktreeManager.getMinionPath(projectPath, minionName);
   }
 
-  async createWorkspace(params: WorkspaceCreationParams): Promise<WorkspaceCreationResult> {
-    return this.worktreeManager.createWorkspace({
+  async createMinion(params: MinionCreationParams): Promise<MinionCreationResult> {
+    return this.worktreeManager.createMinion({
       projectPath: params.projectPath,
       branchName: params.branchName,
       trunkBranch: params.trunkBranch,
@@ -429,11 +428,11 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
   }
 
   /**
-   * Build and start the devcontainer after workspace creation.
+   * Build and start the devcontainer after minion creation.
    * This runs `devcontainer up` which builds the image and starts the container.
    */
-  async postCreateSetup(params: WorkspaceInitParams): Promise<void> {
-    const { workspacePath, initLogger, abortSignal, env } = params;
+  async postCreateSetup(params: MinionInitParams): Promise<void> {
+    const { minionPath, initLogger, abortSignal, env } = params;
 
     initLogger.logStep("Building devcontainer...");
 
@@ -442,7 +441,7 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
 
     try {
       const result = await devcontainerUp({
-        workspaceFolder: workspacePath,
+        minionFolder: minionPath,
         configPath: this.configPath,
         initLogger,
         abortSignal,
@@ -451,9 +450,9 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
       });
 
       // Cache container info
-      this.remoteWorkspaceFolder = result.remoteWorkspaceFolder;
+      this.remoteMinionFolder = result.remoteMinionFolder;
       this.remoteUser = result.remoteUser;
-      this.currentWorkspacePath = workspacePath;
+      this.currentMinionPath = minionPath;
       await this.fetchRemoteHome();
 
       await this.setupCredentials(env);
@@ -467,17 +466,18 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
   /**
    * Run .lattice/init hook inside the devcontainer.
    */
-  async initWorkspace(params: WorkspaceInitParams): Promise<WorkspaceInitResult> {
-    const { projectPath, branchName, workspacePath, initLogger, env } = params;
+  async initMinion(params: MinionInitParams): Promise<MinionInitResult> {
+    const { projectPath, branchName, minionPath, initLogger, env } = params;
 
     try {
       // Check if init hook exists (on host - worktree is bind-mounted)
-      const hookExists = await checkInitHookExists(workspacePath);
+      const hookExists = await checkInitHookExists(minionPath);
       if (hookExists) {
+        initLogger.enterHookPhase?.();
         const latticeEnv = { ...env, ...getLatticeEnv(projectPath, "devcontainer", branchName) };
-        const containerWorkspacePath = this.remoteWorkspaceFolder ?? workspacePath;
-        const hookPath = `${containerWorkspacePath}/.lattice/init`;
-        await runInitHookOnRuntime(this, hookPath, containerWorkspacePath, latticeEnv, initLogger);
+        const containerMinionPath = this.remoteMinionFolder ?? minionPath;
+        const hookPath = `${containerMinionPath}/.lattice/init`;
+        await runInitHookOnRuntime(this, hookPath, containerMinionPath, latticeEnv, initLogger);
       } else {
         // No hook - signal completion immediately
         initLogger.logComplete(0);
@@ -507,12 +507,12 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
     }
 
     // Build devcontainer exec args
-    const workspaceFolder = this.currentWorkspacePath;
-    if (!workspaceFolder) {
+    const minionFolder = this.currentMinionPath;
+    if (!minionFolder) {
       throw new RuntimeError("Devcontainer not initialized. Call ensureReady() first.", "exec");
     }
 
-    const args = ["exec", "--workspace-folder", workspaceFolder];
+    const args = ["exec", "--minion-folder", minionFolder];
 
     if (this.configPath) {
       args.push("--config", this.configPath);
@@ -525,9 +525,9 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
     }
 
     // Build the full command with cd
-    // Map host workspace path to container path; fall back to container workspace if unmappable
+    // Map host minion path to container path; fall back to container minion if unmappable
     const mappedCwd = options.cwd ? this.mapHostPathToContainer(options.cwd) : null;
-    const cwd = mappedCwd ?? this.resolveContainerCwd(options.cwd, workspaceFolder);
+    const cwd = mappedCwd ?? this.resolveContainerCwd(options.cwd, minionFolder);
     const fullCommand = `cd ${JSON.stringify(cwd)} && ${command}`;
     args.push("--", "bash", "-c", fullCommand);
 
@@ -535,7 +535,7 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
       stdio: ["pipe", "pipe", "pipe"],
       detached: true,
       windowsHide: true,
-      cwd: workspaceFolder,
+      cwd: minionFolder,
     });
 
     const disposable = new DisposableProcess(childProcess);
@@ -657,9 +657,9 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
       }
     }
 
-    // Resolve relative paths against container workspace (avoid host cwd leakage)
+    // Resolve relative paths against container minion (avoid host cwd leakage)
     if (!expanded.startsWith("/")) {
-      const basePath = this.remoteWorkspaceFolder ?? "/";
+      const basePath = this.remoteMinionFolder ?? "/";
       return path.posix.resolve(basePath, expanded);
     }
 
@@ -668,14 +668,14 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
   }
 
   override tempDir(): Promise<string> {
-    const workspaceRoot = this.remoteWorkspaceFolder ?? this.currentWorkspacePath;
-    if (!workspaceRoot) {
+    const minionRoot = this.remoteMinionFolder ?? this.currentMinionPath;
+    if (!minionRoot) {
       return super.tempDir();
     }
 
-    const tmpPath = this.remoteWorkspaceFolder
-      ? path.posix.join(workspaceRoot, ".lattice", "tmp")
-      : path.join(workspaceRoot, ".lattice", "tmp");
+    const tmpPath = this.remoteMinionFolder
+      ? path.posix.join(minionRoot, ".lattice", "tmp")
+      : path.join(minionRoot, ".lattice", "tmp");
     return Promise.resolve(tmpPath);
   }
 
@@ -685,16 +685,34 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
    * or rebuilds if the container was deleted.
    */
   override async ensureReady(options?: EnsureReadyOptions): Promise<EnsureReadyResult> {
-    if (!this.currentWorkspacePath) {
+    if (!this.currentMinionPath) {
       return {
         ready: false,
-        error: "Workspace path not set. Call postCreateSetup() first.",
+        error: "Minion path not set. Call postCreateSetup() first.",
         errorType: "runtime_not_ready",
       };
     }
 
     const statusSink = options?.statusSink;
-    statusSink?.({ phase: "checking", runtimeType: "devcontainer" });
+    statusSink?.({
+      phase: "checking",
+      runtimeType: "devcontainer",
+      detail: "Checking repository...",
+    });
+
+    const hasRepo = await isGitRepository(this.currentMinionPath);
+    if (!hasRepo) {
+      statusSink?.({
+        phase: "error",
+        runtimeType: "devcontainer",
+        detail: MINION_REPO_MISSING_ERROR,
+      });
+      return {
+        ready: false,
+        error: MINION_REPO_MISSING_ERROR,
+        errorType: "runtime_not_ready",
+      };
+    }
 
     try {
       statusSink?.({
@@ -721,7 +739,7 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
         this.lastCredentialEnv
       );
       const result = await devcontainerUp({
-        workspaceFolder: this.currentWorkspacePath,
+        minionFolder: this.currentMinionPath,
         configPath: this.configPath,
         initLogger: silentLogger,
         abortSignal: options?.signal,
@@ -730,7 +748,7 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
       });
 
       // Update cached info (container may have been rebuilt)
-      this.remoteWorkspaceFolder = result.remoteWorkspaceFolder;
+      this.remoteMinionFolder = result.remoteMinionFolder;
       this.remoteUser = result.remoteUser;
       await this.fetchRemoteHome();
 
@@ -750,7 +768,7 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
     }
   }
 
-  async renameWorkspace(
+  async renameMinion(
     projectPath: string,
     oldName: string,
     newName: string,
@@ -759,58 +777,58 @@ export class DevcontainerRuntime extends LocalBaseRuntime {
     { success: true; oldPath: string; newPath: string } | { success: false; error: string }
   > {
     // Stop container before rename (container labels reference old path)
-    const oldPath = this.getWorkspacePath(projectPath, oldName);
+    const oldPath = this.getMinionPath(projectPath, oldName);
     await devcontainerDown(oldPath, this.configPath);
 
     // Rename worktree on host
-    const result = await this.worktreeManager.renameWorkspace(projectPath, oldName, newName);
+    const result = await this.worktreeManager.renameMinion(projectPath, oldName, newName);
 
     if (result.success) {
-      // Update current workspace path if this was the active workspace
-      if (this.currentWorkspacePath === oldPath) {
-        this.currentWorkspacePath = result.newPath;
+      // Update current minion path if this was the active minion
+      if (this.currentMinionPath === oldPath) {
+        this.currentMinionPath = result.newPath;
       }
     }
 
     return result;
   }
 
-  async deleteWorkspace(
+  async deleteMinion(
     projectPath: string,
-    workspaceName: string,
+    minionName: string,
     force: boolean,
     _abortSignal?: AbortSignal
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }> {
-    const workspacePath = this.getWorkspacePath(projectPath, workspaceName);
+    const minionPath = this.getMinionPath(projectPath, minionName);
 
     // Stop and remove container (best-effort)
     try {
-      await devcontainerDown(workspacePath, this.configPath);
+      await devcontainerDown(minionPath, this.configPath);
     } catch (error) {
       log.debug("devcontainerDown failed (container may not exist):", { error });
     }
 
     // Delete worktree on host
-    return this.worktreeManager.deleteWorkspace(projectPath, workspaceName, force);
+    return this.worktreeManager.deleteMinion(projectPath, minionName, force);
   }
 
-  async forkWorkspace(params: WorkspaceForkParams): Promise<WorkspaceForkResult> {
+  async forkMinion(params: MinionForkParams): Promise<MinionForkResult> {
     // Fork creates a new worktree - container will be built on first ensureReady
-    return this.worktreeManager.forkWorkspace(params);
+    return this.worktreeManager.forkMinion(params);
   }
 
   /**
-   * Set the current workspace path for exec operations.
-   * Called by workspaceService when switching to an existing workspace.
+   * Set the current minion path for exec operations.
+   * Called by minionService when switching to an existing minion.
    */
-  setCurrentWorkspacePath(workspacePath: string): void {
-    this.currentWorkspacePath = workspacePath;
+  setCurrentMinionPath(minionPath: string): void {
+    this.currentMinionPath = minionPath;
   }
 
   /**
-   * Get the remote workspace folder path (inside container).
+   * Get the remote minion folder path (inside container).
    */
-  getRemoteWorkspaceFolder(): string | undefined {
-    return this.remoteWorkspaceFolder;
+  getRemoteMinionFolder(): string | undefined {
+    return this.remoteMinionFolder;
   }
 }

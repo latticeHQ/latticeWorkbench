@@ -3,6 +3,27 @@
  *
  * Single source of truth for all tool definitions.
  * Zod schemas are defined here and JSON schemas are auto-generated.
+ *
+ * ## Schema convention: `.nullish()` for optional tool parameters
+ *
+ * All optional fields in **tool input schemas** (i.e. parameters the model
+ * provides) MUST use `.nullish()` instead of `.optional()`.
+ *
+ * Why: OpenAI's Responses API normalizes tool schemas into strict mode, which
+ * forces every field into `required` and expects optional fields to accept
+ * `null` (via `"type": ["string", "null"]`).  Using `.optional()` alone
+ * produces a schema without a null type, so the model is forced to hallucinate
+ * values for fields it would normally skip.  `.nullish()` (= `.optional().nullable()`)
+ * emits both `null` in the type union AND keeps the field out of `required`,
+ * which satisfies strict-mode providers (OpenAI) while remaining compatible
+ * with non-strict providers (Anthropic, Google).
+ *
+ * Implementation handlers that consume these values should use `!= null`
+ * (loose equality) instead of `!== undefined` to correctly treat both
+ * `null` and `undefined` as "not provided".
+ *
+ * This does NOT apply to tool **output/result** schemas — those are constructed
+ * by our own backend code and always use `undefined` for absent fields.
  */
 
 import { z } from "zod";
@@ -16,9 +37,9 @@ import {
 } from "@/common/constants/toolLimits";
 import { TOOL_EDIT_WARNING } from "@/common/types/tools";
 import { SYSTEM1_BASH_OUTPUT_COMPACTION_LIMITS } from "@/common/types/tasks";
-import { CLI_AGENT_DEFINITIONS, CLI_AGENT_SLUGS } from "@/common/constants/cliAgents";
 
 import { zodToJsonSchema } from "zod-to-json-schema";
+import { extractToolFilePath } from "@/common/utils/tools/toolInputFilePath";
 
 // -----------------------------------------------------------------------------
 // ask_user_question (plan-mode interactive questions)
@@ -75,7 +96,7 @@ const ToolOutputUiOnlySchema = z.object({
   notify: z
     .object({
       notifiedVia: z.enum(["electron", "browser"]),
-      workspaceId: z.string().optional(),
+      minionId: z.string().optional(),
     })
     .optional(),
 });
@@ -88,7 +109,7 @@ export const AskUserQuestionToolArgsSchema = z
   .object({
     questions: z.array(AskUserQuestionQuestionSchema).min(1).max(4),
     // Optional prefilled answers (Claude Code supports this, though Lattice typically won't use it)
-    answers: z.record(z.string(), z.string()).optional(),
+    answers: z.record(z.string(), z.string()).nullish(),
   })
   .strict()
   .superRefine((args, ctx) => {
@@ -122,10 +143,10 @@ export const AskUserQuestionToolResultSchema = z.union([
 ]);
 
 // -----------------------------------------------------------------------------
-// task (sub-workspaces as subagents)
+// task (sub-minions as sidekicks)
 // -----------------------------------------------------------------------------
 
-const SubagentTypeSchema = z.preprocess(
+const SidekickTypeSchema = z.preprocess(
   (value) => (typeof value === "string" ? value.trim().toLowerCase() : value),
   AgentIdSchema
 );
@@ -137,38 +158,38 @@ const TaskAgentIdSchema = z.preprocess(
 
 const TaskToolAgentArgsSchema = z
   .object({
-    // Prefer agentId. subagent_type is a deprecated alias for backwards compatibility.
-    agentId: TaskAgentIdSchema.optional(),
-    subagent_type: SubagentTypeSchema.optional(),
+    // Prefer agentId. sidekick_type is a deprecated alias for backwards compatibility.
+    agentId: TaskAgentIdSchema.nullish(),
+    sidekick_type: SidekickTypeSchema.nullish(),
     prompt: z.string().min(1),
     title: z.string().min(1),
     run_in_background: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .superRefine((args, ctx) => {
+    const hasAgentId = typeof args.agentId === "string" && args.agentId.length > 0;
+    const hasSidekickType = typeof args.sidekick_type === "string" && args.sidekick_type.length > 0;
 
-/**
- * Normalize task tool args after parsing.
- * Handles backwards compatibility and defaults.
- * Call this after parsing with TaskToolArgsSchema.
- */
-export function normalizeTaskToolArgs(
-  args: z.infer<typeof TaskToolAgentArgsSchema>
-): z.infer<typeof TaskToolAgentArgsSchema> {
-  const hasAgentId = typeof args.agentId === "string" && args.agentId.length > 0;
-  const hasSubagentType = typeof args.subagent_type === "string" && args.subagent_type.length > 0;
+    if (!hasAgentId && !hasSidekickType) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Provide agentId (preferred) or sidekick_type",
+        path: ["agentId"],
+      });
+      return;
+    }
 
-  // Default to "task" agent when neither is provided (LLMs sometimes omit the field).
-  if (!hasAgentId && !hasSubagentType) {
-    return { ...args, agentId: "task" };
-  }
-
-  // If both are provided, prefer agentId and drop subagent_type.
-  if (hasAgentId && hasSubagentType) {
-    return { ...args, subagent_type: undefined };
-  }
-
-  return args;
-}
+    // GPT models often send both fields with identical values — allow that.
+    // Only reject when they conflict, since the handler silently prefers agentId.
+    if (hasAgentId && hasSidekickType && args.agentId !== args.sidekick_type) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "agentId and sidekick_type must match when both are provided",
+        path: ["agentId"],
+      });
+      return;
+    }
+  });
 
 export const TaskToolArgsSchema = TaskToolAgentArgsSchema;
 
@@ -176,13 +197,17 @@ export const TaskToolQueuedResultSchema = z
   .object({
     status: z.enum(["queued", "running"]),
     taskId: z.string(),
+    note: z
+      .string()
+      .min(1)
+      .describe("Additional guidance for the caller (e.g., use task_await to monitor progress)."),
   })
   .strict();
 
 export const TaskToolCompletedResultSchema = z
   .object({
     status: z.literal("completed"),
-    taskId: z.string().optional(),
+    taskId: z.string(),
     reportMarkdown: z.string(),
     title: z.string().optional(),
     agentId: z.string().optional(),
@@ -196,20 +221,20 @@ export const TaskToolResultSchema = z.discriminatedUnion("status", [
 ]);
 
 // -----------------------------------------------------------------------------
-// task_await (await one or more sub-agent tasks)
+// task_await (await one or more sidekick tasks)
 // -----------------------------------------------------------------------------
 
 export const TaskAwaitToolArgsSchema = z
   .object({
     task_ids: z
       .array(z.string().min(1))
-      .optional()
+      .nullish()
       .describe(
-        "List of task IDs to await. When omitted, waits for all active descendant tasks of the current workspace."
+        "List of task IDs to await. When omitted, waits for all active descendant tasks of the current minion."
       ),
     filter: z
       .string()
-      .optional()
+      .nullish()
       .describe(
         "Optional regex to filter bash task output lines. By default, only matching lines are returned. " +
           "When filter_exclude is true, matching lines are excluded instead. " +
@@ -217,7 +242,7 @@ export const TaskAwaitToolArgsSchema = z
       ),
     filter_exclude: z
       .boolean()
-      .optional()
+      .nullish()
       .describe(
         "When true, lines matching 'filter' are excluded instead of kept. " +
           "Requires 'filter' to be set."
@@ -225,7 +250,7 @@ export const TaskAwaitToolArgsSchema = z
     timeout_secs: z
       .number()
       .min(0)
-      .optional()
+      .nullish()
       .default(600)
       .describe(
         "Maximum time to wait in seconds for each task. " +
@@ -246,6 +271,37 @@ export const TaskAwaitToolArgsSchema = z
     }
   });
 
+export const SidekickGitPatchArtifactStatusSchema = z.enum([
+  "pending",
+  "ready",
+  "failed",
+  "skipped",
+]);
+
+export const SidekickGitPatchArtifactSchema = z
+  .object({
+    childTaskId: z.string(),
+    parentMinionId: z.string(),
+    createdAtMs: z.number().int().nonnegative(),
+    updatedAtMs: z.number().int().nonnegative().optional(),
+    status: SidekickGitPatchArtifactStatusSchema,
+    baseCommitSha: z.string().optional(),
+    headCommitSha: z.string().optional(),
+    commitCount: z.number().int().nonnegative().optional(),
+    mboxPath: z.string().optional(),
+    error: z.string().optional(),
+    appliedAtMs: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+export type SidekickGitPatchArtifact = z.infer<typeof SidekickGitPatchArtifactSchema>;
+
+const TaskAwaitToolArtifactsSchema = z
+  .object({
+    gitFormatPatch: SidekickGitPatchArtifactSchema.optional(),
+  })
+  .strict();
+
 export const TaskAwaitToolCompletedResultSchema = z
   .object({
     status: z.literal("completed"),
@@ -256,6 +312,7 @@ export const TaskAwaitToolCompletedResultSchema = z
     elapsed_ms: z.number().optional(),
     exitCode: z.number().optional(),
     note: z.string().optional(),
+    artifacts: TaskAwaitToolArtifactsSchema.optional(),
   })
   .strict();
 
@@ -306,16 +363,71 @@ export const TaskAwaitToolResultSchema = z
   .strict();
 
 // -----------------------------------------------------------------------------
-// task_terminate (terminate one or more sub-agent tasks)
+// task_apply_git_patch (apply git-format-patch artifact via git am)
 // -----------------------------------------------------------------------------
 
+export const TaskApplyGitPatchToolArgsSchema = z
+  .object({
+    task_id: z.string().min(1).describe("Child task ID whose patch artifact should be applied"),
+    dry_run: z
+      .boolean()
+      .nullish()
+      .describe(
+        "When true, attempt to apply the patch in a temporary git worktree and then discard it (does not modify the current minion)."
+      ),
+    three_way: z.boolean().nullish().default(true).describe("When true, run git am with --3way"),
+    force: z
+      .boolean()
+      .nullish()
+      .describe(
+        "When true, allow apply even if the patch was previously applied (and skip clean-tree checks)."
+      ),
+  })
+  .strict();
+
+const TaskApplyGitPatchAppliedCommitSchema = z
+  .object({
+    // Commit subject line (always stable, even across dry-run vs real apply)
+    subject: z.string().min(1),
+    // Optional SHA (omitted for dry-run because the commit IDs may differ when applied for real)
+    sha: z.string().min(1).optional(),
+  })
+  .strict();
+
+export const TaskApplyGitPatchToolResultSchema = z.union([
+  z
+    .object({
+      success: z.literal(true),
+      taskId: z.string(),
+      appliedCommits: z.array(TaskApplyGitPatchAppliedCommitSchema),
+      headCommitSha: z.string().optional(),
+      dryRun: z.boolean().optional(),
+      note: z.string().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      success: z.literal(false),
+      taskId: z.string(),
+      error: z.string(),
+      dryRun: z.boolean().optional(),
+      conflictPaths: z.array(z.string()).optional(),
+      failedPatchSubject: z.string().optional(),
+      note: z.string().optional(),
+    })
+    .strict(),
+]);
+
+// -----------------------------------------------------------------------------
+// task_terminate (terminate one or more sidekick tasks)
+// -----------------------------------------------------------------------------
 export const TaskTerminateToolArgsSchema = z
   .object({
     task_ids: z
       .array(z.string().min(1))
       .min(1)
       .describe(
-        "List of task IDs to terminate. Each must be a descendant sub-agent task of the current workspace."
+        "List of task IDs to terminate. Each must be a descendant sub-agent task of the current minion."
       ),
   })
   .strict();
@@ -366,17 +478,23 @@ export const TaskTerminateToolResultSchema = z
   .strict();
 
 // -----------------------------------------------------------------------------
-// task_list (list descendant sub-agent tasks)
+// task_list (list descendant sidekick tasks)
 // -----------------------------------------------------------------------------
 
-const TaskListStatusSchema = z.enum(["queued", "running", "awaiting_report", "reported"]);
-const TaskListThinkingLevelSchema = z.enum(["off", "low", "medium", "high", "xhigh"]);
+const TaskListStatusSchema = z.enum([
+  "queued",
+  "running",
+  "awaiting_report",
+  "interrupted",
+  "reported",
+]);
+const TaskListThinkingLevelSchema = z.enum(["off", "low", "medium", "high", "xhigh", "max"]);
 
 export const TaskListToolArgsSchema = z
   .object({
     statuses: z
       .array(TaskListStatusSchema)
-      .optional()
+      .nullish()
       .describe(
         "Task statuses to include. Defaults to active tasks: queued, running, awaiting_report."
       ),
@@ -387,9 +505,9 @@ export const TaskListToolTaskSchema = z
   .object({
     taskId: z.string(),
     status: TaskListStatusSchema,
-    parentWorkspaceId: z.string(),
+    parentMinionId: z.string(),
     agentType: z.string().optional(),
-    workspaceName: z.string().optional(),
+    minionName: z.string().optional(),
     title: z.string().optional(),
     createdAt: z.string().optional(),
     modelString: z.string().optional(),
@@ -405,20 +523,51 @@ export const TaskListToolResultSchema = z
   .strict();
 
 // -----------------------------------------------------------------------------
-// agent_report (explicit subagent -> parent report)
+// agent_report (explicit sidekick -> parent report)
 // -----------------------------------------------------------------------------
 
 export const AgentReportToolArgsSchema = z
   .object({
     reportMarkdown: z.string().min(1),
-    title: z.string().optional(),
+    title: z.string().nullish(),
+  })
+  .strict();
+
+// -----------------------------------------------------------------------------
+// switch_agent (agent switching for Auto agent)
+// -----------------------------------------------------------------------------
+
+export const SwitchAgentToolArgsSchema = z
+  .object({
+    agentId: AgentIdSchema,
+    reason: z.string().max(512).nullish(),
+    followUp: z.string().nullish(),
   })
   .strict();
 
 export const AgentReportToolResultSchema = z.object({ success: z.literal(true) }).strict();
-const FILE_EDIT_FILE_PATH = z
+const FILE_TOOL_PATH = z
   .string()
-  .describe("Path to the file to edit (absolute or relative to the current workspace)");
+  .describe("Path to the file to edit (absolute or relative to the current minion)");
+
+/**
+ * Zod preprocessor: normalizes legacy `file_path` / `filePath` keys to canonical `path`.
+ * Signature is `unknown → unknown` because `z.preprocess` requires it.
+ */
+function normalizeFilePath(value: unknown): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+
+  const obj = value as Record<string, unknown>;
+
+  // Canonical `path` already present — let schema validation handle it.
+  if ("path" in obj) return value;
+
+  const resolved = extractToolFilePath(value);
+  if (resolved == null) return value;
+
+  const { file_path: _, filePath: __, ...rest } = obj;
+  return { ...rest, path: resolved };
+}
 
 interface ToolSchema {
   name: string;
@@ -431,6 +580,30 @@ interface ToolSchema {
 }
 
 /**
+ * Schema for a single keep-range item in the system1_keep_ranges tool.
+ * Extracted as a named export so internal code can derive the type via z.infer<>
+ * instead of maintaining a hand-written interface.
+ *
+ * Note: the tool schema applies .passthrough() on top of this to tolerate extra
+ * keys from models, but the inferred type is the strict shape.
+ */
+export const System1KeepRangeSchema = z.object({
+  start: z.coerce
+    .number()
+    .finite()
+    .min(1)
+    .describe("1-based start line (inclusive) in the numbered output"),
+  end: z.coerce
+    .number()
+    .finite()
+    .min(1)
+    .describe("1-based end line (inclusive) in the numbered output"),
+  // .nullish() accepts both null and undefined, so the preprocess
+  // hack that mapped null→undefined is no longer needed.
+  reason: z.string().nullish().describe("Optional short reason for keeping this range"),
+});
+
+/**
  * Tool definitions: single source of truth
  * Key = tool name, Value = { description, schema }
  */
@@ -441,7 +614,8 @@ export const TOOL_DEFINITIONS = {
       `Output is strictly limited to ${BASH_HARD_MAX_LINES} lines, ${BASH_MAX_LINE_BYTES} bytes per line, and ${BASH_MAX_TOTAL_BYTES} bytes total. ` +
       "Commands that exceed these limits will FAIL with an error (no partial output returned). " +
       "Be conservative: use 'head', 'tail', 'grep', or other filters to limit output before running commands. " +
-      "Large outputs may be automatically filtered; when this happens, the result includes a note explaining what was kept and (if available) where the full output was saved.",
+      "Large outputs may be automatically filtered; when this happens, the result includes a note explaining what was kept and (if available) where the full output was saved.\n" +
+      "On Windows this runs in Git Bash; to discard output use `>/dev/null` (not `>nul`).",
     schema: z.preprocess(
       (value) => {
         // Compatibility: some models emit { command: "..." } instead of { script: "..." }.
@@ -481,7 +655,7 @@ export const TOOL_DEFINITIONS = {
               "Read output with task_await (returns only new output since last check). " +
               "Terminate with task_terminate using the taskId. " +
               "List active tasks with task_list. " +
-              "Process persists until timeout_secs expires, terminated, or workspace is removed." +
+              "Process persists until timeout_secs expires, terminated, or minion is removed." +
               "\\n\\nFor long-running tasks like builds or compilations, prefer background mode to continue productive work in parallel. " +
               "Check back periodically with task_await rather than blocking on completion."
           ),
@@ -497,21 +671,26 @@ export const TOOL_DEFINITIONS = {
   file_read: {
     description:
       "Read the contents of a file from the file system. Read as little as possible to complete the task.",
-    schema: z.object({
-      file_path: z.string().describe("The path to the file to read (absolute or relative)"),
-      offset: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("1-based starting line number (optional, defaults to 1)"),
-      limit: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Number of lines to return from offset (optional, returns all if not specified)"),
-    }),
+    schema: z.preprocess(
+      normalizeFilePath,
+      z.object({
+        path: z.string().describe("The path to the file to read (absolute or relative)"),
+        offset: z
+          .number()
+          .int()
+          .positive()
+          .nullish()
+          .describe("1-based starting line number (optional, defaults to 1)"),
+        limit: z
+          .number()
+          .int()
+          .positive()
+          .nullish()
+          .describe(
+            "Number of lines to return from offset (optional, returns all if not specified)"
+          ),
+      })
+    ),
   },
   lattice_global_agents_read: {
     description:
@@ -536,7 +715,7 @@ export const TOOL_DEFINITIONS = {
   agent_skill_read: {
     description:
       "Load an Agent Skill's SKILL.md (YAML frontmatter + markdown body) by name. " +
-      "Skills are discovered from <projectRoot>/.lattice/skills/<name>/SKILL.md and ~/.lattice/skills/<name>/SKILL.md.",
+      "Skills are discovered from <projectRoot>/.lattice/skills/<name>/SKILL.md, ~/.lattice/skills/<name>/SKILL.md, and ~/.agents/skills/<name>/SKILL.md.",
     schema: z
       .object({
         name: SkillNameSchema.describe("Skill name (directory name under the skills root)"),
@@ -559,13 +738,13 @@ export const TOOL_DEFINITIONS = {
           .number()
           .int()
           .positive()
-          .optional()
+          .nullish()
           .describe("1-based starting line number (optional, defaults to 1)"),
         limit: z
           .number()
           .int()
           .positive()
-          .optional()
+          .nullish()
           .describe(
             "Number of lines to return from offset (optional, returns all if not specified)"
           ),
@@ -573,85 +752,86 @@ export const TOOL_DEFINITIONS = {
       .strict(),
   },
 
-  file_write: {
-    description:
-      "Write content to a file, creating it if it doesn't exist or overwriting if it does. " +
-      "Use this for creating new files or completely replacing file contents. " +
-      "For partial edits, prefer file_edit_replace_string or file_edit_insert instead.",
-    schema: z.object({
-      file_path: z
-        .string()
-        .describe("Path to the file to write (absolute or relative to the current workspace)"),
-      content: z.string().describe("The full content to write to the file"),
-    }),
-  },
   file_edit_replace_string: {
     description:
       "⚠️ CRITICAL: Always check tool results - edits WILL fail if old_string is not found or unique. Do not proceed with dependent operations (commits, pushes, builds) until confirming success.\n\n" +
       "Apply one or more edits to a file by replacing exact text matches. All edits are applied sequentially. Each old_string must be unique in the file unless replace_count > 1 or replace_count is -1.",
-    schema: z.object({
-      file_path: FILE_EDIT_FILE_PATH,
-      old_string: z
-        .string()
-        .describe(
-          "The exact text to replace (must be unique in file if replace_count is 1). Include enough context (indentation, surrounding lines) to make it unique."
-        ),
-      new_string: z.string().describe("The replacement text"),
-      replace_count: z
-        .number()
-        .int()
-        .optional()
-        .describe(
-          "Number of occurrences to replace (default: 1). Use -1 to replace all occurrences. If 1, old_string must be unique in the file."
-        ),
-    }),
+    schema: z.preprocess(
+      normalizeFilePath,
+      z.object({
+        path: FILE_TOOL_PATH,
+        old_string: z
+          .string()
+          .describe(
+            "The exact text to replace (must be unique in file if replace_count is 1). Include enough context (indentation, surrounding lines) to make it unique."
+          ),
+        new_string: z.string().describe("The replacement text"),
+        replace_count: z
+          .number()
+          .int()
+          .nullish()
+          .describe(
+            "Number of occurrences to replace (default: 1). Use -1 to replace all occurrences. If 1, old_string must be unique in the file."
+          ),
+      })
+    ),
   },
   file_edit_replace_lines: {
     description:
       "⚠️ CRITICAL: Always check tool results - edits WILL fail if line numbers are invalid or file content has changed. Do not proceed with dependent operations (commits, pushes, builds) until confirming success.\n\n" +
       "Replace a range of lines in a file. Use this for line-based edits when you know the exact line numbers to modify.",
-    schema: z.object({
-      file_path: FILE_EDIT_FILE_PATH,
-      start_line: z.number().int().min(1).describe("1-indexed start line (inclusive) to replace"),
-      end_line: z.number().int().min(1).describe("1-indexed end line (inclusive) to replace"),
-      new_lines: z
-        .array(z.string())
-        .describe("Replacement lines. Provide an empty array to delete the specified range."),
-      expected_lines: z
-        .array(z.string())
-        .optional()
-        .describe(
-          "Optional safety check. When provided, the current lines in the specified range must match exactly."
-        ),
-    }),
+    schema: z.preprocess(
+      normalizeFilePath,
+      z.object({
+        path: FILE_TOOL_PATH,
+        start_line: z.number().int().min(1).describe("1-indexed start line (inclusive) to replace"),
+        end_line: z.number().int().min(1).describe("1-indexed end line (inclusive) to replace"),
+        new_lines: z
+          .array(z.string())
+          .describe("Replacement lines. Provide an empty array to delete the specified range."),
+        expected_lines: z
+          .array(z.string())
+          .nullish()
+          .describe(
+            "Optional safety check. When provided, the current lines in the specified range must match exactly."
+          ),
+      })
+    ),
   },
   file_edit_insert: {
     description:
       "Insert content into a file using substring guards. " +
-      "Provide exactly one of before or after to anchor the operation when editing an existing file. " +
+      "Provide exactly one of insert_before or insert_after to anchor the operation when editing an existing file. " +
       "When the file does not exist, it is created automatically without guards. " +
       "Optional before/after substrings must uniquely match surrounding content. " +
       "Avoid short guards like `}` or `}\\n` that match multiple locations — " +
       `use longer patterns like full function signatures or unique comments. ${TOOL_EDIT_WARNING}`,
-    schema: z
-      .object({
-        file_path: FILE_EDIT_FILE_PATH,
-        content: z.string().describe("The content to insert"),
-        before: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Optional substring that must appear immediately before the insertion point"),
-        after: z
-          .string()
-          .min(1)
-          .optional()
-          .describe("Optional substring that must appear immediately after the insertion point"),
-      })
-      .refine((data) => !(data.before !== undefined && data.after !== undefined), {
-        message: "Provide only one of before or after (not both).",
-        path: ["before"],
-      }),
+    schema: z.preprocess(
+      normalizeFilePath,
+      z
+        .object({
+          path: FILE_TOOL_PATH,
+          insert_before: z
+            .string()
+            .min(1)
+            .nullish()
+            .describe(
+              "Anchor text to insert before. Content will be placed immediately before this substring."
+            ),
+          insert_after: z
+            .string()
+            .min(1)
+            .nullish()
+            .describe(
+              "Anchor text to insert after. Content will be placed immediately after this substring."
+            ),
+          content: z.string().describe("The content to insert"),
+        })
+        .refine((data) => !(data.insert_before != null && data.insert_after != null), {
+          message: "Provide only one of insert_before or insert_after (not both).",
+          path: ["insert_before"],
+        })
+    ),
   },
   ask_user_question: {
     description:
@@ -671,13 +851,23 @@ export const TOOL_DEFINITIONS = {
   },
   task: {
     description:
-      "Spawn a sub-agent task (child workspace). " +
-      "\n\nREQUIRED: You MUST provide agentId (e.g. 'task', 'exec', 'explore', or any custom agent id). " +
-      "Also provide prompt, title, and optionally run_in_background. " +
+      "Spawn a sub-agent task (child minion). " +
+      "\n\nIMPORTANT: Sidekicks only see committed state. Uncommitted changes are not available. " +
+      "Commit any changes you want the sub-agent to consider before spawning a task. " +
+      "\n\nProvide agentId (preferred) or sidekick_type, prompt, title, run_in_background. " +
+      "\n\nWhen delegating, include a compact task brief (Task / Background / Scope / Starting points / Acceptance / Deliverables / Constraints). " +
+      "Avoid telling the sub-agent to read your plan file; child minions do not automatically have access to it. " +
       "\n\nIf run_in_background is false, waits for the sub-agent to finish and returns a completed reportMarkdown. " +
-      "If run_in_background is true, returns a queued/running taskId; use task_await to wait for completion, task_list to rediscover active tasks, and task_terminate to stop it. " +
+      "If the foreground wait times out, returns a queued/running taskId with a note (the task continues running); use task_await to monitor progress. " +
+      "If run_in_background is true, returns a queued/running taskId with a note; use task_await to wait for completion, task_list to rediscover active tasks, and task_terminate to stop it. " +
       "Use the bash tool to run shell commands.",
     schema: TaskToolArgsSchema,
+  },
+  task_apply_git_patch: {
+    description:
+      "Apply a completed sub-agent task's git-format-patch artifact to the current minion using `git am`. " +
+      "This is an explicit integration step: lattice will not auto-apply patches.",
+    schema: TaskApplyGitPatchToolArgsSchema,
   },
   task_await: {
     description:
@@ -695,14 +885,14 @@ export const TOOL_DEFINITIONS = {
   task_terminate: {
     description:
       "Terminate one or more tasks immediately (sub-agent tasks or background bash tasks). " +
-      "For sub-agent tasks, this stops their AI streams and deletes their workspaces (best-effort). " +
+      "For sub-agent tasks, this stops their AI streams and deletes their minions (best-effort). " +
       "No report will be delivered; any in-progress work is discarded. " +
       "If the task has descendant sub-agent tasks, they are terminated too.",
     schema: TaskTerminateToolArgsSchema,
   },
   task_list: {
     description:
-      "List descendant tasks for the current workspace, including status + metadata. " +
+      "List descendant tasks for the current minion, including status + metadata. " +
       "This includes sub-agent tasks and background bash tasks. " +
       "Use this after compaction or interruptions to rediscover which tasks are still active. " +
       "This is a discovery tool, NOT a waiting mechanism: if you need to wait for tasks to finish, call task_await (optionally omit task_ids to await all active descendant tasks).",
@@ -710,9 +900,16 @@ export const TOOL_DEFINITIONS = {
   },
   agent_report: {
     description:
-      "Report the final result of a sub-agent task back to the parent workspace. " +
+      "Report the final result of a sub-agent task back to the parent minion. " +
       "Call this exactly once when you have a final answer (after any spawned sub-tasks complete).",
     schema: AgentReportToolArgsSchema,
+  },
+  switch_agent: {
+    description:
+      "Switch to a different agent and restart the stream. " +
+      "Only UI-selectable agents can be targeted. " +
+      "The current stream will end and a new stream will start with the selected agent.",
+    schema: SwitchAgentToolArgsSchema,
   },
   system1_keep_ranges: {
     description:
@@ -721,25 +918,7 @@ export const TOOL_DEFINITIONS = {
       .object({
         keep_ranges: z
           .array(
-            z
-              .object({
-                start: z.coerce
-                  .number()
-                  .finite()
-                  .min(1)
-                  .describe("1-based start line (inclusive) in the numbered output"),
-                end: z.coerce
-                  .number()
-                  .finite()
-                  .min(1)
-                  .describe("1-based end line (inclusive) in the numbered output"),
-                reason: z
-                  .preprocess(
-                    (value) => (value === null ? undefined : value),
-                    z.string().optional()
-                  )
-                  .describe("Optional short reason for keeping this range"),
-              })
+            System1KeepRangeSchema
               // Providers/models sometimes include extra keys in tool arguments; be permissive and
               // ignore them rather than failing the whole compaction call.
               .passthrough()
@@ -816,7 +995,7 @@ export const TOOL_DEFINITIONS = {
         url: z
           .string()
           .url()
-          .optional()
+          .nullish()
           .describe(
             "Optional URL to external resource with more details (e.g., Pull Request URL). The URL persists and is displayed to the user for easy access."
           ),
@@ -837,7 +1016,7 @@ export const TOOL_DEFINITIONS = {
       process_id: z.string().describe("The ID of the background process to retrieve output from"),
       filter: z
         .string()
-        .optional()
+        .nullish()
         .describe(
           "Optional regex to filter output lines. By default, only matching lines are returned. " +
             "When filter_exclude is true, matching lines are excluded instead. " +
@@ -845,7 +1024,7 @@ export const TOOL_DEFINITIONS = {
         ),
       filter_exclude: z
         .boolean()
-        .optional()
+        .nullish()
         .describe(
           "When true, lines matching 'filter' are excluded instead of kept. " +
             "Key behavior: excluded lines do NOT cause early return from timeout - " +
@@ -887,8 +1066,8 @@ export const TOOL_DEFINITIONS = {
   web_fetch: {
     description:
       `Fetch a web page and extract its main content as clean markdown. ` +
-      `Uses the workspace's network context (requests originate from the workspace, not Lattice host). ` +
-      `Requires curl to be installed in the workspace. ` +
+      `Uses the minion's network context (requests originate from the minion, not Lattice host). ` +
+      `Requires curl to be installed in the minion. ` +
       `Output is truncated to ${Math.floor(WEB_FETCH_MAX_OUTPUT_BYTES / 1024)}KB.`,
     schema: z.object({
       url: z.string().url().describe("The URL to fetch (http or https)"),
@@ -902,95 +1081,6 @@ export const TOOL_DEFINITIONS = {
       code: z.string().min(1).describe("JavaScript code to execute in the PTC sandbox"),
     }),
   },
-  // #region GLOB_DOCS
-  glob: {
-    description:
-      "Fast file pattern matching tool that works with any codebase size. " +
-      "Supports glob patterns like '**/*.js' or 'src/**/*.ts'. " +
-      "Returns matching file paths sorted by modification time (most recent first). " +
-      "Use this when you need to find files by name patterns.",
-    schema: z.object({
-      pattern: z
-        .string()
-        .min(1)
-        .describe("The glob pattern to match files against (e.g., '**/*.ts', 'src/**/*.tsx')"),
-      path: z
-        .string()
-        .optional()
-        .describe(
-          "Directory to search in. Defaults to workspace root. Must be within the workspace."
-        ),
-    }),
-  },
-  // #endregion GLOB_DOCS
-  // #region GREP_DOCS
-  grep: {
-    description:
-      "Search file contents using regular expressions (powered by ripgrep). " +
-      "Supports full regex syntax. " +
-      "Filter files with the glob parameter. " +
-      "Output modes: 'content' shows matching lines with context, " +
-      "'files_with_matches' shows only file paths (default), " +
-      "'count' shows match counts per file.",
-    schema: z.object({
-      pattern: z
-        .string()
-        .min(1)
-        .describe("Regular expression pattern to search for in file contents"),
-      path: z
-        .string()
-        .optional()
-        .describe("File or directory to search in. Defaults to workspace root."),
-      glob: z
-        .string()
-        .optional()
-        .describe("Glob pattern to filter files (e.g., '*.js', '**/*.tsx')"),
-      output_mode: z
-        .enum(["content", "files_with_matches", "count"])
-        .default("files_with_matches")
-        .describe(
-          "Output format: content (matching lines), files_with_matches (file paths), count (match counts)"
-        ),
-      context: z
-        .number()
-        .int()
-        .min(0)
-        .max(10)
-        .optional()
-        .describe("Number of context lines around each match (for content mode)"),
-      case_insensitive: z.boolean().optional().describe("Case insensitive search"),
-      max_results: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of results to return (default: 200)"),
-    }),
-  },
-  // #endregion GREP_DOCS
-  // #region NOTEBOOK_EDIT_DOCS
-  notebook_edit: {
-    description:
-      "Edit Jupyter notebook (.ipynb) cells. " +
-      "Supports inserting new cells, replacing existing cell content, and deleting cells. " +
-      "Cell indices are 0-based.",
-    schema: z.object({
-      file_path: z.string().describe("Path to the .ipynb notebook file"),
-      operation: z
-        .enum(["insert", "replace", "delete"])
-        .describe("Edit operation: insert a new cell, replace cell content, or delete a cell"),
-      cell_index: z.number().int().min(0).describe("0-based cell index for the operation"),
-      cell_type: z
-        .enum(["code", "markdown", "raw"])
-        .optional()
-        .describe("Cell type (required for insert, optional for replace)"),
-      source: z
-        .string()
-        .optional()
-        .describe("Cell source content (required for insert and replace)"),
-    }),
-  },
-  // #endregion NOTEBOOK_EDIT_DOCS
   // #region NOTIFY_DOCS
   notify: {
     description:
@@ -1007,7 +1097,7 @@ export const TOOL_DEFINITIONS = {
         message: z
           .string()
           .max(200)
-          .optional()
+          .nullish()
           .describe(
             "Optional notification body with more details (max 200 chars). " +
               "Keep it brief - users may only see a preview."
@@ -1016,347 +1106,54 @@ export const TOOL_DEFINITIONS = {
       .strict(),
   },
   // #endregion NOTIFY_DOCS
-  // #region HIRE_EMPLOYEE_DOCS
-  hire_employee: {
-    description: (() => {
-      const agentList = [
-        ...CLI_AGENT_SLUGS.map(
-          (slug) => `"${slug}" (${CLI_AGENT_DEFINITIONS[slug].displayName})`
-        ),
-        '"terminal" (plain shell)',
-      ].join(", ");
-      return (
-        "Opens a new AI agent terminal tab immediately — call this tool directly, no investigation needed. " +
-        `Available slugs: ${agentList}. ` +
-        'Example: hire_employee({ slug: "gemini" }) opens Gemini instantly.'
-      );
-    })(),
-    schema: z.object({
-      slug: z
-        .string()
-        .describe(
-          'Agent slug identifying which employee to hire, e.g. "claude-code", "codex", "gemini", or "terminal"'
-        ),
-    }),
-  },
-  // #endregion HIRE_EMPLOYEE_DOCS
-  // #region SESSIONS_DOCS
-  sessions_list: {
-    description:
-      "List all active terminal sessions in the current workspace. " +
-      "Returns session IDs, agent slugs, display labels, and creation timestamps. " +
-      "Use this to discover which AI agents and terminals are currently running before " +
-      "directing them with sessions_send or reading their output with sessions_history.",
-    schema: z.object({}).strict(),
-  },
-  sessions_history: {
-    description:
-      "Read the current screen output of a terminal or AI agent session. " +
-      "Returns the last N lines of visible output (ANSI-stripped, human-readable). " +
-      "Use this to check agent progress, read command output, or verify agent state. " +
-      "Call sessions_list first to get valid session IDs.",
-    schema: z.object({
-      sessionId: z
-        .string()
-        .describe("The session ID to read output from (obtain via sessions_list)"),
-      maxLines: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .describe("Maximum number of lines to return from the end of output (default: 80)"),
-    }),
-  },
-  sessions_send: {
-    description:
-      "Send text or a command to an active terminal or AI agent session. " +
-      "Use this to direct hired agents: send prompts, answer their questions, or pass commands. " +
-      "A newline is appended by default (set newline: false for raw input like keystrokes). " +
-      "Call sessions_list first to get valid session IDs.",
-    schema: z.object({
-      sessionId: z
-        .string()
-        .describe("The session ID to send input to (obtain via sessions_list)"),
-      text: z
-        .string()
-        .describe(
-          "The text or command to send. For agents: use natural-language instructions. " +
-            'For terminals: use shell commands (e.g., "ls -la", "npm run build").'
-        ),
-      newline: z
-        .boolean()
-        .optional()
-        .describe(
-          "Whether to append a newline character (default: true). " +
-            "Set to false only for raw input like escape sequences or partial input."
-        ),
-    }),
-  },
-  sessions_spawn: {
-    description: (() => {
-      const agentList = [
-        ...CLI_AGENT_SLUGS.map(
-          (slug) => `"${slug}" (${CLI_AGENT_DEFINITIONS[slug].displayName})`
-        ),
-        '"terminal" (plain shell)',
-      ].join(", ");
-      return (
-        "Spawn a background AI agent session without opening a visible tab in the UI. " +
-        "Use this for autonomous background tasks: the agent runs independently, " +
-        "and you can monitor it via sessions_history and direct it via sessions_send. " +
-        "Unlike hire_employee (which opens a visible tab), sessions_spawn is for background workers. " +
-        `Available slugs: ${agentList}.`
-      );
-    })(),
-    schema: z.object({
-      slug: z
-        .string()
-        .describe(
-          'Agent slug identifying which agent to spawn, e.g. "claude-code", "codex", "gemini"'
-        ),
-      initialPrompt: z
-        .string()
-        .optional()
-        .describe(
-          "Optional initial prompt to send to the agent after it starts up " +
-            "(sent after a short startup delay). Use this to immediately task the agent."
-        ),
-    }),
-  },
-  // #endregion SESSIONS_DOCS
-  // #region SUBAGENTS_DOCS
-  subagents: {
-    description:
-      "Unified fleet management for all active agents — task subagents and PTY terminal sessions. " +
-      "Three actions:\n" +
-      '- action:"list" → Show every running task + session with IDs, labels, status, model\n' +
-      '- action:"kill" → Terminate by ID (or target:"all" to stop everything). ' +
-      "Session IDs are prefixed sess:, task IDs are plain. Cascade-kills descendant tasks.\n" +
-      '- action:"steer" → Redirect a running PTY session: sends Ctrl+C (interrupt=true by default) ' +
-      "then injects a new directive. Only works on sess: prefixed IDs — task subagents run autonomously.\n\n" +
-      "Use this instead of juggling sessions_list + task_list + sessions_send + task_terminate separately. " +
-      "This is your Agent HQ dashboard and control panel.",
-    schema: z
-      .object({
-        action: z
-          .enum(["list", "kill", "steer"])
-          .describe(
-            "list: enumerate all agents | kill: terminate by ID or target:'all' | steer: redirect a PTY session"
-          ),
-        target: z
-          .string()
-          .optional()
-          .describe(
-            "For kill/steer: the agent ID from subagents list. " +
-              "PTY session IDs are prefixed 'sess:' (e.g. 'sess:abc123'). " +
-              "Task IDs are plain UUIDs. Use 'all' with kill to terminate everything."
-          ),
-        message: z
-          .string()
-          .optional()
-          .describe(
-            "For steer: the new directive to send to the agent session (newline appended automatically)."
-          ),
-        interrupt: z
-          .boolean()
-          .optional()
-          .describe(
-            "For steer: send Ctrl+C before the message to interrupt current operation (default: true). " +
-              "Set false if the agent is waiting for input rather than actively running."
-          ),
-      })
-      .strict(),
-  },
-  // #endregion SUBAGENTS_DOCS
-  // #region LIT_DOCS
-  lit: {
-    description:
-      "Lattice Intelligence Tracker — git for intelligence. " +
-      "Records decisions, outcomes, and learnings as immutable, searchable objects. " +
-      "Every decision an agent makes becomes a versioned, traceable entry in the intelligence graph.\n\n" +
-      "Actions:\n" +
-      '- action:"commit" → Record a decision with task, outcome, learning, confidence, context, domain, tags. ' +
-      "Call this after completing any task to persist what was learned.\n" +
-      '- action:"search" → Find relevant past decisions by query + optional domain/tags/agent filters. ' +
-      "Uses BM25 scoring + temporal decay (90-day half-life). Call BEFORE starting a task to leverage prior knowledge.\n" +
-      '- action:"log" → View recent decision history with optional filters (domain, agent, outcome, since, limit).\n\n' +
-      "The intelligence graph persists across sessions, agents, and restarts. " +
-      "It is the collective memory of all agents that have ever worked in this Lattice installation. " +
-      "After every 5 task completions, reflect on the log and commit meta-learnings about patterns, routing strategies, and agent strengths.",
-    schema: z
-      .object({
-        action: z
-          .enum(["commit", "search", "log"])
-          .describe("commit: record a decision | search: find relevant past knowledge | log: view history"),
 
-        // --- commit fields ---
-        task: z
-          .string()
-          .optional()
-          .describe("For commit: what task/situation triggered this decision"),
-        learning: z
-          .string()
-          .optional()
-          .describe("For commit: the core insight to persist — what was learned"),
-        outcome: z
-          .enum(["success", "partial", "failed", "blocked", "observation"])
-          .optional()
-          .describe("For commit: result of the action taken"),
-        confidence: z
-          .number()
-          .min(0)
-          .max(1)
-          .optional()
-          .describe("For commit: confidence in this learning (0.0-1.0)"),
-        domain: z
-          .string()
-          .optional()
-          .describe(
-            "For commit/search/log: business domain (plumber, bakery, saas, etc.) for domain-specific knowledge"
-          ),
-        context: z
-          .string()
-          .optional()
-          .describe("For commit: situation context — what was known when deciding"),
-        action_taken: z
-          .string()
-          .optional()
-          .describe("For commit: what action was taken"),
-        reasoning: z
-          .string()
-          .optional()
-          .describe("For commit: why this action was chosen over alternatives"),
-        tags: z
-          .array(z.string())
-          .optional()
-          .describe("For commit/search/log: searchable tags for categorization"),
-        artifacts: z
-          .array(z.string())
-          .optional()
-          .describe("For commit: files created or modified"),
-        duration_ms: z
-          .number()
-          .optional()
-          .describe("For commit: how long the task took in milliseconds"),
-        agent: z
-          .string()
-          .optional()
-          .describe("For commit/search/log: which agent (auto-filled if not provided)"),
+  // #region LATTICE_SDK_DISCOVERY
+  // ── Lattice SDK progressive disclosure tools ─────────────────────────────
+  // Following the "Code execution with MCP" pattern (Anthropic blog):
+  // models discover SDK functions on demand instead of loading 170+ definitions upfront.
+  // The agent then reads the SDK file via file_read and writes code to call functions via bash.
 
-        // --- search fields ---
-        query: z
-          .string()
-          .optional()
-          .describe("For search: natural language query to find relevant past decisions"),
-
-        // --- log/search fields ---
-        since: z
-          .string()
-          .optional()
-          .describe("For log: ISO 8601 timestamp or relative ('7d', '30d') — only show decisions after this time"),
-        limit: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe("For search/log: maximum number of results to return (default: 10)"),
-      })
-      .strict(),
-  },
-  // #endregion LIT_DOCS
-  // #region BROWSER_DOCS
-  browser: {
+  lattice_list_categories: {
     description:
-      "Control a browser to interact with web pages. Each workspace gets its own isolated browser session " +
-      "(separate cookies, storage, login state). Use this for web automation: navigating sites, " +
-      "filling forms, clicking buttons, reading page content, and taking screenshots.\n\n" +
-      "## Workflow pattern (Anthropic computer-use style):\n" +
-      "1. `navigate` to a URL\n" +
-      "2. `screenshot` to see the current state\n" +
-      "3. Decide next action based on what you see\n" +
-      "4. `click`, `type`, `scroll`, etc.\n" +
-      "5. `screenshot` again to verify the result\n" +
-      "6. Repeat until task is complete\n\n" +
-      "## Available actions:\n" +
-      "- **navigate**: Go to a URL\n" +
-      "- **click**: Click an element by CSS selector or [x,y] coordinate\n" +
-      "- **type**: Type text into a field (by selector or focused element)\n" +
-      "- **scroll**: Scroll up/down/left/right\n" +
-      "- **screenshot**: Capture the visible page as base64 PNG\n" +
-      "- **read_text**: Extract text content from page or element\n" +
-      "- **read_html**: Get raw HTML of page or element\n" +
-      "- **wait**: Wait for an element to appear or a fixed delay\n" +
-      "- **select**: Select a dropdown option\n" +
-      "- **hover**: Hover over an element\n" +
-      "- **go_back** / **go_forward**: Browser history navigation\n" +
-      "- **new_tab**: Open a new browser tab (optionally with URL)\n" +
-      "- **close_tab**: Close a tab\n" +
-      "- **list_tabs**: List all open tabs\n" +
-      "- **switch_tab**: Switch to a different tab\n" +
-      "- **evaluate**: Run JavaScript in the page context\n\n" +
-      "## Tips:\n" +
-      "- Always screenshot after navigation or clicks to verify state\n" +
-      "- Use CSS selectors when possible; fall back to coordinates for complex UIs\n" +
-      "- For login flows, type username → click next → type password → click submit\n" +
-      "- Sub-agents each get their own browser — use for parallel web tasks",
+      "List all available Lattice SDK module categories with function counts. " +
+      "Use this first to understand what's available, then use lattice_search_tools to find specific functions. " +
+      "The Lattice SDK provides 170 typed TypeScript functions for controlling Lattice Workbench — " +
+      "minions, projects, terminals, analytics, config, and more. " +
+      "After finding the right functions, read the SDK file via file_read and execute code via bash (bun).",
+    schema: z.object({}),
+  },
+
+  lattice_search_tools: {
+    description:
+      "Search the Lattice SDK catalog by keyword. Returns matching function names, categories, and descriptions. " +
+      "Use this to discover which SDK functions are relevant to the current task. " +
+      "After finding functions, read the SDK source file via file_read for full type signatures, " +
+      "then write and execute code via bash (bun) to call the functions. " +
+      "Example workflow: lattice_search_tools → file_read(sdk/minion.ts) → bash(bun run script.ts).",
     schema: z.object({
-      action: z
-        .enum([
-          "navigate",
-          "click",
-          "type",
-          "scroll",
-          "screenshot",
-          "read_text",
-          "read_html",
-          "wait",
-          "select",
-          "hover",
-          "go_back",
-          "go_forward",
-          "new_tab",
-          "close_tab",
-          "list_tabs",
-          "switch_tab",
-          "evaluate",
-        ])
-        .describe("The browser action to perform"),
-      url: z.string().optional().describe("URL to navigate to (for navigate/new_tab actions)"),
-      selector: z
+      query: z
         .string()
-        .optional()
-        .describe("CSS selector for element interaction (click, type, read_text, etc.)"),
-      text: z.string().optional().describe("Text to type (for type action)"),
-      value: z.string().optional().describe("Value to select (for select action)"),
-      coordinate: z
-        .tuple([z.number(), z.number()])
-        .optional()
-        .describe("Click/hover coordinate [x, y] — use when CSS selector is not reliable"),
-      direction: z
-        .enum(["up", "down", "left", "right"])
-        .optional()
-        .describe("Scroll direction (default: down)"),
-      amount: z.number().positive().optional().describe("Scroll amount in pixels (default: 500)"),
-      full_page: z
-        .boolean()
-        .optional()
-        .describe("Capture full-page screenshot (default: false, captures viewport only)"),
-      timeout_ms: z
-        .number()
-        .positive()
-        .optional()
-        .describe("Action timeout in milliseconds (default: 30000)"),
-      page_id: z
+        .min(1)
+        .describe(
+          "Search keyword to match against function names, categories, and descriptions. " +
+            "Examples: 'minion create', 'analytics', 'terminal profile', 'model preferences'"
+        ),
+      category: z
         .string()
-        .optional()
-        .describe("Tab/page ID for tab operations (close_tab, switch_tab)"),
-      code: z
-        .string()
-        .optional()
-        .describe("JavaScript code to evaluate in page context (for evaluate action)"),
+        .nullish()
+        .describe(
+          "Optional: filter to a specific category (e.g. 'minion', 'project', 'analytics', 'config')"
+        ),
+      detail: z
+        .enum(["names", "summary", "full"])
+        .nullish()
+        .describe(
+          "Level of detail: 'names' (function names only), 'summary' (names + descriptions), " +
+            "'full' (names + descriptions + category + SDK file path). Defaults to 'summary'."
+        ),
     }),
   },
-  // #endregion BROWSER_DOCS
+  // #endregion LATTICE_SDK_DISCOVERY
 } as const;
 
 // -----------------------------------------------------------------------------
@@ -1548,26 +1345,6 @@ export const AgentSkillReadToolResultSchema = z.union([
 export const AgentSkillReadFileToolResultSchema = FileReadToolResultSchema;
 
 /**
- * File write tool result - diff or error.
- */
-export const FileWriteToolResultSchema = z.union([
-  z
-    .object({
-      success: z.literal(true),
-      diff: z.string(),
-      created: z.boolean(),
-      warning: z.string().optional(),
-    })
-    .extend(ToolOutputUiOnlyFieldSchema),
-  z
-    .object({
-      success: z.literal(false),
-      error: z.string(),
-    })
-    .extend(ToolOutputUiOnlyFieldSchema),
-]);
-
-/**
  * File edit insert tool result - diff or error.
  */
 export const FileEditInsertToolResultSchema = z.union([
@@ -1627,62 +1404,6 @@ export const WebFetchToolResultSchema = z.union([
   }),
 ]);
 
-// -- Glob result --
-export const GlobToolResultSchema = z.union([
-  z.object({
-    success: z.literal(true),
-    files: z.array(z.string()),
-    count: z.number(),
-    truncated: z.boolean().optional(),
-  }),
-  z.object({
-    success: z.literal(false),
-    error: z.string(),
-  }),
-]);
-
-// -- Grep result --
-export const GrepToolResultSchema = z.union([
-  z.object({
-    success: z.literal(true),
-    output: z.string(),
-    match_count: z.number(),
-    truncated: z.boolean().optional(),
-  }),
-  z.object({
-    success: z.literal(false),
-    error: z.string(),
-  }),
-]);
-
-// -- NotebookEdit result --
-export const NotebookEditToolResultSchema = z.union([
-  z.object({
-    success: z.literal(true),
-    message: z.string(),
-    total_cells: z.number(),
-  }),
-  z.object({
-    success: z.literal(false),
-    error: z.string(),
-  }),
-]);
-
-// -- Browser result --
-export const BrowserToolResultSchema = z.union([
-  z.object({
-    success: z.literal(true),
-    content_type: z.enum(["text", "html", "screenshot", "info"]),
-    content: z.string(),
-    url: z.string(),
-    title: z.string(),
-  }),
-  z.object({
-    success: z.literal(false),
-    error: z.string(),
-  }),
-]);
-
 /**
  * Names of tools that are bridgeable to PTC sandbox.
  * If adding a new tool here, you must also add its result schema below.
@@ -1693,20 +1414,19 @@ export type BridgeableToolName =
   | "bash_background_list"
   | "bash_background_terminate"
   | "file_read"
-  | "file_write"
   | "agent_skill_read"
   | "agent_skill_read_file"
   | "file_edit_insert"
   | "file_edit_replace_string"
+  // Note: for Anthropic models, web_fetch is replaced by a provider-native tool
+  // (webFetch_20250910) that has no execute(). ToolBridge's hasExecute filter will drop it
+  // from the PTC sandbox for those sessions. That silent absence is intentional and accepted.
   | "web_fetch"
-  | "glob"
-  | "grep"
-  | "notebook_edit"
   | "task"
   | "task_await"
+  | "task_apply_git_patch"
   | "task_list"
-  | "task_terminate"
-  | "browser";
+  | "task_terminate";
 
 /**
  * Lookup map for result schemas by tool name.
@@ -1720,20 +1440,16 @@ export const RESULT_SCHEMAS: Record<BridgeableToolName, z.ZodType> = {
   bash_background_list: BashBackgroundListResultSchema,
   bash_background_terminate: BashBackgroundTerminateResultSchema,
   file_read: FileReadToolResultSchema,
-  file_write: FileWriteToolResultSchema,
   agent_skill_read: AgentSkillReadToolResultSchema,
   agent_skill_read_file: AgentSkillReadFileToolResultSchema,
   file_edit_insert: FileEditInsertToolResultSchema,
   file_edit_replace_string: FileEditReplaceStringToolResultSchema,
   web_fetch: WebFetchToolResultSchema,
-  glob: GlobToolResultSchema,
-  grep: GrepToolResultSchema,
-  notebook_edit: NotebookEditToolResultSchema,
   task: TaskToolResultSchema,
   task_await: TaskAwaitToolResultSchema,
+  task_apply_git_patch: TaskApplyGitPatchToolResultSchema,
   task_list: TaskListToolResultSchema,
   task_terminate: TaskTerminateToolResultSchema,
-  browser: BrowserToolResultSchema,
 };
 
 /**
@@ -1775,7 +1491,6 @@ export function getAvailableTools(
       ? ["lattice_global_agents_read", "lattice_global_agents_write"]
       : []),
     "file_read",
-    "file_write",
     "agent_skill_read",
     "agent_skill_read_file",
     "file_edit_replace_string",
@@ -1786,26 +1501,20 @@ export function getAvailableTools(
     "bash",
     "task",
     "task_await",
+    "task_apply_git_patch",
     "task_terminate",
     "task_list",
     ...(enableAgentReport ? ["agent_report"] : []),
+    "switch_agent",
     "system1_keep_ranges",
     "todo_write",
     "todo_read",
     "status_set",
     "notify",
-    "hire_employee",
-    "sessions_list",
-    "sessions_history",
-    "sessions_send",
-    "sessions_spawn",
-    "subagents",
-    "lit",
     "web_fetch",
-    "glob",
-    "grep",
-    "notebook_edit",
-    "browser",
+    // Lattice SDK progressive disclosure (code execution pattern)
+    "lattice_list_categories",
+    "lattice_search_tools",
   ];
 
   // Add provider-specific tools

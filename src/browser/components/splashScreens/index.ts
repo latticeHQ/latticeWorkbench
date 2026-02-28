@@ -12,7 +12,7 @@ export interface SplashConfig {
 // Priority 2 = Medium priority
 // Priority 3+ = Higher priority (shown first)
 export const SPLASH_REGISTRY: SplashConfig[] = [
-  { id: "onboarding-wizard-v2", priority: 5, component: OnboardingWizardSplash },
+  { id: "onboarding-wizard-v1", priority: 5, component: OnboardingWizardSplash },
   // Future: { id: "new-feature-xyz", priority: 2, component: NewFeatureSplash },
 ];
 

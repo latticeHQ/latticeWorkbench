@@ -1,11 +1,11 @@
 import React, { useSyncExternalStore } from "react";
 import { TodoList } from "./TodoList";
-import { useWorkspaceStoreRaw } from "@/browser/stores/WorkspaceStore";
+import { useMinionStoreRaw } from "@/browser/stores/MinionStore";
 import { usePersistedState } from "@/browser/hooks/usePersistedState";
 import { cn } from "@/common/lib/utils";
 
 interface PinnedTodoListProps {
-  workspaceId: string;
+  minionId: string;
 }
 
 /**
@@ -16,16 +16,16 @@ interface PinnedTodoListProps {
  * Relies on natural reference stability from MapStore + Aggregator architecture:
  * - Aggregator.getCurrentTodos() returns direct reference (not a copy)
  * - Reference only changes when todos are actually modified
- * - MapStore caches WorkspaceState per version, avoiding unnecessary recomputation
+ * - MapStore caches MinionState per version, avoiding unnecessary recomputation
  * - Todos are cleared by StreamingMessageAggregator when stream completes
  */
-export const PinnedTodoList: React.FC<PinnedTodoListProps> = ({ workspaceId }) => {
+export const PinnedTodoList: React.FC<PinnedTodoListProps> = ({ minionId }) => {
   const [expanded, setExpanded] = usePersistedState("pinnedTodoExpanded", true);
 
-  const workspaceStore = useWorkspaceStoreRaw();
+  const minionStore = useMinionStoreRaw();
   const todos = useSyncExternalStore(
-    (callback) => workspaceStore.subscribeKey(workspaceId, callback),
-    () => workspaceStore.getWorkspaceState(workspaceId).todos
+    (callback) => minionStore.subscribeKey(minionId, callback),
+    () => minionStore.getMinionState(minionId).todos
   );
 
   // Todos are cleared when stream ends, so if there are todos they're from an active stream

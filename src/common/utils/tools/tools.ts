@@ -1,6 +1,6 @@
 import { type Tool } from "ai";
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
-import assert from "@/common/utils/assert";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
+import { cloneToolPreservingDescriptors } from "@/common/utils/tools/cloneToolPreservingDescriptors";
 import { createFileReadTool } from "@/node/services/tools/file_read";
 import { createBashTool } from "@/node/services/tools/bash";
 import { createBashOutputTool } from "@/node/services/tools/bash_output";
@@ -9,13 +9,13 @@ import { createBashBackgroundTerminateTool } from "@/node/services/tools/bash_ba
 import { createFileEditReplaceStringTool } from "@/node/services/tools/file_edit_replace_string";
 // DISABLED: import { createFileEditReplaceLinesTool } from "@/node/services/tools/file_edit_replace_lines";
 import { createFileEditInsertTool } from "@/node/services/tools/file_edit_insert";
-import { createFileWriteTool } from "@/node/services/tools/file_write";
 import { createAskUserQuestionTool } from "@/node/services/tools/ask_user_question";
 import { createProposePlanTool } from "@/node/services/tools/propose_plan";
 import { createTodoWriteTool, createTodoReadTool } from "@/node/services/tools/todo";
 import { createStatusSetTool } from "@/node/services/tools/status_set";
 import { createNotifyTool } from "@/node/services/tools/notify";
 import { createTaskTool } from "@/node/services/tools/task";
+import { createTaskApplyGitPatchTool } from "@/node/services/tools/task_apply_git_patch";
 import { createTaskAwaitTool } from "@/node/services/tools/task_await";
 import { createTaskTerminateTool } from "@/node/services/tools/task_terminate";
 import { createTaskListTool } from "@/node/services/tools/task_list";
@@ -24,17 +24,12 @@ import { createAgentSkillReadFileTool } from "@/node/services/tools/agent_skill_
 import { createLatticeGlobalAgentsReadTool } from "@/node/services/tools/lattice_global_agents_read";
 import { createLatticeGlobalAgentsWriteTool } from "@/node/services/tools/lattice_global_agents_write";
 import { createAgentReportTool } from "@/node/services/tools/agent_report";
+import { createSwitchAgentTool } from "@/node/services/tools/switch_agent";
 import { createSystem1KeepRangesTool } from "@/node/services/tools/system1_keep_ranges";
-import { createGlobTool } from "@/node/services/tools/glob";
-import { createGrepTool } from "@/node/services/tools/grep";
-import { createNotebookEditTool } from "@/node/services/tools/notebook_edit";
-import { createHireEmployeeTool } from "@/node/services/tools/hire_employee";
-import { createSessionsListTool } from "@/node/services/tools/sessions_list";
-import { createSessionsHistoryTool } from "@/node/services/tools/sessions_history";
-import { createSessionsSendTool } from "@/node/services/tools/sessions_send";
-import { createSessionsSpawnTool } from "@/node/services/tools/sessions_spawn";
-import { createSubagentsTool } from "@/node/services/tools/subagents";
-import { createLitTool } from "@/node/services/tools/lit";
+import {
+  createLatticeListCategoriesTool,
+  createLatticeSearchToolsTool,
+} from "@/node/services/tools/lattice_sdk_discovery";
 import { wrapWithInitWait } from "@/node/services/tools/wrapWithInitWait";
 import { withHooks, type HookConfig } from "@/node/services/tools/withHooks";
 import { log } from "@/node/services/log";
@@ -48,8 +43,10 @@ import type { Runtime } from "@/node/runtime/Runtime";
 import type { InitStateManager } from "@/node/services/initStateManager";
 import type { BackgroundProcessManager } from "@/node/services/backgroundProcessManager";
 import type { TaskService } from "@/node/services/taskService";
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 import type { FileState } from "@/node/services/agentSession";
+import type { AgentDefinitionDescriptor } from "@/common/types/agentDefinition";
+import type { AgentSkillDescriptor } from "@/common/types/agentSkill";
 
 /**
  * Configuration for tools that need runtime context
@@ -74,26 +71,30 @@ export interface ToolConfiguration {
   /** Plan file path - only this file can be edited when planFileOnly is true. */
   planFilePath?: string;
   /**
-   * Optional callback for emitting UI-only workspace chat events.
+   * Optional callback for emitting UI-only minion chat events.
    * Used for streaming bash stdout/stderr to the UI without sending it to the model.
    */
-  emitChatEvent?: (event: WorkspaceChatMessage) => void;
-  /** Workspace session directory (e.g. ~/.lattice/sessions/<workspaceId>) for persistent tool state */
-  workspaceSessionDir?: string;
-  /** Workspace ID for tracking background processes and plan storage */
-  workspaceId?: string;
+  emitChatEvent?: (event: MinionChatMessage) => void;
+  /** Minion session directory (e.g. ~/.lattice/sessions/<minionId>) for persistent tool state */
+  minionSessionDir?: string;
+  /** Minion ID for tracking background processes and plan storage */
+  minionId?: string;
   /** Callback to record file state for external edit detection (plan files) */
   recordFileState?: (filePath: string, state: FileState) => void;
-  /** Task orchestration for sub-agent tasks */
+  /** Task orchestration for sidekick tasks */
   taskService?: TaskService;
-  /** Enable agent_report tool (only valid for child task workspaces) */
+  /** Enable agent_report tool (only valid for child task minions) */
   enableAgentReport?: boolean;
-  /** PTC experiments inherited from parent (for subagent spawning) */
-  experiments?: { programmaticToolCalling?: boolean; programmaticToolCallingExclusive?: boolean };
-  /** Browser session manager for browser automation tool (optional) */
-  browserSessionManager?: import("@/node/services/browserSessionManager").BrowserSessionManager;
-  /** Terminal service for hire_employee tool — creates PTY sessions (optional) */
-  terminalService?: import("@/node/services/terminalService").TerminalService;
+  /** Experiments inherited from parent (for sidekick spawning) */
+  experiments?: {
+    programmaticToolCalling?: boolean;
+    programmaticToolCallingExclusive?: boolean;
+    execSidekickHardRestart?: boolean;
+  };
+  /** Available sidekicks for the task tool description (dynamic context) */
+  availableSidekicks?: AgentDefinitionDescriptor[];
+  /** Available skills for the agent_skill_read tool description (dynamic context) */
+  availableSkills?: AgentSkillDescriptor[];
 }
 
 /**
@@ -102,7 +103,7 @@ export interface ToolConfiguration {
 export type ToolFactory = (config: ToolConfiguration) => Tool;
 
 /**
- * Augment a tool's description with additional instructions from "Tool: <name>" sections
+ * Augment a tool's description with additional instructions from "Tool: <name>" crews
  * Mutates the base tool in place to append the instructions to its description.
  * This preserves any provider-specific metadata or internal state on the tool object.
  * @param baseTool The original tool to augment
@@ -123,21 +124,6 @@ function augmentToolDescription(baseTool: Tool, additionalInstructions: string):
   return baseTool;
 }
 
-function cloneToolPreservingDescriptors(tool: unknown): Tool {
-  assert(tool && typeof tool === "object", "tool must be an object");
-
-  // Clone the tool without invoking getters (important for some dynamic tools).
-  const prototype = Object.getPrototypeOf(tool) as unknown;
-  assert(
-    prototype === null || typeof prototype === "object",
-    "tool prototype must be an object or null"
-  );
-
-  const clone = Object.create(prototype) as object;
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(tool));
-  return clone as Tool;
-}
-
 function wrapToolExecuteWithModelOnlyNotifications(
   toolName: string,
   baseTool: Tool,
@@ -154,7 +140,7 @@ function wrapToolExecuteWithModelOnlyNotifications(
 
   const executeFn = originalExecute as (this: unknown, args: unknown, options: unknown) => unknown;
 
-  // Avoid mutating cached tools in place (e.g. MCP tools cached per workspace).
+  // Avoid mutating cached tools in place (e.g. MCP tools cached per minion).
   // Repeated getToolsForModel() calls should not stack wrappers.
   const wrappedTool = cloneToolPreservingDescriptors(baseTool);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -198,12 +184,12 @@ function wrapToolsWithModelOnlyNotifications(
   tools: Record<string, Tool>,
   config: ToolConfiguration
 ): Record<string, Tool> {
-  if (!config.workspaceSessionDir) {
+  if (!config.minionSessionDir) {
     return tools;
   }
 
   const engine = new NotificationEngine([
-    new TodoListReminderSource({ workspaceSessionDir: config.workspaceSessionDir }),
+    new TodoListReminderSource({ minionSessionDir: config.minionSessionDir }),
   ]);
 
   const wrappedTools: Record<string, Tool> = {};
@@ -226,8 +212,8 @@ function wrapToolsWithHooks(
   tools: Record<string, Tool>,
   config: ToolConfiguration
 ): Record<string, Tool> {
-  // Hooks require workspaceId, cwd, and runtime
-  if (!config.workspaceId || !config.cwd || !config.runtime) {
+  // Hooks require minionId, cwd, and runtime
+  if (!config.minionId || !config.cwd || !config.runtime) {
     return tools;
   }
 
@@ -235,7 +221,7 @@ function wrapToolsWithHooks(
     runtime: config.runtime,
     cwd: config.cwd,
     runtimeTempDir: config.runtimeTempDir,
-    workspaceId: config.workspaceId,
+    minionId: config.minionId,
     // Match bash tool behavior: latticeEnv is present and secrets override it.
     env: {
       ...(config.latticeEnv ?? {}),
@@ -259,15 +245,33 @@ function wrapToolsWithHooks(
  *
  * @param modelString The model string in format "provider:model-id"
  * @param config Required configuration for tools
- * @param workspaceId Workspace ID for init state tracking (required for runtime tools)
+ * @param minionId Minion ID for init state tracking (required for runtime tools)
  * @param initStateManager Init state manager for runtime tools to wait for initialization
- * @param toolInstructions Optional map of tool names to additional instructions from "Tool: <name>" sections
+ * @param toolInstructions Optional map of tool names to additional instructions from "Tool: <name>" crews
  * @returns Promise resolving to record of tools available for the model
  */
+/**
+ * Returns true when an Anthropic model supports webFetch_20250910 (Claude 4.6+).
+ *
+ * Generation-based IDs: claude-{variant}-{major}-{minor} (e.g. claude-sonnet-4-6)
+ * Pinned generation IDs: claude-{variant}-{major}-{minor}-{date} (e.g. claude-opus-4-6-20260201)
+ * Date-based pre-4.6 IDs: claude-{variant}-{major}-{date} (e.g. claude-sonnet-4-20250514)
+ *
+ * The \d{1,2} constraint on the minor segment accepts 1-2 digit version numbers (1–99) while
+ * rejecting 8-digit date suffixes. The (?:-|$) lookahead allows an optional pinned date to follow.
+ */
+function supportsAnthropicNativeWebFetch(modelId: string): boolean {
+  const match = /^claude-\w+-(\d+)-(\d{1,2})(?:-|$)/.exec(modelId);
+  if (!match) return false;
+  const major = parseInt(match[1], 10);
+  const minor = parseInt(match[2], 10);
+  return major > 4 || (major === 4 && minor >= 6);
+}
+
 export async function getToolsForModel(
   modelString: string,
   config: ToolConfiguration,
-  workspaceId: string,
+  minionId: string,
   initStateManager: InitStateManager,
   toolInstructions?: Record<string, string>,
   mcpTools?: Record<string, Tool>
@@ -276,21 +280,18 @@ export async function getToolsForModel(
 
   // Helper to reduce repetition when wrapping runtime tools
   const wrap = <TParameters, TResult>(tool: Tool<TParameters, TResult>) =>
-    wrapWithInitWait(tool, workspaceId, initStateManager);
+    wrapWithInitWait(tool, minionId, initStateManager);
 
   // Lazy-load web_fetch to avoid loading jsdom (ESM-only) at Jest setup time
   // This allows integration tests to run without transforming jsdom's dependencies
   const { createWebFetchTool } = await import("@/node/services/tools/web_fetch");
-  // Lazy-load browser tool to avoid loading playwright at Jest setup time
-  const { createBrowserTool } = await import("@/node/services/tools/browser");
 
-  // Runtime-dependent tools need to wait for workspace initialization
+  // Runtime-dependent tools need to wait for minion initialization
   // Wrap them to handle init waiting centrally instead of in each tool
   const runtimeTools: Record<string, Tool> = {
     file_read: wrap(createFileReadTool(config)),
     agent_skill_read: wrap(createAgentSkillReadTool(config)),
     agent_skill_read_file: wrap(createAgentSkillReadFileTool(config)),
-    file_write: wrap(createFileWriteTool(config)),
     file_edit_replace_string: wrap(createFileEditReplaceStringTool(config)),
     file_edit_insert: wrap(createFileEditInsertTool(config)),
     // DISABLED: file_edit_replace_lines - causes models (particularly GPT-5-Codex)
@@ -298,9 +299,10 @@ export async function getToolsForModel(
     // and line number miscalculations. Use file_edit_replace_string instead.
     // file_edit_replace_lines: wrap(createFileEditReplaceLinesTool(config)),
 
-    // Sub-agent task orchestration (child workspaces)
+    // Sidekick task orchestration (child minions)
     task: wrap(createTaskTool(config)),
     task_await: wrap(createTaskAwaitTool(config)),
+    task_apply_git_patch: wrap(createTaskApplyGitPatchTool(config)),
     task_terminate: wrap(createTaskTerminateTool(config)),
     task_list: wrap(createTaskListTool(config)),
 
@@ -313,16 +315,6 @@ export async function getToolsForModel(
     bash_background_terminate: wrap(createBashBackgroundTerminateTool(config)),
 
     web_fetch: wrap(createWebFetchTool(config)),
-
-    // File search & content search (same as Claude Code: fast-glob + ripgrep)
-    glob: wrap(createGlobTool(config)),
-    grep: wrap(createGrepTool(config)),
-
-    // Jupyter notebook editing (JSON parse/mutate/write)
-    notebook_edit: wrap(createNotebookEditTool(config)),
-
-    // Browser automation (Playwright-backed, one session per workspace)
-    browser: wrap(createBrowserTool(config)),
   };
 
   // Non-runtime tools execute immediately (no init wait needed)
@@ -333,24 +325,15 @@ export async function getToolsForModel(
     ask_user_question: createAskUserQuestionTool(config),
     propose_plan: createProposePlanTool(config),
     ...(config.enableAgentReport ? { agent_report: createAgentReportTool(config) } : {}),
+    switch_agent: createSwitchAgentTool(config),
     system1_keep_ranges: createSystem1KeepRangesTool(config),
     todo_write: createTodoWriteTool(config),
     todo_read: createTodoReadTool(config),
     status_set: createStatusSetTool(config),
     notify: createNotifyTool(config),
-    hire_employee: createHireEmployeeTool(config),
-
-    // PM Chat session orchestration — enumerate, read, direct, and spawn agent sessions
-    sessions_list: createSessionsListTool(config),
-    sessions_history: createSessionsHistoryTool(config),
-    sessions_send: createSessionsSendTool(config),
-    sessions_spawn: createSessionsSpawnTool(config),
-
-    // Unified fleet management — list/kill/steer all task subagents + PTY sessions
-    subagents: createSubagentsTool(config),
-
-    // Lattice Intelligence Tracker — git for intelligence (commit/search/log decisions)
-    lit: createLitTool(config),
+    // Lattice SDK progressive disclosure (code execution pattern)
+    lattice_list_categories: createLatticeListCategoriesTool(config),
+    lattice_search_tools: createLatticeSearchToolsTool(config),
   };
 
   // Base tools available for all models
@@ -366,12 +349,33 @@ export async function getToolsForModel(
     switch (provider) {
       case "anthropic": {
         const { anthropic } = await import("@ai-sdk/anthropic");
-        allTools = {
-          ...baseTools,
-          ...(mcpTools ?? {}),
-          // Provider-specific tool types are compatible with Tool at runtime
-          web_search: anthropic.tools.webSearch_20250305({ maxUses: 1000 }) as Tool,
-        };
+
+        // webFetch_20250910 was introduced with the Claude 4.6 generation.
+        // Sending it to an older model (e.g. claude-sonnet-4-5) causes an API error,
+        // so only override web_fetch when the model is >= 4.6.
+        //
+        // Known limitations when the native override is active:
+        // - Cannot reach private/localhost URLs (Anthropic's servers can't see minion network).
+        // - lattice.md share links rely on client-side decryption via URL fragment (#key);
+        //   Anthropic drops the fragment when making HTTP requests, so decryption silently fails.
+        // - Not bridgeable in the PTC sandbox (no execute()); see BridgeableToolName comment.
+        // - Tool hooks (.lattice/tool_pre/.lattice/tool_post) are skipped because withHooks() returns
+        //   early when execute() is absent — same limitation as web_search (provider-native).
+        if (supportsAnthropicNativeWebFetch(modelId)) {
+          allTools = {
+            ...baseTools,
+            ...(mcpTools ?? {}),
+            // Provider-specific tool types are compatible with Tool at runtime
+            web_search: anthropic.tools.webSearch_20250305({ maxUses: 1000 }) as Tool,
+            web_fetch: anthropic.tools.webFetch_20250910({ maxUses: 1000 }) as Tool,
+          };
+        } else {
+          allTools = {
+            ...baseTools,
+            ...(mcpTools ?? {}),
+            web_search: anthropic.tools.webSearch_20250305({ maxUses: 1000 }) as Tool,
+          };
+        }
         break;
       }
 
@@ -418,7 +422,7 @@ export async function getToolsForModel(
   const allowlistedToolNames = new Set(
     getAvailableTools(modelString, {
       enableAgentReport: config.enableAgentReport,
-      enableLatticeGlobalAgentsTools: workspaceId === LATTICE_HELP_CHAT_WORKSPACE_ID,
+      enableLatticeGlobalAgentsTools: minionId === LATTICE_HELP_CHAT_MINION_ID,
     })
   );
   for (const toolName of Object.keys(mcpTools ?? {})) {
