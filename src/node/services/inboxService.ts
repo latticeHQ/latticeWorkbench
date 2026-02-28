@@ -95,8 +95,10 @@ export class InboxService {
   // Late-bound dependencies (setter injection to avoid circular deps in ServiceContainer)
   private minionService: MinionService | null = null;
   private aiService: AIService | null = null;
+  private readonly config: Config;
 
   constructor(config: Config) {
+    this.config = config;
     this.sessionFileManager = new SessionFileManager<PersistedInboxState>(
       config,
       "inbox.json",
@@ -377,11 +379,15 @@ export class InboxService {
     // is handled by InboxService infrastructure, not the agent.
     const messageToAgent = inboundBody;
 
+    // Use the user's configured default model; fall back to the built-in constant.
+    const userConfig = this.config.loadConfigOrDefault();
+    const model = userConfig.defaultModel ?? DEFAULT_MODEL;
+
     // Send the message to the minion agent
     const sendResult = await this.minionService.sendMessage(
       minionId,
       messageToAgent,
-      { model: DEFAULT_MODEL, agentId: "exec" },
+      { model, agentId: "exec" },
     );
 
     if (!sendResult.success) {
