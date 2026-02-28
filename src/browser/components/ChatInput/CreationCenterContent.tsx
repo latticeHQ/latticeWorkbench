@@ -1,4 +1,4 @@
-import { LatticeHexagonSpinner } from "@/browser/components/ui/lattice-hexagon-spinner";
+import { MinionEyesSpinner } from "@/browser/components/ui/minion-eyes-spinner";
 import { useTheme } from "@/browser/contexts/ThemeContext";
 import { Shimmer } from "@/browser/components/ai-elements/shimmer";
 
@@ -25,10 +25,7 @@ export function CreationCenterContent(props: CreationCenterContentProps) {
         <div
           className={`absolute inset-0 z-10 flex flex-col items-center justify-center pb-[30vh] ${isDark ? "bg-sidebar" : "bg-white"}`}
         >
-          <LatticeHexagonSpinner
-            size={120}
-            className={isDark ? "text-foreground" : "text-gray-800"}
-          />
+          <MinionEyesSpinner size={140} />
           <div className="mt-8 max-w-xl px-8 text-center">
             <h2 className="text-foreground mb-2 text-2xl font-medium">Summoning minion</h2>
             <p className="text-muted text-sm leading-relaxed">
