@@ -1385,7 +1385,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                               // Partition minions by crew
                               const { unsectioned, byCrewId } = partitionMinionsByCrew(
                                 minionsForNormalRendering,
-                                sections
+                                crews
                               );
 
                               // Handle minion drop into crew
