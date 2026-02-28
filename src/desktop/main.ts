@@ -479,7 +479,7 @@ async function showSplashScreen() {
     height: 300,
     frame: false,
     transparent: false,
-    backgroundColor: "#1f1f1f", // Match splash HTML background (hsl(0 0% 12%)) - prevents white flash
+    backgroundColor: "#0C0F1A", // Match splash HTML background (navy) - prevents white flash
     alwaysOnTop: true,
     center: true,
     resizable: false,
