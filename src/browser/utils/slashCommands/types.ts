@@ -10,31 +10,31 @@
  */
 
 import type { AgentSkillDescriptor } from "@/common/types/agentSkill";
+import type { ParsedThinkingInput } from "@/common/types/thinking";
 
 export type ParsedCommand =
-  | { type: "providers-set"; provider: string; keyPath: string[]; value: string }
-  | { type: "providers-help" }
-  | { type: "providers-invalid-subcommand"; subcommand: string }
-  | { type: "providers-missing-args"; subcommand: string; argCount: number }
   | { type: "model-set"; modelString: string }
+  | {
+      type: "model-oneshot";
+      /** Resolved model string (e.g. "anthropic:claude-haiku-4"). Undefined when only thinking is overridden (e.g. "/+2"). */
+      modelString?: string;
+      /** One-shot thinking level override — named (ThinkingLevel) or numeric index (resolved at send time against the model's policy). */
+      thinkingLevel?: ParsedThinkingInput;
+      message: string;
+    }
   | { type: "model-help" }
   | { type: "clear" }
   | { type: "truncate"; percentage: number }
   | { type: "compact"; maxOutputTokens?: number; continueMessage?: string; model?: string }
-  | { type: "fork"; newName: string; startMessage?: string }
-  | { type: "fork-help" }
+  | { type: "fork"; startMessage?: string }
   | {
       type: "new";
-      workspaceName?: string;
+      minionName?: string;
       trunkBranch?: string;
       runtime?: string;
       startMessage?: string;
     }
   | { type: "vim-toggle" }
-  | { type: "mcp-add"; name: string; command: string }
-  | { type: "mcp-edit"; name: string; command: string }
-  | { type: "mcp-remove"; name: string }
-  | { type: "mcp-open" }
   | { type: "plan-show" }
   | { type: "plan-open" }
   | { type: "debug-llm-request" }
@@ -82,9 +82,8 @@ export interface SlashSuggestion {
 
 export interface SlashSuggestionContext {
   agentSkills?: AgentSkillDescriptor[];
-  providerNames?: string[];
   /** Variant determines which commands are available */
-  variant?: "workspace" | "creation";
+  variant?: "minion" | "creation";
 }
 
 export interface SuggestionDefinition {

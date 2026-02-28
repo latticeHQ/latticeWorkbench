@@ -2,16 +2,16 @@ import { existsSync, renameSync, symlinkSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 
-const LEGACY_LATTICE_DIR_NAME = ".lattice";
+const LEGACY_LATTICE_DIR_NAME = ".clattice";
 const LATTICE_DIR_NAME = ".lattice";
 
 /**
- * Migrate from the legacy ~/.lattice directory into ~/.lattice for rebranded installs.
+ * Migrate from the legacy ~/.clattice directory into ~/.lattice for rebranded installs.
  * Called on startup to preserve data created by earlier releases.
  *
  * If .lattice exists, nothing happens (already migrated).
- * If legacy dir exists but .lattice doesn't, moves legacy -> .lattice and creates symlink.
- * This ensures old scripts/tools referencing ~/.lattice continue working.
+ * If .clattice exists but .lattice doesn't, moves .clattice → .lattice and creates symlink.
+ * This ensures old scripts/tools referencing ~/.clattice continue working.
  */
 export function migrateLegacyLatticeHome(): void {
   const oldPath = join(homedir(), LEGACY_LATTICE_DIR_NAME);
@@ -22,7 +22,7 @@ export function migrateLegacyLatticeHome(): void {
     return;
   }
 
-  // If legacy dir exists, move it and create symlink for backward compatibility
+  // If .clattice exists, move it and create symlink for backward compatibility
   if (existsSync(oldPath)) {
     renameSync(oldPath, newPath);
     symlinkSync(newPath, oldPath, "dir");
@@ -32,8 +32,8 @@ export function migrateLegacyLatticeHome(): void {
 }
 
 /**
- * Get the root directory for all Lattice configuration and data.
- * Can be overridden with LATTICE_ROOT env var.
+ * Get the root directory for all lattice configuration and data.
+ * Can be overridden with LATTICE_ROOT environment variable.
  * Appends '-dev' suffix when NODE_ENV=development (explicit dev mode).
  *
  * This is a getter function to support test mocking of os.homedir().
@@ -56,19 +56,19 @@ export function getLatticeHome(): string {
 }
 
 /**
- * Get the directory where workspace git worktrees are stored.
+ * Get the directory where minion git worktrees are stored.
  * Example: ~/.lattice/src/my-project/feature-branch
  *
  * @param rootDir - Optional root directory (defaults to getLatticeHome())
  */
-export function getLatticeSourceDir(rootDir?: string): string {
+export function getLatticeSrcDir(rootDir?: string): string {
   const root = rootDir ?? getLatticeHome();
   return join(root, "src");
 }
 
 /**
  * Get the directory where session chat histories are stored.
- * Example: ~/.lattice/sessions/workspace-id/chat.jsonl
+ * Example: ~/.lattice/sessions/minion-id/chat.jsonl
  *
  * @param rootDir - Optional root directory (defaults to getLatticeHome())
  */
@@ -79,10 +79,21 @@ export function getLatticeSessionsDir(rootDir?: string): string {
 
 /**
  * Get the directory where plan files are stored.
- * Example: ~/.lattice/plans/workspace-id.md
+ * Example: ~/.lattice/plans/minion-id.md
  *
  * @param rootDir - Optional root directory (defaults to getLatticeHome())
  */
+/**
+ * Get the directory where lattice backend logs are stored.
+ * Example: ~/.lattice/logs/lattice.log
+ *
+ * @param rootDir - Optional root directory (defaults to getLatticeHome())
+ */
+export function getLatticeLogsDir(rootDir?: string): string {
+  const root = rootDir ?? getLatticeHome();
+  return join(root, "logs");
+}
+
 export function getLatticePlansDir(rootDir?: string): string {
   const root = rootDir ?? getLatticeHome();
   return join(root, "plans");
@@ -130,6 +141,17 @@ export function getLatticeProjectsDir(rootDir?: string): string {
 }
 
 /**
+ * Get the directory used as a local git mirror for config sync/backup.
+ * Example: ~/.lattice/.sync/
+ *
+ * @param rootDir - Optional root directory (defaults to getLatticeHome())
+ */
+export function getLatticeSyncDir(rootDir?: string): string {
+  const root = rootDir ?? getLatticeHome();
+  return join(root, ".sync");
+}
+
+/**
  * Get the extension metadata file path (shared with VS Code extension).
  *
  * @param rootDir - Optional root directory (defaults to getLatticeHome())
@@ -137,27 +159,4 @@ export function getLatticeProjectsDir(rootDir?: string): string {
 export function getLatticeExtensionMetadataPath(rootDir?: string): string {
   const root = rootDir ?? getLatticeHome();
   return join(root, "extensionMetadata.json");
-}
-
-/**
- * Get the PTY PID tracking file path.
- * Used by PTYService to track spawned PTY process IDs for orphan recovery.
- *
- * @param rootDir - Optional root directory (defaults to getLatticeHome())
- */
-export function getLatticePtyPidsFile(rootDir?: string): string {
-  const root = rootDir ?? getLatticeHome();
-  return join(root, "pty-pids.json");
-}
-
-/**
- * Get the inference Python virtual environment directory.
- * Used by the inference setup wizard to create and detect the managed venv.
- * Example: ~/.lattice/inference-venv
- *
- * @param rootDir - Optional root directory (defaults to getLatticeHome())
- */
-export function getLatticeInferenceVenvDir(rootDir?: string): string {
-  const root = rootDir ?? getLatticeHome();
-  return join(root, "inference-venv");
 }

@@ -71,7 +71,7 @@ describe("fileCommon", () => {
   });
 
   describe("validatePathInCwd", () => {
-    const cwd = "/workspace/project";
+    const cwd = "/minion/project";
     const runtime = createRuntime({ type: "local", srcBaseDir: cwd });
 
     it("should allow relative paths within cwd", () => {
@@ -87,43 +87,43 @@ describe("fileCommon", () => {
     it("should reject absolute paths outside cwd and extraAllowedDirs", () => {
       const result = validatePathInCwd("/etc/passwd", cwd, runtime, ["/tmp"]);
       expect(result).not.toBeNull();
-      expect(result?.error).toContain("restricted to the workspace directory");
+      expect(result?.error).toContain("restricted to the minion directory");
     });
 
     it("should allow absolute paths within cwd", () => {
-      expect(validatePathInCwd("/workspace/project/src/file.ts", cwd, runtime)).toBeNull();
-      expect(validatePathInCwd("/workspace/project/file.ts", cwd, runtime)).toBeNull();
+      expect(validatePathInCwd("/minion/project/src/file.ts", cwd, runtime)).toBeNull();
+      expect(validatePathInCwd("/minion/project/file.ts", cwd, runtime)).toBeNull();
     });
 
     it("should reject paths that go up and outside cwd with ..", () => {
       const result = validatePathInCwd("../outside.ts", cwd, runtime);
       expect(result).not.toBeNull();
-      expect(result?.error).toContain("restricted to the workspace directory");
-      expect(result?.error).toContain("/workspace/project");
+      expect(result?.error).toContain("restricted to the minion directory");
+      expect(result?.error).toContain("/minion/project");
     });
 
     it("should reject paths that go multiple levels up", () => {
       const result = validatePathInCwd("../../outside.ts", cwd, runtime);
       expect(result).not.toBeNull();
-      expect(result?.error).toContain("restricted to the workspace directory");
+      expect(result?.error).toContain("restricted to the minion directory");
     });
 
     it("should reject paths that go down then up outside cwd", () => {
       const result = validatePathInCwd("src/../../outside.ts", cwd, runtime);
       expect(result).not.toBeNull();
-      expect(result?.error).toContain("restricted to the workspace directory");
+      expect(result?.error).toContain("restricted to the minion directory");
     });
 
     it("should reject absolute paths outside cwd", () => {
       const result = validatePathInCwd("/etc/passwd", cwd, runtime);
       expect(result).not.toBeNull();
-      expect(result?.error).toContain("restricted to the workspace directory");
+      expect(result?.error).toContain("restricted to the minion directory");
     });
 
     it("should reject absolute paths in different directory tree", () => {
       const result = validatePathInCwd("/home/user/file.ts", cwd, runtime);
       expect(result).not.toBeNull();
-      expect(result?.error).toContain("restricted to the workspace directory");
+      expect(result?.error).toContain("restricted to the minion directory");
     });
 
     it("should handle paths with trailing slashes", () => {
@@ -141,16 +141,35 @@ describe("fileCommon", () => {
     });
 
     it("should work with cwd that has trailing slash", () => {
-      const cwdWithSlash = "/workspace/project/";
+      const cwdWithSlash = "/minion/project/";
       expect(validatePathInCwd("src/file.ts", cwdWithSlash, runtime)).toBeNull();
 
       const result = validatePathInCwd("../outside.ts", cwdWithSlash, runtime);
       expect(result).not.toBeNull();
     });
+
+    it("should reject tilde paths outside cwd", () => {
+      // Tilde paths expand to home directory, which is outside /minion/project
+      const result = validatePathInCwd("~/other-project/file.ts", cwd, runtime);
+      expect(result).not.toBeNull();
+      expect(result?.error).toContain("restricted to the minion directory");
+    });
+
+    it("should reject tilde paths to sensitive files", () => {
+      const result = validatePathInCwd("~/.ssh/id_rsa", cwd, runtime);
+      expect(result).not.toBeNull();
+      expect(result?.error).toContain("restricted to the minion directory");
+    });
+
+    it("should reject bare tilde path", () => {
+      const result = validatePathInCwd("~", cwd, runtime);
+      expect(result).not.toBeNull();
+      expect(result?.error).toContain("restricted to the minion directory");
+    });
   });
 
   describe("validateNoRedundantPrefix", () => {
-    const cwd = "/workspace/project";
+    const cwd = "/minion/project";
     const runtime = createRuntime({ type: "local", srcBaseDir: cwd });
 
     it("should allow relative paths", () => {
@@ -160,7 +179,7 @@ describe("fileCommon", () => {
     });
 
     it("should auto-correct absolute paths that contain the cwd prefix", () => {
-      const result = validateNoRedundantPrefix("/workspace/project/src/file.ts", cwd, runtime);
+      const result = validateNoRedundantPrefix("/minion/project/src/file.ts", cwd, runtime);
       expect(result).not.toBeNull();
       expect(result?.correctedPath).toBe("src/file.ts");
       expect(result?.warning).toContain("Using relative paths");
@@ -169,7 +188,7 @@ describe("fileCommon", () => {
     });
 
     it("should auto-correct absolute paths at the cwd root", () => {
-      const result = validateNoRedundantPrefix("/workspace/project/file.ts", cwd, runtime);
+      const result = validateNoRedundantPrefix("/minion/project/file.ts", cwd, runtime);
       expect(result).not.toBeNull();
       expect(result?.correctedPath).toBe("file.ts");
       expect(result?.warning).toContain("auto-corrected");
@@ -188,9 +207,9 @@ describe("fileCommon", () => {
     });
 
     it("should work with cwd that has trailing slash", () => {
-      const cwdWithSlash = "/workspace/project/";
+      const cwdWithSlash = "/minion/project/";
       const result = validateNoRedundantPrefix(
-        "/workspace/project/src/file.ts",
+        "/minion/project/src/file.ts",
         cwdWithSlash,
         runtime
       );
@@ -201,7 +220,7 @@ describe("fileCommon", () => {
 
     it("should handle nested paths correctly", () => {
       const result = validateNoRedundantPrefix(
-        "/workspace/project/src/components/Button/index.ts",
+        "/minion/project/src/components/Button/index.ts",
         cwd,
         runtime
       );
@@ -211,16 +230,16 @@ describe("fileCommon", () => {
     });
 
     it("should auto-correct path that equals cwd exactly", () => {
-      const result = validateNoRedundantPrefix("/workspace/project", cwd, runtime);
+      const result = validateNoRedundantPrefix("/minion/project", cwd, runtime);
       expect(result).not.toBeNull();
       expect(result?.correctedPath).toBe(".");
       expect(result?.warning).toContain("auto-corrected");
     });
 
     it("should not match partial directory names", () => {
-      // /workspace/project2 should NOT match /workspace/project
-      expect(validateNoRedundantPrefix("/workspace/project2/file.ts", cwd, runtime)).toBeNull();
-      expect(validateNoRedundantPrefix("/workspace/project-old/file.ts", cwd, runtime)).toBeNull();
+      // /minion/project2 should NOT match /minion/project
+      expect(validateNoRedundantPrefix("/minion/project2/file.ts", cwd, runtime)).toBeNull();
+      expect(validateNoRedundantPrefix("/minion/project-old/file.ts", cwd, runtime)).toBeNull();
     });
 
     it("should work with SSH runtime", () => {

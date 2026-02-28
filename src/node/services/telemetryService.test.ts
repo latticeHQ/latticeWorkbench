@@ -59,7 +59,8 @@ describe("TelemetryService enablement", () => {
     expect(enabled).toBe(false);
   });
 
-  test("telemetry is permanently disabled in unpackaged Electron", () => {
+  test("enables telemetry in unpackaged Electron by default", () => {
+    // Telemetry is now enabled by default in dev mode (unpackaged Electron)
     const enabled = shouldEnableTelemetry(
       createContext({
         env: {},
@@ -68,10 +69,10 @@ describe("TelemetryService enablement", () => {
       })
     );
 
-    expect(enabled).toBe(false);
+    expect(enabled).toBe(true);
   });
 
-  test("telemetry is permanently disabled in packaged Electron", () => {
+  test("enables telemetry in packaged Electron by default", () => {
     const enabled = shouldEnableTelemetry(
       createContext({
         env: {},
@@ -80,10 +81,11 @@ describe("TelemetryService enablement", () => {
       })
     );
 
-    expect(enabled).toBe(false);
+    expect(enabled).toBe(true);
   });
 
-  test("telemetry is permanently disabled in NODE_ENV=development", () => {
+  test("enables telemetry in NODE_ENV=development by default", () => {
+    // Telemetry is now enabled by default in dev mode
     const enabled = shouldEnableTelemetry(
       createContext({
         env: { NODE_ENV: "development" },
@@ -91,11 +93,10 @@ describe("TelemetryService enablement", () => {
       })
     );
 
-    expect(enabled).toBe(false);
+    expect(enabled).toBe(true);
   });
 
-  test("telemetry stays disabled even with opt-in env var", () => {
-    // Telemetry is permanently disabled in this build
+  test("allows opting into telemetry in unpackaged Electron", () => {
     const enabled = shouldEnableTelemetry(
       createContext({
         env: { LATTICE_ENABLE_TELEMETRY_IN_DEV: "1" },
@@ -104,7 +105,7 @@ describe("TelemetryService enablement", () => {
       })
     );
 
-    expect(enabled).toBe(false);
+    expect(enabled).toBe(true);
   });
 
   test("dev opt-in does not bypass test env disable", () => {

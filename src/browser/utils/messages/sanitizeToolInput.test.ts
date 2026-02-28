@@ -3,7 +3,7 @@ import type { LatticeMessage } from "@/common/types/message";
 import { sanitizeToolInputs } from "./sanitizeToolInput";
 
 describe("sanitizeToolInputs", () => {
-  it("should handle the actual malformed message from httpjail-lattice workspace", () => {
+  it("should handle the actual malformed message from httpjail-lattice minion", () => {
     // This is the actual problematic message that caused the bug
     const problematicMessage: LatticeMessage = {
       id: "assistant-1761527027508-karjrpf3g",

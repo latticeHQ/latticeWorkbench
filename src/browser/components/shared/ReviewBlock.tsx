@@ -220,7 +220,7 @@ const ReviewBlockCore: React.FC<ReviewBlockCoreProps> = ({
         </div>
       )}
 
-      {/* Comment section - inline with edit support */}
+      {/* Comment crew - inline with edit support */}
       {(comment || onEditComment) && (
         <div className="border-t border-[var(--color-review-accent)]/20 px-2 py-1">
           {isEditing ? (

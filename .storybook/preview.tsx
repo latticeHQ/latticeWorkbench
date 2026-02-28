@@ -1,13 +1,23 @@
-import React from "react";
 import type { Preview } from "@storybook/react-vite";
 import { ThemeProvider, type ThemeMode } from "../src/browser/contexts/ThemeContext";
 import "../src/browser/styles/globals.css";
 import {
   TUTORIAL_STATE_KEY,
-  RIGHT_SIDEBAR_COLLAPSED_KEY,
+  WORKBENCH_PANEL_COLLAPSED_KEY,
+  EXPANDED_PROJECTS_KEY,
+  WORKSPACE_DRAFTS_BY_PROJECT_KEY,
   type TutorialState,
 } from "../src/common/constants/storage";
 import { NOW } from "../src/browser/stories/mockFactory";
+import { updatePersistedState } from "../src/browser/hooks/usePersistedState";
+import { configure } from "@storybook/test";
+
+// Raise the default async-util timeout from 1 000 ms → 5 000 ms.
+// waitFor / findBy* calls inherit this, so individual stories don't need
+// explicit `{ timeout }` unless they intentionally want a longer budget.
+// Prevents flakes on CPU-constrained CI runners where React re-renders
+// after userEvent.click can exceed the 1 s default.
+configure({ asyncUtilTimeout: 5000 });
 
 const STORYBOOK_FONTS_READY_TIMEOUT_MS = 2500;
 
@@ -51,12 +61,26 @@ function disableTutorials() {
   }
 }
 
-// Collapse right sidebar by default to ensure deterministic snapshots
-// Stories that need expanded sidebar call expandRightSidebar() in their setup
-function collapseRightSidebar() {
+// Collapse workbench panel by default to ensure deterministic snapshots
+// Stories that need expanded sidebar call expandWorkbenchPanel() in their setup
+function collapseWorkbenchPanel() {
   if (typeof localStorage !== "undefined") {
-    localStorage.setItem(RIGHT_SIDEBAR_COLLAPSED_KEY, JSON.stringify(true));
+    localStorage.setItem(WORKBENCH_PANEL_COLLAPSED_KEY, JSON.stringify(true));
   }
+}
+// Collapse projects by default to ensure deterministic snapshots.
+// Some stories explicitly expand projects via expandProjects() in their setup.
+function collapseProjects() {
+  if (typeof localStorage !== "undefined") {
+    localStorage.setItem(EXPANDED_PROJECTS_KEY, JSON.stringify([]));
+  }
+}
+
+// Clear workspace drafts to ensure deterministic snapshots.
+// Drafts persist in localStorage and can leak between stories causing flaky diffs.
+// Uses updatePersistedState to notify subscribers (WorkspaceContext uses listener: true).
+function clearWorkspaceDrafts() {
+  updatePersistedState(WORKSPACE_DRAFTS_BY_PROJECT_KEY, {});
 }
 
 const preview: Preview = {
@@ -104,9 +128,16 @@ const preview: Preview = {
         disableTutorials();
       }
 
-      // Collapse right sidebar by default for deterministic snapshots
-      // Stories can expand via expandRightSidebar() in setup after this runs
-      collapseRightSidebar();
+      // Collapse workbench panel by default for deterministic snapshots
+      // Stories can expand via expandWorkbenchPanel() in setup after this runs
+      collapseWorkbenchPanel();
+
+      // Collapse projects by default so one story doesn't leak expanded state into the next.
+      // Stories that want expanded projects should call expandProjects() in setup.
+      collapseProjects();
+
+      // Clear workspace drafts so they don't leak between stories.
+      clearWorkspaceDrafts();
 
       return (
         <ThemeProvider forcedTheme={mode}>

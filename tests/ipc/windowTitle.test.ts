@@ -18,9 +18,7 @@ describeIntegration("Window title IPC", () => {
         await client.window.setTitle({ title: "test-workspace - test-project - lattice" });
 
         // Verify setTitle was called on the window
-        expect(env.mockWindow.setTitle).toHaveBeenCalledWith(
-          "test-workspace - test-project - lattice"
-        );
+        expect(env.mockWindow.setTitle).toHaveBeenCalledWith("test-workspace - test-project - lattice");
       } finally {
         await cleanupTestEnvironment(env);
       }

@@ -1,5 +1,5 @@
 {
-  description = "LATTICE WORKBENCH - runtime enforcement and identity infrastructure for autonomous ai agents";
+  description = "Lattice - runtime enforcement and identity infrastructure for autonomous AI agents";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -75,7 +75,8 @@
             '';
 
             outputHashMode = "recursive";
-            outputHash = "sha256-SigbtImuYQHwq+fmsStLTK7rhs5FcAdRC9902UAhi5s=";
+            # Marker used by scripts/update_flake_hash.sh to update this hash in place.
+            outputHash = "sha256-UZTe8hlgnCBWsQ7Z60NjgE4003sB1Yx4ko/zLIDRe00="; # lattice-offline-cache-hash
           };
 
           configurePhase = ''
@@ -103,33 +104,49 @@
           '';
 
           installPhase = ''
-            mkdir -p $out/lib/lattice
-            mkdir -p $out/bin
+                        mkdir -p $out/lib/lattice
+                        mkdir -p $out/bin
 
-            # Copy built files and runtime dependencies
-            cp -r dist $out/lib/lattice/
-            cp -r node_modules $out/lib/lattice/
-            cp package.json $out/lib/lattice/
+                        # Copy built files and runtime dependencies
+                        cp -r dist $out/lib/lattice/
+                        cp -r node_modules $out/lib/lattice/
+                        cp package.json $out/lib/lattice/
 
-            # Create wrapper script. When running in Nix, lattice doesn't know that
-            # it's packaged. Use LATTICE_E2E_LOAD_DIST to force using compiled
-            # assets instead of a dev server.
-            makeWrapper ${pkgs.electron}/bin/electron $out/bin/lattice \
-              --add-flags "$out/lib/lattice/dist/cli/index.js" \
-              --set LATTICE_E2E_LOAD_DIST "1" \
-              --prefix LD_LIBRARY_PATH : "${pkgs.stdenv.cc.cc.lib}/lib" \
-              --prefix PATH : ${
-                pkgs.lib.makeBinPath [
-                  pkgs.git
-                  pkgs.bash
-                ]
-              }
+                        # Create wrapper script. When running in Nix, lattice doesn't know that
+                        # it's packaged. Use LATTICE_E2E_LOAD_DIST to force using compiled
+                        # assets instead of a dev server.
+                        makeWrapper ${pkgs.electron}/bin/electron $out/bin/lattice \
+                          --add-flags "$out/lib/lattice/dist/cli/index.js" \
+                          --set LATTICE_E2E_LOAD_DIST "1" \
+                          --prefix LD_LIBRARY_PATH : "${pkgs.stdenv.cc.cc.lib}/lib" \
+                          --prefix PATH : ${
+                            pkgs.lib.makeBinPath [
+                              pkgs.git
+                              pkgs.bash
+                            ]
+                          }
+
+                        # Install desktop file and icon for launcher integration
+                        install -Dm644 public/icon.png $out/share/icons/hicolor/512x512/apps/lattice.png
+                        mkdir -p $out/share/applications
+                        cat > $out/share/applications/lattice.desktop << EOF
+            [Desktop Entry]
+            Name=Lattice
+            GenericName=Lattice Workbench
+            Comment=Runtime enforcement and identity infrastructure for autonomous AI agents
+            Exec=$out/bin/lattice %U
+            Icon=lattice
+            Terminal=false
+            Type=Application
+            Categories=Development;
+            StartupWMClass=lattice
+            EOF
           '';
 
           meta = with pkgs.lib; {
-            description = "LATTICE WORKBENCH - runtime enforcement and identity infrastructure for autonomous ai agents";
-            homepage = "";
-            license = licenses.agpl3Only;
+            description = "Lattice - runtime enforcement and identity infrastructure for autonomous AI agents";
+            homepage = "https://github.com/latticeHQ/latticeWorkbench";
+            license = licenses.mit;
             platforms = platforms.linux ++ platforms.darwin;
             mainProgram = "lattice";
           };

@@ -275,7 +275,7 @@ export class QuickJSRuntime implements IJSRuntime {
 
     // Set up a real timeout timer that fires even during async suspension.
     // The interrupt handler only runs during QuickJS execution, but when suspended
-    // waiting for an async host function (e.g.,lattice.bash()), it never fires.
+    // waiting for an async host function (e.g., lattice.bash()), it never fires.
     // This timer ensures nested tools are cancelled when the deadline is exceeded.
     const timeoutId = setTimeout(() => {
       this.abortController?.abort();

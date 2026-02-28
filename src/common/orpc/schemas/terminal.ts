@@ -2,25 +2,25 @@ import { z } from "zod";
 
 export const TerminalSessionSchema = z.object({
   sessionId: z.string(),
-  workspaceId: z.string(),
+  minionId: z.string(),
   cols: z.number(),
   rows: z.number(),
 });
 
 export const TerminalCreateParamsSchema = z.object({
-  workspaceId: z.string(),
+  minionId: z.string(),
   cols: z.number(),
   rows: z.number(),
   /** Optional command to run immediately after terminal creation */
   initialCommand: z.string().optional(),
-  /** Employee agent slug (e.g. "claude-code"). When set, signals this is an AI-hired employee session. */
-  slug: z.string().optional(),
-  /** Display label for the employee tab (e.g. "Claude Code"). */
-  label: z.string().optional(),
-  /** When true, spawn the initialCommand binary directly as the PTY process (no shell wrapper) */
-  directExec: z.boolean().optional(),
-  /** When true, suppress the sessionCreated workspace event — session runs without opening a browser tab */
-  noTab: z.boolean().optional(),
+  /** Profile ID — resolves command/args from registry + user overrides */
+  profileId: z.string().nullish(),
+  /** Explicit profile command (overrides profileId resolution) */
+  profileCommand: z.string().nullish(),
+  /** Arguments for the profile command */
+  profileArgs: z.array(z.string()).nullish(),
+  /** Additional env vars from the profile */
+  profileEnv: z.record(z.string(), z.string()).nullish(),
 });
 
 export const TerminalResizeParamsSchema = z.object({

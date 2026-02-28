@@ -12,8 +12,8 @@ describe("pathUtils", () => {
     });
 
     it("should expand ~/ to home directory with trailing path", () => {
-      const result = expandTilde("~/Headquarters/my-app");
-      const expected = path.join(os.homedir(), "Headquarters", "my-app");
+      const result = expandTilde("~/Projects/my-app");
+      const expected = path.join(os.homedir(), "Projects", "my-app");
       expect(result).toBe(expected);
     });
 

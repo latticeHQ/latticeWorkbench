@@ -14,20 +14,20 @@ interface PendingAskUserQuestionInternal extends PendingAskUserQuestion {
 }
 
 export class AskUserQuestionManager {
-  private pendingByWorkspace = new Map<string, Map<string, PendingAskUserQuestionInternal>>();
+  private pendingByMinion = new Map<string, Map<string, PendingAskUserQuestionInternal>>();
 
   registerPending(
-    workspaceId: string,
+    minionId: string,
     toolCallId: string,
     questions: AskUserQuestionQuestion[]
   ): Promise<Record<string, string>> {
-    assert(workspaceId.length > 0, "workspaceId must be non-empty");
+    assert(minionId.length > 0, "minionId must be non-empty");
     assert(toolCallId.length > 0, "toolCallId must be non-empty");
     assert(Array.isArray(questions) && questions.length > 0, "questions must be a non-empty array");
 
-    const workspaceMap = this.getOrCreateWorkspaceMap(workspaceId);
+    const minionMap = this.getOrCreateMinionMap(minionId);
     assert(
-      !workspaceMap.has(toolCallId),
+      !minionMap.has(toolCallId),
       `ask_user_question already pending for toolCallId=${toolCallId}`
     );
 
@@ -40,56 +40,56 @@ export class AskUserQuestionManager {
         reject,
       };
 
-      workspaceMap.set(toolCallId, entry);
+      minionMap.set(toolCallId, entry);
     }).finally(() => {
       // Ensure cleanup no matter how the promise resolves.
-      this.deletePending(workspaceId, toolCallId);
+      this.deletePending(minionId, toolCallId);
     });
   }
 
-  answer(workspaceId: string, toolCallId: string, answers: Record<string, string>): void {
-    assert(workspaceId.length > 0, "workspaceId must be non-empty");
+  answer(minionId: string, toolCallId: string, answers: Record<string, string>): void {
+    assert(minionId.length > 0, "minionId must be non-empty");
     assert(toolCallId.length > 0, "toolCallId must be non-empty");
     assert(answers && typeof answers === "object", "answers must be an object");
 
-    const entry = this.getPending(workspaceId, toolCallId);
+    const entry = this.getPending(minionId, toolCallId);
     entry.resolve(answers);
   }
 
-  cancel(workspaceId: string, toolCallId: string, reason: string): void {
-    assert(workspaceId.length > 0, "workspaceId must be non-empty");
+  cancel(minionId: string, toolCallId: string, reason: string): void {
+    assert(minionId.length > 0, "minionId must be non-empty");
     assert(toolCallId.length > 0, "toolCallId must be non-empty");
     assert(reason.length > 0, "reason must be non-empty");
 
-    const entry = this.getPending(workspaceId, toolCallId);
+    const entry = this.getPending(minionId, toolCallId);
     entry.reject(new Error(reason));
   }
 
-  cancelAll(workspaceId: string, reason: string): void {
-    assert(workspaceId.length > 0, "workspaceId must be non-empty");
+  cancelAll(minionId: string, reason: string): void {
+    assert(minionId.length > 0, "minionId must be non-empty");
     assert(reason.length > 0, "reason must be non-empty");
 
-    const workspaceMap = this.pendingByWorkspace.get(workspaceId);
-    if (!workspaceMap) {
+    const minionMap = this.pendingByMinion.get(minionId);
+    if (!minionMap) {
       return;
     }
 
-    for (const toolCallId of workspaceMap.keys()) {
+    for (const toolCallId of minionMap.keys()) {
       // cancel() will delete from map via finally cleanup
-      this.cancel(workspaceId, toolCallId, reason);
+      this.cancel(minionId, toolCallId, reason);
     }
   }
 
-  getLatestPending(workspaceId: string): PendingAskUserQuestion | null {
-    assert(workspaceId.length > 0, "workspaceId must be non-empty");
+  getLatestPending(minionId: string): PendingAskUserQuestion | null {
+    assert(minionId.length > 0, "minionId must be non-empty");
 
-    const workspaceMap = this.pendingByWorkspace.get(workspaceId);
-    if (!workspaceMap || workspaceMap.size === 0) {
+    const minionMap = this.pendingByMinion.get(minionId);
+    if (!minionMap || minionMap.size === 0) {
       return null;
     }
 
     let latest: PendingAskUserQuestionInternal | null = null;
-    for (const entry of workspaceMap.values()) {
+    for (const entry of minionMap.values()) {
       if (!latest || entry.createdAt > latest.createdAt) {
         latest = entry;
       }
@@ -103,36 +103,36 @@ export class AskUserQuestionManager {
     };
   }
 
-  private getOrCreateWorkspaceMap(
-    workspaceId: string
+  private getOrCreateMinionMap(
+    minionId: string
   ): Map<string, PendingAskUserQuestionInternal> {
-    let workspaceMap = this.pendingByWorkspace.get(workspaceId);
-    if (!workspaceMap) {
-      workspaceMap = new Map();
-      this.pendingByWorkspace.set(workspaceId, workspaceMap);
+    let minionMap = this.pendingByMinion.get(minionId);
+    if (!minionMap) {
+      minionMap = new Map();
+      this.pendingByMinion.set(minionId, minionMap);
     }
-    return workspaceMap;
+    return minionMap;
   }
 
-  private getPending(workspaceId: string, toolCallId: string): PendingAskUserQuestionInternal {
-    const workspaceMap = this.pendingByWorkspace.get(workspaceId);
-    assert(workspaceMap, `No pending ask_user_question entries for workspaceId=${workspaceId}`);
+  private getPending(minionId: string, toolCallId: string): PendingAskUserQuestionInternal {
+    const minionMap = this.pendingByMinion.get(minionId);
+    assert(minionMap, `No pending ask_user_question entries for minionId=${minionId}`);
 
-    const entry = workspaceMap.get(toolCallId);
+    const entry = minionMap.get(toolCallId);
     assert(entry, `No pending ask_user_question entry for toolCallId=${toolCallId}`);
 
     return entry;
   }
 
-  private deletePending(workspaceId: string, toolCallId: string): void {
-    const workspaceMap = this.pendingByWorkspace.get(workspaceId);
-    if (!workspaceMap) {
+  private deletePending(minionId: string, toolCallId: string): void {
+    const minionMap = this.pendingByMinion.get(minionId);
+    if (!minionMap) {
       return;
     }
 
-    workspaceMap.delete(toolCallId);
-    if (workspaceMap.size === 0) {
-      this.pendingByWorkspace.delete(workspaceId);
+    minionMap.delete(toolCallId);
+    if (minionMap.size === 0) {
+      this.pendingByMinion.delete(minionId);
     }
   }
 }

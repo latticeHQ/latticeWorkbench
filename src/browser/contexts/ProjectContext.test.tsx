@@ -33,8 +33,8 @@ describe("ProjectContext", () => {
 
   test("loads projects on mount and supports add/remove mutations", async () => {
     const initialProjects: Array<[string, ProjectConfig]> = [
-      ["/alpha", { workspaces: [] }],
-      ["/beta", { workspaces: [] }],
+      ["/alpha", { minions: [] }],
+      ["/beta", { minions: [] }],
     ];
 
     const projectsApi = createMockAPI({
@@ -58,7 +58,7 @@ describe("ProjectContext", () => {
     expect(projectsApi.list.mock.calls.length).toBeGreaterThanOrEqual(2);
 
     act(() => {
-      ctx().addProject("/gamma", { workspaces: [] });
+      ctx().addProject("/gamma", { minions: [] });
     });
     expect(ctx().projects.has("/gamma")).toBe(true);
 
@@ -69,7 +69,7 @@ describe("ProjectContext", () => {
     expect(ctx().projects.has("/alpha")).toBe(false);
   });
 
-  test("tracks modal and pending workspace creation state", async () => {
+  test("tracks modal and pending minion creation state", async () => {
     createMockAPI({
       list: () => Promise.resolve([]),
       remove: () => Promise.resolve({ success: true as const, data: undefined }),
@@ -97,7 +97,7 @@ describe("ProjectContext", () => {
     });
   });
 
-  test("opens workspace modal and loads branches", async () => {
+  test("opens minion modal and loads branches", async () => {
     createMockAPI({
       list: () => Promise.resolve([]),
       remove: () => Promise.resolve({ success: true as const, data: undefined }),
@@ -111,10 +111,10 @@ describe("ProjectContext", () => {
     const ctx = await setup();
 
     await act(async () => {
-      await ctx().openWorkspaceModal("/my-project", { projectName: "MyProject" });
+      await ctx().openMinionModal("/my-project", { projectName: "MyProject" });
     });
 
-    const state = ctx().workspaceModalState;
+    const state = ctx().minionModalState;
     expect(state.isOpen).toBe(true);
     expect(state.projectPath).toBe("/my-project");
     expect(state.projectName).toBe("MyProject");
@@ -124,12 +124,12 @@ describe("ProjectContext", () => {
     expect(state.loadErrorMessage).toBeNull();
 
     act(() => {
-      ctx().closeWorkspaceModal();
+      ctx().closeMinionModal();
     });
-    expect(ctx().workspaceModalState.isOpen).toBe(false);
+    expect(ctx().minionModalState.isOpen).toBe(false);
   });
 
-  test("surfaces branch loading errors inside workspace modal", async () => {
+  test("surfaces branch loading errors inside minion modal", async () => {
     createMockAPI({
       list: () => Promise.resolve([]),
       remove: () => Promise.resolve({ success: true as const, data: undefined }),
@@ -143,10 +143,10 @@ describe("ProjectContext", () => {
     const ctx = await setup();
 
     await act(async () => {
-      await ctx().openWorkspaceModal("/broken");
+      await ctx().openMinionModal("/broken");
     });
 
-    const state = ctx().workspaceModalState;
+    const state = ctx().minionModalState;
     expect(state.projectPath).toBe("/broken");
     expect(state.projectName).toBe("broken");
     expect(state.branches).toEqual([]);
@@ -218,6 +218,121 @@ describe("ProjectContext", () => {
     });
   });
 
+  test("refreshProjects ignores stale responses (race condition)", async () => {
+    let staleResolver: ((value: Array<[string, ProjectConfig]>) => void) | null = null;
+    const stalePromise = new Promise<Array<[string, ProjectConfig]>>((resolve) => {
+      staleResolver = resolve;
+    });
+
+    let latestResolver: ((value: Array<[string, ProjectConfig]>) => void) | null = null;
+    const latestPromise = new Promise<Array<[string, ProjectConfig]>>((resolve) => {
+      latestResolver = resolve;
+    });
+
+    let listCallCount = 0;
+    createMockAPI({
+      list: () => {
+        listCallCount += 1;
+
+        // Mount refresh (stale)
+        if (listCallCount === 1) {
+          return stalePromise;
+        }
+
+        // Manual refresh (latest)
+        if (listCallCount === 2) {
+          return latestPromise;
+        }
+
+        return Promise.resolve([]);
+      },
+      remove: () => Promise.resolve({ success: true as const, data: undefined }),
+      listBranches: () => Promise.resolve({ branches: ["main"], recommendedTrunk: "main" }),
+      secrets: {
+        get: () => Promise.resolve([]),
+        update: () => Promise.resolve({ success: true as const, data: undefined }),
+      },
+    });
+
+    const ctx = await setup();
+
+    // Resolve the manual refresh first.
+    await act(async () => {
+      const refreshPromise = ctx().refreshProjects();
+      latestResolver!([["/new", { minions: [] }]]);
+      await refreshPromise;
+    });
+
+    await waitFor(() => {
+      expect(ctx().projects.has("/new")).toBe(true);
+    });
+
+    // Now resolve the stale mount refresh; it should be ignored.
+    act(() => {
+      staleResolver!([["/stale", { minions: [] }]]);
+    });
+
+    await waitFor(() => {
+      expect(ctx().projects.has("/new")).toBe(true);
+    });
+    expect(ctx().projects.has("/stale")).toBe(false);
+  });
+
+  test("refreshProjects applies older success if a newer overlapping refresh fails", async () => {
+    let olderResolver: ((value: Array<[string, ProjectConfig]>) => void) | null = null;
+    const olderPromise = new Promise<Array<[string, ProjectConfig]>>((resolve) => {
+      olderResolver = resolve;
+    });
+
+    let newerRejecter: ((error: unknown) => void) | null = null;
+    const newerPromise = new Promise<Array<[string, ProjectConfig]>>((_, reject) => {
+      newerRejecter = reject;
+    });
+
+    let listCallCount = 0;
+    createMockAPI({
+      list: () => {
+        listCallCount += 1;
+
+        // Mount refresh (older)
+        if (listCallCount === 1) {
+          return olderPromise;
+        }
+
+        // Manual refresh (newer, but fails)
+        if (listCallCount === 2) {
+          return newerPromise;
+        }
+
+        return Promise.resolve([]);
+      },
+      remove: () => Promise.resolve({ success: true as const, data: undefined }),
+      listBranches: () => Promise.resolve({ branches: ["main"], recommendedTrunk: "main" }),
+      secrets: {
+        get: () => Promise.resolve([]),
+        update: () => Promise.resolve({ success: true as const, data: undefined }),
+      },
+    });
+
+    const ctx = await setup();
+
+    // Trigger a newer refresh, but reject it while the mount refresh is still in-flight.
+    await act(async () => {
+      const refreshPromise = ctx().refreshProjects();
+      newerRejecter!(new Error("boom"));
+      await refreshPromise;
+    });
+
+    // Now resolve the mount refresh; it should populate the list.
+    act(() => {
+      olderResolver!([["/older", { minions: [] }]]);
+    });
+
+    await waitFor(() => {
+      expect(ctx().projects.has("/older")).toBe(true);
+    });
+  });
+
   test("getBranchesForProject sanitizes malformed branch data", async () => {
     createMockAPI({
       list: () => Promise.resolve([]),
@@ -286,7 +401,7 @@ describe("ProjectContext", () => {
     expect(result.recommendedTrunk).toBe("main");
   });
 
-  test("openWorkspaceModal cancels stale requests (race condition)", async () => {
+  test("openMinionModal cancels stale requests (race condition)", async () => {
     let projectAResolver:
       | ((value: { branches: string[]; recommendedTrunk: string }) => void)
       | null = null;
@@ -315,10 +430,10 @@ describe("ProjectContext", () => {
 
     await act(async () => {
       // Open modal for project A (won't resolve yet)
-      const openA = ctx().openWorkspaceModal("/project-a");
+      const openA = ctx().openMinionModal("/project-a");
 
       // Immediately open modal for project B (resolves quickly)
-      await ctx().openWorkspaceModal("/project-b");
+      await ctx().openMinionModal("/project-b");
 
       // Now resolve project A
       projectAResolver!({ branches: ["main-a"], recommendedTrunk: "main-a" });
@@ -326,7 +441,7 @@ describe("ProjectContext", () => {
     });
 
     // Modal should show project B data, not project A
-    const state = ctx().workspaceModalState;
+    const state = ctx().minionModalState;
     expect(state.projectPath).toBe("/project-b");
     expect(state.branches).toEqual(["main-b"]);
     expect(state.defaultTrunkBranch).toBe("main-b");
@@ -355,7 +470,7 @@ function createMockAPI(overrides: RecursivePartial<APIClient["projects"]>) {
         (() =>
           Promise.resolve({
             success: true as const,
-            data: { projectConfig: { workspaces: [] }, normalizedPath: "" },
+            data: { projectConfig: { minions: [] }, normalizedPath: "" },
           }))
     ),
     list: mock(overrides.list ?? (() => Promise.resolve([]))),
@@ -387,6 +502,7 @@ function createMockAPI(overrides: RecursivePartial<APIClient["projects"]>) {
   // Update the global mock
   currentClientMock = {
     projects: projects as unknown as RecursivePartial<APIClient["projects"]>,
+    secrets: projects.secrets as unknown as RecursivePartial<APIClient["secrets"]>,
   };
 
   // Setting up global state for tests

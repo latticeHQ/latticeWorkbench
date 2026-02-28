@@ -4,11 +4,10 @@ import writeFileAtomic from "write-file-atomic";
 import assert from "@/common/utils/assert";
 import type { Config } from "@/node/config";
 import type { HistoryService } from "./historyService";
-import { workspaceFileLocks } from "@/node/utils/concurrency/workspaceFileLocks";
+import { minionFileLocks } from "@/node/utils/concurrency/minionFileLocks";
 import type { ChatUsageDisplay } from "@/common/utils/tokens/usageAggregator";
 import { sumUsageHistory } from "@/common/utils/tokens/usageAggregator";
 import { createDisplayUsage } from "@/common/utils/tokens/displayUsage";
-import { normalizeGatewayModel } from "@/common/utils/ai/models";
 import type { TokenConsumer } from "@/common/types/chatStats";
 import type { LatticeMessage } from "@/common/types/message";
 import { log } from "./log";
@@ -21,6 +20,12 @@ export interface SessionUsageTokenStatsCacheV1 {
   version: 1;
 
   computedAt: number;
+
+  /**
+   * Stable fingerprint of provider config used when this cache was computed.
+   * Optional for backward compatibility with pre-fingerprint cache entries.
+   */
+  providersConfigVersion?: number;
 
   /** Tokenization model (impacts tokenizer + tool definition counting) */
   model: string;
@@ -48,9 +53,9 @@ export interface SessionUsageFile {
   };
 
   /**
-   * Idempotency ledger for rolled-up sub-agent usage.
+   * Idempotency ledger for rolled-up sidekick usage.
    *
-   * When a child workspace is deleted, we merge its byModel usage into the parent.
+   * When a child minion is deleted, we merge its byModel usage into the parent.
    * This tracks which children have already been merged to prevent double-counting
    * if removal is retried.
    */
@@ -71,7 +76,7 @@ export interface SessionUsageFile {
  */
 export class SessionUsageService {
   private readonly SESSION_USAGE_FILE = "session-usage.json";
-  private readonly fileLocks = workspaceFileLocks;
+  private readonly fileLocks = minionFileLocks;
   private readonly config: Config;
   private readonly historyService: HistoryService;
 
@@ -79,14 +84,29 @@ export class SessionUsageService {
     this.config = config;
     this.historyService = historyService;
   }
-
-  private getFilePath(workspaceId: string): string {
-    return path.join(this.config.getSessionDir(workspaceId), this.SESSION_USAGE_FILE);
+  /**
+   * Collect all messages from iterateFullHistory into an array.
+   * Usage rebuild needs every epoch for accurate totals.
+   */
+  private async collectFullHistory(minionId: string): Promise<LatticeMessage[]> {
+    const messages: LatticeMessage[] = [];
+    const result = await this.historyService.iterateFullHistory(minionId, "forward", (chunk) => {
+      messages.push(...chunk);
+    });
+    if (!result.success) {
+      log.warn(`Failed to iterate history for ${minionId}: ${result.error}`);
+      return [];
+    }
+    return messages;
   }
 
-  private async readFile(workspaceId: string): Promise<SessionUsageFile> {
+  private getFilePath(minionId: string): string {
+    return path.join(this.config.getSessionDir(minionId), this.SESSION_USAGE_FILE);
+  }
+
+  private async readFile(minionId: string): Promise<SessionUsageFile> {
     try {
-      const data = await fs.readFile(this.getFilePath(workspaceId), "utf-8");
+      const data = await fs.readFile(this.getFilePath(minionId), "utf-8");
       return JSON.parse(data) as SessionUsageFile;
     } catch (error) {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
@@ -96,8 +116,8 @@ export class SessionUsageService {
     }
   }
 
-  private async writeFile(workspaceId: string, data: SessionUsageFile): Promise<void> {
-    const filePath = this.getFilePath(workspaceId);
+  private async writeFile(minionId: string, data: SessionUsageFile): Promise<void> {
+    const filePath = this.getFilePath(minionId);
     await fs.mkdir(path.dirname(filePath), { recursive: true });
     await writeFileAtomic(filePath, JSON.stringify(data, null, 2));
   }
@@ -105,16 +125,16 @@ export class SessionUsageService {
   /**
    * Record usage from a completed stream. Accumulates with existing usage
    * AND updates lastRequest in a single atomic write.
-   * Model should already be normalized via normalizeGatewayModel().
+   * Model should already be in canonical form.
    */
-  async recordUsage(workspaceId: string, model: string, usage: ChatUsageDisplay): Promise<void> {
-    return this.fileLocks.withLock(workspaceId, async () => {
-      const current = await this.readFile(workspaceId);
+  async recordUsage(minionId: string, model: string, usage: ChatUsageDisplay): Promise<void> {
+    return this.fileLocks.withLock(minionId, async () => {
+      const current = await this.readFile(minionId);
       const existing = current.byModel[model];
       // CRITICAL: Accumulate, don't overwrite
       current.byModel[model] = existing ? sumUsageHistory([existing, usage])! : usage;
       current.lastRequest = { model, usage, timestamp: Date.now() };
-      await this.writeFile(workspaceId, current);
+      await this.writeFile(minionId, current);
     });
   }
 
@@ -125,10 +145,10 @@ export class SessionUsageService {
    * the next tokenizer.calculateStats call will overwrite it.
    */
   async setTokenStatsCache(
-    workspaceId: string,
+    minionId: string,
     cache: SessionUsageTokenStatsCacheV1
   ): Promise<void> {
-    assert(workspaceId.trim().length > 0, "setTokenStatsCache: workspaceId empty");
+    assert(minionId.trim().length > 0, "setTokenStatsCache: minionId empty");
     assert(cache.version === 1, "setTokenStatsCache: cache.version must be 1");
     assert(cache.totalTokens >= 0, "setTokenStatsCache: totalTokens must be >= 0");
     assert(
@@ -142,57 +162,57 @@ export class SessionUsageService {
       );
     }
 
-    return this.fileLocks.withLock(workspaceId, async () => {
-      // Defensive: don't create new session dirs for already-deleted workspaces.
-      if (!this.config.findWorkspace(workspaceId)) {
+    return this.fileLocks.withLock(minionId, async () => {
+      // Defensive: don't create new session dirs for already-deleted minions.
+      if (!this.config.findMinion(minionId)) {
         return;
       }
 
       let current: SessionUsageFile;
       try {
-        current = await this.readFile(workspaceId);
+        current = await this.readFile(minionId);
       } catch {
         // Parse errors or other read failures - best-effort rebuild.
         log.warn(
-          `session-usage.json unreadable for ${workspaceId}, rebuilding before token stats cache update`
+          `session-usage.json unreadable for ${minionId}, rebuilding before token stats cache update`
         );
-        const historyResult = await this.historyService.getHistory(workspaceId);
-        if (historyResult.success && historyResult.data.length > 0) {
-          await this.rebuildFromMessagesInternal(workspaceId, historyResult.data);
-          current = await this.readFile(workspaceId);
+        const messages = await this.collectFullHistory(minionId);
+        if (messages.length > 0) {
+          await this.rebuildFromMessagesInternal(minionId, messages);
+          current = await this.readFile(minionId);
         } else {
           current = { byModel: {}, version: 1 };
         }
       }
 
       current.tokenStatsCache = cache;
-      await this.writeFile(workspaceId, current);
+      await this.writeFile(minionId, current);
     });
   }
 
   /**
-   * Merge child usage into the parent workspace.
+   * Merge child usage into the parent minion.
    *
-   * Used to preserve sub-agent costs when the child workspace is deleted.
+   * Used to preserve sidekick costs when the child minion is deleted.
    *
    * IMPORTANT:
    * - Does not update parent's lastRequest
    * - Uses an on-disk idempotency ledger (rolledUpFrom) to prevent double-counting
    */
   async rollUpUsageIntoParent(
-    parentWorkspaceId: string,
-    childWorkspaceId: string,
+    parentMinionId: string,
+    childMinionId: string,
     childUsageByModel: Record<string, ChatUsageDisplay>
   ): Promise<{ didRollUp: boolean }> {
-    assert(parentWorkspaceId.trim().length > 0, "rollUpUsageIntoParent: parentWorkspaceId empty");
-    assert(childWorkspaceId.trim().length > 0, "rollUpUsageIntoParent: childWorkspaceId empty");
+    assert(parentMinionId.trim().length > 0, "rollUpUsageIntoParent: parentMinionId empty");
+    assert(childMinionId.trim().length > 0, "rollUpUsageIntoParent: childMinionId empty");
     assert(
-      parentWorkspaceId !== childWorkspaceId,
-      "rollUpUsageIntoParent: parentWorkspaceId must differ from childWorkspaceId"
+      parentMinionId !== childMinionId,
+      "rollUpUsageIntoParent: parentMinionId must differ from childMinionId"
     );
 
     // Defensive: don't create new session dirs for already-deleted parents.
-    if (!this.config.findWorkspace(parentWorkspaceId)) {
+    if (!this.config.findMinion(parentMinionId)) {
       return { didRollUp: false };
     }
 
@@ -201,25 +221,25 @@ export class SessionUsageService {
       return { didRollUp: false };
     }
 
-    return this.fileLocks.withLock(parentWorkspaceId, async () => {
+    return this.fileLocks.withLock(parentMinionId, async () => {
       let current: SessionUsageFile;
       try {
-        current = await this.readFile(parentWorkspaceId);
+        current = await this.readFile(parentMinionId);
       } catch {
         // Parse errors or other read failures - best-effort rebuild.
         log.warn(
-          `session-usage.json unreadable for ${parentWorkspaceId}, rebuilding before roll-up`
+          `session-usage.json unreadable for ${parentMinionId}, rebuilding before roll-up`
         );
-        const historyResult = await this.historyService.getHistory(parentWorkspaceId);
-        if (historyResult.success && historyResult.data.length > 0) {
-          await this.rebuildFromMessagesInternal(parentWorkspaceId, historyResult.data);
-          current = await this.readFile(parentWorkspaceId);
+        const messages = await this.collectFullHistory(parentMinionId);
+        if (messages.length > 0) {
+          await this.rebuildFromMessagesInternal(parentMinionId, messages);
+          current = await this.readFile(parentMinionId);
         } else {
           current = { byModel: {}, version: 1 };
         }
       }
 
-      if (current.rolledUpFrom?.[childWorkspaceId]) {
+      if (current.rolledUpFrom?.[childMinionId]) {
         return { didRollUp: false };
       }
 
@@ -228,8 +248,8 @@ export class SessionUsageService {
         current.byModel[model] = existing ? sumUsageHistory([existing, usage])! : usage;
       }
 
-      current.rolledUpFrom = { ...(current.rolledUpFrom ?? {}), [childWorkspaceId]: true };
-      await this.writeFile(parentWorkspaceId, current);
+      current.rolledUpFrom = { ...(current.rolledUpFrom ?? {}), [childMinionId]: true };
+      await this.writeFile(parentMinionId, current);
 
       return { didRollUp: true };
     });
@@ -239,28 +259,28 @@ export class SessionUsageService {
    * Read current session usage. Returns undefined if file missing/corrupted
    * and no messages to rebuild from.
    */
-  async getSessionUsage(workspaceId: string): Promise<SessionUsageFile | undefined> {
-    return this.fileLocks.withLock(workspaceId, async () => {
+  async getSessionUsage(minionId: string): Promise<SessionUsageFile | undefined> {
+    return this.fileLocks.withLock(minionId, async () => {
       try {
-        const filePath = this.getFilePath(workspaceId);
+        const filePath = this.getFilePath(minionId);
         const data = await fs.readFile(filePath, "utf-8");
         return JSON.parse(data) as SessionUsageFile;
       } catch (error) {
         // File missing or corrupted - try to rebuild from messages
         if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-          const historyResult = await this.historyService.getHistory(workspaceId);
-          if (historyResult.success && historyResult.data.length > 0) {
-            await this.rebuildFromMessagesInternal(workspaceId, historyResult.data);
-            return this.readFile(workspaceId);
+          const messages = await this.collectFullHistory(minionId);
+          if (messages.length > 0) {
+            await this.rebuildFromMessagesInternal(minionId, messages);
+            return this.readFile(minionId);
           }
           return undefined; // Truly empty session
         }
         // Parse error - try rebuild
-        log.warn(`session-usage.json corrupted for ${workspaceId}, rebuilding`);
-        const historyResult = await this.historyService.getHistory(workspaceId);
-        if (historyResult.success && historyResult.data.length > 0) {
-          await this.rebuildFromMessagesInternal(workspaceId, historyResult.data);
-          return this.readFile(workspaceId);
+        log.warn(`session-usage.json corrupted for ${minionId}, rebuilding`);
+        const messages = await this.collectFullHistory(minionId);
+        if (messages.length > 0) {
+          await this.rebuildFromMessagesInternal(minionId, messages);
+          return this.readFile(minionId);
         }
         return undefined;
       }
@@ -268,23 +288,23 @@ export class SessionUsageService {
   }
 
   /**
-   * Batch fetch session usage for multiple workspaces.
-   * Optimized for displaying costs in archived workspaces list.
+   * Batch fetch session usage for multiple minions.
+   * Optimized for displaying costs in archived minions list.
    */
   async getSessionUsageBatch(
-    workspaceIds: string[]
+    minionIds: string[]
   ): Promise<Record<string, SessionUsageFile | undefined>> {
     const results: Record<string, SessionUsageFile | undefined> = {};
-    // Read files in parallel without rebuilding from messages (archived workspaces
+    // Read files in parallel without rebuilding from messages (archived minions
     // should already have session-usage.json; skip rebuild to keep batch fast)
     await Promise.all(
-      workspaceIds.map(async (workspaceId) => {
+      minionIds.map(async (minionId) => {
         try {
-          const filePath = this.getFilePath(workspaceId);
+          const filePath = this.getFilePath(minionId);
           const data = await fs.readFile(filePath, "utf-8");
-          results[workspaceId] = JSON.parse(data) as SessionUsageFile;
+          results[minionId] = JSON.parse(data) as SessionUsageFile;
         } catch {
-          results[workspaceId] = undefined;
+          results[minionId] = undefined;
         }
       })
     );
@@ -296,7 +316,7 @@ export class SessionUsageService {
    * Internal version - called within lock.
    */
   private async rebuildFromMessagesInternal(
-    workspaceId: string,
+    minionId: string,
     messages: LatticeMessage[]
   ): Promise<void> {
     const result: SessionUsageFile = { byModel: {}, version: 1 };
@@ -319,7 +339,7 @@ export class SessionUsageService {
         // Extract current message's usage
         if (msg.metadata?.usage) {
           const rawModel = msg.metadata.model ?? "unknown";
-          const model = normalizeGatewayModel(rawModel);
+          const model = rawModel;
           const usage = createDisplayUsage(
             msg.metadata.usage,
             rawModel,
@@ -343,26 +363,26 @@ export class SessionUsageService {
       };
     }
 
-    await this.writeFile(workspaceId, result);
-    log.info(`Rebuilt session-usage.json for ${workspaceId} from ${messages.length} messages`);
+    await this.writeFile(minionId, result);
+    log.info(`Rebuilt session-usage.json for ${minionId} from ${messages.length} messages`);
   }
 
   /**
    * Public rebuild method (acquires lock).
    */
-  async rebuildFromMessages(workspaceId: string, messages: LatticeMessage[]): Promise<void> {
-    return this.fileLocks.withLock(workspaceId, async () => {
-      await this.rebuildFromMessagesInternal(workspaceId, messages);
+  async rebuildFromMessages(minionId: string, messages: LatticeMessage[]): Promise<void> {
+    return this.fileLocks.withLock(minionId, async () => {
+      await this.rebuildFromMessagesInternal(minionId, messages);
     });
   }
 
   /**
-   * Delete session usage file (when workspace is deleted).
+   * Delete session usage file (when minion is deleted).
    */
-  async deleteSessionUsage(workspaceId: string): Promise<void> {
-    return this.fileLocks.withLock(workspaceId, async () => {
+  async deleteSessionUsage(minionId: string): Promise<void> {
+    return this.fileLocks.withLock(minionId, async () => {
       try {
-        await fs.unlink(this.getFilePath(workspaceId));
+        await fs.unlink(this.getFilePath(minionId));
       } catch (error) {
         if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
           throw error;

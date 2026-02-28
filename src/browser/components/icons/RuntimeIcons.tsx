@@ -1,5 +1,3 @@
-import React from "react";
-
 interface IconProps {
   size?: number;
   className?: string;
@@ -82,17 +80,14 @@ export function LatticeIcon({ size = 10, className }: IconProps) {
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
+      viewBox="0 0 425.93 200"
+      fill="currentColor"
       aria-label="Lattice Runtime"
       className={className}
     >
-      {/* Lattice hexagon logo */}
-      <path d="M12 2L22 7.5V16.5L12 22L2 16.5V7.5L12 2Z" />
-      <circle cx="12" cy="12" r="2" />
-      <path d="M7 12H17" />
+      {/* Lattice shorthand logo: stylized "C" with cursor block */}
+      <rect x="263.75" y="5.41" width="162.18" height="189.24" />
+      <path d="M0,100C0,38.92,51.89,0,123.25,0s111.35,33.78,112.7,83.51l-61.62,1.89c-1.62-27.57-26.03-45.68-51.08-45.14-34.32.74-59.73,23.51-59.73,59.73s25.41,58.65,59.73,58.65c25.05,0,48.91-17.3,51.62-44.86l61.62,1.35c-1.62,50.54-44.05,84.87-113.24,84.87S0,160.81,0,100Z" />
     </svg>
   );
 }

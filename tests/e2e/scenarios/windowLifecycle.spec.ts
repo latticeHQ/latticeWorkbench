@@ -8,7 +8,7 @@ test.skip(
 
 test.describe("window lifecycle", () => {
   test("window opens with expected structure", async ({ page }) => {
-    await expect(page.getByRole("navigation", { name: "Headquarters" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Projects" })).toBeVisible();
     await expect(page.locator("main, #root, .app-container").first()).toBeVisible();
     await expect(page.getByRole("dialog", { name: /error/i })).not.toBeVisible();
   });
@@ -26,12 +26,12 @@ test.describe("window lifecycle", () => {
     for (let i = 0; i < 3; i++) {
       await ui.settings.open();
       await ui.settings.selectSection("Providers");
-      await ui.settings.selectSection("General");
+      await ui.settings.selectSection("Models");
       await ui.settings.close();
     }
 
     // Verify app remains functional
-    await expect(page.getByRole("navigation", { name: "Headquarters" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Projects" })).toBeVisible();
     const chatInput = page.getByRole("textbox", { name: /message/i });
     await expect(chatInput).toBeVisible();
     await chatInput.click();
@@ -55,7 +55,7 @@ test.describe("window lifecycle", () => {
     await ui.settings.close();
 
     // Verify app remains functional after all IPC calls
-    await expect(page.getByRole("navigation", { name: "Headquarters" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Projects" })).toBeVisible();
     await ui.chat.expectTranscriptContains("Python");
   });
 });

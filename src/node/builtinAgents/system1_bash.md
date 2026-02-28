@@ -3,7 +3,7 @@ name: System1 Bash
 description: Fast bash-output filtering (internal)
 ui:
   hidden: true
-subagent:
+sidekick:
   runnable: false
 tools:
   add:

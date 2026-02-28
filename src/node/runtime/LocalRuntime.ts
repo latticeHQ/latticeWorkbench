@@ -1,10 +1,12 @@
 import type {
-  WorkspaceCreationParams,
-  WorkspaceCreationResult,
-  WorkspaceInitParams,
-  WorkspaceInitResult,
-  WorkspaceForkParams,
-  WorkspaceForkResult,
+  EnsureReadyOptions,
+  EnsureReadyResult,
+  MinionCreationParams,
+  MinionCreationResult,
+  MinionInitParams,
+  MinionInitResult,
+  MinionForkParams,
+  MinionForkResult,
 } from "./Runtime";
 import { checkInitHookExists, getLatticeEnv } from "./initHook";
 import { getErrorMessage } from "@/common/utils/errors";
@@ -14,10 +16,10 @@ import { LocalBaseRuntime } from "./LocalBaseRuntime";
  * Local runtime implementation that uses the project directory directly.
  *
  * Unlike WorktreeRuntime, this runtime:
- * - Does NOT create git worktrees or isolate workspaces
- * - Uses the project directory as the workspace path
- * - Cannot delete the project directory (deleteWorkspace is a no-op)
- * - Supports forking (creates new workspace entries pointing to same project directory)
+ * - Does NOT create git worktrees or isolate minions
+ * - Uses the project directory as the minion path
+ * - Cannot delete the project directory (deleteMinion is a no-op)
+ * - Supports forking (creates new minion entries pointing to same project directory)
  *
  * This is useful for users who want to work directly in their project
  * without the overhead of worktree management.
@@ -31,18 +33,32 @@ export class LocalRuntime extends LocalBaseRuntime {
   }
 
   /**
-   * For LocalRuntime, the workspace path is always the project path itself.
-   * The workspaceName parameter is ignored since there's only one workspace per project.
+   * For LocalRuntime, the minion path is always the project path itself.
+   * The minionName parameter is ignored since there's only one minion per project.
    */
-  getWorkspacePath(_projectPath: string, _workspaceName: string): string {
+  getMinionPath(_projectPath: string, _minionName: string): string {
     return this.projectPath;
   }
 
+  override ensureReady(options?: EnsureReadyOptions): Promise<EnsureReadyResult> {
+    const statusSink = options?.statusSink;
+    statusSink?.({
+      phase: "checking",
+      runtimeType: "local",
+      detail: "Checking repository...",
+    });
+
+    // Non-git projects are explicitly supported for LocalRuntime; avoid blocking readiness
+    // on missing .git so local-only workflows continue to work.
+    statusSink?.({ phase: "ready", runtimeType: "local" });
+    return Promise.resolve({ ready: true });
+  }
+
   /**
-   * Creating a workspace is a no-op for LocalRuntime since we use the project directory directly.
+   * Creating a minion is a no-op for LocalRuntime since we use the project directory directly.
    * We just verify the directory exists.
    */
-  async createWorkspace(params: WorkspaceCreationParams): Promise<WorkspaceCreationResult> {
+  async createMinion(params: MinionCreationParams): Promise<MinionCreationResult> {
     const { initLogger } = params;
 
     try {
@@ -54,13 +70,13 @@ export class LocalRuntime extends LocalBaseRuntime {
       } catch {
         return {
           success: false,
-          error: `Headquarter directory does not exist: ${this.projectPath}`,
+          error: `Project directory does not exist: ${this.projectPath}`,
         };
       }
 
-      initLogger.logStep("Headquarter directory verified");
+      initLogger.logStep("Project directory verified");
 
-      return { success: true, workspacePath: this.projectPath };
+      return { success: true, minionPath: this.projectPath };
     } catch (error) {
       return {
         success: false,
@@ -69,8 +85,9 @@ export class LocalRuntime extends LocalBaseRuntime {
     }
   }
 
-  async initWorkspace(params: WorkspaceInitParams): Promise<WorkspaceInitResult> {
-    const { projectPath, branchName, workspacePath, initLogger, env, skipInitHook } = params;
+  async initMinion(params: MinionInitParams): Promise<MinionInitResult> {
+    const { projectPath, branchName, minionPath, initLogger, abortSignal, env, skipInitHook } =
+      params;
 
     try {
       if (skipInitHook) {
@@ -82,8 +99,9 @@ export class LocalRuntime extends LocalBaseRuntime {
       // Run .lattice/init hook if it exists
       const hookExists = await checkInitHookExists(projectPath);
       if (hookExists) {
+        initLogger.enterHookPhase?.();
         const latticeEnv = { ...env, ...getLatticeEnv(projectPath, "local", branchName) };
-        await this.runInitHook(workspacePath, latticeEnv, initLogger);
+        await this.runInitHook(minionPath, latticeEnv, initLogger, abortSignal);
       } else {
         // No hook - signal completion immediately
         initLogger.logComplete(0);
@@ -101,11 +119,11 @@ export class LocalRuntime extends LocalBaseRuntime {
   }
 
   /**
-   * Renaming is a no-op for LocalRuntime - the workspace path is always the project directory.
-   * Returns success so the metadata (workspace name) can be updated in config.
+   * Renaming is a no-op for LocalRuntime - the minion path is always the project directory.
+   * Returns success so the metadata (minion name) can be updated in config.
    */
   // eslint-disable-next-line @typescript-eslint/require-await
-  async renameWorkspace(
+  async renameMinion(
     _projectPath: string,
     _oldName: string,
     _newName: string,
@@ -119,12 +137,12 @@ export class LocalRuntime extends LocalBaseRuntime {
 
   /**
    * Deleting is a no-op for LocalRuntime - we never delete the user's project directory.
-   * Returns success so the workspace entry can be removed from config.
+   * Returns success so the minion entry can be removed from config.
    */
   // eslint-disable-next-line @typescript-eslint/require-await
-  async deleteWorkspace(
+  async deleteMinion(
     _projectPath: string,
-    _workspaceName: string,
+    _minionName: string,
     _force: boolean,
     _abortSignal?: AbortSignal
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }> {
@@ -134,36 +152,36 @@ export class LocalRuntime extends LocalBaseRuntime {
   }
 
   /**
-   * Fork for LocalRuntime creates a new workspace entry pointing to the same project directory.
+   * Fork for LocalRuntime creates a new minion entry pointing to the same project directory.
    * Since LocalRuntime doesn't create separate directories, "forking" just means:
-   * 1. A new workspace ID with the new name
-   * 2. Copied chat history (handled by workspaceService)
+   * 1. A new minion ID with the new name
+   * 2. Copied chat history (handled by minionService)
    * 3. Same project directory as source
    *
    * This enables conversation branching without git worktree overhead.
    */
-  async forkWorkspace(params: WorkspaceForkParams): Promise<WorkspaceForkResult> {
+  async forkMinion(params: MinionForkParams): Promise<MinionForkResult> {
     const { initLogger } = params;
 
     initLogger.logStep("Creating conversation fork (no worktree isolation)");
 
-    // Verify the project directory exists (same check as createWorkspace)
+    // Verify the project directory exists (same check as createMinion)
     try {
       await this.stat(this.projectPath);
     } catch {
       return {
         success: false,
-        error: `Headquarter directory does not exist: ${this.projectPath}`,
+        error: `Project directory does not exist: ${this.projectPath}`,
       };
     }
 
-    initLogger.logStep("Headquarter directory verified");
+    initLogger.logStep("Project directory verified");
 
-    // Return success - the workspace service will copy chat history
-    // and create a new workspace entry pointing to this project directory
+    // Return success - the minion service will copy chat history
+    // and create a new minion entry pointing to this project directory
     return {
       success: true,
-      workspacePath: this.projectPath,
+      minionPath: this.projectPath,
       // sourceBranch is optional for LocalRuntime since no git operations are involved
     };
   }

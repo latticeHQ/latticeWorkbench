@@ -9,6 +9,7 @@ import {
   MAX_INHERITANCE_DEPTH,
   readAgentDefinition,
 } from "./agentDefinitionsService";
+import { getErrorMessage } from "@/common/utils/errors";
 
 export interface AgentForInheritance {
   id: AgentId;
@@ -19,10 +20,10 @@ export interface AgentForInheritance {
 
 interface ResolveAgentInheritanceChainOptions {
   runtime: Runtime;
-  workspacePath: string;
+  minionPath: string;
   agentId: AgentId;
   agentDefinition: AgentDefinitionPackage;
-  workspaceId: string;
+  minionId: string;
   maxDepth?: number;
 }
 
@@ -31,7 +32,7 @@ interface ResolveAgentInheritanceChainOptions {
  *
  * IMPORTANT: Tool-policy computation requires the base chain to be present.
  * Building an "all agents" set in callers is error-prone because base agents
- * can be workspace-defined (project/global) rather than built-ins.
+ * can be minion-defined (project/global) rather than built-ins.
  *
  * When resolving a base with the same ID as the current agent (e.g., project-scope
  * `exec.md` with `base: exec`), we skip the current scope to find global/built-in.
@@ -39,7 +40,7 @@ interface ResolveAgentInheritanceChainOptions {
 export async function resolveAgentInheritanceChain(
   options: ResolveAgentInheritanceChainOptions
 ): Promise<AgentForInheritance[]> {
-  const { runtime, workspacePath, agentId, agentDefinition, workspaceId } = options;
+  const { runtime, minionPath, agentId, agentDefinition, minionId } = options;
   const maxDepth = options.maxDepth ?? MAX_INHERITANCE_DEPTH;
 
   const agentsForInheritance: AgentForInheritance[] = [];
@@ -51,7 +52,7 @@ export async function resolveAgentInheritanceChain(
     const visitKey = agentVisitKey(currentDefinition.id, currentDefinition.scope);
     if (seenPackages.has(visitKey)) {
       log.warn("Agent definition base chain has a cycle; stopping resolution", {
-        workspaceId,
+        minionId,
         agentId,
         currentAgentId,
         scope: currentDefinition.scope,
@@ -76,15 +77,15 @@ export async function resolveAgentInheritanceChain(
     currentAgentId = baseId;
 
     try {
-      currentDefinition = await readAgentDefinition(runtime, workspacePath, baseId, {
+      currentDefinition = await readAgentDefinition(runtime, minionPath, baseId, {
         skipScopesAbove,
       });
     } catch (error) {
       log.warn("Failed to load base agent definition; stopping inheritance resolution", {
-        workspaceId,
+        minionId,
         agentId,
         baseId,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error),
       });
       break;
     }

@@ -37,6 +37,12 @@ export interface StartServerOptions {
   router?: AppRouter;
   /** Whether to serve static files */
   serveStatic?: boolean;
+  /**
+   * Allow HTTPS browser origins when a TLS-terminating proxy forwards
+   * X-Forwarded-Proto=http to lattice. If omitted, falls back to
+   * LATTICE_SERVER_ALLOW_HTTP_ORIGIN for non-CLI server starts.
+   */
+  allowHttpOrigin?: boolean;
 }
 
 type NetworkInterfaces = NodeJS.Dict<os.NetworkInterfaceInfo[]>;
@@ -69,6 +75,16 @@ function formatHostForUrl(host: string): string {
 
 function buildHttpBaseUrl(host: string, port: number): string {
   return `http://${formatHostForUrl(host)}:${port}`;
+}
+
+function resolveAllowHttpOriginEnvFlag(): boolean {
+  const raw = process.env.LATTICE_SERVER_ALLOW_HTTP_ORIGIN;
+  if (!raw) {
+    return false;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  return normalized === "1" || normalized === "true";
 }
 
 function getNonInternalInterfaceAddresses(
@@ -235,6 +251,10 @@ export class ServerService {
       }
     }
 
+    // Non-CLI starts (desktop/browser mode) do not parse CLI flags, so allow an
+    // explicit env override for TLS-terminating proxies that rewrite forwarded proto.
+    const allowHttpOrigin = options.allowHttpOrigin ?? resolveAllowHttpOriginEnvFlag();
+
     const serverOptions: OrpcServerOptions = {
       host: bindHost,
       port: options.port ?? 0,
@@ -243,16 +263,11 @@ export class ServerService {
       router: options.router,
       serveStatic,
       staticDir,
+      allowHttpOrigin,
     };
 
     const server = await createOrpcServer(serverOptions);
     const networkBaseUrls = computeNetworkBaseUrls({ bindHost, port: server.port });
-
-    // Set env vars so child processes (MCP servers, etc.) can reach the workbench API
-    process.env.LATTICE_WORKBENCH_URL = server.baseUrl;
-    if (options.authToken) {
-      process.env.LATTICE_SERVER_AUTH_TOKEN = options.authToken;
-    }
 
     // Acquire the lockfile - clean up server if this fails
     try {
@@ -282,8 +297,7 @@ export class ServerService {
 
     // "auto" mode: only advertise when the bind host is reachable from other devices.
     if (mdnsAdvertisementEnabled !== false && !isLoopbackHost(bindHost)) {
-      const instanceName =
-        options.context.config.getMdnsServiceName() ?? `lattice-${os.hostname()}`;
+      const instanceName = options.context.config.getMdnsServiceName() ?? `lattice-${os.hostname()}`;
       const serviceOptions = buildLatticeMdnsServiceOptions({
         bindHost,
         port: server.port,
@@ -341,5 +355,13 @@ export class ServerService {
    */
   isServerRunning(): boolean {
     return this.server !== null;
+  }
+
+  /**
+   * Get the path to the server lockfile (for displaying to users).
+   * Returns null if no server lockfile has been acquired yet.
+   */
+  getLockfilePath(): string | null {
+    return this.lockfile?.getLockPath() ?? null;
   }
 }

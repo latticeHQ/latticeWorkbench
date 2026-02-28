@@ -1,0 +1,37 @@
+/**
+ * Tab system for WorkbenchPanel.
+ *
+ * Exports:
+ * - Registry: Tab configuration and utilities
+ * - TabLabels: Label components for each tab type
+ */
+
+export {
+  TAB_CONFIGS,
+  TERMINAL_TAB_CONFIG,
+  FILE_TAB_CONFIG,
+  getTabConfig,
+  getTabName,
+  getTabContentClassName,
+  formatTabDuration,
+  type TabConfig,
+  type TabRenderContext,
+  type TerminalTabRenderContext,
+  type TabLabelProps,
+  type ReviewStats,
+} from "./registry";
+
+export {
+  CostsTabLabel,
+  ExplorerTabLabel,
+  KanbanTabLabel,
+  IssuesTabLabel,
+  InferenceTabLabel,
+  SchedulesTabLabel,
+  SyncTabLabel,
+  OutputTabLabel,
+  FileTabLabel,
+  ReviewTabLabel,
+  StatsTabLabel,
+  TerminalTabLabel,
+} from "./TabLabels";

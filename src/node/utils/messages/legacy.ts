@@ -1,11 +1,7 @@
-import type {
-  LatticeFrontendMetadata,
-  LatticeMessage,
-  LatticeMetadata,
-} from "@/common/types/message";
+import type { LatticeMessageMetadata, LatticeMessage, LatticeMetadata } from "@/common/types/message";
 
 interface LegacyLatticeMetadata extends LatticeMetadata {
-  clatticeMetadata?: LatticeFrontendMetadata;
+  clatticeMetadata?: LatticeMessageMetadata;
   idleCompacted?: boolean;
 }
 

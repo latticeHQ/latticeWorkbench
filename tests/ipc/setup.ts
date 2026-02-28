@@ -4,15 +4,18 @@ import * as fs from "fs/promises";
 import type { BrowserWindow, WebContents } from "electron";
 import { Config } from "../../src/node/config";
 import { ServiceContainer } from "../../src/node/services/serviceContainer";
+import { setOpenSSHHostKeyPolicyMode } from "../../src/node/runtime/sshConnectionPool";
 import {
   generateBranchName,
   createWorkspace,
+  createWorkspaceWithInit,
   resolveOrpcClient,
   createTempGitRepo,
   cleanupTempGitRepo,
 } from "./helpers";
 import type { OrpcSource } from "./helpers";
 import type { ORPCContext } from "../../src/node/orpc/context";
+import type { RuntimeConfig } from "../../src/common/types/runtime";
 import { createOrpcTestClient, type OrpcTestClient } from "./orpcTestClient";
 import { shouldRunIntegrationTests, validateApiKeys, getApiKey } from "../testUtils";
 
@@ -73,6 +76,10 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
 
   // Create ServiceContainer instance
   const services = new ServiceContainer(config);
+  // IPC tests run SSH against Docker containers with ephemeral host keys and no
+  // interactive UI for host-key approval. Reset to headless-fallback so the
+  // ServiceContainer's "strict" mode doesn't block Docker SSH connections.
+  setOpenSSHHostKeyPolicyMode("headless-fallback");
   await services.initialize();
 
   // Wire services to the mock BrowserWindow
@@ -84,6 +91,10 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     aiService: services.aiService,
     projectService: services.projectService,
     workspaceService: services.workspaceService,
+    latticeGovernorOauthService: services.latticeGovernorOauthService,
+    codexOauthService: services.codexOauthService,
+    copilotOauthService: services.copilotOauthService,
+    anthropicOauthService: services.anthropicOauthService,
     taskService: services.taskService,
     providerService: services.providerService,
     terminalService: services.terminalService,
@@ -96,6 +107,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     workspaceMcpOverridesService: services.workspaceMcpOverridesService,
     sessionTimingService: services.sessionTimingService,
     mcpConfigService: services.mcpConfigService,
+    mcpOauthService: services.mcpOauthService,
     mcpServerManager: services.mcpServerManager,
     menuEventService: services.menuEventService,
     voiceService: services.voiceService,
@@ -104,16 +116,15 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     sessionUsageService: services.sessionUsageService,
     signingService: services.signingService,
     latticeService: services.latticeService,
-    inferenceService: services.inferenceService,
-    inferenceSetupService: services.inferenceSetupService,
-    channelService: services.channelService,
-    channelSessionRouter: services.channelSessionRouter,
-    browserSessionManager: services.browserSessionManager,
-    pluginPackService: services.pluginPackService,
-    cliAgentDetectionService: services.cliAgentDetectionService,
-    cliAgentOrchestrationService: services.cliAgentOrchestrationService,
-    cliAgentPreferencesService: services.cliAgentPreferencesService,
-    terminalScrollbackService: services.terminalScrollbackService,
+    serverAuthService: services.serverAuthService,
+    policyService: services.policyService,
+    sshPromptService: services.sshPromptService,
+    analyticsService: services.analyticsService,
+    kanbanService: services.kanbanService,
+    exoService: services.exoService,
+    schedulerService: services.schedulerService,
+    syncService: services.syncService,
+    inboxService: services.inboxService,
   };
   const orpc = createOrpcTestClient(orpcContext);
 
@@ -189,10 +200,11 @@ export { shouldRunIntegrationTests, validateApiKeys, getApiKey };
  * Call this in beforeAll hooks to prevent Jest sandbox race conditions.
  */
 export async function preloadTestModules(): Promise<void> {
-  const [{ loadTokenizerModules }] = await Promise.all([
+  const [{ loadTokenizerModules }, { preloadAISDKProviders }] = await Promise.all([
     import("../../src/node/utils/main/tokenizer"),
+    import("../../src/node/services/providerModelFactory"),
   ]);
-  await loadTokenizerModules();
+  await Promise.all([loadTokenizerModules(), preloadAISDKProviders()]);
 }
 
 /**
@@ -201,7 +213,12 @@ export async function preloadTestModules(): Promise<void> {
  */
 export async function setupWorkspace(
   provider: string,
-  branchPrefix?: string
+  branchPrefix?: string,
+  options?: {
+    runtimeConfig?: RuntimeConfig;
+    waitForInit?: boolean;
+    isSSH?: boolean;
+  }
 ): Promise<{
   env: TestEnvironment;
   workspaceId: string;
@@ -231,28 +248,54 @@ export async function setupWorkspace(
   }
 
   const branchName = generateBranchName(branchPrefix || provider);
-  const createResult = await createWorkspace(env, tempGitRepo, branchName);
+  const runtimeConfig = options?.runtimeConfig;
+  const waitForInit = options?.waitForInit ?? false;
+  const isSSH = options?.isSSH ?? false;
 
-  if (!createResult.success) {
+  let workspaceId: string;
+  let workspacePath: string;
+
+  try {
+    if (waitForInit) {
+      const initResult = await createWorkspaceWithInit(
+        env,
+        tempGitRepo,
+        branchName,
+        runtimeConfig,
+        true,
+        isSSH
+      );
+      workspaceId = initResult.workspaceId;
+      workspacePath = initResult.workspacePath;
+    } else {
+      const createResult = await createWorkspace(
+        env,
+        tempGitRepo,
+        branchName,
+        undefined,
+        runtimeConfig
+      );
+
+      if (!createResult.success) {
+        throw new Error(`Workspace creation failed: ${createResult.error}`);
+      }
+
+      if (!createResult.metadata.id) {
+        throw new Error("Workspace ID not returned from creation");
+      }
+
+      if (!createResult.metadata.namedWorkspacePath) {
+        throw new Error("Workspace path not returned from creation");
+      }
+
+      workspaceId = createResult.metadata.id;
+      workspacePath = createResult.metadata.namedWorkspacePath;
+    }
+  } catch (error) {
     await cleanupTestEnvironment(env);
     await cleanupTempGitRepo(tempGitRepo);
-    throw new Error(`Workspace creation failed: ${createResult.error}`);
+    throw error;
   }
-
-  if (!createResult.metadata.id) {
-    await cleanupTestEnvironment(env);
-    await cleanupTempGitRepo(tempGitRepo);
-    throw new Error("Workspace ID not returned from creation");
-  }
-
-  if (!createResult.metadata.namedWorkspacePath) {
-    await cleanupTestEnvironment(env);
-    await cleanupTempGitRepo(tempGitRepo);
-    throw new Error("Workspace path not returned from creation");
-  }
-
-  const workspaceId = createResult.metadata.id;
-  const workspacePath = createResult.metadata.namedWorkspacePath;
 
   const cleanup = async () => {
     // Best-effort: remove workspace to stop MCP servers and clean up worktrees/sessions.

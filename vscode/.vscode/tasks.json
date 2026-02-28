@@ -7,7 +7,7 @@
       "script": "watch",
       "isBackground": true,
       "problemMatcher": {
-        "owner": "mux-vscode-watch",
+        "owner": "lattice-vscode-watch",
         "fileLocation": ["relative", "${workspaceFolder}"],
         "pattern": {
           "regexp": "^(.+?):(\\d+):(\\d+):\\s+ERROR:\\s+(.*)$",
@@ -19,7 +19,7 @@
         "background": {
           "activeOnStart": true,
           "beginsPattern": ".+",
-          "endsPattern": "mux VS Code extension: watching for changes\\.\\.\\."
+          "endsPattern": "lattice VS Code extension: watching for changes\\.\\.\\."
         }
       },
       "presentation": {

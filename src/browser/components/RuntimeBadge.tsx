@@ -1,4 +1,3 @@
-import React from "react";
 import { Copy, Check } from "lucide-react";
 import { cn } from "@/common/lib/utils";
 import type { RuntimeConfig } from "@/common/types/runtime";
@@ -19,10 +18,10 @@ interface RuntimeBadgeProps {
   className?: string;
   /** When true, shows blue pulsing styling to indicate agent is working */
   isWorking?: boolean;
-  /** Workspace path to show in tooltip */
-  workspacePath?: string;
-  /** Workspace name to show in tooltip */
-  workspaceName?: string;
+  /** Minion path to show in tooltip */
+  minionPath?: string;
+  /** Minion name to show in tooltip */
+  minionName?: string;
   /** Tooltip position: "top" (default) or "bottom" */
   tooltipSide?: "top" | "bottom";
 }
@@ -75,10 +74,10 @@ function getRuntimeInfo(
   if (isSSHRuntime(runtimeConfig)) {
     // Lattice-backed SSH runtime gets special treatment
     if (runtimeConfig.lattice) {
-      const latticeWorkspaceName = runtimeConfig.lattice.workspaceName;
+      const latticeMinionName = runtimeConfig.lattice.minionName;
       return {
         type: "lattice",
-        label: `Lattice Workspace: ${latticeWorkspaceName ?? runtimeConfig.host}`,
+        label: `Lattice Minion: ${latticeMinionName ?? runtimeConfig.host}`,
       };
     }
     const hostname = extractSshHostname(runtimeConfig);
@@ -108,8 +107,8 @@ export function RuntimeBadge({
   runtimeConfig,
   className,
   isWorking = false,
-  workspacePath,
-  workspaceName,
+  minionPath,
+  minionName,
   tooltipSide = "top",
 }: RuntimeBadgeProps) {
   const info = getRuntimeInfo(runtimeConfig);
@@ -135,8 +134,8 @@ export function RuntimeBadge({
       <TooltipContent side={tooltipSide} align="start" className="max-w-[500px]">
         <div className="flex flex-col gap-1">
           <div className="text-xs font-medium">{info.label}</div>
-          {workspaceName && <TooltipRow label="Name" value={workspaceName} />}
-          {workspacePath && <TooltipRow label="Path" value={workspacePath} copyable />}
+          {minionName && <TooltipRow label="Name" value={minionName} />}
+          {minionPath && <TooltipRow label="Path" value={minionPath} copyable />}
         </div>
       </TooltipContent>
     </Tooltip>

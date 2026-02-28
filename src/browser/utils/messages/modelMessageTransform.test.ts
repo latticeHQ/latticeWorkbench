@@ -93,7 +93,7 @@ describe("modelMessageTransform", () => {
             type: "tool-result",
             toolCallId: "call1",
             toolName: "bash",
-            output: { type: "json", value: { stdout: "/workspace" } },
+            output: { type: "json", value: { stdout: "/minion" } },
           },
           {
             type: "tool-result",
@@ -161,7 +161,7 @@ describe("modelMessageTransform", () => {
     it("should insert empty reasoning for final assistant message when Anthropic thinking is enabled", () => {
       const messages: ModelMessage[] = [
         { role: "user", content: [{ type: "text", text: "Hello" }] },
-        { role: "assistant", content: [{ type: "text", text: "Subagent report text" }] },
+        { role: "assistant", content: [{ type: "text", text: "Sidekick report text" }] },
         { role: "user", content: [{ type: "text", text: "Continue" }] },
       ];
 
@@ -192,6 +192,190 @@ describe("modelMessageTransform", () => {
 
       const result = transformModelMessages(messages, "anthropic");
       expect(result).toEqual(messages);
+    });
+
+    it("coalesces 3 consecutive identical no-progress task_await pairs into 1 (keep last pair)", () => {
+      const input = { task_ids: ["task1"], timeout_secs: 10 };
+
+      const assistantMsg1: AssistantModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call1", toolName: "task_await", input }],
+      };
+      const toolMsg1: ToolModelMessage = {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call1",
+            toolName: "task_await",
+            output: {
+              type: "json",
+              value: { results: [{ status: "running", taskId: "task1" }] },
+            },
+          },
+        ],
+      };
+
+      const assistantMsg2: AssistantModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call2", toolName: "task_await", input }],
+      };
+      const toolMsg2: ToolModelMessage = {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call2",
+            toolName: "task_await",
+            output: {
+              type: "json",
+              value: { results: [{ status: "running", taskId: "task1" }] },
+            },
+          },
+        ],
+      };
+
+      const assistantMsg3: AssistantModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call3", toolName: "task_await", input }],
+      };
+      const toolMsg3: ToolModelMessage = {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call3",
+            toolName: "task_await",
+            output: {
+              type: "json",
+              value: { results: [{ status: "running", taskId: "task1" }] },
+            },
+          },
+        ],
+      };
+
+      const result = transformModelMessages(
+        [assistantMsg1, toolMsg1, assistantMsg2, toolMsg2, assistantMsg3, toolMsg3],
+        "anthropic"
+      );
+
+      expect(result).toEqual([assistantMsg3, toolMsg3]);
+    });
+
+    it("does not coalesce task_await polls when a later poll returns progress", () => {
+      const input = { task_ids: ["task1"], timeout_secs: 10 };
+
+      const assistantMsg1: AssistantModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call1", toolName: "task_await", input }],
+      };
+      const toolMsg1: ToolModelMessage = {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call1",
+            toolName: "task_await",
+            output: {
+              type: "json",
+              value: { results: [{ status: "running", taskId: "task1" }] },
+            },
+          },
+        ],
+      };
+
+      const assistantMsg2: AssistantModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call2", toolName: "task_await", input }],
+      };
+      const toolMsg2: ToolModelMessage = {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call2",
+            toolName: "task_await",
+            output: {
+              type: "json",
+              value: { results: [{ status: "running", taskId: "task1" }] },
+            },
+          },
+        ],
+      };
+
+      // Progress: output is non-empty.
+      const assistantMsg3: AssistantModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool-call", toolCallId: "call3", toolName: "task_await", input }],
+      };
+      const toolMsg3: ToolModelMessage = {
+        role: "tool",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "call3",
+            toolName: "task_await",
+            output: {
+              type: "json",
+              value: { results: [{ status: "running", taskId: "task1", output: "new output" }] },
+            },
+          },
+        ],
+      };
+
+      const result = transformModelMessages(
+        [assistantMsg1, toolMsg1, assistantMsg2, toolMsg2, assistantMsg3, toolMsg3],
+        "anthropic"
+      );
+
+      // The no-progress polls are coalesced, but the progress poll must remain.
+      expect(result).toEqual([assistantMsg2, toolMsg2, assistantMsg3, toolMsg3]);
+    });
+
+    it("preserves Anthropic tool_use/tool_result adjacency after coalescing task_await polls", () => {
+      const input = { task_ids: ["task1"], timeout_secs: 10 };
+
+      const messages: ModelMessage[] = [
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", toolCallId: "call1", toolName: "task_await", input }],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call1",
+              toolName: "task_await",
+              output: {
+                type: "json",
+                value: { results: [{ status: "running", taskId: "task1" }] },
+              },
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "tool-call", toolCallId: "call2", toolName: "task_await", input }],
+        },
+        {
+          role: "tool",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "call2",
+              toolName: "task_await",
+              output: {
+                type: "json",
+                value: { results: [{ status: "running", taskId: "task1" }] },
+              },
+            },
+          ],
+        },
+      ];
+
+      const result = transformModelMessages(messages, "anthropic");
+      expect(validateAnthropicCompliance(result).valid).toBe(true);
     });
   });
 
@@ -1140,6 +1324,55 @@ describe("injectAgentTransition", () => {
     }
   });
 
+  it("should include plan content when transitioning from plan to orchestrator", () => {
+    const messages: LatticeMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Let's plan a feature" }],
+        metadata: { timestamp: 1000 },
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Here's the plan..." }],
+        metadata: { timestamp: 2000, agentId: "plan" },
+      },
+      {
+        id: "user-2",
+        role: "user",
+        parts: [{ type: "text", text: "Start orchestrating" }],
+        metadata: { timestamp: 3000 },
+      },
+    ];
+
+    const planContent = "# My Plan\n\n## Step 1\nDo something\n\n## Step 2\nDo more";
+    const planFilePath = "~/.lattice/plans/demo/ws-123.md";
+    const result = injectAgentTransition(
+      messages,
+      "orchestrator",
+      undefined,
+      planContent,
+      planFilePath
+    );
+
+    expect(result.length).toBe(4);
+    const transitionMessage = result[2];
+    const textPart = transitionMessage.parts[0];
+    expect(textPart.type).toBe("text");
+    if (textPart.type === "text") {
+      expect(textPart.text).toContain(
+        "[Agent switched from plan to orchestrator. Follow orchestrator agent instructions.]"
+      );
+      expect(textPart.text).toContain(`Plan file path: ${planFilePath}`);
+      expect(textPart.text).toContain("orchestrate its implementation");
+      expect(textPart.text).not.toContain("spawn sub-agents");
+      expect(textPart.text).toContain("<plan>");
+      expect(textPart.text).toContain(planContent);
+      expect(textPart.text).toContain("</plan>");
+    }
+  });
+
   it("should NOT include plan content when transitioning from exec to plan", () => {
     const messages: LatticeMessage[] = [
       {
@@ -1415,23 +1648,27 @@ describe("filterEmptyAssistantMessages", () => {
     const result = filterEmptyAssistantMessages(messages, false);
     expect(result.map((m) => m.id)).toEqual(["user-1", "assistant-1"]);
   });
-  it("should filter out assistant messages with only empty text regardless of preserveReasoningOnly", () => {
-    const messages: LatticeMessage[] = [
-      {
-        id: "assistant-1",
-        role: "assistant",
-        parts: [{ type: "text", text: "" }],
-        metadata: { timestamp: 2000 },
-      },
-    ];
+  it("should filter out assistant messages with only empty/whitespace text regardless of preserveReasoningOnly", () => {
+    const emptyTexts = ["", "\n\n", "   "];
 
-    // With preserveReasoningOnly=false
-    const result1 = filterEmptyAssistantMessages(messages, false);
-    expect(result1.length).toBe(0);
+    for (const text of emptyTexts) {
+      const messages: LatticeMessage[] = [
+        {
+          id: "assistant-1",
+          role: "assistant",
+          parts: [{ type: "text", text }],
+          metadata: { timestamp: 2000 },
+        },
+      ];
 
-    // With preserveReasoningOnly=true
-    const result2 = filterEmptyAssistantMessages(messages, true);
-    expect(result2.length).toBe(0);
+      // With preserveReasoningOnly=false
+      const result1 = filterEmptyAssistantMessages(messages, false);
+      expect(result1.length).toBe(0);
+
+      // With preserveReasoningOnly=true
+      const result2 = filterEmptyAssistantMessages(messages, true);
+      expect(result2.length).toBe(0);
+    }
   });
 
   it("should preserve messages interrupted during thinking phase when preserveReasoningOnly=true", () => {
@@ -1566,7 +1803,12 @@ describe("injectPostCompactionAttachments", () => {
         id: "compaction-summary",
         role: "assistant",
         parts: [{ type: "text", text: "Compacted summary" }],
-        metadata: { timestamp: 1000, compacted: "user" },
+        metadata: {
+          timestamp: 1000,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 1,
+        },
       },
       {
         id: "user-1",
@@ -1602,5 +1844,157 @@ describe("injectPostCompactionAttachments", () => {
     const text = (injected.parts[0] as { type: "text"; text: string }).text;
     expect(text.length).toBeLessThanOrEqual(MAX_POST_COMPACTION_INJECTION_CHARS);
     expect(text).toContain("post-compaction context truncated");
+  });
+
+  it("falls back to a legacy compacted summary when durable boundary metadata is missing", () => {
+    const messages: LatticeMessage[] = [
+      {
+        id: "legacy-summary",
+        role: "assistant",
+        parts: [{ type: "text", text: "Legacy compacted summary" }],
+        metadata: {
+          timestamp: 1000,
+          compacted: true,
+        },
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Assistant context after summary" }],
+        metadata: { timestamp: 1050 },
+      },
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Continue" }],
+        metadata: { timestamp: 1100 },
+      },
+    ];
+
+    const attachments = [
+      {
+        type: "plan_file_reference" as const,
+        planFilePath: "PLAN.md",
+        planContent: "Legacy plan",
+      },
+    ];
+
+    const result = injectPostCompactionAttachments(messages, attachments);
+
+    expect(result).toHaveLength(4);
+    expect(result[0].id).toBe("legacy-summary");
+
+    const injected = result[1];
+    expect(injected.metadata?.synthetic).toBe(true);
+    expect(injected.metadata?.timestamp).toBe(1000);
+    const text = (injected.parts[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("<system-update>");
+
+    expect(result[2].id).toBe("assistant-1");
+    expect(result[3].id).toBe("user-1");
+  });
+
+  it("appends at the end when no compaction indicators are present", () => {
+    const messages: LatticeMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Initial question" }],
+        metadata: { timestamp: 1000 },
+      },
+      {
+        id: "assistant-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Initial response" }],
+        metadata: { timestamp: 1010 },
+      },
+      {
+        id: "user-2",
+        role: "user",
+        parts: [{ type: "text", text: "Follow-up" }],
+        metadata: { timestamp: 1020 },
+      },
+    ];
+
+    const attachments = [
+      {
+        type: "plan_file_reference" as const,
+        planFilePath: "PLAN.md",
+        planContent: "Fallback plan",
+      },
+    ];
+
+    const result = injectPostCompactionAttachments(messages, attachments);
+
+    expect(result).toHaveLength(4);
+    expect(result[0].id).toBe("user-1");
+    expect(result[1].id).toBe("assistant-1");
+    expect(result[2].id).toBe("user-2");
+
+    const appended = result[3];
+    expect(appended.metadata?.synthetic).toBe(true);
+    const text = (appended.parts[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("<system-update>");
+  });
+
+  it("inserts after the latest compaction boundary when multiple summaries exist", () => {
+    const messages: LatticeMessage[] = [
+      {
+        id: "summary-1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Older summary" }],
+        metadata: {
+          timestamp: 1000,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 1,
+        },
+      },
+      {
+        id: "user-1",
+        role: "user",
+        parts: [{ type: "text", text: "Between summaries" }],
+        metadata: { timestamp: 1100 },
+      },
+      {
+        id: "summary-2",
+        role: "assistant",
+        parts: [{ type: "text", text: "Latest summary" }],
+        metadata: {
+          timestamp: 2000,
+          compacted: "user",
+          compactionBoundary: true,
+          compactionEpoch: 2,
+        },
+      },
+      {
+        id: "user-2",
+        role: "user",
+        parts: [{ type: "text", text: "Continue" }],
+        metadata: { timestamp: 2100 },
+      },
+    ];
+
+    const attachments = [
+      {
+        type: "plan_file_reference" as const,
+        planFilePath: "PLAN.md",
+        planContent: "Latest plan",
+      },
+    ];
+
+    const result = injectPostCompactionAttachments(messages, attachments);
+
+    expect(result).toHaveLength(5);
+    expect(result[0].id).toBe("summary-1");
+    expect(result[1].id).toBe("user-1");
+    expect(result[2].id).toBe("summary-2");
+
+    const injected = result[3];
+    expect(injected.metadata?.synthetic).toBe(true);
+    const text = (injected.parts[0] as { type: "text"; text: string }).text;
+    expect(text).toContain("<system-update>");
+
+    expect(result[4].id).toBe("user-2");
   });
 });

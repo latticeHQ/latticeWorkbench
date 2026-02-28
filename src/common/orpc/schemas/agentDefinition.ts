@@ -10,7 +10,8 @@ export const AgentIdSchema = z
   .max(64)
   .regex(/^[a-z0-9]+(?:[a-z0-9_-]*[a-z0-9])?$/);
 
-const ThinkingLevelSchema = z.enum(["off", "low", "medium", "high", "xhigh"]);
+const AgentDefinitionUiRequirementSchema = z.enum(["plan"]);
+const ThinkingLevelSchema = z.enum(["off", "low", "medium", "high", "xhigh", "max"]);
 
 const AgentDefinitionUiSchema = z
   .object({
@@ -25,15 +26,19 @@ const AgentDefinitionUiSchema = z
 
     // UI color (CSS color value). Inherited from base agent if not specified.
     color: z.string().min(1).optional(),
+
+    // Requirements for this agent to be selectable in the UI.
+    // Enforced in agents.list by toggling uiSelectable.
+    requires: z.array(AgentDefinitionUiRequirementSchema).min(1).optional(),
   })
   .strip();
 
-const AgentDefinitionSubagentSchema = z
+const AgentDefinitionSidekickSchema = z
   .object({
     runnable: z.boolean().optional(),
-    // Instructions appended when this agent runs as a subagent (child workspace)
+    // Instructions appended when this agent runs as a sidekick (child minion)
     append_prompt: z.string().min(1).optional(),
-    // When true, do not run the project's .lattice/init hook for this sub-agent.
+    // When true, do not run the project's .lattice/init hook for this sidekick.
     // NOTE: This skips only the hook execution, not runtime provisioning (e.g. SSH sync, Docker setup).
     skip_init_hook: z.boolean().optional(),
   })
@@ -73,13 +78,21 @@ export const AgentDefinitionFrontmatterSchema = z
     // Inheritance: reference a built-in or custom agent ID
     base: AgentIdSchema.optional(),
 
+    // When true, this agent is disabled by default.
+    //
+    // Notes:
+    // - This is a top-level flag (separate from ui.disabled) so repos can ship agents that are
+    //   present on disk but opt-in.
+    // - When both are set, `disabled` takes precedence over `ui.disabled`.
+    disabled: z.boolean().optional(),
+
     // UI metadata (color, visibility, etc.)
     ui: AgentDefinitionUiSchema.optional(),
 
     // Prompt behavior configuration
     prompt: AgentDefinitionPromptSchema.optional(),
 
-    subagent: AgentDefinitionSubagentSchema.optional(),
+    sidekick: AgentDefinitionSidekickSchema.optional(),
 
     ai: AgentDefinitionAiDefaultsSchema.optional(),
 
@@ -97,7 +110,7 @@ export const AgentDefinitionDescriptorSchema = z
     description: z.string().min(1).max(1024).optional(),
     uiSelectable: z.boolean(),
     uiColor: z.string().min(1).optional(),
-    subagentRunnable: z.boolean(),
+    sidekickRunnable: z.boolean(),
     // Base agent ID for inheritance (e.g., "exec", "plan", or custom agent)
     base: AgentIdSchema.optional(),
     aiDefaults: AgentDefinitionAiDefaultsSchema.optional(),

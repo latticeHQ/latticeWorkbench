@@ -3,7 +3,12 @@ import { log } from "@/node/services/log";
 
 import { spawnPtyProcess } from "../ptySpawn";
 import { expandTildeForSSH } from "../tildeExpansion";
-import { getControlPath, sshConnectionPool, type SSHConnectionConfig } from "../sshConnectionPool";
+import {
+  appendOpenSSHHostKeyPolicyArgs,
+  getControlPath,
+  sshConnectionPool,
+  type SSHConnectionConfig,
+} from "../sshConnectionPool";
 import type { SpawnResult } from "../RemoteRuntime";
 import type {
   SSHTransport,
@@ -41,11 +46,13 @@ export class OpenSSHTransport implements SSHTransport {
   async acquireConnection(options?: {
     abortSignal?: AbortSignal;
     timeoutMs?: number;
+    maxWaitMs?: number;
     onWait?: (waitMs: number) => void;
   }): Promise<void> {
     await sshConnectionPool.acquireConnection(this.config, {
       abortSignal: options?.abortSignal,
       timeoutMs: options?.timeoutMs,
+      maxWaitMs: options?.maxWaitMs,
       onWait: options?.onWait,
     });
   }
@@ -55,13 +62,19 @@ export class OpenSSHTransport implements SSHTransport {
       abortSignal: options.abortSignal,
     });
 
-    const sshArgs: string[] = [options.forcePTY ? "-t" : "-T", ...this.buildSSHArgs()];
+    // Note: use -tt (not -t) so PTY allocation works even when stdin is a pipe.
+    const sshArgs: string[] = [options.forcePTY ? "-tt" : "-T", ...this.buildSSHArgs()];
 
     const connectTimeout =
       options.timeout !== undefined ? Math.min(Math.ceil(options.timeout), 15) : 15;
     sshArgs.push("-o", `ConnectTimeout=${connectTimeout}`);
     sshArgs.push("-o", "ServerAliveInterval=5");
     sshArgs.push("-o", "ServerAliveCountMax=2");
+    // Non-interactive execs must never hang on host-key or password prompts.
+    // Host-key trust policy is capability-scoped (verification service wired),
+    // while responder liveness only affects whether prompts can be shown.
+    sshArgs.push("-o", "BatchMode=yes");
+    appendOpenSSHHostKeyPolicyArgs(sshArgs);
 
     sshArgs.push(this.config.host, fullCommand);
 
@@ -86,14 +99,8 @@ export class OpenSSHTransport implements SSHTransport {
 
     // expandTildeForSSH already returns a quoted string (e.g., "$HOME/path")
     // Do NOT wrap with shellQuotePath - that would double-quote it
-    const expandedPath = expandTildeForSSH(params.workspacePath);
-    if (params.initialCommand && params.directExec) {
-      // Direct exec: run agent binary via login shell, bypassing interactive shell
-      const quoted = "'" + params.initialCommand.replace(/'/g, "'\\''") + "'";
-      args.push(`cd ${expandedPath} && exec /bin/sh -l -c ${quoted}`);
-    } else {
-      args.push(`cd ${expandedPath} && exec $SHELL -i`);
-    }
+    const expandedPath = expandTildeForSSH(params.minionPath);
+    args.push(`cd ${expandedPath} && exec $SHELL -i`);
 
     return spawnPtyProcess({
       runtimeLabel: "SSH",
@@ -115,8 +122,6 @@ export class OpenSSHTransport implements SSHTransport {
 
     if (this.config.identityFile) {
       args.push("-i", this.config.identityFile);
-      args.push("-o", "StrictHostKeyChecking=no");
-      args.push("-o", "UserKnownHostsFile=/dev/null");
     }
 
     args.push("-o", "LogLevel=FATAL");

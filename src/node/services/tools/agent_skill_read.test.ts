@@ -2,20 +2,20 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
 import { describe, it, expect } from "bun:test";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 import { AgentSkillReadToolResultSchema } from "@/common/utils/tools/toolDefinitions";
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import { createAgentSkillReadTool } from "./agent_skill_read";
 import { createTestToolConfig, TestTempDir } from "./testHelpers";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
 
-async function writeProjectSkill(workspacePath: string, name: string): Promise<void> {
-  const skillDir = path.join(workspacePath, ".lattice", "skills", name);
+async function writeProjectSkill(minionPath: string, name: string): Promise<void> {
+  const skillDir = path.join(minionPath, ".lattice", "skills", name);
   await fs.mkdir(skillDir, { recursive: true });
   await fs.writeFile(
     path.join(skillDir, "SKILL.md"),
@@ -28,7 +28,7 @@ describe("agent_skill_read (Chat with Lattice sandbox)", () => {
   it("allows reading built-in skills", async () => {
     using tempDir = new TestTempDir("test-agent-skill-read-lattice-chat");
     const baseConfig = createTestToolConfig(tempDir.path, {
-      workspaceId: LATTICE_HELP_CHAT_WORKSPACE_ID,
+      minionId: LATTICE_HELP_CHAT_MINION_ID,
     });
 
     const tool = createAgentSkillReadTool(baseConfig);
@@ -56,7 +56,7 @@ describe("agent_skill_read (Chat with Lattice sandbox)", () => {
     await writeProjectSkill(tempDir.path, "foo");
 
     const baseConfig = createTestToolConfig(tempDir.path, {
-      workspaceId: LATTICE_HELP_CHAT_WORKSPACE_ID,
+      minionId: LATTICE_HELP_CHAT_MINION_ID,
     });
     const tool = createAgentSkillReadTool(baseConfig);
 

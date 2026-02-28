@@ -130,8 +130,8 @@ export async function readInstructionSet(
 }
 
 /**
- * Read an instruction set from a workspace using Runtime abstraction.
- * Supports both local and remote (SSH) workspaces.
+ * Read an instruction set from a minion using Runtime abstraction.
+ * Supports both local and remote (SSH) minions.
  *
  * @param runtime - Runtime instance (may be local or SSH)
  * @param directory - Directory to search for instruction files
@@ -158,7 +158,7 @@ export async function readInstructionSetFromRuntime(
  *
  * This allows for layered instructions where:
  * - Global instructions (~/.lattice/AGENTS.md) apply to all projects
- * - Headquarter instructions (workspace/AGENTS.md) add project-specific context
+ * - Project instructions (minion/AGENTS.md) add project-specific context
  *
  * @param directories - List of directories to search, in priority order
  * @returns Array of instruction segments (one per directory with instructions)

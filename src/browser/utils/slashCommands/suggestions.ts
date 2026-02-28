@@ -2,6 +2,8 @@
  * Slash command suggestions generation
  */
 
+import { MODEL_ABBREVIATIONS } from "@/common/constants/knownModels";
+import { formatModelDisplayName } from "@/common/utils/ai/modelDisplay";
 import { getSlashCommandDefinitions } from "./parser";
 import { SLASH_COMMAND_DEFINITION_MAP } from "./registry";
 import type {
@@ -13,7 +15,7 @@ import type {
 
 export type { SlashSuggestion } from "./types";
 
-import { WORKSPACE_ONLY_COMMAND_KEYS } from "@/constants/slashCommands";
+import { MINION_ONLY_COMMAND_KEYS } from "@/constants/slashCommands";
 
 const COMMAND_DEFINITIONS = getSlashCommandDefinitions();
 
@@ -28,7 +30,12 @@ function filterAndMapSuggestions<T extends SuggestionDefinition>(
   return definitions
     .filter((definition) => {
       if (filter && !filter(definition)) return false;
-      return normalizedPartial ? definition.key.toLowerCase().startsWith(normalizedPartial) : true;
+      const normalizedKey = definition.key.toLowerCase();
+      // Keep full-prefix matches (e.g., /deep-r) alongside segment matches (e.g., /r).
+      return normalizedPartial
+        ? normalizedKey.startsWith(normalizedPartial) ||
+            normalizedKey.split("-").some((segment) => segment.startsWith(normalizedPartial))
+        : true;
     })
     .map((definition) => build(definition));
 }
@@ -52,8 +59,13 @@ function buildTopLevelSuggestions(
         replacement,
       };
     },
-    // In creation mode, filter out workspace-only commands
-    isCreation ? (definition) => !WORKSPACE_ONLY_COMMAND_KEYS.has(definition.key) : undefined
+    (definition) => {
+      if (isCreation && MINION_ONLY_COMMAND_KEYS.has(definition.key)) {
+        return false;
+      }
+
+      return true;
+    }
   );
 
   const formatScopeLabel = (scope: string): string => {
@@ -81,7 +93,27 @@ function buildTopLevelSuggestions(
     };
   });
 
-  return [...commandSuggestions, ...skillSuggestions];
+  // Model alias one-shot suggestions (e.g., /haiku, /sonnet, /opus+high)
+  const modelAliasDefinitions: SuggestionDefinition[] = Object.entries(MODEL_ABBREVIATIONS).map(
+    ([alias, modelId]) => ({
+      key: alias,
+      description: `Send with ${formatModelDisplayName(modelId.split(":")[1] ?? modelId)} (one message, +level for thinking)`,
+      appendSpace: true,
+    })
+  );
+
+  const modelAliasSuggestions = filterAndMapSuggestions(
+    modelAliasDefinitions,
+    partial,
+    (definition) => ({
+      id: `model-oneshot:${definition.key}`,
+      display: `/${definition.key}`,
+      description: definition.description,
+      replacement: `/${definition.key} `,
+    })
+  );
+
+  return [...commandSuggestions, ...skillSuggestions, ...modelAliasSuggestions];
 }
 
 function buildSubcommandSuggestions(
@@ -138,8 +170,8 @@ export function getSlashCommandSuggestions(
     return [];
   }
 
-  // In creation mode, don't show subcommand suggestions for workspace-only commands
-  if (context.variant === "creation" && WORKSPACE_ONLY_COMMAND_KEYS.has(rootKey)) {
+  // In creation mode, don't show subcommand suggestions for minion-only commands
+  if (context.variant === "creation" && MINION_ONLY_COMMAND_KEYS.has(rootKey)) {
     return [];
   }
 

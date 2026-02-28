@@ -1,13 +1,13 @@
 /**
  * FileViewer stories - testing file viewer pane with text and image files
  *
- * Uses wide viewport (1600px) to ensure RightSidebar tabs are visible.
+ * Uses wide viewport (1600px) to ensure WorkbenchPanel tabs are visible.
  */
 
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import {
   setupSimpleChatStory,
-  expandRightSidebar,
+  expandWorkbenchPanel,
   setReviews,
   createReview,
   type SimpleChatSetupOptions,
@@ -15,7 +15,7 @@ import {
 import { createUserMessage, createAssistantMessage } from "./mockFactory";
 import { within } from "@storybook/test";
 import { blurActiveElement } from "./storyPlayHelpers.js";
-import { RIGHT_SIDEBAR_WIDTH_KEY, getRightSidebarLayoutKey } from "@/common/constants/storage";
+import { WORKBENCH_PANEL_WIDTH_KEY, getWorkbenchPanelLayoutKey } from "@/common/constants/storage";
 import type { ComponentType } from "react";
 
 /** File content type for mocking */
@@ -33,7 +33,7 @@ function createFileViewerExecuteBash(
   fileContents: Map<string, FileContent>,
   fileDiffs?: Map<string, string>
 ): NonNullable<SimpleChatSetupOptions["executeBash"]> {
-  return (_workspaceId: string, script: string) => {
+  return (_minionId: string, script: string) => {
     const bashResult = (output: string, exitCode = 0) =>
       Promise.resolve({
         success: true as const,
@@ -369,20 +369,20 @@ export const TextFileNoChanges: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-file-viewer-text";
+        const minionId = "ws-file-viewer-text";
         const filePath = "src/components/Button.tsx";
         localStorage.setItem(
-          getRightSidebarLayoutKey(workspaceId),
+          getWorkbenchPanelLayoutKey(minionId),
           JSON.stringify(createFileTabLayout(filePath))
         );
-        localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, "500");
+        localStorage.setItem(WORKBENCH_PANEL_WIDTH_KEY, "500");
 
         const fileContents = new Map<string, FileContent>([
           ["src/components/Button.tsx", { type: "text", content: SAMPLE_TS_CONTENT }],
         ]);
         const client = setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/button",
+          minionId,
+          minionName: "feature/button",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Improve the button component", { historySequence: 1 }),
@@ -392,7 +392,7 @@ export const TextFileNoChanges: AppStory = {
           ],
           executeBash: createFileViewerExecuteBash(fileContents),
         });
-        expandRightSidebar();
+        expandWorkbenchPanel();
         return client;
       }}
     />
@@ -417,15 +417,15 @@ export const TextFileWithDiff: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-file-viewer-diff";
+        const minionId = "ws-file-viewer-diff";
         const filePath = "src/components/Button.tsx";
         localStorage.setItem(
-          getRightSidebarLayoutKey(workspaceId),
+          getWorkbenchPanelLayoutKey(minionId),
           JSON.stringify(createFileTabLayout(filePath))
         );
 
         const baseTime = 1700000000000;
-        setReviews(workspaceId, [
+        setReviews(minionId, [
           createReview(
             "review-range-1",
             filePath,
@@ -435,15 +435,15 @@ export const TextFileWithDiff: AppStory = {
             baseTime
           ),
         ]);
-        localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, "600");
+        localStorage.setItem(WORKBENCH_PANEL_WIDTH_KEY, "600");
 
         const fileContents = new Map<string, FileContent>([
           ["src/components/Button.tsx", { type: "text", content: SAMPLE_TS_CONTENT_LONG }],
         ]);
         const fileDiffs = new Map([["src/components/Button.tsx", SAMPLE_DIFF]]);
         const client = setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/button-disabled",
+          minionId,
+          minionName: "feature/button-disabled",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Add disabled state to button", { historySequence: 1 }),
@@ -453,7 +453,7 @@ export const TextFileWithDiff: AppStory = {
           ],
           executeBash: createFileViewerExecuteBash(fileContents, fileDiffs),
         });
-        expandRightSidebar();
+        expandWorkbenchPanel();
         return client;
       }}
     />
@@ -478,20 +478,20 @@ export const ImageFile: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-file-viewer-image";
+        const minionId = "ws-file-viewer-image";
         const filePath = "assets/icon.png";
         localStorage.setItem(
-          getRightSidebarLayoutKey(workspaceId),
+          getWorkbenchPanelLayoutKey(minionId),
           JSON.stringify(createFileTabLayout(filePath))
         );
-        localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, "500");
+        localStorage.setItem(WORKBENCH_PANEL_WIDTH_KEY, "500");
 
         const fileContents = new Map<string, FileContent>([
           ["assets/icon.png", { type: "image", base64: generateTestPng() }],
         ]);
         const client = setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/icons",
+          minionId,
+          minionName: "feature/icons",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Add app icon", { historySequence: 1 }),
@@ -501,7 +501,7 @@ export const ImageFile: AppStory = {
           ],
           executeBash: createFileViewerExecuteBash(fileContents),
         });
-        expandRightSidebar();
+        expandWorkbenchPanel();
         return client;
       }}
     />
@@ -526,18 +526,18 @@ export const BinaryFileError: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-file-viewer-binary";
+        const minionId = "ws-file-viewer-binary";
         const filePath = "build/app.exe";
         localStorage.setItem(
-          getRightSidebarLayoutKey(workspaceId),
+          getWorkbenchPanelLayoutKey(minionId),
           JSON.stringify(createFileTabLayout(filePath))
         );
-        localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, "500");
+        localStorage.setItem(WORKBENCH_PANEL_WIDTH_KEY, "500");
 
         const fileContents = new Map<string, FileContent>([["build/app.exe", { type: "binary" }]]);
         const client = setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/build",
+          minionId,
+          minionName: "feature/build",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Build the app", { historySequence: 1 }),
@@ -547,7 +547,7 @@ export const BinaryFileError: AppStory = {
           ],
           executeBash: createFileViewerExecuteBash(fileContents),
         });
-        expandRightSidebar();
+        expandWorkbenchPanel();
         return client;
       }}
     />
@@ -559,7 +559,7 @@ export const BinaryFileError: AppStory = {
     await canvas.findByRole("tab", { name: /app\.exe/i }, { timeout: 10000 });
 
     // Wait for error message
-    await canvas.findByText(/unable to display binary file/i, {}, { timeout: 5000 });
+    await canvas.findByText(/unable to display binary file/i);
 
     // Double-RAF for scroll stabilization
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
@@ -575,20 +575,20 @@ export const LargeFileError: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-file-viewer-large";
+        const minionId = "ws-file-viewer-large";
         const filePath = "data/dump.sql";
         localStorage.setItem(
-          getRightSidebarLayoutKey(workspaceId),
+          getWorkbenchPanelLayoutKey(minionId),
           JSON.stringify(createFileTabLayout(filePath))
         );
-        localStorage.setItem(RIGHT_SIDEBAR_WIDTH_KEY, "500");
+        localStorage.setItem(WORKBENCH_PANEL_WIDTH_KEY, "500");
 
         const fileContents = new Map<string, FileContent>([
           ["data/dump.sql", { type: "too-large" }],
         ]);
         const client = setupSimpleChatStory({
-          workspaceId,
-          workspaceName: "feature/db",
+          minionId,
+          minionName: "feature/db",
           projectName: "my-app",
           messages: [
             createUserMessage("msg-1", "Export database", { historySequence: 1 }),
@@ -598,7 +598,7 @@ export const LargeFileError: AppStory = {
           ],
           executeBash: createFileViewerExecuteBash(fileContents),
         });
-        expandRightSidebar();
+        expandWorkbenchPanel();
         return client;
       }}
     />
@@ -610,7 +610,7 @@ export const LargeFileError: AppStory = {
     await canvas.findByRole("tab", { name: /dump\.sql/i }, { timeout: 10000 });
 
     // Wait for error message
-    await canvas.findByText(/file is too large/i, {}, { timeout: 5000 });
+    await canvas.findByText(/file is too large/i);
 
     // Double-RAF for scroll stabilization
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));

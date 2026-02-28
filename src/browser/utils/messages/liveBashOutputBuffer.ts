@@ -18,7 +18,7 @@ interface LiveBashOutputSegment {
 }
 
 /**
- * Internal representation used by WorkspaceStore.
+ * Internal representation used by MinionStore.
  *
  * We retain per-chunk segments so we can drop the oldest output first while
  * still rendering stdout and stderr separately.

@@ -11,7 +11,7 @@ describe("projectOrdering", () => {
   const createProjects = (paths: string[]): Map<string, ProjectConfig> => {
     const map = new Map<string, ProjectConfig>();
     for (const p of paths) {
-      map.set(p, { workspaces: [] });
+      map.set(p, { minions: [] });
     }
     return map;
   };
@@ -80,9 +80,9 @@ describe("projectOrdering", () => {
     it("sorts missing projects lexically for deterministic order", () => {
       // Even if Map iteration order is non-lexical, missing projects should be sorted
       const projects = new Map<string, ProjectConfig>([
-        ["/z-project", { workspaces: [] }],
-        ["/a-project", { workspaces: [] }],
-        ["/m-project", { workspaces: [] }],
+        ["/z-project", { minions: [] }],
+        ["/a-project", { minions: [] }],
+        ["/m-project", { minions: [] }],
       ]);
       const order: string[] = []; // empty order, all projects are "missing"
       const result = normalizeOrder(order, projects);
@@ -127,7 +127,7 @@ describe("projectOrdering", () => {
     it("returns empty array when projects Map is empty", () => {
       // This documents the bug scenario:
       // 1. localStorage has projectOrder = ["/a", "/b", "/c"]
-      // 2. Headquarters haven't loaded yet, so projects = new Map()
+      // 2. Projects haven't loaded yet, so projects = new Map()
       // 3. If normalization runs, it would clear the order
       const emptyProjects = createProjects([]);
       const order = ["/a", "/b", "/c"];
@@ -143,7 +143,7 @@ describe("projectOrdering", () => {
     it("normalizes correctly after projects load", () => {
       // After projects load, normalization should work normally:
       // 1. projectOrder is still ["/a", "/b", "/c"] from localStorage
-      // 2. Headquarters are now loaded with an additional project ["/d"]
+      // 2. Projects are now loaded with an additional project ["/d"]
       // 3. Normalization should treat the new project as "most recent" and put it first
       const projectOrder = ["/a", "/b", "/c"];
       const loadedProjects = createProjects(["/a", "/b", "/c", "/d"]);

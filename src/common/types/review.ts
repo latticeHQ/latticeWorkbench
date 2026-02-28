@@ -13,7 +13,7 @@ export type FileChangeType = "added" | "deleted" | "modified" | "renamed";
 export interface DiffHunk {
   /** Unique identifier for this hunk (hash of file path + line ranges) */
   id: string;
-  /** Path to the file relative to workspace root */
+  /** Path to the file relative to minion root */
   filePath: string;
   /** Starting line number in old file */
   oldStart: number;
@@ -37,7 +37,7 @@ export interface DiffHunk {
  * Parsed file diff containing multiple hunks
  */
 export interface FileDiff {
-  /** Path to the file relative to workspace root */
+  /** Path to the file relative to minion root */
   filePath: string;
   /** Old file path (different if renamed) */
   oldPath?: string;
@@ -62,11 +62,11 @@ export interface HunkReadState {
 }
 
 /**
- * Workspace review state (persisted to localStorage)
+ * Minion review state (persisted to localStorage)
  */
 export interface ReviewState {
-  /** Workspace ID this review belongs to */
-  workspaceId: string;
+  /** Minion ID this review belongs to */
+  minionId: string;
   /** Read state keyed by hunk ID */
   readState: Record<string, HunkReadState>;
   /** Timestamp of last update */
@@ -164,12 +164,12 @@ export interface Review {
 }
 
 /**
- * Persisted state for reviews (per workspace)
+ * Persisted state for reviews (per minion)
  * Contains reviews in all states: pending, attached, and checked
  */
 export interface ReviewsState {
-  /** Workspace ID */
-  workspaceId: string;
+  /** Minion ID */
+  minionId: string;
   /** All reviews keyed by ID */
   reviews: Record<string, Review>;
   /** Last update timestamp */

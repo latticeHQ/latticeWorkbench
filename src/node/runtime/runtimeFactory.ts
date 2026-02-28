@@ -1,6 +1,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
-import type { Runtime, WorkspaceInitParams, WorkspaceInitResult } from "./Runtime";
+import type { Runtime, MinionInitParams, MinionInitResult } from "./Runtime";
 import { LocalRuntime } from "./LocalRuntime";
 import { WorktreeRuntime } from "./WorktreeRuntime";
 import { SSHRuntime } from "./SSHRuntime";
@@ -8,18 +8,15 @@ import { LatticeSSHRuntime } from "./LatticeSSHRuntime";
 import { createSSHTransport } from "./transports";
 import { DockerRuntime, getContainerName } from "./DockerRuntime";
 import { DevcontainerRuntime } from "./DevcontainerRuntime";
-import { RemoteRuntime } from "./RemoteRuntime";
 import type { RuntimeConfig, RuntimeMode, RuntimeAvailabilityStatus } from "@/common/types/runtime";
 import { hasSrcBaseDir } from "@/common/types/runtime";
 import { isIncompatibleRuntimeConfig } from "@/common/utils/runtimeCompatibility";
 import { execAsync } from "@/node/utils/disposableExec";
 import type { LatticeService } from "@/node/services/latticeService";
-import type { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
 import { Config } from "@/node/config";
 import { checkDevcontainerCliVersion } from "./devcontainerCli";
 import { buildDevcontainerConfigInfo, scanDevcontainerConfigs } from "./devcontainerConfigs";
-import { bootstrapAgentsOnRemote } from "./agentBootstrap";
-import { log } from "@/node/services/log";
+import { getErrorMessage } from "@/common/utils/errors";
 
 // Re-export for backward compatibility with existing imports
 export { isIncompatibleRuntimeConfig };
@@ -37,60 +34,37 @@ export function setGlobalLatticeService(service: LatticeService): void {
 }
 
 /**
- * Run the full init sequence: postCreateSetup (if present) then initWorkspace.
- * Use this everywhere instead of calling initWorkspace directly to ensure
+ * Run the full init sequence: postCreateSetup (if present) then initMinion.
+ * Use this everywhere instead of calling initMinion directly to ensure
  * runtimes with provisioning steps (Docker, LatticeSSH) work correctly.
- *
- * When cliAgentDetectionService is provided and the runtime is remote (SSH/Docker),
- * locally-detected CLI agents are automatically installed on the remote before
- * initWorkspace runs. This ensures hire_employee works out of the box.
  */
 export async function runFullInit(
   runtime: Runtime,
-  params: WorkspaceInitParams,
-  cliAgentDetectionService?: CliAgentDetectionService
-): Promise<WorkspaceInitResult> {
+  params: MinionInitParams
+): Promise<MinionInitResult> {
   if (runtime.postCreateSetup) {
     await runtime.postCreateSetup(params);
   }
-
-  // Auto-install CLI agents on remote runtimes (SSH, Docker)
-  if (cliAgentDetectionService && runtime instanceof RemoteRuntime) {
-    try {
-      await bootstrapAgentsOnRemote(
-        runtime,
-        params.initLogger,
-        cliAgentDetectionService,
-        params.abortSignal
-      );
-    } catch (err) {
-      // Non-fatal: log but continue with workspace init
-      const msg = err instanceof Error ? err.message : String(err);
-      params.initLogger.logStderr(`Agent bootstrap failed: ${msg}`);
-      log.warn("[agent-bootstrap] Failed", { error: msg });
-    }
-  }
-
-  return runtime.initWorkspace(params);
+  return runtime.initMinion(params);
 }
 
 /**
  * Fire-and-forget init with standardized error handling.
- * Use this for background init after workspace creation (workspaceService, taskService).
+ * Use this for background init after minion creation (minionService, taskService).
  */
+
 export function runBackgroundInit(
   runtime: Runtime,
-  params: WorkspaceInitParams,
-  workspaceId: string,
-  logger?: { error: (msg: string, ctx: object) => void },
-  cliAgentDetectionService?: CliAgentDetectionService
+  params: MinionInitParams,
+  minionId: string,
+  logger?: { error: (msg: string, ctx: object) => void }
 ): void {
   void (async () => {
     try {
-      await runFullInit(runtime, params, cliAgentDetectionService);
+      await runFullInit(runtime, params);
     } catch (error: unknown) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      logger?.error(`Workspace init failed for ${workspaceId}:`, { error });
+      const errorMsg = getErrorMessage(error);
+      logger?.error(`Minion init failed for ${minionId}:`, { error });
       params.initLogger.logStderr(`Initialization failed: ${errorMsg}`);
       params.initLogger.logComplete(-1);
     }
@@ -108,7 +82,7 @@ function shouldUseSSH2Runtime(): boolean {
 }
 
 /**
- * Error thrown when a workspace has an incompatible runtime configuration,
+ * Error thrown when a minion has an incompatible runtime configuration,
  * typically from a newer version of lattice that added new runtime types.
  */
 export class IncompatibleRuntimeError extends Error {
@@ -123,16 +97,16 @@ export class IncompatibleRuntimeError extends Error {
  */
 export interface CreateRuntimeOptions {
   /**
-   * Headquarter path - required for project-dir local runtimes (type: "local" without srcBaseDir).
-   * For Docker runtimes with existing workspaces, used together with workspaceName to derive container name.
-   * For other runtime types, this is optional and used only for getWorkspacePath calculations.
+   * Project path - required for project-dir local runtimes (type: "local" without srcBaseDir).
+   * For Docker runtimes with existing minions, used together with minionName to derive container name.
+   * For other runtime types, this is optional and used only for getMinionPath calculations.
    */
   projectPath?: string;
   /**
-   * Workspace name - required for Docker runtimes when connecting to an existing workspace.
+   * Minion name - required for Docker runtimes when connecting to an existing minion.
    * Used together with projectPath to derive the container name.
    */
-  workspaceName?: string;
+  minionName?: string;
   /**
    * Lattice service - required for SSH runtimes with Lattice configuration.
    * When provided and config has lattice field, returns a Lattice SSH runtime (SSH/SSH2).
@@ -144,7 +118,7 @@ export interface CreateRuntimeOptions {
  * Create a Runtime instance based on the configuration.
  *
  * Handles runtime types:
- * - "local" without srcBaseDir: Headquarter-dir runtime (no isolation) - requires projectPath in options
+ * - "local" without srcBaseDir: Project-dir runtime (no isolation) - requires projectPath in options
  * - "local" with srcBaseDir: Legacy worktree config (backward compat)
  * - "worktree": Explicit worktree runtime
  * - "ssh": Remote SSH runtime
@@ -154,8 +128,8 @@ export function createRuntime(config: RuntimeConfig, options?: CreateRuntimeOpti
   // Check for incompatible configs from newer versions
   if (isIncompatibleRuntimeConfig(config)) {
     throw new IncompatibleRuntimeError(
-      `This workspace uses a runtime configuration from a newer version of lattice. ` +
-        `Please upgrade lattice to use this workspace.`
+      `This minion uses a runtime configuration from a newer version of lattice. ` +
+        `Please upgrade lattice to use this minion.`
     );
   }
 
@@ -165,9 +139,12 @@ export function createRuntime(config: RuntimeConfig, options?: CreateRuntimeOpti
       // or new "local" without srcBaseDir (= project-dir semantics)
       if (hasSrcBaseDir(config)) {
         // Legacy: "local" with srcBaseDir is treated as worktree
-        return new WorktreeRuntime(config.srcBaseDir);
+        return new WorktreeRuntime(config.srcBaseDir, {
+          projectPath: options?.projectPath,
+          minionName: options?.minionName,
+        });
       }
-      // Headquarter-dir: uses project path directly, no isolation
+      // Project-dir: uses project path directly, no isolation
       if (!options?.projectPath) {
         throw new Error(
           "LocalRuntime requires projectPath in options for project-dir config (type: 'local' without srcBaseDir)"
@@ -176,7 +153,10 @@ export function createRuntime(config: RuntimeConfig, options?: CreateRuntimeOpti
       return new LocalRuntime(options.projectPath);
 
     case "worktree":
-      return new WorktreeRuntime(config.srcBaseDir);
+      return new WorktreeRuntime(config.srcBaseDir, {
+        projectPath: options?.projectPath,
+        minionName: options?.minionName,
+      });
 
     case "ssh": {
       const sshConfig = {
@@ -197,21 +177,23 @@ export function createRuntime(config: RuntimeConfig, options?: CreateRuntimeOpti
         if (!latticeService) {
           throw new Error("Lattice runtime requested but LatticeService is not initialized");
         }
-        return new LatticeSSHRuntime(
-          { ...sshConfig, lattice: config.lattice },
-          transport,
-          latticeService
-        );
+        return new LatticeSSHRuntime({ ...sshConfig, lattice: config.lattice }, transport, latticeService, {
+          projectPath: options?.projectPath,
+          minionName: options?.minionName,
+        });
       }
 
-      return new SSHRuntime(sshConfig, transport);
+      return new SSHRuntime(sshConfig, transport, {
+        projectPath: options?.projectPath,
+        minionName: options?.minionName,
+      });
     }
 
     case "docker": {
-      // For existing workspaces, derive container name from project+workspace
+      // For existing minions, derive container name from project+minion
       const containerName =
-        options?.projectPath && options?.workspaceName
-          ? getContainerName(options.projectPath, options.workspaceName)
+        options?.projectPath && options?.minionName
+          ? getContainerName(options.projectPath, options.minionName)
           : config.containerName;
       return new DockerRuntime({
         image: config.image,
@@ -228,10 +210,10 @@ export function createRuntime(config: RuntimeConfig, options?: CreateRuntimeOpti
         configPath: config.configPath,
         shareCredentials: config.shareCredentials,
       });
-      // Set workspace path for existing workspaces
-      if (options?.projectPath && options?.workspaceName) {
-        runtime.setCurrentWorkspacePath(
-          runtime.getWorkspacePath(options.projectPath, options.workspaceName)
+      // Set minion path for existing minions
+      if (options?.projectPath && options?.minionName) {
+        runtime.setCurrentMinionPath(
+          runtime.getMinionPath(options.projectPath, options.minionName)
         );
       }
       return runtime;
@@ -248,7 +230,7 @@ export function createRuntime(config: RuntimeConfig, options?: CreateRuntimeOpti
  * Helper to check if a runtime config requires projectPath for createRuntime.
  */
 export function runtimeRequiresProjectPath(config: RuntimeConfig): boolean {
-  // Headquarter-dir local runtime (no srcBaseDir) requires projectPath
+  // Project-dir local runtime (no srcBaseDir) requires projectPath
   return config.type === "local" && !hasSrcBaseDir(config);
 }
 

@@ -43,34 +43,34 @@ function normalizePathSeparators(path: string): string {
 }
 
 function mapHostPathToContainerPath(options: {
-  hostWorkspacePath: string;
-  containerWorkspacePath: string;
+  hostMinionPath: string;
+  containerMinionPath: string;
   targetPath: string;
 }): string {
   // Normalize backslashes for Windows compatibility
-  const hostWorkspacePath = trimTrailingSlash(normalizePathSeparators(options.hostWorkspacePath));
-  const containerWorkspacePath = trimTrailingSlash(options.containerWorkspacePath);
+  const hostMinionPath = trimTrailingSlash(normalizePathSeparators(options.hostMinionPath));
+  const containerMinionPath = trimTrailingSlash(options.containerMinionPath);
   const targetPath = trimTrailingSlash(normalizePathSeparators(options.targetPath));
 
-  if (targetPath === hostWorkspacePath) {
-    return containerWorkspacePath || "/";
+  if (targetPath === hostMinionPath) {
+    return containerMinionPath || "/";
   }
 
-  const prefix = `${hostWorkspacePath}/`;
+  const prefix = `${hostMinionPath}/`;
   if (targetPath.startsWith(prefix)) {
-    const relative = targetPath.slice(hostWorkspacePath.length);
+    const relative = targetPath.slice(hostMinionPath.length);
     if (!relative) {
-      return containerWorkspacePath || "/";
+      return containerMinionPath || "/";
     }
 
-    if (containerWorkspacePath === "/") {
+    if (containerMinionPath === "/") {
       return relative;
     }
 
-    return `${containerWorkspacePath}${relative}`;
+    return `${containerMinionPath}${relative}`;
   }
 
-  return containerWorkspacePath || "/";
+  return containerMinionPath || "/";
 }
 
 /**
@@ -85,14 +85,14 @@ function getParentDirectory(path: string): string {
 export async function openInEditor(args: {
   api: APIClient | null | undefined;
   openSettings?: (section?: string) => void;
-  workspaceId: string;
+  minionId: string;
   targetPath: string;
   runtimeConfig?: RuntimeConfig;
   /**
    * When true, indicates targetPath is a file.
    *
    * Some deep link formats (e.g. VS Code's Docker attached-container URI) can only
-   * open folders/workspaces, so we fall back to opening the parent directory.
+   * open folders/minions, so we fall back to opening the parent directory.
    */
   isFile?: boolean;
 }): Promise<OpenInEditorResult> {
@@ -107,17 +107,17 @@ export async function openInEditor(args: {
     return { success: false, error: "Please configure a custom editor command in Settings" };
   }
 
-  // For SSH workspaces, validate the editor supports SSH connections
+  // For SSH minions, validate the editor supports SSH connections
   if (isSSH) {
     if (editorConfig.editor === "custom") {
       return {
         success: false,
-        error: "Custom editors do not support SSH connections for SSH workspaces",
+        error: "Custom editors do not support SSH connections for SSH minions",
       };
     }
   }
 
-  // Docker workspaces always use deep links (VS Code connects to container remotely)
+  // Docker minions always use deep links (VS Code connects to container remotely)
   if (isDocker && args.runtimeConfig?.type === "docker") {
     if (editorConfig.editor === "zed") {
       return { success: false, error: "Zed does not support Docker containers" };
@@ -130,11 +130,11 @@ export async function openInEditor(args: {
     if (!containerName) {
       return {
         success: false,
-        error: "Container name not available. Try reopening the workspace.",
+        error: "Container name not available. Try reopening the minion.",
       };
     }
 
-    // VS Code's attached-container URI scheme only supports opening folders as workspaces,
+    // VS Code's attached-container URI scheme only supports opening folders as minions,
     // not individual files. Open the parent directory so the file is visible in the file tree.
     const targetDir = args.isFile ? getParentDirectory(args.targetPath) : args.targetPath;
     const deepLink = getDockerDeepLink({
@@ -151,7 +151,7 @@ export async function openInEditor(args: {
     return { success: true };
   }
 
-  // Devcontainer workspaces use deep links with container info from backend
+  // Devcontainer minions use deep links with container info from backend
   const isDevcontainer = isDevcontainerRuntime(args.runtimeConfig);
   if (isDevcontainer && args.runtimeConfig?.type === "devcontainer") {
     if (editorConfig.editor === "zed") {
@@ -162,23 +162,23 @@ export async function openInEditor(args: {
     }
 
     // Fetch container info from backend (on-demand discovery)
-    const info = await args.api?.workspace.getDevcontainerInfo({ workspaceId: args.workspaceId });
+    const info = await args.api?.minion.getDevcontainerInfo({ minionId: args.minionId });
     if (!info) {
       return {
         success: false,
-        error: "Dev Container not running. Try reopening the workspace.",
+        error: "Dev Container not running. Try reopening the minion.",
       };
     }
 
-    // VS Code's dev-container URI scheme only supports opening folders as workspaces,
+    // VS Code's dev-container URI scheme only supports opening folders as minions,
     // not individual files. Open the parent directory so the file is visible in the file tree.
     const normalizedTargetPath = normalizePathSeparators(args.targetPath);
     const targetDir = args.isFile ? getParentDirectory(normalizedTargetPath) : normalizedTargetPath;
 
-    const hostWorkspacePath = trimTrailingSlash(info.hostWorkspacePath);
+    const hostMinionPath = trimTrailingSlash(info.hostMinionPath);
     const containerPath = mapHostPathToContainerPath({
-      hostWorkspacePath,
-      containerWorkspacePath: info.containerWorkspacePath,
+      hostMinionPath,
+      containerMinionPath: info.containerMinionPath,
       targetPath: targetDir,
     });
 
@@ -186,13 +186,13 @@ export async function openInEditor(args: {
     const configFilePath = args.runtimeConfig.configPath
       ? isAbsolutePath(args.runtimeConfig.configPath)
         ? args.runtimeConfig.configPath
-        : `${hostWorkspacePath}/${args.runtimeConfig.configPath}`
+        : `${hostMinionPath}/${args.runtimeConfig.configPath}`
       : undefined;
 
     const deepLink = getDevcontainerDeepLink({
       editor: editorConfig.editor as DeepLinkEditor,
       containerName: info.containerName,
-      hostPath: hostWorkspacePath,
+      hostPath: hostMinionPath,
       containerPath,
       configFilePath,
     });
@@ -210,17 +210,17 @@ export async function openInEditor(args: {
     // Determine SSH host for deep link
     let sshHost: string | undefined;
     if (isSSH && args.runtimeConfig?.type === "ssh") {
-      // SSH workspace: use the configured SSH host
+      // SSH minion: use the configured SSH host
       sshHost = args.runtimeConfig.host;
       if (editorConfig.editor === "zed" && args.runtimeConfig.port != null) {
         sshHost = sshHost + ":" + args.runtimeConfig.port;
       }
     } else if (isBrowserMode && !isLocalhost(window.location.hostname)) {
-      // Remote server + local workspace: need SSH to reach server's files
+      // Remote server + local minion: need SSH to reach server's files
       const serverSshHost = await args.api?.server.getSshHost();
       sshHost = serverSshHost ?? window.location.hostname;
     }
-    // else: localhost access to local workspace → no SSH needed
+    // else: localhost access to local minion → no SSH needed
 
     // VS Code/Cursor SSH deep links treat the path as a folder unless a line/column is present.
     const deepLink = getEditorDeepLink({
@@ -253,7 +253,7 @@ export async function openInEditor(args: {
   }
 
   const result = await args.api?.general.openInEditor({
-    workspaceId: args.workspaceId,
+    minionId: args.minionId,
     targetPath: args.targetPath,
     editorConfig,
   });

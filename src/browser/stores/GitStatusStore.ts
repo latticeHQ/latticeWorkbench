@@ -1,31 +1,31 @@
 import type { RouterClient } from "@orpc/server";
 import type { AppRouter } from "@/node/orpc/router";
-import type { FrontendWorkspaceMetadata, GitStatus } from "@/common/types/workspace";
+import type { FrontendMinionMetadata, GitStatus } from "@/common/types/minion";
 import {
   generateGitStatusScript,
   GIT_FETCH_SCRIPT,
   parseGitStatusScriptOutput,
 } from "@/common/utils/git/gitStatus";
 import { readPersistedState } from "@/browser/hooks/usePersistedState";
-import { STORAGE_KEYS, WORKSPACE_DEFAULTS } from "@/constants/workspaceDefaults";
+import { STORAGE_KEYS, MINION_DEFAULTS } from "@/constants/minionDefaults";
 import { useSyncExternalStore } from "react";
 import { MapStore } from "./MapStore";
 import { isSSHRuntime } from "@/common/types/runtime";
 import { RefreshController } from "@/browser/utils/RefreshController";
 
 /**
- * External store for git status of all workspaces.
+ * External store for git status of all minions.
  *
  * Architecture:
  * - Lives outside React lifecycle (stable references)
  * - Event-driven updates (no polling):
  *   - Initial subscription triggers immediate fetch
  *   - File-modifying tools trigger debounced refresh (3s)
- *   - Window focus triggers refresh for visible workspaces
+ *   - Window focus triggers refresh for visible minions
  *   - Explicit invalidation (branch switch, etc.)
  * - Manages git fetch with exponential backoff
  * - Notifies subscribers when status changes
- * - Components only re-render when their specific workspace status changes
+ * - Components only re-render when their specific minion status changes
  *
  * Uses RefreshController for debouncing, focus handling, and in-flight guards.
  */
@@ -48,7 +48,7 @@ export class GitStatusStore {
   private fetchCache = new Map<string, FetchState>();
   private client: RouterClient<AppRouter> | null = null;
   private immediateUpdateQueued = false;
-  private workspaceMetadata = new Map<string, FrontendWorkspaceMetadata>();
+  private minionMetadata = new Map<string, FrontendMinionMetadata>();
   private isActive = true;
 
   // File modification subscription
@@ -57,11 +57,19 @@ export class GitStatusStore {
   // RefreshController handles debouncing, focus/visibility, and in-flight guards
   private readonly refreshController: RefreshController;
 
-  // Per-workspace refreshing state for UI shimmer effects
-  private refreshingWorkspaces = new MapStore<string, boolean>();
+  // Per-minion refreshing state for UI shimmer effects
+  private refreshingMinions = new MapStore<string, boolean>();
 
-  setClient(client: RouterClient<AppRouter>) {
+  setClient(client: RouterClient<AppRouter> | null): void {
     this.client = client;
+
+    if (!client) {
+      return;
+    }
+
+    if (this.minionMetadata.size > 0) {
+      this.refreshController.requestImmediate();
+    }
   }
 
   constructor() {
@@ -75,17 +83,17 @@ export class GitStatusStore {
   }
 
   /**
-   * Subscribe to git status changes (any workspace).
+   * Subscribe to git status changes (any minion).
    * Delegates to MapStore's subscribeAny.
    */
   subscribe = this.statuses.subscribeAny;
 
   /**
-   * Subscribe to git status changes for a specific workspace.
-   * Only notified when this workspace's status changes.
+   * Subscribe to git status changes for a specific minion.
+   * Only notified when this minion's status changes.
    */
-  subscribeKey = (workspaceId: string, listener: () => void) => {
-    const unsubscribe = this.statuses.subscribeKey(workspaceId, listener);
+  subscribeKey = (minionId: string, listener: () => void) => {
+    const unsubscribe = this.statuses.subscribeKey(minionId, listener);
 
     // If a component subscribes after initial load, kick an immediate update
     // so the UI doesn't wait. Uses microtask to batch multiple subscriptions.
@@ -102,54 +110,54 @@ export class GitStatusStore {
   };
 
   /**
-   * Get git status for a specific workspace.
+   * Get git status for a specific minion.
    * Returns cached status or null if never fetched.
    */
-  getStatus(workspaceId: string): GitStatus | null {
-    // If workspace has never been checked, return null
-    if (!this.statuses.has(workspaceId)) {
+  getStatus(minionId: string): GitStatus | null {
+    // If minion has never been checked, return null
+    if (!this.statuses.has(minionId)) {
       return null;
     }
 
     // Return cached status (lazy computation)
-    return this.statuses.get(workspaceId, () => {
-      return this.statusCache.get(workspaceId) ?? null;
+    return this.statuses.get(minionId, () => {
+      return this.statusCache.get(minionId) ?? null;
     });
   }
 
   /**
-   * Invalidate status for a workspace, triggering immediate refresh.
+   * Invalidate status for a minion, triggering immediate refresh.
    * Call after operations that change git state (e.g., branch switch).
    *
    * Note: Old status is preserved during refresh to avoid UI flash.
-   * Components can use isWorkspaceRefreshing() to show a shimmer effect.
+   * Components can use isMinionRefreshing() to show a shimmer effect.
    */
-  invalidateWorkspace(workspaceId: string): void {
+  invalidateMinion(minionId: string): void {
     // Increment generation to mark any in-flight status checks as stale
-    const currentGen = this.invalidationGeneration.get(workspaceId) ?? 0;
-    this.invalidationGeneration.set(workspaceId, currentGen + 1);
-    // Mark workspace as refreshing (for shimmer effect)
-    this.setWorkspaceRefreshing(workspaceId, true);
+    const currentGen = this.invalidationGeneration.get(minionId) ?? 0;
+    this.invalidationGeneration.set(minionId, currentGen + 1);
+    // Mark minion as refreshing (for shimmer effect)
+    this.setMinionRefreshing(minionId, true);
     // Trigger immediate refresh (routes through RefreshController for in-flight guard)
     this.refreshController.requestImmediate();
   }
 
   /**
-   * Set the refreshing state for a workspace and notify subscribers.
+   * Set the refreshing state for a minion and notify subscribers.
    */
-  private setWorkspaceRefreshing(workspaceId: string, refreshing: boolean): void {
-    this.refreshingWorkspaces.bump(workspaceId);
+  private setMinionRefreshing(minionId: string, refreshing: boolean): void {
+    this.refreshingMinions.bump(minionId);
     // Store the actual value in a simple map (MapStore is for notifications)
-    this.refreshingWorkspacesCache.set(workspaceId, refreshing);
+    this.refreshingMinionsCache.set(minionId, refreshing);
   }
 
-  private refreshingWorkspacesCache = new Map<string, boolean>();
+  private refreshingMinionsCache = new Map<string, boolean>();
 
   /**
-   * Check if a workspace is currently refreshing.
+   * Check if a minion is currently refreshing.
    */
-  isWorkspaceRefreshing(workspaceId: string): boolean {
-    return this.refreshingWorkspacesCache.get(workspaceId) ?? false;
+  isMinionRefreshing(minionId: string): boolean {
+    return this.refreshingMinionsCache.get(minionId) ?? false;
   }
 
   /**
@@ -161,10 +169,10 @@ export class GitStatusStore {
   }
 
   /**
-   * Subscribe to refreshing state changes for a specific workspace.
+   * Subscribe to refreshing state changes for a specific minion.
    */
-  subscribeRefreshingKey = (workspaceId: string, listener: () => void) => {
-    return this.refreshingWorkspaces.subscribeKey(workspaceId, listener);
+  subscribeRefreshingKey = (minionId: string, listener: () => void) => {
+    return this.refreshingMinions.subscribeKey(minionId, listener);
   };
 
   private statusCache = new Map<string, GitStatus | null>();
@@ -173,19 +181,19 @@ export class GitStatusStore {
   private invalidationGeneration = new Map<string, number>();
 
   /**
-   * Sync workspaces with metadata.
-   * Called when workspace list changes.
+   * Sync minions with metadata.
+   * Called when minion list changes.
    */
-  syncWorkspaces(metadata: Map<string, FrontendWorkspaceMetadata>): void {
+  syncMinions(metadata: Map<string, FrontendMinionMetadata>): void {
     // Reactivate if disposed by React Strict Mode (dev only)
     // In dev, Strict Mode unmounts/remounts, disposing the store but reusing the ref
     if (!this.isActive && metadata.size > 0) {
       this.isActive = true;
     }
 
-    this.workspaceMetadata = metadata;
+    this.minionMetadata = metadata;
 
-    // Remove statuses for deleted workspaces
+    // Remove statuses for deleted minions
     // Iterate plain map (statusCache) for membership, not reactive store
     for (const id of Array.from(this.statusCache.keys())) {
       if (!metadata.has(id)) {
@@ -198,46 +206,46 @@ export class GitStatusStore {
     // Bind focus/visibility listeners once (catches external git changes)
     this.refreshController.bindListeners();
 
-    // Initial fetch for all workspaces (routes through RefreshController)
+    // Initial fetch for all minions (routes through RefreshController)
     this.refreshController.requestImmediate();
   }
 
   /**
-   * Update git status for all workspaces.
+   * Update git status for all minions.
    */
   private async updateGitStatus(): Promise<void> {
-    if (this.workspaceMetadata.size === 0 || !this.isActive) {
+    if (this.minionMetadata.size === 0 || !this.isActive) {
       return;
     }
 
-    // Only poll workspaces that have active subscribers
-    const workspaces = Array.from(this.workspaceMetadata.values()).filter((ws) =>
+    // Only poll minions that have active subscribers
+    const minions = Array.from(this.minionMetadata.values()).filter((ws) =>
       this.statuses.hasKeySubscribers(ws.id)
     );
 
-    if (workspaces.length === 0) {
+    if (minions.length === 0) {
       return;
     }
 
-    // Capture current generation for each workspace to detect stale results
+    // Capture current generation for each minion to detect stale results
     const generationSnapshot = new Map<string, number>();
-    for (const ws of workspaces) {
+    for (const ws of minions) {
       generationSnapshot.set(ws.id, this.invalidationGeneration.get(ws.id) ?? 0);
     }
 
-    // Try to fetch workspaces that need it (background, non-blocking)
-    const workspacesMap = new Map(workspaces.map((ws) => [ws.id, ws]));
-    this.tryFetchWorkspaces(workspacesMap);
+    // Try to fetch minions that need it (background, non-blocking)
+    const minionsMap = new Map(minions.map((ws) => [ws.id, ws]));
+    this.tryFetchMinions(minionsMap);
 
-    // Query git status for each workspace
+    // Query git status for each minion
     // Rate limit: Process in batches to prevent bash process explosion
     const results: Array<[string, GitStatus | null]> = [];
 
-    for (let i = 0; i < workspaces.length; i += MAX_CONCURRENT_GIT_OPS) {
+    for (let i = 0; i < minions.length; i += MAX_CONCURRENT_GIT_OPS) {
       if (!this.isActive) break; // Stop if disposed
 
-      const batch = workspaces.slice(i, i + MAX_CONCURRENT_GIT_OPS);
-      const batchPromises = batch.map((metadata) => this.checkWorkspaceStatus(metadata));
+      const batch = minions.slice(i, i + MAX_CONCURRENT_GIT_OPS);
+      const batchPromises = batch.map((metadata) => this.checkMinionStatus(metadata));
 
       const batchResults = await Promise.all(batchPromises);
       results.push(...batchResults);
@@ -246,29 +254,29 @@ export class GitStatusStore {
     if (!this.isActive) return; // Don't update state if disposed
 
     // Update statuses - bump version if changed
-    for (const [workspaceId, newStatus] of results) {
+    for (const [minionId, newStatus] of results) {
       // Skip stale results: if generation changed since we started, the result is outdated
-      const snapshotGen = generationSnapshot.get(workspaceId) ?? 0;
-      const currentGen = this.invalidationGeneration.get(workspaceId) ?? 0;
+      const snapshotGen = generationSnapshot.get(minionId) ?? 0;
+      const currentGen = this.invalidationGeneration.get(minionId) ?? 0;
       if (snapshotGen !== currentGen) {
         // Status was invalidated during check - discard this stale result
         continue;
       }
 
       // Clear refreshing state now that we have a result
-      if (this.refreshingWorkspacesCache.get(workspaceId)) {
-        this.setWorkspaceRefreshing(workspaceId, false);
+      if (this.refreshingMinionsCache.get(minionId)) {
+        this.setMinionRefreshing(minionId, false);
       }
 
-      const oldStatus = this.statusCache.get(workspaceId) ?? null;
+      const oldStatus = this.statusCache.get(minionId) ?? null;
 
       // Check if status actually changed (cheap for simple objects)
       if (!this.areStatusesEqual(oldStatus, newStatus)) {
         // Only update cache on successful status check (preserve old status on failure)
         // This prevents UI flicker when git operations timeout or fail transiently
         if (newStatus !== null) {
-          this.statusCache.set(workspaceId, newStatus);
-          this.statuses.bump(workspaceId); // Invalidate cache + notify
+          this.statusCache.set(minionId, newStatus);
+          this.statuses.bump(minionId); // Invalidate cache + notify
         }
         // On failure (newStatus === null): keep old status, don't bump (no re-render)
       }
@@ -284,6 +292,7 @@ export class GitStatusStore {
     if (a === null || b === null) return false;
 
     return (
+      a.branch === b.branch &&
       a.ahead === b.ahead &&
       a.behind === b.behind &&
       a.dirty === b.dirty &&
@@ -295,10 +304,10 @@ export class GitStatusStore {
   }
 
   /**
-   * Check git status for a single workspace.
+   * Check git status for a single minion.
    */
-  private async checkWorkspaceStatus(
-    metadata: FrontendWorkspaceMetadata
+  private async checkMinionStatus(
+    metadata: FrontendMinionMetadata
   ): Promise<[string, GitStatus | null]> {
     // Defensive: Return null if client is unavailable
     if (!this.client) {
@@ -306,11 +315,11 @@ export class GitStatusStore {
     }
 
     try {
-      // Use the same diff base as the review panel (per-workspace override,
+      // Use the same diff base as the review panel (per-minion override,
       // falling back to the project default).
       const projectDefaultBase = readPersistedState<string>(
         STORAGE_KEYS.reviewDefaultBase(metadata.projectPath),
-        WORKSPACE_DEFAULTS.reviewBase
+        MINION_DEFAULTS.reviewBase
       );
       const baseRef = readPersistedState<string>(
         STORAGE_KEYS.reviewDiffBase(metadata.id),
@@ -320,8 +329,8 @@ export class GitStatusStore {
       // Generate script with the configured base ref
       const script = generateGitStatusScript(baseRef);
 
-      const result = await this.client.workspace.executeBash({
-        workspaceId: metadata.id,
+      const result = await this.client.minion.executeBash({
+        minionId: metadata.id,
         script,
         options: { timeout_secs: 5 },
       });
@@ -355,6 +364,7 @@ export class GitStatusStore {
       }
 
       const {
+        headBranch,
         ahead,
         behind,
         dirtyCount,
@@ -368,6 +378,7 @@ export class GitStatusStore {
       return [
         metadata.id,
         {
+          branch: headBranch,
           ahead,
           behind,
           dirty,
@@ -385,27 +396,27 @@ export class GitStatusStore {
   }
 
   /**
-   * Get a unique fetch key for a workspace.
-   * For local workspaces: project name (shared git repo)
-   * For SSH workspaces: workspace ID (each has its own git repo)
+   * Get a unique fetch key for a minion.
+   * For local minions: project name (shared git repo)
+   * For SSH minions: minion ID (each has its own git repo)
    */
-  private getFetchKey(metadata: FrontendWorkspaceMetadata): string {
+  private getFetchKey(metadata: FrontendMinionMetadata): string {
     const isSSH = isSSHRuntime(metadata.runtimeConfig);
     return isSSH ? metadata.id : metadata.projectName;
   }
 
   /**
-   * Try to fetch workspaces that need it most urgently.
-   * For SSH workspaces: each workspace has its own repo, so fetch each one.
-   * For local workspaces: workspaces share a repo, so fetch once per project.
+   * Try to fetch minions that need it most urgently.
+   * For SSH minions: each minion has its own repo, so fetch each one.
+   * For local minions: minions share a repo, so fetch once per project.
    */
-  private tryFetchWorkspaces(workspaces: Map<string, FrontendWorkspaceMetadata>): void {
-    // Find the workspace that needs fetching most urgently
+  private tryFetchMinions(minions: Map<string, FrontendMinionMetadata>): void {
+    // Find the minion that needs fetching most urgently
     let targetFetchKey: string | null = null;
-    let targetWorkspaceId: string | null = null;
+    let targetMinionId: string | null = null;
     let oldestTime = Date.now();
 
-    for (const metadata of workspaces.values()) {
+    for (const metadata of minions.values()) {
       const fetchKey = this.getFetchKey(metadata);
 
       if (this.shouldFetch(fetchKey)) {
@@ -415,19 +426,19 @@ export class GitStatusStore {
         if (lastFetch < oldestTime) {
           oldestTime = lastFetch;
           targetFetchKey = fetchKey;
-          targetWorkspaceId = metadata.id;
+          targetMinionId = metadata.id;
         }
       }
     }
 
-    if (targetFetchKey && targetWorkspaceId) {
+    if (targetFetchKey && targetMinionId) {
       // Fetch in background (don't await - don't block status checks)
-      void this.fetchWorkspace(targetFetchKey, targetWorkspaceId);
+      void this.fetchMinion(targetFetchKey, targetMinionId);
     }
   }
 
   /**
-   * Check if a workspace/project should be fetched.
+   * Check if a minion/project should be fetched.
    */
   private shouldFetch(fetchKey: string): boolean {
     const cached = this.fetchCache.get(fetchKey);
@@ -443,11 +454,11 @@ export class GitStatusStore {
   }
 
   /**
-   * Fetch updates for a workspace.
-   * For local workspaces: fetches the shared project repo.
-   * For SSH workspaces: fetches the workspace's individual repo.
+   * Fetch updates for a minion.
+   * For local minions: fetches the shared project repo.
+   * For SSH minions: fetches the minion's individual repo.
    */
-  private async fetchWorkspace(fetchKey: string, workspaceId: string): Promise<void> {
+  private async fetchMinion(fetchKey: string, minionId: string): Promise<void> {
     // Defensive: Return early if client is unavailable
     if (!this.client) {
       return;
@@ -465,8 +476,8 @@ export class GitStatusStore {
     this.fetchCache.set(fetchKey, { ...cache, inProgress: true });
 
     try {
-      const result = await this.client.workspace.executeBash({
-        workspaceId,
+      const result = await this.client.minion.executeBash({
+        minionId,
         script: GIT_FETCH_SCRIPT,
         options: { timeout_secs: 30 },
       });
@@ -515,8 +526,8 @@ export class GitStatusStore {
   dispose(): void {
     this.isActive = false;
     this.statuses.clear();
-    this.refreshingWorkspaces.clear();
-    this.refreshingWorkspacesCache.clear();
+    this.refreshingMinions.clear();
+    this.refreshingMinionsCache.clear();
     this.fetchCache.clear();
     this.fileModifyUnsubscribe?.();
     this.fileModifyUnsubscribe = null;
@@ -524,21 +535,21 @@ export class GitStatusStore {
   }
 
   /**
-   * Subscribe to file-modifying tool completions from WorkspaceStore.
+   * Subscribe to file-modifying tool completions from MinionStore.
    * Triggers debounced git status refresh when files change.
    * Idempotent: only subscribes once, subsequent calls are no-ops.
    */
   subscribeToFileModifications(
-    subscribeAny: (listener: (workspaceId: string) => void) => () => void
+    subscribeAny: (listener: (minionId: string) => void) => () => void
   ): void {
     // Only subscribe once - subsequent calls are no-ops
     if (this.fileModifyUnsubscribe) {
       return;
     }
 
-    this.fileModifyUnsubscribe = subscribeAny((workspaceId) => {
-      // Only schedule if workspace has subscribers (same optimization as before)
-      if (!this.statuses.hasKeySubscribers(workspaceId)) {
+    this.fileModifyUnsubscribe = subscribeAny((minionId) => {
+      // Only schedule if minion has subscribers (same optimization as before)
+      if (!this.statuses.hasKeySubscribers(minionId)) {
         return;
       }
 
@@ -564,31 +575,31 @@ function getGitStoreInstance(): GitStatusStore {
 }
 
 /**
- * Hook to get git status for a specific workspace.
- * Only re-renders when THIS workspace's status changes.
+ * Hook to get git status for a specific minion.
+ * Only re-renders when THIS minion's status changes.
  *
  * Uses per-key subscription for surgical updates - only notified when
- * this specific workspace's git status changes.
+ * this specific minion's git status changes.
  */
-export function useGitStatus(workspaceId: string): GitStatus | null {
+export function useGitStatus(minionId: string): GitStatus | null {
   const store = getGitStoreInstance();
 
   return useSyncExternalStore(
-    (listener) => store.subscribeKey(workspaceId, listener),
-    () => store.getStatus(workspaceId)
+    (listener) => store.subscribeKey(minionId, listener),
+    () => store.getStatus(minionId)
   );
 }
 
 /**
- * Hook to check if a workspace's git status is currently being refreshed.
+ * Hook to check if a minion's git status is currently being refreshed.
  * Use this to show shimmer/loading effects while preserving old status.
  */
-export function useGitStatusRefreshing(workspaceId: string): boolean {
+export function useGitStatusRefreshing(minionId: string): boolean {
   const store = getGitStoreInstance();
 
   return useSyncExternalStore(
-    (listener) => store.subscribeRefreshingKey(workspaceId, listener),
-    () => store.isWorkspaceRefreshing(workspaceId)
+    (listener) => store.subscribeRefreshingKey(minionId, listener),
+    () => store.isMinionRefreshing(minionId)
   );
 }
 
@@ -600,10 +611,10 @@ export function useGitStatusStoreRaw(): GitStatusStore {
 }
 
 /**
- * Invalidate git status for a workspace, triggering an immediate refresh.
+ * Invalidate git status for a minion, triggering an immediate refresh.
  * Call this after operations that change git state (e.g., branch switch).
  */
-export function invalidateGitStatus(workspaceId: string): void {
+export function invalidateGitStatus(minionId: string): void {
   const store = getGitStoreInstance();
-  store.invalidateWorkspace(workspaceId);
+  store.invalidateMinion(minionId);
 }

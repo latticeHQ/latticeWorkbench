@@ -14,7 +14,7 @@ export const LINES_PER_EXPANSION = 20;
  */
 export async function readFileLines(
   api: APIClient | null,
-  workspaceId: string,
+  minionId: string,
   filePath: string,
   startLine: number,
   endLine: number,
@@ -26,8 +26,8 @@ export async function readFileLines(
     ? `git show "${gitRef}:${filePath.replace(/"/g, '\\"')}" 2>/dev/null | sed -n '${startLine},${endLine}p'`
     : `sed -n '${startLine},${endLine}p' "${filePath.replace(/"/g, '\\"')}"`;
 
-  const result = await api.workspace.executeBash({
-    workspaceId,
+  const result = await api.minion.executeBash({
+    minionId,
     script,
     options: { timeout_secs: 3 },
   });

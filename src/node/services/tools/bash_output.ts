@@ -22,16 +22,16 @@ export const createBashOutputTool: ToolFactory = (config: ToolConfiguration) => 
         };
       }
 
-      if (!config.workspaceId) {
+      if (!config.minionId) {
         return {
           success: false,
-          error: "Workspace ID not available",
+          error: "Minion ID not available",
         };
       }
 
-      // Verify process belongs to this workspace
+      // Verify process belongs to this minion
       const proc = await config.backgroundProcessManager.getProcess(process_id);
-      if (proc?.workspaceId !== config.workspaceId) {
+      if (proc?.minionId !== config.minionId) {
         return {
           success: false,
           error: `Process not found: ${process_id}. The process may have exited or the app was restarted. Do not retry - use bash_background_list to see active processes.`,
@@ -39,14 +39,14 @@ export const createBashOutputTool: ToolFactory = (config: ToolConfiguration) => 
       }
 
       // Get incremental output with blocking wait
-      // Pass workspaceId so getOutput can check for queued messages
+      // Pass minionId so getOutput can check for queued messages
       return await config.backgroundProcessManager.getOutput(
         process_id,
-        filter,
-        filter_exclude,
+        filter ?? undefined,
+        filter_exclude ?? undefined,
         timeout_secs,
         abortSignal,
-        config.workspaceId
+        config.minionId
       );
     },
   });

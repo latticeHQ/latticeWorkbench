@@ -29,7 +29,7 @@ function buildSystemPrompt(args: {
   delegation?: string[];
 }): string {
   return [
-    `You are a ${args.agentLabel} sub-agent running inside a child workspace.`,
+    `You are a ${args.agentLabel} sub-agent running inside a child minion.`,
     "",
     "Goals:",
     ...args.goals,
@@ -53,11 +53,11 @@ const EXEC_PRESET: AgentPreset = {
   systemPrompt: buildSystemPrompt({
     agentLabel: "Exec",
     goals: [
-      "- Complete the assigned coding task end-to-end in this child workspace.",
+      "- Complete the assigned coding task end-to-end in this child minion.",
       "- Make minimal, correct changes that match existing codebase patterns.",
     ],
     rules: [
-      "- You MUST NOT spawn additional sub-agent tasks.",
+      "- You may spawn additional sub-agent tasks when the task tools are available (nesting is limited by maxTaskNestingDepth).",
       "- Do not call propose_plan.",
       "- Prefer small, reviewable diffs and run targeted checks when feasible.",
     ],

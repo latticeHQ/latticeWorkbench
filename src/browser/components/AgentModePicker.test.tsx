@@ -14,14 +14,14 @@ const BUILT_INS: AgentDefinitionDescriptor[] = [
     scope: "built-in",
     name: "Exec",
     uiSelectable: true,
-    subagentRunnable: false,
+    sidekickRunnable: false,
   },
   {
     id: "plan",
     scope: "built-in",
     name: "Plan",
     uiSelectable: true,
-    subagentRunnable: false,
+    sidekickRunnable: false,
     base: "plan",
   },
 ];
@@ -31,7 +31,7 @@ const HIDDEN_AGENT: AgentDefinitionDescriptor = {
   scope: "built-in",
   name: "Explore",
   uiSelectable: false,
-  subagentRunnable: true,
+  sidekickRunnable: true,
   base: "exec",
 };
 const CUSTOM_AGENT: AgentDefinitionDescriptor = {
@@ -40,7 +40,7 @@ const CUSTOM_AGENT: AgentDefinitionDescriptor = {
   name: "Review",
   description: "Review changes",
   uiSelectable: true,
-  subagentRunnable: false,
+  sidekickRunnable: false,
 };
 
 // Default context value properties shared by all test harnesses
@@ -49,8 +49,8 @@ const noop = () => {
 };
 const defaultContextProps = {
   currentAgent: undefined,
-  disableWorkspaceAgents: false,
-  setDisableWorkspaceAgents: noop,
+  disableMinionAgents: false,
+  setDisableMinionAgents: noop,
 };
 
 describe("AgentModePicker", () => {

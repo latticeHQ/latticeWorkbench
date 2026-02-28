@@ -1,23 +1,82 @@
+import * as fs from "fs";
+
 import { describe, it, expect, mock } from "bun:test";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 import { createTaskAwaitTool } from "./task_await";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
+import { getSidekickGitPatchArtifactsFilePath } from "@/node/services/sidekickGitPatchArtifacts";
 import type { TaskService } from "@/node/services/taskService";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
 
 describe("task_await tool", () => {
+  it("includes gitFormatPatch artifacts written during waitForAgentReport", async () => {
+    using tempDir = new TestTempDir("test-task-await-tool-artifacts");
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
+
+    const minionSessionDir = baseConfig.minionSessionDir;
+    if (!minionSessionDir) {
+      throw new Error("Expected minionSessionDir to be set in test tool config");
+    }
+    const artifactsPath = getSidekickGitPatchArtifactsFilePath(minionSessionDir);
+
+    const gitFormatPatch = {
+      childTaskId: "t1",
+      parentMinionId: "parent-minion",
+      createdAtMs: 123,
+      status: "pending",
+    } as const;
+
+    const taskService = {
+      listActiveDescendantAgentTaskIds: mock(() => []),
+      isDescendantAgentTask: mock(() => Promise.resolve(true)),
+      waitForAgentReport: mock(async (taskId: string) => {
+        await fs.promises.writeFile(
+          artifactsPath,
+          JSON.stringify(
+            {
+              version: 1,
+              artifactsByChildTaskId: { [taskId]: gitFormatPatch },
+            },
+            null,
+            2
+          ),
+          "utf-8"
+        );
+
+        return { reportMarkdown: "ok" };
+      }),
+    } as unknown as TaskService;
+
+    const tool = createTaskAwaitTool({ ...baseConfig, taskService });
+
+    const result: unknown = await Promise.resolve(
+      tool.execute!({ task_ids: ["t1"] }, mockToolCallOptions)
+    );
+
+    expect(result).toEqual({
+      results: [
+        {
+          status: "completed",
+          taskId: "t1",
+          reportMarkdown: "ok",
+          title: undefined,
+          artifacts: { gitFormatPatch },
+        },
+      ],
+    });
+  });
   it("returns completed results for all awaited tasks", async () => {
     using tempDir = new TestTempDir("test-task-await-tool");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "parent-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
 
     const taskService = {
       listActiveDescendantAgentTaskIds: mock(() => ["t1", "t2"]),
-      isDescendantAgentTask: mock(() => true),
+      isDescendantAgentTask: mock(() => Promise.resolve(true)),
       waitForAgentReport: mock((taskId: string) =>
         Promise.resolve({ reportMarkdown: `report:${taskId}`, title: `title:${taskId}` })
       ),
@@ -39,17 +98,17 @@ describe("task_await tool", () => {
 
   it("supports filterDescendantAgentTaskIds without losing this binding", async () => {
     using tempDir = new TestTempDir("test-task-await-tool-this-binding");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "parent-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
 
     const waitForAgentReport = mock(() => Promise.resolve({ reportMarkdown: "ok" }));
-    const isDescendantAgentTask = mock(() => true);
+    const isDescendantAgentTask = mock(() => Promise.resolve(true));
 
     const taskService = {
-      filterDescendantAgentTaskIds: function (ancestorWorkspaceId: string, taskIds: string[]) {
+      filterDescendantAgentTaskIds: function (ancestorMinionId: string, taskIds: string[]) {
         expect(this).toBe(taskService);
-        expect(ancestorWorkspaceId).toBe("parent-workspace");
+        expect(ancestorMinionId).toBe("parent-minion");
         expect(taskIds).toEqual(["t1"]);
-        return taskIds;
+        return Promise.resolve(taskIds);
       },
       listActiveDescendantAgentTaskIds: mock(() => []),
       isDescendantAgentTask,
@@ -71,10 +130,10 @@ describe("task_await tool", () => {
 
   it("marks invalid_scope without calling waitForAgentReport", async () => {
     using tempDir = new TestTempDir("test-task-await-tool-invalid-scope");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "parent-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
 
     const isDescendantAgentTask = mock((ancestorId: string, taskId: string) => {
-      expect(ancestorId).toBe("parent-workspace");
+      expect(ancestorId).toBe("parent-minion");
       return taskId !== "other";
     });
     const waitForAgentReport = mock(() => Promise.resolve({ reportMarkdown: "ok" }));
@@ -103,10 +162,10 @@ describe("task_await tool", () => {
 
   it("defaults to waiting on all active descendant tasks when task_ids is omitted", async () => {
     using tempDir = new TestTempDir("test-task-await-tool-descendants");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "parent-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
 
     const listActiveDescendantAgentTaskIds = mock(() => ["t1"]);
-    const isDescendantAgentTask = mock(() => true);
+    const isDescendantAgentTask = mock(() => Promise.resolve(true));
     const waitForAgentReport = mock(() => Promise.resolve({ reportMarkdown: "ok" }));
 
     const taskService = {
@@ -119,7 +178,7 @@ describe("task_await tool", () => {
 
     const result: unknown = await Promise.resolve(tool.execute!({}, mockToolCallOptions));
 
-    expect(listActiveDescendantAgentTaskIds).toHaveBeenCalledWith("parent-workspace");
+    expect(listActiveDescendantAgentTaskIds).toHaveBeenCalledWith("parent-minion");
     expect(result).toEqual({
       results: [{ status: "completed", taskId: "t1", reportMarkdown: "ok", title: undefined }],
     });
@@ -127,7 +186,7 @@ describe("task_await tool", () => {
 
   it("maps wait errors to running/not_found/error statuses", async () => {
     using tempDir = new TestTempDir("test-task-await-tool-errors");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "parent-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
 
     const waitForAgentReport = mock((taskId: string) => {
       if (taskId === "timeout") {
@@ -141,7 +200,7 @@ describe("task_await tool", () => {
 
     const taskService = {
       listActiveDescendantAgentTaskIds: mock(() => []),
-      isDescendantAgentTask: mock(() => true),
+      isDescendantAgentTask: mock(() => Promise.resolve(true)),
       getAgentTaskStatus: mock((taskId: string) => (taskId === "timeout" ? "running" : null)),
       waitForAgentReport,
     } as unknown as TaskService;
@@ -163,7 +222,7 @@ describe("task_await tool", () => {
 
   it("treats timeout_secs=0 as non-blocking for agent tasks", async () => {
     using tempDir = new TestTempDir("test-task-await-tool-timeout-zero");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "parent-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
 
     const waitForAgentReport = mock(() => {
       throw new Error("waitForAgentReport should not be called for timeout_secs=0");
@@ -172,7 +231,7 @@ describe("task_await tool", () => {
 
     const taskService = {
       listActiveDescendantAgentTaskIds: mock(() => ["t1"]),
-      isDescendantAgentTask: mock(() => true),
+      isDescendantAgentTask: mock(() => Promise.resolve(true)),
       getAgentTaskStatus,
       waitForAgentReport,
     } as unknown as TaskService;
@@ -190,7 +249,7 @@ describe("task_await tool", () => {
 
   it("returns completed result when timeout_secs=0 and a cached report is available", async () => {
     using tempDir = new TestTempDir("test-task-await-tool-timeout-zero-cached");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "parent-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "parent-minion" });
 
     const getAgentTaskStatus = mock(() => null);
     const waitForAgentReport = mock(() =>
@@ -199,7 +258,7 @@ describe("task_await tool", () => {
 
     const taskService = {
       listActiveDescendantAgentTaskIds: mock(() => ["t1"]),
-      isDescendantAgentTask: mock(() => true),
+      isDescendantAgentTask: mock(() => Promise.resolve(true)),
       getAgentTaskStatus,
       waitForAgentReport,
     } as unknown as TaskService;

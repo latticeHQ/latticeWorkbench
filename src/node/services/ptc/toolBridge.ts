@@ -18,6 +18,7 @@ const EXCLUDED_TOOLS = new Set([
   "todo_read", // UI-specific
   "status_set", // UI-specific
   "agent_report", // Must be top-level for taskService to read args from history
+  "switch_agent", // Must be top-level for stream-end detection
 ]);
 
 /**
@@ -121,6 +122,10 @@ export class ToolBridge {
     const toolRecord = tool as { inputSchema?: z.ZodType; parameters?: z.ZodType };
     const schema = toolRecord.inputSchema ?? toolRecord.parameters;
     if (!schema) return args;
+
+    // MCP tools use plain JSON Schema objects (no .safeParse), not Zod schemas.
+    // Skip Zod validation for non-Zod schemas — the MCP client validates internally.
+    if (typeof schema.safeParse !== "function") return args;
 
     const result = schema.safeParse(args);
     if (!result.success) {

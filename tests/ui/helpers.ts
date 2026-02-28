@@ -1,9 +1,12 @@
 /**
- * Shared UI test helpers for review panel and git status testing.
+ * Shared UI test helpers for integration coverage (review panel, project creation, git status, etc.).
  */
 
-import { cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { FrontendWorkspaceMetadata, GitStatus } from "@/common/types/workspace";
+import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
+import { TUTORIAL_STATE_KEY, WORKSPACE_DRAFTS_BY_PROJECT_KEY } from "@/common/constants/storage";
 import type { RenderedApp } from "./renderReviewPanel";
 import { workspaceStore } from "@/browser/stores/WorkspaceStore";
 import { useGitStatusStoreRaw } from "@/browser/stores/GitStatusStore";
@@ -124,7 +127,7 @@ export async function setupWorkspaceView(
   const projectRow = await waitFor(
     () => {
       const el = view.container.querySelector(`[data-project-path="${metadata.projectPath}"]`);
-      if (!el) throw new Error("Headquarter not found in sidebar");
+      if (!el) throw new Error("Project not found in sidebar");
       return el as HTMLElement;
     },
     { timeout: 10_000 }
@@ -142,11 +145,23 @@ export async function setupWorkspaceView(
     () => {
       const el = view.container.querySelector(`[data-workspace-id="${workspaceId}"]`);
       if (!el) throw new Error("Workspace not found in sidebar");
+      // Wait until the workspace is selectable (not still creating) before clicking.
+      if (el.getAttribute("aria-disabled") === "true") {
+        throw new Error("Workspace still disabled");
+      }
       return el as HTMLElement;
     },
     { timeout: 10_000 }
   );
   fireEvent.click(workspaceElement);
+
+  // Ensure the workspace is registered and activated in the store so that
+  // runOnChatSubscription starts. In the real app, WorkspaceContext handles
+  // registration via syncWorkspaces and activation via useLayoutEffect, but
+  // in happy-dom tests these may not have completed by the time the test
+  // asserts on transcript content. Both calls are idempotent.
+  workspaceStore.addWorkspace(metadata);
+  workspaceStore.setActiveWorkspaceId(workspaceId);
 }
 
 /**
@@ -166,7 +181,7 @@ export async function openProjectCreationView(
       const el = view.container.querySelector(
         `[data-project-path="${projectPath}"][aria-controls]`
       ) as HTMLElement | null;
-      if (!el) throw new Error("Headquarter not found in sidebar");
+      if (!el) throw new Error("Project not found in sidebar");
       return el;
     },
     { timeout: 10_000 }
@@ -178,10 +193,118 @@ export async function openProjectCreationView(
     () => {
       const textarea = view.container.querySelector("textarea");
       if (!textarea) {
-        throw new Error("Headquarter creation page not rendered");
+        throw new Error("Project creation page not rendered");
       }
     },
     { timeout: 10_000 }
+  );
+}
+
+/**
+ * Add a project through the sidebar modal.
+ * Radix Dialog content is portaled to document.body, so query the body instead of the app container.
+ */
+export async function addProjectViaUI(view: RenderedApp, projectPath: string): Promise<string> {
+  await view.waitForReady();
+
+  const existingProjectPaths = new Set(
+    Array.from(view.container.querySelectorAll("[data-project-path]"))
+      .map((element) => element.getAttribute("data-project-path"))
+      .filter((value): value is string => !!value)
+  );
+
+  // Shared UI test state can already include the project; avoid re-adding it and
+  // triggering the "Project already exists" dialog error.
+  const normalizedInputPath = projectPath.replace(/[\\/]+$/, "");
+  const existingMatch = Array.from(existingProjectPaths).find((existingPath) => {
+    return existingPath.replace(/[\\/]+$/, "") === normalizedInputPath;
+  });
+  if (existingMatch) {
+    return existingMatch;
+  }
+
+  const addProjectButton = await waitFor(
+    () => {
+      const button = view.container.querySelector('[aria-label="Add project"]');
+      if (!button) {
+        throw new Error("Add project button not found");
+      }
+      return button as HTMLElement;
+    },
+    { timeout: 10_000 }
+  );
+
+  fireEvent.click(addProjectButton);
+
+  const body = within(view.container.ownerDocument.body);
+  const dialog = await body.findByRole("dialog", {}, { timeout: 10_000 });
+  const dialogCanvas = within(dialog);
+
+  const pathInput = await dialogCanvas.findByRole("textbox", {}, { timeout: 10_000 });
+  const user = userEvent.setup({ document: view.container.ownerDocument });
+  await user.clear(pathInput);
+  await user.type(pathInput, projectPath);
+
+  const submitButton = await dialogCanvas.findByRole(
+    "button",
+    { name: /add project/i },
+    { timeout: 10_000 }
+  );
+  fireEvent.click(submitButton);
+
+  const projectRow = await waitFor(
+    () => {
+      const error = dialog.querySelector(".text-error");
+      if (error?.textContent) {
+        throw new Error(`Project creation failed: ${error.textContent}`);
+      }
+
+      const rows = Array.from(view.container.querySelectorAll("[data-project-path]"));
+      const newRow = rows.find((row) => {
+        const path = row.getAttribute("data-project-path");
+        return !!path && !existingProjectPaths.has(path);
+      });
+
+      if (!newRow) {
+        throw new Error("Project row not found after adding project");
+      }
+
+      return newRow as HTMLElement;
+    },
+    { timeout: 10_000 }
+  );
+
+  const normalizedPath = projectRow.getAttribute("data-project-path");
+  if (!normalizedPath) {
+    throw new Error("Project row missing data-project-path");
+  }
+
+  return normalizedPath;
+}
+
+export function getWorkspaceDraftIds(projectPath: string): string[] {
+  const parsedDrafts = readPersistedState<Record<string, { draftId: string }[]>>(
+    WORKSPACE_DRAFTS_BY_PROJECT_KEY,
+    {}
+  );
+  const draftsForProject = parsedDrafts[projectPath] ?? [];
+  return draftsForProject.map((draft) => draft.draftId);
+}
+
+export async function waitForLatestDraftId(
+  projectPath: string,
+  timeoutMs: number = 5_000
+): Promise<string> {
+  return waitFor(
+    () => {
+      const drafts = getWorkspaceDraftIds(projectPath);
+      const latestDraft = drafts[drafts.length - 1];
+      if (!latestDraft) {
+        throw new Error("Draft not registered yet");
+      }
+      return latestDraft;
+    },
+    { timeout: timeoutMs }
   );
 }
 
@@ -195,6 +318,33 @@ export async function cleanupView(view: RenderedApp, cleanupDom: () => void): Pr
   // Wait for any pending React updates to settle before destroying DOM
   await new Promise((r) => setTimeout(r, 100));
   cleanupDom();
+}
+
+/**
+ * Disable the tutorial overlay for tests.
+ * Called automatically by setupTestDom().
+ */
+export function disableTutorial(): void {
+  updatePersistedState(TUTORIAL_STATE_KEY, { disabled: true, completed: {} });
+}
+
+/**
+ * Standard test DOM setup: installs happy-dom and disables tutorial by default.
+ * Returns a cleanup function to restore DOM.
+ *
+ * @param options.enableTutorial - Set to true for tests that specifically test tutorial behavior
+ */
+export function setupTestDom(options?: { enableTutorial?: boolean }): () => void {
+  // Import here to avoid circular dependency issues
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { installDom } = require("./dom");
+  const cleanupDom = installDom();
+
+  if (!options?.enableTutorial) {
+    disableTutorial();
+  }
+
+  return cleanupDom;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -298,6 +448,24 @@ export function waitForAheadStatus(
     workspaceId,
     (s) => (s.ahead ?? 0) >= minAhead,
     `ahead >= ${minAhead}`,
+    timeoutMs
+  );
+}
+
+/**
+ * Wait for git status to report a specific branch name.
+ */
+export function waitForBranchStatus(
+  container: HTMLElement,
+  workspaceId: string,
+  expectedBranch: string,
+  timeoutMs: number = 60_000
+): Promise<GitStatus> {
+  return waitForGitStatus(
+    container,
+    workspaceId,
+    (s) => s.branch === expectedBranch,
+    `branch === "${expectedBranch}"`,
     timeoutMs
   );
 }

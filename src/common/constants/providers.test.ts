@@ -1,22 +1,28 @@
 /**
- * Test that provider constants are correct (agent-only architecture)
+ * Test that provider registry structure is correct
  */
 
 import { describe, test, expect } from "bun:test";
-import { SUPPORTED_PROVIDERS, isValidProvider } from "./providers";
-import { CLI_AGENT_SLUGS } from "./cliAgents";
+import { PROVIDER_REGISTRY, SUPPORTED_PROVIDERS, isValidProvider } from "./providers";
 
-describe("Provider Constants (Agent-Only)", () => {
-  test("SUPPORTED_PROVIDERS matches CLI agent slugs", () => {
-    expect(SUPPORTED_PROVIDERS.length).toBe(CLI_AGENT_SLUGS.length);
-    for (const slug of CLI_AGENT_SLUGS) {
-      expect(SUPPORTED_PROVIDERS).toContain(slug);
+describe("Provider Registry", () => {
+  test("registry is not empty", () => {
+    expect(Object.keys(PROVIDER_REGISTRY).length).toBeGreaterThan(0);
+  });
+
+  test("all registry values are import functions that return promises", () => {
+    // Registry should map provider names to functions returning promises
+    for (const importFn of Object.values(PROVIDER_REGISTRY)) {
+      expect(typeof importFn).toBe("function");
+      // Verify calling the function returns a Promise (don't await - just type check)
+      const result = importFn();
+      expect(result).toBeInstanceOf(Promise);
     }
   });
 
-  test("isValidProvider accepts CLI agent slugs", () => {
-    expect(isValidProvider("claude-code")).toBe(true);
-    expect(isValidProvider("codex")).toBe(true);
+  test("SUPPORTED_PROVIDERS array stays in sync with registry keys", () => {
+    // If these don't match, derived array is out of sync
+    expect(SUPPORTED_PROVIDERS.length).toBe(Object.keys(PROVIDER_REGISTRY).length);
   });
 
   test("isValidProvider rejects invalid providers", () => {

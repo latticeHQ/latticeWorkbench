@@ -11,14 +11,16 @@ import modelsJson from "@/common/utils/tokens/models.json";
 import { modelsExtra } from "@/common/utils/tokens/models-extra";
 
 describe("Known Models Integration", () => {
-  test("all known models exist in models.json or models-extra", () => {
+  test("all known models exist in models.json", () => {
     const missingModels: string[] = [];
 
     for (const [key, model] of Object.entries(KNOWN_MODELS)) {
       const modelId = model.providerModelId;
 
       // Check if model exists in models.json or models-extra
-      if (!(modelId in modelsJson) && !(modelId in modelsExtra)) {
+      // xAI models are prefixed with "xai/" in models.json
+      const lookupKey = model.provider === "xai" ? `xai/${modelId}` : modelId;
+      if (!(lookupKey in modelsJson) && !(modelId in modelsExtra)) {
         missingModels.push(`${key}: ${model.provider}:${modelId}`);
       }
     }
@@ -35,20 +37,13 @@ describe("Known Models Integration", () => {
   test("all known models have required metadata", () => {
     for (const [, model] of Object.entries(KNOWN_MODELS)) {
       const modelId = model.providerModelId;
-      const modelData = modelsJson[modelId as keyof typeof modelsJson] ?? modelsExtra[modelId];
+      // xAI models are prefixed with "xai/" in models.json
+      const lookupKey = model.provider === "xai" ? `xai/${modelId}` : modelId;
+      const modelData = modelsJson[lookupKey as keyof typeof modelsJson] ?? modelsExtra[modelId];
 
       expect(modelData).toBeDefined();
       // Check that basic metadata fields exist (not all models have all fields)
       expect(typeof modelData.litellm_provider).toBe("string");
-    }
-  });
-
-  test("all known model providers are valid CLI agent slugs", () => {
-    const { CLI_AGENT_SLUGS } = require("@/common/constants/cliAgents");
-    for (const [key, model] of Object.entries(KNOWN_MODELS)) {
-      expect(CLI_AGENT_SLUGS).toContain(
-        (model as { provider: string }).provider
-      );
     }
   });
 });

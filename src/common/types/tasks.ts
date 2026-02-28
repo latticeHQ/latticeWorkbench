@@ -1,6 +1,10 @@
 import assert from "@/common/utils/assert";
 import { coerceThinkingLevel, type ThinkingLevel } from "./thinking";
 
+export const PLAN_SIDEKICK_EXECUTOR_ROUTING_VALUES = ["exec", "orchestrator", "auto"] as const;
+
+export type PlanSidekickExecutorRouting = (typeof PLAN_SIDEKICK_EXECUTOR_ROUTING_VALUES)[number];
+
 export interface TaskSettings {
   maxParallelAgentTasks: number;
   maxTaskNestingDepth: number;
@@ -11,6 +15,15 @@ export interface TaskSettings {
    */
   proposePlanImplementReplacesChatHistory?: boolean;
 
+  /** Controls plan sidekick propose_plan handoff target: Exec, Orchestrator, or auto routing. */
+  planSidekickExecutorRouting?: PlanSidekickExecutorRouting;
+
+  /**
+   * @deprecated Use planSidekickExecutorRouting instead.
+   * Kept for downgrade compatibility with older config files.
+   */
+  planSidekickDefaultsToOrchestrator?: boolean;
+
   // System 1: bash output compaction (log filtering)
   bashOutputCompactionMinLines?: number;
   bashOutputCompactionMinTotalBytes?: number;
@@ -20,8 +33,8 @@ export interface TaskSettings {
 }
 
 export const TASK_SETTINGS_LIMITS = {
-  maxParallelAgentTasks: { min: 1, max: 350, default: 3 },
-  maxTaskNestingDepth: { min: 1, max: 10, default: 3 },
+  maxParallelAgentTasks: { min: 1, max: 256, default: 3 },
+  maxTaskNestingDepth: { min: 1, max: 5, default: 3 },
 } as const;
 
 export const SYSTEM1_BASH_OUTPUT_COMPACTION_LIMITS = {
@@ -35,6 +48,8 @@ export const DEFAULT_TASK_SETTINGS: TaskSettings = {
   maxParallelAgentTasks: TASK_SETTINGS_LIMITS.maxParallelAgentTasks.default,
   maxTaskNestingDepth: TASK_SETTINGS_LIMITS.maxTaskNestingDepth.default,
   proposePlanImplementReplacesChatHistory: false,
+  planSidekickExecutorRouting: "exec",
+  planSidekickDefaultsToOrchestrator: false,
 
   bashOutputCompactionMinLines:
     SYSTEM1_BASH_OUTPUT_COMPACTION_LIMITS.bashOutputCompactionMinLines.default,
@@ -47,17 +62,17 @@ export const DEFAULT_TASK_SETTINGS: TaskSettings = {
   bashOutputCompactionHeuristicFallback: true,
 };
 
-export interface SubagentAiDefaultsEntry {
+export interface SidekickAiDefaultsEntry {
   modelString?: string;
   thinkingLevel?: ThinkingLevel;
 }
 
-export type SubagentAiDefaults = Record<string, SubagentAiDefaultsEntry>;
+export type SidekickAiDefaults = Record<string, SidekickAiDefaultsEntry>;
 
-export function normalizeSubagentAiDefaults(raw: unknown): SubagentAiDefaults {
+export function normalizeSidekickAiDefaults(raw: unknown): SidekickAiDefaults {
   const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : ({} as const);
 
-  const result: SubagentAiDefaults = {};
+  const result: SidekickAiDefaults = {};
 
   for (const [agentTypeRaw, entryRaw] of Object.entries(record)) {
     const agentType = agentTypeRaw.trim().toLowerCase();
@@ -95,6 +110,15 @@ function clampInt(value: unknown, fallback: number, min: number, max: number): n
   return rounded;
 }
 
+export function isPlanSidekickExecutorRouting(
+  value: unknown
+): value is PlanSidekickExecutorRouting {
+  return (
+    typeof value === "string" &&
+    PLAN_SIDEKICK_EXECUTOR_ROUTING_VALUES.some((candidate) => candidate === value)
+  );
+}
+
 export function normalizeTaskSettings(raw: unknown): TaskSettings {
   const record = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : ({} as const);
 
@@ -115,6 +139,28 @@ export function normalizeTaskSettings(raw: unknown): TaskSettings {
     typeof record.proposePlanImplementReplacesChatHistory === "boolean"
       ? record.proposePlanImplementReplacesChatHistory
       : (DEFAULT_TASK_SETTINGS.proposePlanImplementReplacesChatHistory ?? false);
+
+  const normalizedPlanSidekickExecutorRouting = isPlanSidekickExecutorRouting(
+    record.planSidekickExecutorRouting
+  )
+    ? record.planSidekickExecutorRouting
+    : undefined;
+
+  const migratedPlanSidekickExecutorRouting =
+    normalizedPlanSidekickExecutorRouting ??
+    (typeof record.planSidekickDefaultsToOrchestrator === "boolean"
+      ? record.planSidekickDefaultsToOrchestrator
+        ? "orchestrator"
+        : "exec"
+      : undefined);
+
+  const planSidekickExecutorRouting =
+    migratedPlanSidekickExecutorRouting ??
+    DEFAULT_TASK_SETTINGS.planSidekickExecutorRouting ??
+    "exec";
+
+  // Keep the deprecated boolean in sync for downgrade compatibility.
+  const planSidekickDefaultsToOrchestrator = planSidekickExecutorRouting === "orchestrator";
 
   const bashOutputCompactionMinLines = clampInt(
     record.bashOutputCompactionMinLines,
@@ -151,6 +197,8 @@ export function normalizeTaskSettings(raw: unknown): TaskSettings {
     maxParallelAgentTasks,
     maxTaskNestingDepth,
     proposePlanImplementReplacesChatHistory,
+    planSidekickExecutorRouting,
+    planSidekickDefaultsToOrchestrator,
     bashOutputCompactionMinLines,
     bashOutputCompactionMinTotalBytes,
     bashOutputCompactionMaxKeptLines,
@@ -170,6 +218,16 @@ export function normalizeTaskSettings(raw: unknown): TaskSettings {
   assert(
     typeof proposePlanImplementReplacesChatHistory === "boolean",
     "normalizeTaskSettings: proposePlanImplementReplacesChatHistory must be a boolean"
+  );
+
+  assert(
+    isPlanSidekickExecutorRouting(planSidekickExecutorRouting),
+    "normalizeTaskSettings: planSidekickExecutorRouting must be exec, orchestrator, or auto"
+  );
+
+  assert(
+    typeof planSidekickDefaultsToOrchestrator === "boolean",
+    "normalizeTaskSettings: planSidekickDefaultsToOrchestrator must be a boolean"
   );
 
   assert(

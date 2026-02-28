@@ -93,7 +93,7 @@ describeIntegration("lattice run smoke tests", () => {
     execSync("git config user.name 'Test'", { cwd: testDir, stdio: "pipe" });
 
     // Create a simple file and commit it
-    await fs.writeFile(path.join(testDir, "README.md"), "# Test Headquarter\n");
+    await fs.writeFile(path.join(testDir, "README.md"), "# Test Project\n");
     execSync("git add .", { cwd: testDir, stdio: "pipe" });
     execSync("git commit -m 'Initial commit'", { cwd: testDir, stdio: "pipe" });
   });

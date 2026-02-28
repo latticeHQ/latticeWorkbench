@@ -71,18 +71,17 @@ export const MessageWindow: React.FC<MessageWindowProps> = ({
   return (
     <div
       className={cn(
-        "mb-1 flex flex-col relative isolate",
-        variant === "user" && "mt-5 ml-auto w-fit max-w-[85%]",
-        variant === "assistant" && "mt-3 w-full text-foreground",
-        isLastPartOfMessage && "mb-3"
+        "mt-4 mb-1 flex flex-col relative isolate",
+        variant === "user" && "ml-auto w-fit max-w-full",
+        variant === "assistant" && "w-full text-foreground",
+        isLastPartOfMessage && "mb-4"
       )}
       data-message-block
     >
       <div
         className={cn(
-          // User: flat right-side entry — no bubble, no shadow, subtle bg
           variant === "user" &&
-            "bg-[var(--color-user-surface)] rounded px-3 py-2 overflow-x-auto",
+            "bg-[var(--color-user-surface)] border border-[var(--color-user-border)] rounded-lg px-3 py-2 overflow-x-auto shadow-sm",
           variant === "assistant" && "px-1 py-1"
         )}
       >

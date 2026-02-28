@@ -11,10 +11,10 @@ export interface GlobalDefaults {
 }
 
 // New storage keys for global defaults (new tier 2 in the fallback)
-const STORAGE_KEY_MODE = "com.lattice.defaults.mode";
-const STORAGE_KEY_REASONING = "com.lattice.defaults.reasoning";
-const STORAGE_KEY_MODEL = "com.lattice.defaults.model";
-const STORAGE_KEY_1M_CONTEXT = "com.lattice.defaults.use1MContext";
+const STORAGE_KEY_MODE = "com.lattice.lattice.defaults.mode";
+const STORAGE_KEY_REASONING = "com.lattice.lattice.defaults.reasoning";
+const STORAGE_KEY_MODEL = "com.lattice.lattice.defaults.model";
+const STORAGE_KEY_1M_CONTEXT = "com.lattice.lattice.defaults.use1MContext";
 
 const DEFAULT_MODE: WorkspaceMode = "exec";
 const DEFAULT_REASONING: ThinkingLevel = "off";

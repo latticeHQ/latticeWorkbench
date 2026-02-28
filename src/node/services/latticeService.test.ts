@@ -38,8 +38,16 @@ function mockExecError(error: Error): void {
   execAsyncSpy?.mockReturnValue(createMockExecResult(Promise.reject(error)));
 }
 
+function mockVersionOk(version: string): void {
+  execAsyncSpy?.mockReturnValue(
+    createMockExecResult(
+      Promise.resolve({ stdout: JSON.stringify({ version }), stderr: "" })
+    )
+  );
+}
+
 /**
- * Mock spawn for streaming createWorkspace() tests.
+ * Mock spawn for streaming createMinion() tests.
  * Uses spyOn instead of vi.mock to avoid polluting other test files.
  */
 let spawnSpy: ReturnType<typeof spyOn<typeof childProcess, "spawn">> | null = null;
@@ -88,35 +96,48 @@ describe("LatticeService", () => {
 
   describe("getLatticeInfo", () => {
     it("returns available state with valid version", async () => {
-      mockExecOk(JSON.stringify({ version: "2.28.2" }));
+      mockVersionOk("0.11.2+aa93703");
 
       const info = await service.getLatticeInfo();
 
-      expect(info).toEqual({ state: "available", version: "2.28.2" });
+      expect(info).toEqual({
+        state: "available",
+        version: "0.11.2+aa93703",
+      });
     });
 
     it("returns available state for exact minimum version", async () => {
-      mockExecOk(JSON.stringify({ version: "2.25.0" }));
+      mockVersionOk("0.11.0");
 
       const info = await service.getLatticeInfo();
 
-      expect(info).toEqual({ state: "available", version: "2.25.0" });
+      expect(info).toEqual({
+        state: "available",
+        version: "0.11.0",
+      });
     });
 
     it("returns outdated state for version below minimum", async () => {
-      mockExecOk(JSON.stringify({ version: "0.6.9" }));
+      mockVersionOk("0.10.9");
 
       const info = await service.getLatticeInfo();
 
-      expect(info).toEqual({ state: "outdated", version: "0.6.9", minVersion: "0.7.0" });
+      expect(info).toEqual({
+        state: "outdated",
+        version: "0.10.9",
+        minVersion: "0.11.0",
+      });
     });
 
     it("handles version with dev suffix", async () => {
-      mockExecOk(JSON.stringify({ version: "2.28.2-devel+903c045b9" }));
+      mockVersionOk("0.11.2-devel+903c045b9");
 
       const info = await service.getLatticeInfo();
 
-      expect(info).toEqual({ state: "available", version: "2.28.2-devel+903c045b9" });
+      expect(info).toEqual({
+        state: "available",
+        version: "0.11.2-devel+903c045b9",
+      });
     });
 
     it("returns unavailable state with reason missing when CLI not installed", async () => {
@@ -150,11 +171,80 @@ describe("LatticeService", () => {
     });
 
     it("caches the result", async () => {
-      mockExecOk(JSON.stringify({ version: "2.28.2" }));
+      mockVersionOk("0.11.2");
 
       await service.getLatticeInfo();
       await service.getLatticeInfo();
 
+      // Only one call (version check) — second call uses cache
+      expect(execAsyncSpy).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("getWhoamiInfo", () => {
+    it("returns authenticated state with username and URL", async () => {
+      mockExecOk("Lattice is running at https://lattice.example.com, You're authenticated as lattice-user !");
+
+      const whoami = await service.getWhoamiInfo();
+
+      expect(whoami).toEqual({
+        state: "authenticated",
+        username: "lattice-user",
+        deploymentUrl: "https://lattice.example.com",
+      });
+    });
+
+    it("returns unauthenticated state when CLI says not logged in", async () => {
+      mockExecError(
+        new Error(
+          `Encountered an error running "lattice whoami", see "lattice whoami --help" for more information\nerror: You are not logged in. Try logging in using 'lattice login <url>'.`
+        )
+      );
+
+      const whoami = await service.getWhoamiInfo();
+
+      expect(whoami.state).toBe("unauthenticated");
+      if (whoami.state === "unauthenticated") {
+        // Error takes first line of the error message, prefixed with "Not authenticated: "
+        expect(whoami.reason.toLowerCase()).toContain("not authenticated");
+      }
+    });
+
+    it("returns unauthenticated on transient error and does not cache it", async () => {
+      // First call: transient error
+      execAsyncSpy?.mockReturnValueOnce(
+        createMockExecResult(Promise.reject(new Error("error: Connection refused")))
+      );
+      // Second call: success
+      execAsyncSpy?.mockReturnValueOnce(
+        createMockExecResult(
+          Promise.resolve({
+            stdout: "Lattice is running at https://lattice.example.com, You're authenticated as lattice-user !",
+            stderr: "",
+          })
+        )
+      );
+
+      const first = await service.getWhoamiInfo();
+      expect(first.state).toBe("unauthenticated");
+
+      // Should not be cached — second call should try again
+      service.clearWhoamiCache();
+      const second = await service.getWhoamiInfo();
+      expect(second).toEqual({
+        state: "authenticated",
+        username: "lattice-user",
+        deploymentUrl: "https://lattice.example.com",
+      });
+    });
+
+    it("caches authenticated result", async () => {
+      mockExecOk("Lattice is running at https://lattice.example.com, You're authenticated as lattice-user !");
+
+      await service.getWhoamiInfo();
+      await service.getWhoamiInfo();
+
+      // Only one call — second uses cache
       expect(execAsyncSpy).toHaveBeenCalledTimes(1);
     });
   });
@@ -181,10 +271,13 @@ describe("LatticeService", () => {
 
       const templates = await service.listTemplates();
 
-      expect(templates).toEqual([
-        { name: "template-1", displayName: "Template One", organizationName: "org1" },
-        { name: "template-2", displayName: "Template Two", organizationName: "default" },
-      ]);
+      expect(templates).toEqual({
+        ok: true,
+        templates: [
+          { name: "template-1", displayName: "Template One", organizationName: "org1" },
+          { name: "template-2", displayName: "Template Two", organizationName: "default" },
+        ],
+      });
     });
 
     it("uses name as displayName when display_name not present", async () => {
@@ -199,17 +292,20 @@ describe("LatticeService", () => {
 
       const templates = await service.listTemplates();
 
-      expect(templates).toEqual([
-        { name: "my-template", displayName: "my-template", organizationName: "default" },
-      ]);
+      expect(templates).toEqual({
+        ok: true,
+        templates: [
+          { name: "my-template", displayName: "my-template", organizationName: "default" },
+        ],
+      });
     });
 
-    it("returns empty array on error", async () => {
+    it("returns error result on error", async () => {
       mockExecError(new Error("not logged in"));
 
       const templates = await service.listTemplates();
 
-      expect(templates).toEqual([]);
+      expect(templates).toEqual({ ok: false, error: "not logged in" });
     });
 
     it("returns empty array for empty output", async () => {
@@ -217,90 +313,100 @@ describe("LatticeService", () => {
 
       const templates = await service.listTemplates();
 
-      expect(templates).toEqual([]);
+      expect(templates).toEqual({ ok: true, templates: [] });
     });
   });
 
   describe("listPresets", () => {
-    // listPresets now uses API calls: whoami → templates list → tokens create → fetch.
-    // We mock each sequential execAsync call and global fetch.
+    let originalFetch: typeof fetch;
 
-    function mockListPresetsFlow(presets: unknown[]) {
-      let callIndex = 0;
-      execAsyncSpy?.mockImplementation(() => {
-        const idx = callIndex++;
-        if (idx === 0) {
-          // getDeploymentUrl() → whoami
+    beforeEach(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    function mockPresetsApiCalls() {
+      execAsyncSpy?.mockImplementation((cmd: string) => {
+        if (cmd === "lattice whoami") {
           return createMockExecResult(
             Promise.resolve({
-              stdout:
-                "Lattice is running at http://127.0.0.1:7080, You're authenticated as admin !",
+              stdout: "Lattice is running at https://lattice.example.com, You're authenticated as lattice-user !",
               stderr: "",
             })
           );
-        } else if (idx === 1) {
-          // getActiveTemplateVersionId() → templates list
+        }
+        if (cmd === "lattice templates list -o json") {
           return createMockExecResult(
             Promise.resolve({
               stdout: JSON.stringify([
-                {
-                  Template: {
-                    name: "my-template",
-                    organization_name: "default",
-                    active_version_id: "ver-123",
-                  },
-                },
+                { Template: { name: "my-template", active_version_id: "version-123" } },
               ]),
               stderr: "",
             })
           );
-        } else if (idx === 2) {
-          // tokens create
-          return createMockExecResult(Promise.resolve({ stdout: "test-token-abc", stderr: "" }));
-        } else {
-          // tokens remove (cleanup)
+        }
+        if (cmd.startsWith("lattice tokens create --lifetime 5m --name")) {
+          return createMockExecResult(Promise.resolve({ stdout: "fake-token-123", stderr: "" }));
+        }
+        if (cmd.startsWith("lattice tokens remove")) {
           return createMockExecResult(Promise.resolve({ stdout: "", stderr: "" }));
         }
+        return createMockExecResult(Promise.reject(new Error(`Unexpected command: ${cmd}`)));
       });
-      // Mock fetch for the API call
-      const originalFetch = globalThis.fetch;
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(presets),
-      }) as unknown as typeof fetch;
-      return () => {
-        globalThis.fetch = originalFetch;
-      };
     }
 
-    it("returns presets for a template", async () => {
-      const restoreFetch = mockListPresetsFlow([
-        { id: "preset-1", name: "Small", description: "Small instance", default: true },
-        { id: "preset-2", name: "Large", description: "Large instance" },
-      ]);
-      try {
-        const presets = await service.listPresets("my-template");
+    it("returns presets from API", async () => {
+      mockPresetsApiCalls();
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { id: "preset-1", name: "Small", description: "Small instance", default: true },
+            { id: "preset-2", name: "Large", description: "Large instance" },
+          ]),
+      }) as unknown as typeof fetch;
 
-        expect(presets).toEqual([
+      const presets = await service.listPresets("my-template");
+
+      expect(presets).toEqual({
+        ok: true,
+        presets: [
           { id: "preset-1", name: "Small", description: "Small instance", isDefault: true },
           { id: "preset-2", name: "Large", description: "Large instance", isDefault: false },
-        ]);
-      } finally {
-        restoreFetch();
-      }
+        ],
+      });
     });
 
-    it("returns empty array on error", async () => {
-      mockExecError(new Error("template not found"));
+    it("returns empty array when API returns 404", async () => {
+      mockPresetsApiCalls();
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: "Not Found",
+      }) as unknown as typeof fetch;
+
+      const presets = await service.listPresets("my-template");
+
+      expect(presets).toEqual({ ok: true, presets: [] });
+    });
+
+    it("returns error result when not authenticated", async () => {
+      mockExecError(new Error("not logged in"));
 
       const presets = await service.listPresets("nonexistent");
 
-      expect(presets).toEqual([]);
+      expect(presets.ok).toBe(false);
+      if (!presets.ok) {
+        expect(presets.error).toBeTruthy();
+      }
     });
   });
 
-  describe("listWorkspaces", () => {
-    it("returns all workspaces regardless of status", async () => {
+  describe("listMinions", () => {
+    it("returns all minions regardless of status", async () => {
       mockExecOk(
         JSON.stringify([
           {
@@ -324,29 +430,39 @@ describe("LatticeService", () => {
         ])
       );
 
-      const workspaces = await service.listWorkspaces();
+      const minions = await service.listMinions();
 
-      expect(workspaces).toEqual([
-        { name: "ws-1", templateName: "t1", templateDisplayName: "t1", status: "running" },
-        { name: "ws-2", templateName: "t2", templateDisplayName: "t2", status: "stopped" },
-        { name: "ws-3", templateName: "t3", templateDisplayName: "t3", status: "starting" },
-      ]);
+      expect(minions).toEqual({
+        ok: true,
+        minions: [
+          { name: "ws-1", templateName: "t1", templateDisplayName: "t1", status: "running" },
+          { name: "ws-2", templateName: "t2", templateDisplayName: "t2", status: "stopped" },
+          { name: "ws-3", templateName: "t3", templateDisplayName: "t3", status: "starting" },
+        ],
+      });
     });
 
-    it("returns empty array on error", async () => {
-      mockExecError(new Error("not logged in"));
+    it("returns error result on failure", async () => {
+      mockExecError(
+        new Error(
+          `Encountered an error running "lattice list", see "lattice list --help" for more information\nerror: You are not logged in. Try logging in using '/usr/local/bin/lattice login <url>'.`
+        )
+      );
 
-      const workspaces = await service.listWorkspaces();
+      const minions = await service.listMinions();
 
-      expect(workspaces).toEqual([]);
+      expect(minions).toEqual({
+        ok: false,
+        error: "You are not logged in. Try logging in using '/usr/local/bin/lattice login <url>'.",
+      });
     });
   });
 
-  describe("workspaceExists", () => {
+  describe("minionExists", () => {
     it("returns true when exact match is found in search results", async () => {
       mockExecOk(JSON.stringify([{ name: "ws-1" }, { name: "ws-10" }]));
 
-      const exists = await service.workspaceExists("ws-1");
+      const exists = await service.minionExists("ws-1");
 
       expect(exists).toBe(true);
     });
@@ -354,7 +470,7 @@ describe("LatticeService", () => {
     it("returns false when only prefix matches", async () => {
       mockExecOk(JSON.stringify([{ name: "ws-10" }]));
 
-      const exists = await service.workspaceExists("ws-1");
+      const exists = await service.minionExists("ws-1");
 
       expect(exists).toBe(false);
     });
@@ -362,13 +478,13 @@ describe("LatticeService", () => {
     it("returns false on CLI error", async () => {
       mockExecError(new Error("not logged in"));
 
-      const exists = await service.workspaceExists("ws-1");
+      const exists = await service.minionExists("ws-1");
 
       expect(exists).toBe(false);
     });
   });
 
-  describe("getWorkspaceStatus", () => {
+  describe("getMinionStatus", () => {
     it("returns status for exact match (search is prefix-based)", async () => {
       mockLatticeCommandResult({
         exitCode: 0,
@@ -378,7 +494,7 @@ describe("LatticeService", () => {
         ]),
       });
 
-      const result = await service.getWorkspaceStatus("ws-1");
+      const result = await service.getMinionStatus("ws-1");
 
       expect(result.kind).toBe("ok");
       if (result.kind === "ok") {
@@ -392,18 +508,18 @@ describe("LatticeService", () => {
         stdout: JSON.stringify([{ name: "ws-10", latest_build: { status: "running" } }]),
       });
 
-      const result = await service.getWorkspaceStatus("ws-1");
+      const result = await service.getMinionStatus("ws-1");
 
       expect(result.kind).toBe("not_found");
     });
 
-    it("returns error for unknown workspace status", async () => {
+    it("returns error for unknown minion status", async () => {
       mockLatticeCommandResult({
         exitCode: 0,
         stdout: JSON.stringify([{ name: "ws-1", latest_build: { status: "weird" } }]),
       });
 
-      const result = await service.getWorkspaceStatus("ws-1");
+      const result = await service.getMinionStatus("ws-1");
 
       expect(result.kind).toBe("error");
       if (result.kind === "error") {
@@ -413,11 +529,8 @@ describe("LatticeService", () => {
   });
 
   describe("waitForStartupScripts", () => {
-    // waitForStartupScripts now polls getWorkspaceStatus via runLatticeCommand (spawn)
-    // getWorkspaceStatus calls: spawn("lattice", ["list", "--search", "name:...", "-o", "json"], ...)
-
-    function mockSpawnForStatus(statusJson: string, exitCode = 0) {
-      const stdout = Readable.from([Buffer.from(statusJson)]);
+    it("streams stdout/stderr lines while waiting", async () => {
+      const stdout = Readable.from([Buffer.from("Waiting for agent...\nAgent ready\n")]);
       const stderr = Readable.from([]);
       const events = new EventEmitter();
 
@@ -426,44 +539,198 @@ describe("LatticeService", () => {
         stderr,
         kill: vi.fn(),
         on: events.on.bind(events),
-        removeListener: events.removeListener.bind(events),
       } as never);
 
-      // Emit close after handlers are attached
-      setTimeout(() => events.emit("close", exitCode), 0);
-    }
-
-    it("yields ready message when agent is running", async () => {
-      mockSpawnForStatus(JSON.stringify([{ name: "my-ws", latest_build: { status: "running" } }]));
+      setTimeout(() => events.emit("close", 0), 0);
 
       const lines: string[] = [];
       for await (const line of service.waitForStartupScripts("my-ws")) {
         lines.push(line);
       }
 
-      expect(lines[0]).toContain("Waiting for agent");
-      expect(lines).toContain('Agent "my-ws" is running and ready.');
+      expect(lines).toContain("$ lattice ssh my-ws --wait=yes -- true");
+      expect(lines).toContain("Waiting for agent...");
+      expect(lines).toContain("Agent ready");
+      expect(spawnSpy).toHaveBeenCalledWith("lattice", ["ssh", "my-ws", "--wait=yes", "--", "true"], {
+        stdio: ["ignore", "pipe", "pipe"],
+      });
     });
 
-    it("throws when workspace is not found", async () => {
-      // Return empty array → workspace not found
-      mockSpawnForStatus(JSON.stringify([]));
+    it("throws when exit code is non-zero", async () => {
+      const stdout = Readable.from([]);
+      const stderr = Readable.from([Buffer.from("Connection refused\n")]);
+      const events = new EventEmitter();
+
+      spawnSpy!.mockReturnValue({
+        stdout,
+        stderr,
+        kill: vi.fn(),
+        on: events.on.bind(events),
+      } as never);
+
+      setTimeout(() => events.emit("close", 1), 0);
+
+      const lines: string[] = [];
+      const run = async () => {
+        for await (const line of service.waitForStartupScripts("my-ws")) {
+          lines.push(line);
+        }
+      };
 
       let thrown: unknown;
       try {
-        for await (const _line of service.waitForStartupScripts("my-ws")) {
-          // drain
-        }
+        await run();
       } catch (error) {
         thrown = error;
       }
 
       expect(thrown).toBeTruthy();
-      expect(thrown instanceof Error ? thrown.message : "").toContain("not found");
+      expect(thrown instanceof Error ? thrown.message : String(thrown)).toBe(
+        "lattice ssh --wait failed (exit 1): Connection refused"
+      );
     });
   });
 
-  describe("createWorkspace", () => {
+  describe("fetchDeploymentSshConfig", () => {
+    let originalFetch: typeof fetch;
+
+    beforeEach(() => {
+      originalFetch = global.fetch;
+    });
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    function mockWhoami() {
+      execAsyncSpy?.mockImplementation((cmd: string) => {
+        if (cmd === "lattice whoami") {
+          return createMockExecResult(
+            Promise.resolve({
+              stdout: "Lattice is running at https://lattice.example.com, You're authenticated as lattice-user !",
+              stderr: "",
+            })
+          );
+        }
+        return createMockExecResult(Promise.reject(new Error(`Unexpected command: ${cmd}`)));
+      });
+    }
+
+    it("uses provided session and normalizes leading dot", async () => {
+      mockWhoami();
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ hostname_suffix: ".corp" }),
+      });
+      global.fetch = fetchSpy as unknown as typeof fetch;
+
+      const session = {
+        token: "session-token",
+        dispose: vi.fn().mockResolvedValue(undefined),
+      };
+      const result = await service.fetchDeploymentSshConfig(session);
+
+      expect(result).toEqual({ hostnameSuffix: "corp" });
+      const calledUrl = fetchSpy.mock.calls[0]?.[0] as URL | undefined;
+      const options = fetchSpy.mock.calls[0]?.[1] as RequestInit | undefined;
+      expect(calledUrl?.toString()).toBe("https://lattice.example.com/api/v2/deployment/ssh");
+      expect(options).toEqual({
+        headers: { "Lattice-Session-Token": "session-token" },
+      });
+      expect(execAsyncSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("reuses cached whoami after getWhoamiInfo", async () => {
+      // First call for getWhoamiInfo
+      execAsyncSpy?.mockReturnValueOnce(
+        createMockExecResult(
+          Promise.resolve({
+            stdout: "Lattice is running at https://lattice.example.com, You're authenticated as lattice-user !",
+            stderr: "",
+          })
+        )
+      );
+      // Should not call again for fetchDeploymentSshConfig since whoami is cached
+      execAsyncSpy?.mockImplementation((cmd: string) =>
+        createMockExecResult(Promise.reject(new Error(`Unexpected command: ${cmd}`)))
+      );
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ hostname_suffix: ".corp" }),
+      });
+      global.fetch = fetchSpy as unknown as typeof fetch;
+
+      await service.getWhoamiInfo();
+
+      const session = {
+        token: "session-token",
+        dispose: vi.fn().mockResolvedValue(undefined),
+      };
+      await service.fetchDeploymentSshConfig(session);
+
+      // Only 1 whoami call (cached for the second)
+      const whoamiCalls =
+        execAsyncSpy?.mock.calls.filter(([cmd]) => cmd === "lattice whoami") ?? [];
+      expect(whoamiCalls).toHaveLength(1);
+    });
+
+    it("defaults to lattice when hostname suffix missing", async () => {
+      mockWhoami();
+      const fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({}),
+      });
+      global.fetch = fetchSpy as unknown as typeof fetch;
+
+      const session = {
+        token: "session-token",
+        dispose: vi.fn().mockResolvedValue(undefined),
+      };
+      const result = await service.fetchDeploymentSshConfig(session);
+
+      expect(result).toEqual({ hostnameSuffix: "lattice" });
+    });
+  });
+
+  describe("provisioning sessions", () => {
+    function mockTokenCommands() {
+      execAsyncSpy?.mockImplementation((cmd: string) => {
+        if (cmd.startsWith("lattice tokens create --lifetime 5m --name")) {
+          return createMockExecResult(Promise.resolve({ stdout: "token-123", stderr: "" }));
+        }
+        if (cmd.startsWith("lattice tokens remove")) {
+          return createMockExecResult(Promise.resolve({ stdout: "", stderr: "" }));
+        }
+        return createMockExecResult(Promise.reject(new Error(`Unexpected command: ${cmd}`)));
+      });
+    }
+
+    it("reuses provisioning sessions for the same minion", async () => {
+      mockTokenCommands();
+      const session1 = await service.ensureProvisioningSession("ws");
+      const session2 = await service.ensureProvisioningSession("ws");
+
+      expect(session1).toBe(session2);
+      expect(session1.token).toBe("token-123");
+
+      await service.disposeProvisioningSession("ws");
+      expect(execAsyncSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("takeProvisioningSession returns and clears the session", async () => {
+      mockTokenCommands();
+      const session = await service.ensureProvisioningSession("ws");
+      const taken = service.takeProvisioningSession("ws");
+
+      expect(taken).toBe(session);
+      expect(service.takeProvisioningSession("ws")).toBeUndefined();
+
+      await taken?.dispose();
+      expect(execAsyncSpy).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("createMinion", () => {
     // Capture original fetch once per describe block to avoid nested mock issues
     let originalFetch: typeof fetch;
 
@@ -476,16 +743,16 @@ describe("LatticeService", () => {
     });
 
     // Helper to mock the pre-fetch calls that happen before spawn
-    function mockPrefetchCalls(options?: { presetParamNames?: string[] }) {
+    function mockPrefetchCalls() {
       // Mock getDeploymentUrl (lattice whoami)
-      // Mock getActiveTemplateVersionId (lattice templates list -o json)
+      // Mock getActiveTemplateVersionId (lattice templates list)
       // Mock getTemplateRichParameters (lattice tokens create + fetch)
+      // Note: getPresetParamNames() returns empty set (presets handled server-side)
       execAsyncSpy?.mockImplementation((cmd: string) => {
         if (cmd === "lattice whoami") {
           return createMockExecResult(
             Promise.resolve({
-              stdout:
-                "Lattice is running at https://lattice.example.com, You're authenticated as admin !",
+              stdout: "Lattice is running at https://lattice.example.com, You're authenticated as lattice-user !",
               stderr: "",
             })
           );
@@ -494,20 +761,8 @@ describe("LatticeService", () => {
           return createMockExecResult(
             Promise.resolve({
               stdout: JSON.stringify([
-                {
-                  Template: {
-                    name: "my-template",
-                    organization_name: "default",
-                    active_version_id: "version-123",
-                  },
-                },
-                {
-                  Template: {
-                    name: "tmpl",
-                    organization_name: "default",
-                    active_version_id: "version-456",
-                  },
-                },
+                { Template: { name: "my-template", active_version_id: "version-123" } },
+                { Template: { name: "tmpl", active_version_id: "version-456" } },
               ]),
               stderr: "",
             })
@@ -552,33 +807,32 @@ describe("LatticeService", () => {
         stderr,
         kill: vi.fn(),
         on: events.on.bind(events),
-        removeListener: events.removeListener.bind(events),
       } as never);
 
       // Emit close after handlers are attached.
       setTimeout(() => events.emit("close", 0), 0);
 
       const lines: string[] = [];
-      for await (const line of service.createWorkspace("my-workspace", "my-template")) {
+      for await (const line of service.createMinion("my-minion", "my-template")) {
         lines.push(line);
       }
 
       expect(spawnSpy).toHaveBeenCalledWith(
         "lattice",
-        ["create", "my-workspace", "-t", "my-template", "-y"],
+        ["create", "my-minion", "-t", "my-template", "--yes"],
         { stdio: ["ignore", "pipe", "pipe"] }
       );
 
-      // Lines include parameter fetch message, the command, and stdout/stderr
-      expect(lines).toContain("$ lattice create my-workspace -t my-template -y");
-      expect(lines).toContain("out-1");
-      expect(lines).toContain("out-2");
-      expect(lines).toContain("err-1");
+      // First line is the command, rest are stdout/stderr
+      expect(lines[0]).toBe("$ lattice create my-minion -t my-template --yes");
+      expect(lines.slice(1).sort()).toEqual(["err-1", "out-1", "out-2"]);
     });
 
-    it("preset is logged but does not appear in CLI args (API-only feature)", async () => {
+    it("includes --preset and all non-ephemeral params when provided", async () => {
+      // getPresetParamNames() returns empty set (presets handled server-side),
+      // so all non-ephemeral params get passed as --parameter flags
       mockPrefetchCalls();
-      mockFetchRichParams([{ name: "some-param", default_value: "val" }]);
+      mockFetchRichParams([{ name: "param1", default_value: "val" }]);
 
       const stdout = Readable.from([]);
       const stderr = Readable.from([]);
@@ -589,28 +843,26 @@ describe("LatticeService", () => {
         stderr,
         kill: vi.fn(),
         on: events.on.bind(events),
-        removeListener: events.removeListener.bind(events),
       } as never);
 
       setTimeout(() => events.emit("close", 0), 0);
 
-      for await (const _line of service.createWorkspace("ws", "tmpl", "preset")) {
+      for await (const _line of service.createMinion("ws", "tmpl", "preset")) {
         // drain
       }
 
-      // Verify -y is used (not --yes) and --preset is NOT passed
-      const callArgs = spawnSpy!.mock.calls[0]?.[1] as string[];
-      expect(callArgs).toContain("-y");
-      expect(callArgs).not.toContain("--preset");
-      expect(callArgs).not.toContain("preset");
+      expect(spawnSpy).toHaveBeenCalledWith(
+        "lattice",
+        ["create", "ws", "-t", "tmpl", "--yes", "--preset", "preset", "--parameter", "param1=val"],
+        { stdio: ["ignore", "pipe", "pipe"] }
+      );
     });
 
-    it("includes --parameter flags for non-ephemeral params with defaults", async () => {
+    it("excludes ephemeral params from --parameter flags", async () => {
       mockPrefetchCalls();
       mockFetchRichParams([
-        { name: "param-with-default", default_value: "val1" },
+        { name: "normal-param", default_value: "val1" },
         { name: "ephemeral-param", default_value: "val2", ephemeral: true },
-        { name: "no-default-param", default_value: "" },
       ]);
 
       const stdout = Readable.from([]);
@@ -622,22 +874,29 @@ describe("LatticeService", () => {
         stderr,
         kill: vi.fn(),
         on: events.on.bind(events),
-        removeListener: events.removeListener.bind(events),
       } as never);
 
       setTimeout(() => events.emit("close", 0), 0);
 
-      for await (const _line of service.createWorkspace("ws", "tmpl")) {
+      for await (const _line of service.createMinion("ws", "tmpl", "preset")) {
         // drain
       }
 
-      const callArgs = spawnSpy!.mock.calls[0]?.[1] as string[];
-      // Non-ephemeral param with default should appear
-      expect(callArgs).toContain("--parameter");
-      const paramIndex = callArgs.indexOf("--parameter");
-      expect(callArgs[paramIndex + 1]).toContain("param-with-default=val1");
-      // Ephemeral param should NOT appear
-      expect(callArgs.join(" ")).not.toContain("ephemeral-param");
+      expect(spawnSpy).toHaveBeenCalledWith(
+        "lattice",
+        [
+          "create",
+          "ws",
+          "-t",
+          "tmpl",
+          "--yes",
+          "--preset",
+          "preset",
+          "--parameter",
+          "normal-param=val1",
+        ],
+        { stdio: ["ignore", "pipe", "pipe"] }
+      );
     });
 
     it("throws when exit code is non-zero", async () => {
@@ -653,14 +912,13 @@ describe("LatticeService", () => {
         stderr,
         kill: vi.fn(),
         on: events.on.bind(events),
-        removeListener: events.removeListener.bind(events),
       } as never);
 
       setTimeout(() => events.emit("close", 42), 0);
 
       let thrown: unknown;
       try {
-        for await (const _line of service.createWorkspace("ws", "tmpl")) {
+        for await (const _line of service.createMinion("ws", "tmpl")) {
           // drain
         }
       } catch (error) {
@@ -679,7 +937,7 @@ describe("LatticeService", () => {
 
       let thrown: unknown;
       try {
-        for await (const _line of service.createWorkspace(
+        for await (const _line of service.createMinion(
           "ws",
           "tmpl",
           undefined,
@@ -693,6 +951,23 @@ describe("LatticeService", () => {
 
       expect(thrown).toBeTruthy();
       expect(thrown instanceof Error ? thrown.message : String(thrown)).toContain("aborted");
+    });
+
+    it("throws when required param has no default and is not covered by preset", async () => {
+      mockPrefetchCalls();
+      mockFetchRichParams([{ name: "required-param", default_value: "", required: true }]);
+
+      let thrown: unknown;
+      try {
+        for await (const _line of service.createMinion("ws", "tmpl")) {
+          // drain
+        }
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeTruthy();
+      expect(thrown instanceof Error ? thrown.message : String(thrown)).toContain("required-param");
     });
   });
 });
@@ -941,34 +1216,261 @@ describe("non-string parameter defaults", () => {
   });
 });
 
-describe("deleteWorkspace", () => {
-  const service = new LatticeService();
-  let mockExec: ReturnType<typeof spyOn<typeof disposableExec, "execAsync">> | null = null;
+describe("deleteMinion", () => {
+  let service: LatticeService;
 
   beforeEach(() => {
+    service = new LatticeService();
     vi.clearAllMocks();
-    mockExec = spyOn(disposableExec, "execAsync");
   });
 
   afterEach(() => {
-    mockExec?.mockRestore();
-    mockExec = null;
+    service.clearCache();
   });
 
-  it("refuses to delete workspace without lattice- prefix", async () => {
-    await service.deleteWorkspace("my-workspace");
+  // deleteMinion is a thin wrapper around deleteMinionEventually.
+  // Detailed polling/retry behavior is tested in the deleteMinionEventually suite.
 
-    // Should not call execAsync at all
-    expect(mockExec).not.toHaveBeenCalled();
+  it("delegates to deleteMinionEventually with correct options", async () => {
+    const spy = spyOn(service, "deleteMinionEventually").mockResolvedValue({
+      success: true as const,
+      data: undefined,
+    });
+
+    await service.deleteMinion("lattice-my-minion");
+
+    expect(spy).toHaveBeenCalledWith("lattice-my-minion", {
+      timeoutMs: 30_000,
+      waitForExistence: false,
+    });
   });
 
-  it("deletes workspace with lattice- prefix", async () => {
-    mockExec?.mockReturnValue(createMockExecResult(Promise.resolve({ stdout: "", stderr: "" })));
+  it("throws when deleteMinionEventually returns an error", async () => {
+    spyOn(service, "deleteMinionEventually").mockResolvedValue({
+      success: false as const,
+      error: "minion stuck",
+    });
 
-    await service.deleteWorkspace("lattice-my-workspace");
+    let error: unknown;
+    try {
+      await service.deleteMinion("lattice-my-minion");
+    } catch (err) {
+      error = err;
+    }
 
-    expect(mockExec).toHaveBeenCalledWith(expect.stringContaining("lattice delete"));
-    expect(mockExec).toHaveBeenCalledWith(expect.stringContaining("lattice-my-workspace"));
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("minion stuck");
+  });
+});
+
+describe("deleteMinionEventually", () => {
+  it("polls past initial not_found when waitForExistence=true", async () => {
+    const service = new LatticeService();
+
+    const getMinionStatusSpy = spyOn(service, "getMinionStatus");
+    const statuses = [
+      { kind: "not_found" as const },
+      { kind: "ok" as const, status: "pending" as const },
+      { kind: "ok" as const, status: "deleting" as const },
+    ];
+    getMinionStatusSpy.mockImplementation(() =>
+      Promise.resolve(statuses.shift() ?? { kind: "ok" as const, status: "deleting" as const })
+    );
+
+    const serviceHack = service as unknown as {
+      runLatticeCommand: (
+        args: string[],
+        options: { timeoutMs: number; signal?: AbortSignal }
+      ) => Promise<{
+        exitCode: number | null;
+        stdout: string;
+        stderr: string;
+        error?: string;
+      }>;
+      sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+    };
+
+    serviceHack.runLatticeCommand = vi.fn(() =>
+      Promise.resolve({ exitCode: 0, stdout: "", stderr: "" })
+    );
+    serviceHack.sleep = vi.fn(() => Promise.resolve());
+
+    const result = await service.deleteMinionEventually("lattice-my-minion", {
+      timeoutMs: 1_000,
+      waitForExistence: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(getMinionStatusSpy.mock.calls.length).toBeGreaterThan(1);
+    expect(serviceHack.runLatticeCommand).toHaveBeenCalled();
+  });
+
+  it("treats sustained not_found as success after timeout when waitForExistence=true", async () => {
+    const service = new LatticeService();
+
+    let now = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+
+    const getMinionStatusSpy = spyOn(service, "getMinionStatus").mockResolvedValue({
+      kind: "not_found" as const,
+    });
+
+    const serviceHack = service as unknown as {
+      runLatticeCommand: (
+        args: string[],
+        options: { timeoutMs: number; signal?: AbortSignal }
+      ) => Promise<{
+        exitCode: number | null;
+        stdout: string;
+        stderr: string;
+        error?: string;
+      }>;
+      sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+    };
+
+    serviceHack.runLatticeCommand = vi.fn(() =>
+      Promise.resolve({ exitCode: 0, stdout: "", stderr: "" })
+    );
+    serviceHack.sleep = vi.fn((ms: number) => {
+      now += ms;
+      return Promise.resolve();
+    });
+
+    try {
+      const result = await service.deleteMinionEventually("lattice-my-minion", {
+        timeoutMs: 1_000,
+        waitForExistence: true,
+      });
+
+      expect(result.success).toBe(true);
+      expect(getMinionStatusSpy).toHaveBeenCalled();
+      expect(serviceHack.runLatticeCommand).not.toHaveBeenCalled();
+    } finally {
+      // Reset Date.now even if the test fails.
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("short-circuits on waitForExistenceTimeoutMs before overall timeout", async () => {
+    const service = new LatticeService();
+
+    let now = 0;
+    const nowSpy = spyOn(Date, "now").mockImplementation(() => now);
+
+    const getMinionStatusSpy = spyOn(service, "getMinionStatus").mockResolvedValue({
+      kind: "not_found" as const,
+    });
+
+    const serviceHack = service as unknown as {
+      runLatticeCommand: (
+        args: string[],
+        options: { timeoutMs: number; signal?: AbortSignal }
+      ) => Promise<{
+        exitCode: number | null;
+        stdout: string;
+        stderr: string;
+        error?: string;
+      }>;
+      sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+    };
+
+    serviceHack.runLatticeCommand = vi.fn(() =>
+      Promise.resolve({ exitCode: 0, stdout: "", stderr: "" })
+    );
+    serviceHack.sleep = vi.fn((ms: number) => {
+      now += ms;
+      return Promise.resolve();
+    });
+
+    try {
+      const result = await service.deleteMinionEventually("lattice-my-minion", {
+        timeoutMs: 60_000,
+        waitForExistence: true,
+        // Short existence-wait window: succeed after ~5s of only not_found
+        waitForExistenceTimeoutMs: 5_000,
+      });
+
+      expect(result.success).toBe(true);
+      expect(getMinionStatusSpy).toHaveBeenCalled();
+      // Should never attempt `lattice delete` since we only saw not_found
+      expect(serviceHack.runLatticeCommand).not.toHaveBeenCalled();
+      // Should have returned well before the 60s overall timeout
+      expect(now).toBeLessThan(10_000);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("treats a successful delete as terminal even if status polling errors", async () => {
+    const service = new LatticeService();
+
+    spyOn(service, "getMinionStatus").mockResolvedValue({
+      kind: "error" as const,
+      error: "auth failed",
+    });
+
+    const serviceHack = service as unknown as {
+      runLatticeCommand: (
+        args: string[],
+        options: { timeoutMs: number; signal?: AbortSignal }
+      ) => Promise<{
+        exitCode: number | null;
+        stdout: string;
+        stderr: string;
+        error?: string;
+      }>;
+      sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+    };
+
+    serviceHack.runLatticeCommand = vi.fn(() =>
+      Promise.resolve({ exitCode: 0, stdout: "", stderr: "" })
+    );
+    serviceHack.sleep = vi.fn(() => Promise.resolve());
+
+    const result = await service.deleteMinionEventually("lattice-my-minion", {
+      timeoutMs: 60_000,
+      waitForExistence: false,
+    });
+
+    expect(result.success).toBe(true);
+    expect(serviceHack.runLatticeCommand).toHaveBeenCalledTimes(1);
+    expect(serviceHack.sleep).not.toHaveBeenCalled();
+  });
+
+  it("treats a successful delete as terminal even when waitForExistence=true", async () => {
+    const service = new LatticeService();
+
+    spyOn(service, "getMinionStatus").mockResolvedValue({
+      kind: "error" as const,
+      error: "auth failed",
+    });
+
+    const serviceHack = service as unknown as {
+      runLatticeCommand: (
+        args: string[],
+        options: { timeoutMs: number; signal?: AbortSignal }
+      ) => Promise<{
+        exitCode: number | null;
+        stdout: string;
+        stderr: string;
+        error?: string;
+      }>;
+      sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+    };
+
+    serviceHack.runLatticeCommand = vi.fn(() =>
+      Promise.resolve({ exitCode: 0, stdout: "", stderr: "" })
+    );
+    serviceHack.sleep = vi.fn(() => Promise.resolve());
+
+    const result = await service.deleteMinionEventually("lattice-my-minion", {
+      timeoutMs: 60_000,
+      waitForExistence: true,
+    });
+
+    expect(result.success).toBe(true);
+    expect(serviceHack.runLatticeCommand).toHaveBeenCalledTimes(1);
+    expect(serviceHack.sleep).not.toHaveBeenCalled();
   });
 });
 

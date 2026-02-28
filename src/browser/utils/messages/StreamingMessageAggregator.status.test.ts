@@ -109,7 +109,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -119,7 +119,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Add a status_set tool call
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId,
       toolName: "status_set",
@@ -131,7 +131,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Complete the tool call
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId,
       toolName: "status_set",
@@ -152,7 +152,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -162,7 +162,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // First status_set
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -173,7 +173,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -186,7 +186,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Second status_set
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool2",
       toolName: "status_set",
@@ -197,7 +197,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool2",
       toolName: "status_set",
@@ -210,13 +210,13 @@ describe("StreamingMessageAggregator - Agent Status", () => {
   });
 
   it("should persist agent status after stream ends", () => {
-    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", "workspace1");
+    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", "minion1");
     const messageId = "msg1";
 
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -226,7 +226,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Set status
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -237,7 +237,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -250,7 +250,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // End the stream
     aggregator.handleStreamEnd({
       type: "stream-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       metadata: { model: "test-model" },
       parts: [],
@@ -268,7 +268,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -278,7 +278,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Add a status_set tool call
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -290,7 +290,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Complete with failure
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -303,12 +303,12 @@ describe("StreamingMessageAggregator - Agent Status", () => {
   });
 
   it("should clear agent status when new user message arrives", () => {
-    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", "workspace1");
+    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", "minion1");
 
     // Start first stream and set status
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: "msg1",
       model: "test-model",
       historySequence: 1,
@@ -317,7 +317,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: "msg1",
       toolCallId: "tool1",
       toolName: "status_set",
@@ -328,7 +328,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: "msg1",
       toolCallId: "tool1",
       toolName: "status_set",
@@ -341,7 +341,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // End first stream
     aggregator.handleStreamEnd({
       type: "stream-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: "msg1",
       metadata: { model: "test-model" },
       parts: [],
@@ -371,7 +371,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -381,7 +381,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Add a status_set tool call with invalid emoji
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -393,7 +393,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Complete with validation failure
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -404,7 +404,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // End the stream to finalize message
     aggregator.handleStreamEnd({
       type: "stream-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       metadata: { model: "test-model" },
       parts: [],
@@ -425,13 +425,13 @@ describe("StreamingMessageAggregator - Agent Status", () => {
   });
 
   it("should show 'completed' status in UI when status_set validation succeeds", () => {
-    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", "workspace1");
+    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", "minion1");
     const messageId = "msg1";
 
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -441,7 +441,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Add a successful status_set tool call
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -453,7 +453,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Complete successfully
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -464,7 +464,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // End the stream to finalize message
     aggregator.handleStreamEnd({
       type: "stream-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       metadata: { model: "test-model" },
       parts: [],
@@ -641,15 +641,15 @@ describe("StreamingMessageAggregator - Agent Status", () => {
   });
 
   it("should restore persisted status when history is compacted away", () => {
-    const workspaceId = "workspace1";
+    const minionId = "minion1";
     const persistedStatus = {
       emoji: "🔗",
       message: "PR open",
       url: "https://example.com/pr/123",
     } as const;
-    localStorage.setItem(getStatusStateKey(workspaceId), JSON.stringify(persistedStatus));
+    localStorage.setItem(getStatusStateKey(minionId), JSON.stringify(persistedStatus));
 
-    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", workspaceId);
+    const aggregator = new StreamingMessageAggregator("2024-01-01T00:00:00.000Z", minionId);
 
     // History with no status_set (e.g., after compaction removes older tool calls)
     const historicalMessages = [
@@ -675,7 +675,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -688,7 +688,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId,
       toolName: "status_set",
@@ -699,7 +699,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId,
       toolName: "status_set",
@@ -721,7 +721,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -732,7 +732,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     const testUrl = "https://github.com/owner/repo/pull/123";
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId,
       toolName: "status_set",
@@ -744,7 +744,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Complete the tool call
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId,
       toolName: "status_set",
@@ -766,7 +766,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start a stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       model: "test-model",
       historySequence: 1,
@@ -777,7 +777,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     const testUrl = "https://github.com/owner/repo/pull/123";
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -788,7 +788,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -801,7 +801,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Second status without URL - should keep previous URL
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool2",
       toolName: "status_set",
@@ -812,7 +812,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool2",
       toolName: "status_set",
@@ -829,7 +829,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     const newUrl = "https://github.com/owner/repo/pull/456";
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool3",
       toolName: "status_set",
@@ -840,7 +840,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId,
       toolCallId: "tool3",
       toolName: "status_set",
@@ -861,7 +861,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Start first stream
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: messageId1,
       model: "test-model",
       historySequence: 1,
@@ -872,7 +872,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     const testUrl = "https://github.com/owner/repo/pull/123";
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: messageId1,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -883,7 +883,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: messageId1,
       toolCallId: "tool1",
       toolName: "status_set",
@@ -909,7 +909,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     const messageId2 = "msg2";
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: messageId2,
       model: "test-model",
       historySequence: 2,
@@ -919,7 +919,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
     // Set new status WITHOUT URL - should use the last URL ever seen
     aggregator.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: messageId2,
       toolCallId: "tool2",
       toolName: "status_set",
@@ -930,7 +930,7 @@ describe("StreamingMessageAggregator - Agent Status", () => {
 
     aggregator.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId: "workspace1",
+      minionId: "minion1",
       messageId: messageId2,
       toolCallId: "tool2",
       toolName: "status_set",

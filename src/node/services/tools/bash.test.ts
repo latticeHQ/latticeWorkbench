@@ -4,11 +4,12 @@ import { createBashTool } from "./bash";
 import type { BashOutputEvent } from "@/common/types/stream";
 import type { BashToolArgs, BashToolResult } from "@/common/types/tools";
 import { BASH_MAX_TOTAL_BYTES } from "@/common/constants/toolLimits";
+import * as path from "path";
 import * as fs from "fs";
 import { TestTempDir, createTestToolConfig, getTestDeps } from "./testHelpers";
 import { createRuntime } from "@/node/runtime/runtimeFactory";
 import { sshConnectionPool } from "@/node/runtime/sshConnectionPool";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 // Type guard to narrow foreground success result (has note, no backgroundProcessId)
 function isForegroundSuccess(
@@ -20,7 +21,7 @@ function isForegroundSuccess(
 import { BackgroundProcessManager } from "@/node/services/backgroundProcessManager";
 
 // Mock ToolCallOptions for testing
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -57,7 +58,9 @@ describe("bash tool", () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.output).toBe("hello");
+      // Shell initialization may emit warnings (e.g. nix devshell PATH refresh)
+      // before the actual command output. Verify the command output is present.
+      expect(result.output.trimEnd().endsWith("hello")).toBe(true);
       expect(result.exitCode).toBe(0);
     }
   });
@@ -87,7 +90,7 @@ describe("bash tool", () => {
     expect(result.success).toBe(true);
 
     expect(events.length).toBeGreaterThan(0);
-    expect(events.every((e) => e.workspaceId === config.workspaceId)).toBe(true);
+    expect(events.every((e) => e.minionId === config.minionId)).toBe(true);
     expect(events.every((e) => e.toolCallId === mockToolCallOptions.toolCallId)).toBe(true);
 
     const stdoutText = events
@@ -120,6 +123,204 @@ describe("bash tool", () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.output).toBe("line1\nline2\nline3");
+    }
+  });
+
+  it("should warn when using cat to read a file", async () => {
+    using tempDir = new TestTempDir("test-bash-cat-read");
+
+    const filePath = path.join(tempDir.path, "input.txt");
+    fs.writeFileSync(filePath, "hello\nworld", "utf-8");
+
+    const config = createTestToolConfig(tempDir.path);
+    config.runtimeTempDir = tempDir.path;
+    const tool = createBashTool(config);
+
+    const args: BashToolArgs = {
+      script: `cat ${filePath}`,
+      timeout_secs: 5,
+      run_in_background: false,
+      display_name: "test",
+    };
+
+    const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+    expect(result.success).toBe(true);
+    if (isForegroundSuccess(result)) {
+      expect(result.output).toBe("hello\nworld");
+      expect(result.note).toContain("DO NOT use `cat`");
+      expect(result.note).toContain("file_read");
+    }
+  });
+
+  it("should not warn on cat heredoc", async () => {
+    using tempDir = new TestTempDir("test-bash-cat-heredoc");
+
+    const config = createTestToolConfig(tempDir.path);
+    config.runtimeTempDir = tempDir.path;
+    const tool = createBashTool(config);
+
+    const args: BashToolArgs = {
+      script: "cat <<'EOF'\nhello\nEOF",
+      timeout_secs: 5,
+      run_in_background: false,
+      display_name: "test",
+    };
+
+    const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+    expect(result.success).toBe(true);
+    if (isForegroundSuccess(result)) {
+      expect(result.output).toBe("hello");
+      expect(result.note).toBeUndefined();
+    }
+  });
+
+  it("should warn when using grep to dump a file", async () => {
+    using tempDir = new TestTempDir("test-bash-grep-read");
+
+    const filePath = path.join(tempDir.path, "input.txt");
+    fs.writeFileSync(filePath, "hello\nworld", "utf-8");
+
+    const config = createTestToolConfig(tempDir.path);
+    config.runtimeTempDir = tempDir.path;
+    const tool = createBashTool(config);
+
+    const args: BashToolArgs = {
+      script: `grep '' ${filePath}`,
+      timeout_secs: 5,
+      run_in_background: false,
+      display_name: "test",
+    };
+
+    const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+    expect(result.success).toBe(true);
+    if (isForegroundSuccess(result)) {
+      expect(result.output).toBe("hello\nworld");
+      expect(result.note).toContain("file_read");
+      expect(result.note).toContain("`grep`");
+    }
+  });
+
+  it("should not warn on grep search", async () => {
+    using tempDir = new TestTempDir("test-bash-grep-search");
+
+    const filePath = path.join(tempDir.path, "input.txt");
+    fs.writeFileSync(filePath, "hello\nworld", "utf-8");
+
+    const config = createTestToolConfig(tempDir.path);
+    config.runtimeTempDir = tempDir.path;
+    const tool = createBashTool(config);
+
+    const args: BashToolArgs = {
+      script: `grep 'hello' ${filePath}`,
+      timeout_secs: 5,
+      run_in_background: false,
+      display_name: "test",
+    };
+
+    const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+    expect(result.success).toBe(true);
+    if (isForegroundSuccess(result)) {
+      expect(result.output).toBe("hello");
+      expect(result.note).toBeUndefined();
+    }
+  });
+
+  it("should warn when using rg to dump a file", async () => {
+    using tempDir = new TestTempDir("test-bash-rg-read");
+
+    const filePath = path.join(tempDir.path, "input.txt");
+    fs.writeFileSync(filePath, "hello\nworld", "utf-8");
+
+    const config = createTestToolConfig(tempDir.path);
+    config.runtimeTempDir = tempDir.path;
+    const tool = createBashTool(config);
+
+    // CI images don’t guarantee ripgrep is installed; shim `rg` so we can exercise the
+    // bash-tool warning heuristics without depending on the real binary.
+    const args: BashToolArgs = {
+      script: `rg() { grep -E "$1" "$2"; }\nrg '' "${filePath}"`,
+      timeout_secs: 5,
+      run_in_background: false,
+      display_name: "test",
+    };
+
+    const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+    expect(result.success).toBe(true);
+    if (isForegroundSuccess(result)) {
+      expect(result.output).toBe("hello\nworld");
+      expect(result.note).toContain("file_read");
+      expect(result.note).toContain("`rg`");
+    }
+  });
+
+  it("should not warn on rg search", async () => {
+    using tempDir = new TestTempDir("test-bash-rg-search");
+
+    const filePath = path.join(tempDir.path, "input.txt");
+    fs.writeFileSync(filePath, "hello\nworld", "utf-8");
+
+    const config = createTestToolConfig(tempDir.path);
+    config.runtimeTempDir = tempDir.path;
+    const tool = createBashTool(config);
+
+    // CI images don’t guarantee ripgrep is installed; shim `rg` so we can exercise the
+    // bash-tool warning heuristics without depending on the real binary.
+    const args: BashToolArgs = {
+      script: `rg() { grep -E "$1" "$2"; }\nrg 'hello' "${filePath}"`,
+      timeout_secs: 5,
+      run_in_background: false,
+      display_name: "test",
+    };
+
+    const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+    expect(result.success).toBe(true);
+    if (isForegroundSuccess(result)) {
+      expect(result.output).toBe("hello");
+      expect(result.note).toBeUndefined();
+    }
+  });
+  it("should warn on cat file reads even when output overflows", async () => {
+    using tempDir = new TestTempDir("test-bash-cat-overflow");
+
+    const filePath = path.join(tempDir.path, "large.txt");
+    fs.writeFileSync(
+      filePath,
+      Array.from({ length: 400 }, (_, i) => `line${i + 1}`).join("\n"),
+      "utf-8"
+    );
+
+    const config = createTestToolConfig(tempDir.path);
+    config.runtimeTempDir = tempDir.path;
+    const tool = createBashTool(config);
+
+    const args: BashToolArgs = {
+      script: `cat ${filePath}`,
+      timeout_secs: 5,
+      run_in_background: false,
+      display_name: "test",
+    };
+
+    const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+    expect(result.success).toBe(true);
+    if (isForegroundSuccess(result)) {
+      expect(result.output).toBe("");
+      expect(result.note).toContain("DO NOT use `cat`");
+      expect(result.note).toContain("[OUTPUT OVERFLOW");
+
+      const match = /saved to (\/.*?\.txt)/.exec(result.note ?? "");
+      expect(match).toBeDefined();
+      if (match) {
+        const overflowPath = match[1];
+        expect(fs.existsSync(overflowPath)).toBe(true);
+        fs.unlinkSync(overflowPath);
+      }
     }
   });
 
@@ -1018,6 +1219,81 @@ describe("bash tool", () => {
     }
   });
 
+  describe("script sanitization", () => {
+    const shouldRewriteNullRedirects = process.platform === "win32";
+
+    it("should rewrite >nul to /dev/null (and not create a `nul` file)", async () => {
+      using tempDir = new TestTempDir("test-bash-nul-redirect");
+      const tool = createBashTool(createTestToolConfig(tempDir.path));
+
+      const args: BashToolArgs = {
+        script: "echo hello >nul",
+        timeout_secs: 5,
+        run_in_background: false,
+        display_name: "test",
+      };
+
+      const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+      expect(result.success).toBe(true);
+      if (isForegroundSuccess(result)) {
+        if (shouldRewriteNullRedirects) {
+          expect(result.note).toContain("Rewrote `>nul`/`2>nul`");
+        } else {
+          expect(result.note).toBeUndefined();
+        }
+      }
+
+      expect(fs.existsSync(path.join(tempDir.path, "nul"))).toBe(!shouldRewriteNullRedirects);
+    });
+
+    it("should rewrite 2>nul to /dev/null (and not create a `nul` file)", async () => {
+      using tempDir = new TestTempDir("test-bash-nul-redirect-stderr");
+      const tool = createBashTool(createTestToolConfig(tempDir.path));
+
+      const args: BashToolArgs = {
+        script: "ls does-not-exist 2>nul || true",
+        timeout_secs: 5,
+        run_in_background: false,
+        display_name: "test",
+      };
+
+      const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+      expect(result.success).toBe(true);
+      if (isForegroundSuccess(result)) {
+        if (shouldRewriteNullRedirects) {
+          expect(result.note).toContain("Rewrote `>nul`/`2>nul`");
+        } else {
+          expect(result.note).toBeUndefined();
+        }
+      }
+
+      expect(fs.existsSync(path.join(tempDir.path, "nul"))).toBe(!shouldRewriteNullRedirects);
+    });
+
+    it("should not rewrite an explicit path like >./nul", async () => {
+      using tempDir = new TestTempDir("test-bash-dot-nul");
+      const tool = createBashTool(createTestToolConfig(tempDir.path));
+
+      const args: BashToolArgs = {
+        script: "echo hello >./nul",
+        timeout_secs: 5,
+        run_in_background: false,
+        display_name: "test",
+      };
+
+      const result = (await tool.execute!(args, mockToolCallOptions)) as BashToolResult;
+
+      expect(result.success).toBe(true);
+      if (isForegroundSuccess(result)) {
+        expect(result.note).toBeUndefined();
+      }
+
+      expect(fs.existsSync(path.join(tempDir.path, "nul"))).toBe(true);
+    });
+  });
+
   it("should fail immediately when script is only whitespace", async () => {
     using testEnv = createTestBashTool();
     const tool = testEnv.tool;
@@ -1306,14 +1582,14 @@ describe("latticeEnv environment variables", () => {
     config.latticeEnv = {
       LATTICE_PROJECT_PATH: "/test/project/path",
       LATTICE_RUNTIME: "worktree",
-      LATTICE_WORKSPACE_NAME: "feature-branch",
+      LATTICE_MINION_NAME: "feature-branch",
     };
     const tool = createBashTool(config);
 
     const args: BashToolArgs = {
-      script:
-        'echo "PROJECT:$LATTICE_PROJECT_PATH RUNTIME:$LATTICE_RUNTIME WORKSPACE:$LATTICE_WORKSPACE_NAME"',
+      script: 'echo "PROJECT:$LATTICE_PROJECT_PATH RUNTIME:$LATTICE_RUNTIME MINION:$LATTICE_MINION_NAME"',
       timeout_secs: 5,
+      run_in_background: false,
       display_name: "test",
     };
 
@@ -1323,7 +1599,7 @@ describe("latticeEnv environment variables", () => {
     if (result.success) {
       expect(result.output).toContain("PROJECT:/test/project/path");
       expect(result.output).toContain("RUNTIME:worktree");
-      expect(result.output).toContain("WORKSPACE:feature-branch");
+      expect(result.output).toContain("MINION:feature-branch");
     }
   });
 
@@ -1343,6 +1619,7 @@ describe("latticeEnv environment variables", () => {
     const args: BashToolArgs = {
       script: 'echo "LATTICE:$LATTICE_PROJECT_PATH CUSTOM:$CUSTOM_VAR"',
       timeout_secs: 5,
+      run_in_background: false,
       display_name: "test",
     };
 
@@ -1389,12 +1666,12 @@ describe("SSH runtime redundant cd detection", () => {
   }
 
   it("should reject redundant cd when command cds to working directory", async () => {
-    const remoteCwd = "/remote/workspace/project/branch";
+    const remoteCwd = "/remote/minion/project/branch";
     using testEnv = createTestBashToolWithSSH(remoteCwd);
     const tool = testEnv.tool;
 
     const args: BashToolArgs = {
-      script: "cd /remote/workspace/project/branch && echo test",
+      script: "cd /remote/minion/project/branch && echo test",
       timeout_secs: 5,
       run_in_background: false,
       display_name: "test",
@@ -1413,7 +1690,7 @@ describe("SSH runtime redundant cd detection", () => {
 
   it("should not treat cd to a different directory as redundant", () => {
     // Only testing normalization here - SSH execution would hang (no real host).
-    const remoteCwd = "/remote/workspace/project/branch";
+    const remoteCwd = "/remote/minion/project/branch";
 
     const sshRuntime = createRuntime({
       type: "ssh" as const,

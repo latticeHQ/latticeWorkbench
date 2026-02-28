@@ -22,7 +22,7 @@ function createPreset(): LayoutPreset {
     id: "preset-1",
     name: "Slot 1",
     leftSidebarCollapsed: false,
-    rightSidebar: {
+    workbenchPanel: {
       collapsed: false,
       width: { mode: "px", value: 400 },
       layout: {
@@ -62,7 +62,7 @@ describe("handleLayoutSlotHotkeys", () => {
   });
 
   test("handles slot hotkey even when focus is in a textarea", () => {
-    const applySlotToWorkspace = mock((_workspaceId: string, _slot: number) => Promise.resolve());
+    const applySlotToMinion = mock((_minionId: string, _slot: number) => Promise.resolve());
     const preventDefault = mock(() => undefined);
 
     const textarea = document.createElement("textarea");
@@ -72,19 +72,19 @@ describe("handleLayoutSlotHotkeys", () => {
       {
         isCommandPaletteOpen: false,
         isSettingsOpen: false,
-        selectedWorkspaceId: "ws",
+        selectedMinionId: "ws",
         layoutPresets: createLayoutPresetsWithSlot1(),
-        applySlotToWorkspace,
+        applySlotToMinion,
       }
     );
 
     expect(handled).toBe(true);
     expect(preventDefault.mock.calls.length).toBe(1);
-    expect(applySlotToWorkspace.mock.calls).toEqual([["ws", 1]]);
+    expect(applySlotToMinion.mock.calls).toEqual([["ws", 1]]);
   });
 
   test("does not handle slot hotkey when a terminal is focused", () => {
-    const applySlotToWorkspace = mock((_workspaceId: string, _slot: number) => Promise.resolve());
+    const applySlotToMinion = mock((_minionId: string, _slot: number) => Promise.resolve());
 
     const terminalContainer = document.createElement("div");
     terminalContainer.setAttribute("data-terminal-container", "true");
@@ -97,18 +97,18 @@ describe("handleLayoutSlotHotkeys", () => {
       {
         isCommandPaletteOpen: false,
         isSettingsOpen: false,
-        selectedWorkspaceId: "ws",
+        selectedMinionId: "ws",
         layoutPresets: createLayoutPresetsWithSlot1(),
-        applySlotToWorkspace,
+        applySlotToMinion,
       }
     );
 
     expect(handled).toBe(false);
-    expect(applySlotToWorkspace.mock.calls.length).toBe(0);
+    expect(applySlotToMinion.mock.calls.length).toBe(0);
   });
 
   test("does not handle slot hotkey when AltGr is active", () => {
-    const applySlotToWorkspace = mock((_workspaceId: string, _slot: number) => Promise.resolve());
+    const applySlotToMinion = mock((_minionId: string, _slot: number) => Promise.resolve());
 
     const textarea = document.createElement("textarea");
 
@@ -123,13 +123,13 @@ describe("handleLayoutSlotHotkeys", () => {
       {
         isCommandPaletteOpen: false,
         isSettingsOpen: false,
-        selectedWorkspaceId: "ws",
+        selectedMinionId: "ws",
         layoutPresets: createLayoutPresetsWithSlot1(),
-        applySlotToWorkspace,
+        applySlotToMinion,
       }
     );
 
     expect(handled).toBe(false);
-    expect(applySlotToWorkspace.mock.calls.length).toBe(0);
+    expect(applySlotToMinion.mock.calls.length).toBe(0);
   });
 });

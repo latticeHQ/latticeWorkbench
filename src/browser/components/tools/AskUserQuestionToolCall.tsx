@@ -1,10 +1,12 @@
 import assert from "@/common/utils/assert";
 
 import { AlertTriangle, Check } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { CUSTOM_EVENTS, createCustomEvent } from "@/common/constants/events";
 import { useAPI } from "@/browser/contexts/API";
+import { useMinionStoreRaw } from "@/browser/stores/MinionStore";
+import { getSendOptionsFromStorage } from "@/browser/utils/messages/sendOptions";
+import { applyCompactionOverrides } from "@/browser/utils/messages/compactionOptions";
 import { useAutoResizeTextarea } from "@/browser/hooks/useAutoResizeTextarea";
 import { Checkbox } from "@/browser/components/ui/checkbox";
 import { cn } from "@/common/lib/utils";
@@ -31,6 +33,8 @@ import type {
   ToolErrorResult,
 } from "@/common/types/tools";
 import { getToolOutputUiOnly } from "@/common/utils/tools/toolOutputUiOnly";
+import { getErrorMessage } from "@/common/utils/errors";
+import { formatSendMessageError } from "@/common/utils/errors/formatSendError";
 
 const OTHER_VALUE = "__other__";
 
@@ -44,7 +48,7 @@ interface CachedState {
   activeIndex: number;
 }
 
-// Cache draft state by toolCallId so it survives workspace switches
+// Cache draft state by toolCallId so it survives minion switches
 const draftStateCache = new Map<string, CachedState>();
 
 function unwrapJsonContainer(value: unknown): unknown {
@@ -131,7 +135,7 @@ function parsePrefilledAnswer(question: AskUserQuestionQuestion, answer: string)
   return { selected, otherText: otherParts.join(", ") };
 }
 
-function isQuestionAnswered(question: AskUserQuestionQuestion, draft: DraftAnswer): boolean {
+function isQuestionAnswered(_question: AskUserQuestionQuestion, draft: DraftAnswer): boolean {
   if (draft.selected.length === 0) {
     return false;
   }
@@ -212,7 +216,7 @@ export function AskUserQuestionToolCall(props: {
   result: AskUserQuestionToolResult | null;
   status: ToolStatus;
   toolCallId: string;
-  workspaceId?: string;
+  minionId?: string;
 }): JSX.Element {
   const { api } = useAPI();
 
@@ -221,12 +225,143 @@ export function AskUserQuestionToolCall(props: {
 
   const argsAnswers = props.args.answers ?? {};
 
-  // Restore from cache if available (survives workspace switches)
+  // Restore from cache if available (survives minion switches)
   const cachedState = draftStateCache.get(props.toolCallId);
 
   const [activeIndex, setActiveIndex] = useState(() => cachedState?.activeIndex ?? 0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const minionStore = useMinionStoreRaw();
+  const minionState = useSyncExternalStore(
+    (listener) => {
+      if (!props.minionId) {
+        return () => undefined;
+      }
+
+      return minionStore.subscribeKey(props.minionId, listener);
+    },
+    () => {
+      if (!props.minionId) {
+        return null;
+      }
+
+      // Some render paths (nested tool rendering) do not have minion context.
+      // Fail-soft so ask_user_question still renders instead of crashing the tree.
+      try {
+        return minionStore.getMinionState(props.minionId);
+      } catch {
+        return null;
+      }
+    }
+  );
+  const autoRetryRollbackMinionIdRef = useRef<string | null>(null);
+  const autoRetryRollbackPendingRef = useRef(false);
+  const autoRetryRollbackArmedRef = useRef(false);
+  const autoRetryRollbackBaselineMessageCountRef = useRef<number | null>(null);
+  const isMountedRef = useRef(true);
+  const apiRef = useRef(api);
+
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
+  const rollbackAutoRetryIfNeeded = useCallback(
+    async (options?: { suppressErrors?: boolean }): Promise<void> => {
+      if (!autoRetryRollbackPendingRef.current) {
+        return;
+      }
+
+      const rollbackMinionId = autoRetryRollbackMinionIdRef.current;
+
+      autoRetryRollbackPendingRef.current = false;
+      autoRetryRollbackArmedRef.current = false;
+      autoRetryRollbackBaselineMessageCountRef.current = null;
+      autoRetryRollbackMinionIdRef.current = null;
+
+      const activeApi = apiRef.current;
+      if (!activeApi || !rollbackMinionId) {
+        return;
+      }
+
+      const rollbackResult = await activeApi.minion.setAutoRetryEnabled?.({
+        minionId: rollbackMinionId,
+        enabled: false,
+        persist: false,
+      });
+      if (rollbackResult && !rollbackResult.success && !options?.suppressErrors) {
+        setSubmitError(rollbackResult.error);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!autoRetryRollbackPendingRef.current) {
+      return;
+    }
+
+    // If rendering moves away from the minion that enabled temporary retry,
+    // rollback immediately so the prior minion preference is restored.
+    const rollbackMinionId = autoRetryRollbackMinionIdRef.current;
+    if (!rollbackMinionId || rollbackMinionId === props.minionId) {
+      return;
+    }
+
+    void rollbackAutoRetryIfNeeded();
+  }, [props.minionId, rollbackAutoRetryIfNeeded]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+
+    return () => {
+      isMountedRef.current = false;
+      if (!autoRetryRollbackPendingRef.current) {
+        return;
+      }
+
+      // Teardown-safe rollback: if the tool component unmounts before stream-state
+      // transitions fire (minion switch/removal/app exit), restore preference now.
+      void rollbackAutoRetryIfNeeded({ suppressErrors: true });
+    };
+  }, [rollbackAutoRetryIfNeeded]);
+
+  useEffect(() => {
+    if (!autoRetryRollbackPendingRef.current) {
+      return;
+    }
+
+    const autoRetryStatusType = minionState?.autoRetryStatus?.type;
+    const autoRetryActive =
+      autoRetryStatusType === "auto-retry-scheduled" ||
+      autoRetryStatusType === "auto-retry-starting";
+    const streamInFlight =
+      minionState?.isStreamStarting === true || minionState?.canInterrupt === true;
+
+    // Wait until the resumed stream has actually reached an in-flight state before
+    // considering rollback. This avoids disabling auto-retry immediately after
+    // resumeStream() resolves but before the resumed attempt's outcome is known.
+    if (autoRetryActive || streamInFlight) {
+      autoRetryRollbackArmedRef.current = true;
+      return;
+    }
+
+    const baselineMessageCount = autoRetryRollbackBaselineMessageCountRef.current;
+    const hasObservedPostResumeMessage =
+      baselineMessageCount !== null &&
+      (minionState?.messages.length ?? 0) > baselineMessageCount;
+    if (!autoRetryRollbackArmedRef.current && !hasObservedPostResumeMessage) {
+      return;
+    }
+
+    void rollbackAutoRetryIfNeeded();
+  }, [
+    rollbackAutoRetryIfNeeded,
+    minionState?.autoRetryStatus,
+    minionState?.isStreamStarting,
+    minionState?.canInterrupt,
+    minionState?.messages.length,
+  ]);
 
   const [draftAnswers, setDraftAnswers] = useState<Record<string, DraftAnswer>>(() => {
     if (cachedState) {
@@ -245,7 +380,7 @@ export function AskUserQuestionToolCall(props: {
     return initial;
   });
 
-  // Sync draft state to cache so it survives workspace switches
+  // Sync draft state to cache so it survives minion switches
   useEffect(() => {
     if (props.status === "executing") {
       draftStateCache.set(props.toolCallId, { draftAnswers, activeIndex });
@@ -308,7 +443,7 @@ export function AskUserQuestionToolCall(props: {
     setSubmitError(null);
 
     let answers: Record<string, string>;
-    let workspaceId: string;
+    let minionId: string;
 
     try {
       answers = {};
@@ -323,39 +458,99 @@ export function AskUserQuestionToolCall(props: {
       }
 
       assert(api, "API not connected");
-      assert(props.workspaceId, "workspaceId is required");
-      workspaceId = props.workspaceId;
+      assert(props.minionId, "minionId is required");
+      minionId = props.minionId;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       setSubmitError(errorMessage);
       setIsSubmitting(false);
       return;
     }
 
-    api.workspace
+    api.minion
       .answerAskUserQuestion({
-        workspaceId,
+        minionId,
         toolCallId: props.toolCallId,
         answers,
       })
-      .then((result) => {
+      .then(async (result) => {
         if (!result.success) {
           setSubmitError(result.error);
           return;
         }
 
-        // If the stream was interrupted (e.g. app restart) we need to explicitly
-        // kick the resume manager so the assistant continues after answers.
-        window.dispatchEvent(
-          createCustomEvent(CUSTOM_EVENTS.RESUME_CHECK_REQUESTED, {
-            workspaceId,
-            isManual: true,
-          })
-        );
+        // If the stream was interrupted (e.g. app restart), explicitly resume using
+        // the latest persisted send options for this minion.
+        let sendOptions = getSendOptionsFromStorage(minionId);
+        const lastUserMessage = [...(minionState?.messages ?? [])]
+          .reverse()
+          .find(
+            (message): message is Extract<typeof message, { type: "user" }> =>
+              message.type === "user"
+          );
+
+        if (lastUserMessage?.compactionRequest) {
+          sendOptions = applyCompactionOverrides(
+            sendOptions,
+            lastUserMessage.compactionRequest.parsed
+          );
+        }
+
+        const enableResult = await api.minion.setAutoRetryEnabled?.({
+          minionId,
+          enabled: true,
+          persist: false,
+        });
+        if (enableResult && !enableResult.success) {
+          setSubmitError(enableResult.error);
+          return;
+        }
+
+        if (enableResult?.success && enableResult.data.previousEnabled === false) {
+          // Ask-user resume temporarily enables auto-retry for this attempt.
+          // Roll back only after the resumed stream reaches a terminal outcome.
+          if (!isMountedRef.current) {
+            await api.minion.setAutoRetryEnabled?.({
+              minionId,
+              enabled: false,
+              persist: false,
+            });
+          } else {
+            autoRetryRollbackMinionIdRef.current = minionId;
+            autoRetryRollbackPendingRef.current = true;
+            autoRetryRollbackArmedRef.current = false;
+            autoRetryRollbackBaselineMessageCountRef.current = minionState?.messages.length ?? 0;
+          }
+        }
+
+        const resumeResult = await api.minion.resumeStream({
+          minionId,
+          options: sendOptions,
+        });
+        if (!resumeResult.success) {
+          const formatted = formatSendMessageError(resumeResult.error);
+          const detail = formatted.resolutionHint
+            ? `${formatted.message} ${formatted.resolutionHint}`
+            : formatted.message;
+          setSubmitError(detail);
+
+          // Keep retry preference consistent when resume fails before stream events.
+          await rollbackAutoRetryIfNeeded();
+          return;
+        }
+
+        if (
+          autoRetryRollbackPendingRef.current &&
+          !autoRetryRollbackArmedRef.current &&
+          resumeResult.data.started === false
+        ) {
+          await rollbackAutoRetryIfNeeded({ suppressErrors: true });
+        }
       })
-      .catch((error) => {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+      .catch(async (error) => {
+        const errorMessage = getErrorMessage(error);
         setSubmitError(errorMessage);
+        await rollbackAutoRetryIfNeeded();
       })
       .finally(() => {
         setIsSubmitting(false);

@@ -22,20 +22,24 @@
  *
  * Runtime Support:
  *   Hooks execute via the Runtime abstraction, so they work correctly for both
- *   local and SSH workspaces. For SSH, the hook file must exist on the remote machine.
+ *   local and SSH minions. For SSH, the hook file must exist on the remote machine.
  */
 
 import * as crypto from "crypto";
 import * as path from "path";
+import { flattenToolHookValueToEnv } from "@/common/utils/tools/toolHookEnv";
 import type { Runtime } from "@/node/runtime/Runtime";
 import { log } from "@/node/services/log";
 import { execBuffered, writeFileString } from "@/node/utils/runtime/helpers";
+import { getErrorMessage } from "@/common/utils/errors";
 
 const HOOK_FILENAME = "tool_hook";
 const PRE_HOOK_FILENAME = "tool_pre";
 const POST_HOOK_FILENAME = "tool_post";
 const TOOL_ENV_FILENAME = "tool_env";
 const TOOL_INPUT_ENV_LIMIT = 8_000;
+const FLATTENED_TOOL_ENV_MAX_VARS = 200;
+const FLATTENED_TOOL_ENV_MAX_ARRAY_LENGTH = 50;
 const DEFAULT_HOOK_PHASE_TIMEOUT_MS = 10_000; // 10 seconds
 const EXEC_MARKER_PREFIX = "LATTICE_EXEC_";
 
@@ -54,7 +58,7 @@ function isAsyncIterable(value: unknown): value is AsyncIterable<unknown> {
   );
 }
 function joinPathLike(basePath: string, ...parts: string[]): string {
-  // For SSH runtimes (and most Lattice paths), we want POSIX joins.
+  // For SSH runtimes (and most Unix paths), we want POSIX joins.
   // For Windows-style paths, use native joins.
   if (basePath.includes("\\") || /^[a-zA-Z]:/.test(basePath)) {
     return path.join(basePath, ...parts);
@@ -62,20 +66,42 @@ function joinPathLike(basePath: string, ...parts: string[]): string {
   return path.posix.join(basePath, ...parts);
 }
 
+function getToolInputValueForEnv(context: {
+  toolInput: string;
+  toolInputValue?: unknown;
+}): unknown {
+  if (context.toolInputValue !== undefined) {
+    return context.toolInputValue;
+  }
+
+  try {
+    return JSON.parse(context.toolInput) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface HookContext {
   /** Tool name (e.g., "bash", "file_edit_replace_string") */
   tool: string;
   /** Tool input as JSON string */
   toolInput: string;
-  /** Workspace ID */
-  workspaceId: string;
+  /**
+   * Tool input as a structured value (best-effort), used for flattened env vars.
+   *
+   * Optional for backwards compatibility; when omitted we'll attempt to parse
+   * `toolInput` as JSON.
+   */
+  toolInputValue?: unknown;
+  /** Minion ID */
+  minionId: string;
   /** Runtime temp dir for hook scratch files (paths in the runtime's context) */
   runtimeTempDir?: string;
-  /** Headquarter directory (cwd) */
+  /** Project directory (cwd) */
   projectDir: string;
   /** Additional environment variables to pass to hook */
   env?: Record<string, string>;
-  /** External abort signal (e.g., from workspace deletion) */
+  /** External abort signal (e.g., from minion deletion) */
   abortSignal?: AbortSignal;
 }
 
@@ -96,7 +122,7 @@ export interface HookResult {
 
 /**
  * Find the tool_hook executable for a given project directory.
- * Uses runtime abstraction so it works for both local and SSH workspaces.
+ * Uses runtime abstraction so it works for both local and SSH minions.
  * Returns null if no hook exists.
  *
  * Note: We don't check execute permissions via runtime since FileStat doesn't
@@ -227,7 +253,7 @@ export interface HookTimingOptions {
 
 /**
  * Execute a tool with hook wrapping.
- * Uses runtime.exec() so hooks work for both local and SSH workspaces.
+ * Uses runtime.exec() so hooks work for both local and SSH minions.
  *
  * @param runtime Runtime to execute the hook in
  * @param hookPath Path to the hook executable
@@ -275,11 +301,19 @@ export async function runWithHook<T>(
     }
   }
 
+  const toolInputValueForEnv = getToolInputValueForEnv(context);
+
   const hookEnv: Record<string, string> = {
     ...(context.env ?? {}),
     LATTICE_TOOL: context.tool,
+    ...flattenToolHookValueToEnv(toolInputValueForEnv, "LATTICE_TOOL_INPUT", {
+      maxValueLength: TOOL_INPUT_ENV_LIMIT,
+      maxVars: FLATTENED_TOOL_ENV_MAX_VARS,
+      maxArrayLength: FLATTENED_TOOL_ENV_MAX_ARRAY_LENGTH,
+    }),
+    // Ensure the base JSON env var cannot be overwritten by flattened fields.
     LATTICE_TOOL_INPUT: toolInputEnv,
-    LATTICE_WORKSPACE_ID: context.workspaceId,
+    LATTICE_MINION_ID: context.minionId,
     LATTICE_PROJECT_DIR: context.projectDir,
     LATTICE_EXEC: execMarker,
   };
@@ -292,7 +326,7 @@ export async function runWithHook<T>(
   let preTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let postTimeoutHandle: ReturnType<typeof setTimeout> | undefined;
 
-  // Forward external abort signal (e.g., workspace deletion)
+  // Forward external abort signal (e.g., minion deletion)
   if (context.abortSignal) {
     if (context.abortSignal.aborted) {
       timeoutPhase = "external";
@@ -347,7 +381,7 @@ export async function runWithHook<T>(
         success: false,
         stdoutBeforeExec: "",
         stdout: "",
-        stderr: `Failed to execute hook: ${err instanceof Error ? err.message : String(err)}`,
+        stderr: `Failed to execute hook: ${getErrorMessage(err)}`,
         exitCode: -1,
         toolExecuted: false,
       },
@@ -505,7 +539,7 @@ export async function runWithHook<T>(
   } else if (timeoutPhase === "post") {
     stderrOutput += `\nHook timed out after tool result was sent (${postHookTimeoutMs}ms)`;
   } else if (timeoutPhase === "external") {
-    stderrOutput += `\nHook aborted (workspace deleted or request cancelled)`;
+    stderrOutput += `\nHook aborted (minion deleted or request cancelled)`;
   }
   if (hookStdinWriteError) {
     stderrOutput += `\nFailed to write tool result to hook stdin: ${hookStdinWriteError.message}`;
@@ -567,9 +601,16 @@ export interface SimpleHookContext {
   tool: string;
   /** Tool input as JSON string */
   toolInput: string;
-  /** Workspace ID */
-  workspaceId: string;
-  /** Headquarter directory */
+  /**
+   * Tool input as a structured value (best-effort), used for flattened env vars.
+   *
+   * Optional for backwards compatibility; when omitted we'll attempt to parse
+   * `toolInput` as JSON.
+   */
+  toolInputValue?: unknown;
+  /** Minion ID */
+  minionId: string;
+  /** Project directory */
   projectDir: string;
   /** Runtime temp dir for scratch files */
   runtimeTempDir?: string;
@@ -606,11 +647,19 @@ export async function runPreHook(
     context.projectDir
   );
 
+  const toolInputValueForEnv = getToolInputValueForEnv(context);
+
   const hookEnv: Record<string, string> = {
     ...(context.env ?? {}),
     LATTICE_TOOL: context.tool,
+    ...flattenToolHookValueToEnv(toolInputValueForEnv, "LATTICE_TOOL_INPUT", {
+      maxValueLength: TOOL_INPUT_ENV_LIMIT,
+      maxVars: FLATTENED_TOOL_ENV_MAX_VARS,
+      maxArrayLength: FLATTENED_TOOL_ENV_MAX_ARRAY_LENGTH,
+    }),
+    // Ensure the base JSON env var cannot be overwritten by flattened fields.
     LATTICE_TOOL_INPUT: toolInputEnv,
-    LATTICE_WORKSPACE_ID: context.workspaceId,
+    LATTICE_MINION_ID: context.minionId,
     LATTICE_PROJECT_DIR: context.projectDir,
   };
   if (toolInputPath) {
@@ -635,7 +684,7 @@ export async function runPreHook(
     log.error("[hooks] Pre-hook execution failed", { hookPath, error: err });
     return {
       allowed: false,
-      output: `Pre-hook failed: ${err instanceof Error ? err.message : String(err)}`,
+      output: `Pre-hook failed: ${getErrorMessage(err)}`,
       exitCode: -1,
     };
   } finally {
@@ -669,39 +718,59 @@ export async function runPostHook(
     context.projectDir
   );
 
-  // Prepare tool result (always write to file, truncate env var if large)
+  // Prepare tool result (best-effort file; env var placeholder if large)
   const resultPath = joinPathLike(
     context.runtimeTempDir ?? "/tmp",
     `lattice-tool-result-${Date.now()}-${crypto.randomUUID()}.json`
   );
+  let resultPathForEnv: string | undefined;
   let resultEnv = resultJson;
   try {
     await writeFileString(runtime, resultPath, resultJson);
+    resultPathForEnv = resultPath;
     if (resultJson.length > TOOL_INPUT_ENV_LIMIT) {
       resultEnv = "__LATTICE_TOOL_RESULT_FILE__";
     }
   } catch (err) {
     log.debug("[hooks] Failed to write tool result to temp file", { error: err });
+    resultPathForEnv = undefined;
     resultEnv = resultJson.slice(0, TOOL_INPUT_ENV_LIMIT);
   }
+
+  const toolInputValueForEnv = getToolInputValueForEnv(context);
 
   const hookEnv: Record<string, string> = {
     ...(context.env ?? {}),
     LATTICE_TOOL: context.tool,
+    ...flattenToolHookValueToEnv(toolInputValueForEnv, "LATTICE_TOOL_INPUT", {
+      maxValueLength: TOOL_INPUT_ENV_LIMIT,
+      maxVars: FLATTENED_TOOL_ENV_MAX_VARS,
+      maxArrayLength: FLATTENED_TOOL_ENV_MAX_ARRAY_LENGTH,
+    }),
+    ...flattenToolHookValueToEnv(toolResult, "LATTICE_TOOL_RESULT", {
+      maxValueLength: TOOL_INPUT_ENV_LIMIT,
+      maxVars: FLATTENED_TOOL_ENV_MAX_VARS,
+      maxArrayLength: FLATTENED_TOOL_ENV_MAX_ARRAY_LENGTH,
+    }),
+    // Ensure base JSON env vars cannot be overwritten by flattened fields.
     LATTICE_TOOL_INPUT: toolInputEnv,
-    LATTICE_WORKSPACE_ID: context.workspaceId,
+    LATTICE_MINION_ID: context.minionId,
     LATTICE_PROJECT_DIR: context.projectDir,
     LATTICE_TOOL_RESULT: resultEnv,
-    LATTICE_TOOL_RESULT_PATH: resultPath,
   };
   if (toolInputPath) {
     hookEnv.LATTICE_TOOL_INPUT_PATH = toolInputPath;
   }
+  if (resultPathForEnv) {
+    hookEnv.LATTICE_TOOL_RESULT_PATH = resultPathForEnv;
+  }
 
   const cleanup = async () => {
     await cleanupInput();
+    if (!resultPathForEnv) return;
+
     try {
-      await execBuffered(runtime, `rm -f ${shellEscape(resultPath)}`, {
+      await execBuffered(runtime, `rm -f ${shellEscape(resultPathForEnv)}`, {
         cwd: context.projectDir,
         timeout: 5,
       });
@@ -728,7 +797,7 @@ export async function runPostHook(
     log.error("[hooks] Post-hook execution failed", { hookPath, error: err });
     return {
       success: false,
-      output: `Post-hook failed: ${err instanceof Error ? err.message : String(err)}`,
+      output: `Post-hook failed: ${getErrorMessage(err)}`,
       exitCode: -1,
     };
   } finally {

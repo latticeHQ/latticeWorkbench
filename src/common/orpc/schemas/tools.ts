@@ -15,7 +15,7 @@ const ToolOutputUiOnlySchema = z.object({
   notify: z
     .object({
       notifiedVia: z.enum(["electron", "browser"]),
-      workspaceId: z.string().optional(),
+      minionId: z.string().optional(),
     })
     .optional(),
 });

@@ -1,4 +1,3 @@
-import React from "react";
 import { render, type RenderResult, waitFor } from "@testing-library/react";
 
 import { AppLoader } from "@/browser/components/AppLoader";
@@ -16,7 +15,7 @@ export interface RenderedApp extends RenderResult {
   waitForReady(): Promise<void>;
   /** Select a workspace by clicking in sidebar */
   selectWorkspace(workspaceId: string): Promise<void>;
-  /** Switch to a specific tab in the right sidebar */
+  /** Switch to a specific tab in the workbench panel */
   selectTab(tab: "costs" | "review" | "stats"): Promise<void>;
 }
 

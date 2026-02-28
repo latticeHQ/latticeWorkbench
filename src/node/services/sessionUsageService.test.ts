@@ -1,25 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { SessionUsageService, type SessionUsageTokenStatsCacheV1 } from "./sessionUsageService";
 import type { HistoryService } from "./historyService";
-import { Config } from "@/node/config";
+import type { Config } from "@/node/config";
 import { createLatticeMessage } from "@/common/types/message";
 import type { ChatUsageDisplay } from "@/common/utils/tokens/usageAggregator";
-import { Ok } from "@/common/types/result";
+import { createTestHistoryService } from "./testHistoryService";
 import * as fs from "fs/promises";
 import * as path from "path";
-import * as os from "os";
-
-function createMockHistoryService(
-  messages: Array<ReturnType<typeof createLatticeMessage>> = []
-): HistoryService {
-  return {
-    getHistory: mock(() => Promise.resolve(Ok(messages))),
-    appendToHistory: mock(() => Promise.resolve(Ok(undefined))),
-    updateHistory: mock(() => Promise.resolve(Ok(undefined))),
-    truncateAfterMessage: mock(() => Promise.resolve(Ok(undefined))),
-    clearHistory: mock(() => Promise.resolve(Ok([]))),
-  } as unknown as HistoryService;
-}
 
 function createUsage(input: number, output: number): ChatUsageDisplay {
   return {
@@ -34,23 +21,16 @@ function createUsage(input: number, output: number): ChatUsageDisplay {
 describe("SessionUsageService", () => {
   let service: SessionUsageService;
   let config: Config;
-  let tempDir: string;
-  let mockHistoryService: HistoryService;
+  let historyService: HistoryService;
+  let cleanup: () => Promise<void>;
 
   beforeEach(async () => {
-    tempDir = path.join(os.tmpdir(), `lattice-session-usage-test-${Date.now()}-${Math.random()}`);
-    await fs.mkdir(tempDir, { recursive: true });
-    config = new Config(tempDir);
-    mockHistoryService = createMockHistoryService();
-    service = new SessionUsageService(config, mockHistoryService);
+    ({ config, historyService, cleanup } = await createTestHistoryService());
+    service = new SessionUsageService(config, historyService);
   });
 
   afterEach(async () => {
-    try {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
+    await cleanup();
   });
 
   describe("rollUpUsageIntoParent", () => {
@@ -58,41 +38,41 @@ describe("SessionUsageService", () => {
       const projectPath = "/tmp/lattice-session-usage-test-project";
       const model = "claude-sonnet-4-20250514";
 
-      const parentWorkspaceId = "parent-workspace";
-      const childWorkspaceId = "child-workspace";
+      const parentMinionId = "parent-minion";
+      const childMinionId = "child-minion";
 
-      await config.addWorkspace(projectPath, {
-        id: parentWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: parentMinionId,
         name: "parent-branch",
         projectName: "test-project",
         projectPath,
         runtimeConfig: { type: "local" },
       });
-      await config.addWorkspace(projectPath, {
-        id: childWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: childMinionId,
         name: "child-branch",
         projectName: "test-project",
         projectPath,
         runtimeConfig: { type: "local" },
-        parentWorkspaceId: parentWorkspaceId,
+        parentMinionId: parentMinionId,
       });
 
       const parentUsage = createUsage(100, 50);
-      await service.recordUsage(parentWorkspaceId, model, parentUsage);
-      const before = await service.getSessionUsage(parentWorkspaceId);
+      await service.recordUsage(parentMinionId, model, parentUsage);
+      const before = await service.getSessionUsage(parentMinionId);
       expect(before?.lastRequest).toBeDefined();
 
       const beforeLastRequest = before!.lastRequest!;
 
       const childUsageByModel = { [model]: createUsage(7, 3) };
       const rollupResult = await service.rollUpUsageIntoParent(
-        parentWorkspaceId,
-        childWorkspaceId,
+        parentMinionId,
+        childMinionId,
         childUsageByModel
       );
       expect(rollupResult.didRollUp).toBe(true);
 
-      const after = await service.getSessionUsage(parentWorkspaceId);
+      const after = await service.getSessionUsage(parentMinionId);
       expect(after).toBeDefined();
       expect(after!.byModel[model].input.tokens).toBe(107);
       expect(after!.byModel[model].output.tokens).toBe(53);
@@ -101,15 +81,15 @@ describe("SessionUsageService", () => {
       expect(after!.lastRequest).toEqual(beforeLastRequest);
     });
 
-    it("should be idempotent for the same child workspace", async () => {
+    it("should be idempotent for the same child minion", async () => {
       const projectPath = "/tmp/lattice-session-usage-test-project";
       const model = "claude-sonnet-4-20250514";
 
-      const parentWorkspaceId = "parent-workspace";
-      const childWorkspaceId = "child-workspace";
+      const parentMinionId = "parent-minion";
+      const childMinionId = "child-minion";
 
-      await config.addWorkspace(projectPath, {
-        id: parentWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: parentMinionId,
         name: "parent-branch",
         projectName: "test-project",
         projectPath,
@@ -119,68 +99,68 @@ describe("SessionUsageService", () => {
       const childUsageByModel = { [model]: createUsage(10, 5) };
 
       const first = await service.rollUpUsageIntoParent(
-        parentWorkspaceId,
-        childWorkspaceId,
+        parentMinionId,
+        childMinionId,
         childUsageByModel
       );
       expect(first.didRollUp).toBe(true);
 
       const second = await service.rollUpUsageIntoParent(
-        parentWorkspaceId,
-        childWorkspaceId,
+        parentMinionId,
+        childMinionId,
         childUsageByModel
       );
       expect(second.didRollUp).toBe(false);
 
-      const result = await service.getSessionUsage(parentWorkspaceId);
+      const result = await service.getSessionUsage(parentMinionId);
       expect(result).toBeDefined();
       expect(result!.byModel[model].input.tokens).toBe(10);
       expect(result!.byModel[model].output.tokens).toBe(5);
-      expect(result!.rolledUpFrom?.[childWorkspaceId]).toBe(true);
+      expect(result!.rolledUpFrom?.[childMinionId]).toBe(true);
     });
   });
   describe("recordUsage", () => {
     it("should accumulate usage for same model (not overwrite)", async () => {
-      const workspaceId = "test-workspace";
+      const minionId = "test-minion";
       const model = "claude-sonnet-4-20250514";
       const usage1 = createUsage(100, 50);
       const usage2 = createUsage(200, 75);
 
-      await service.recordUsage(workspaceId, model, usage1);
-      await service.recordUsage(workspaceId, model, usage2);
+      await service.recordUsage(minionId, model, usage1);
+      await service.recordUsage(minionId, model, usage2);
 
-      const result = await service.getSessionUsage(workspaceId);
+      const result = await service.getSessionUsage(minionId);
       expect(result).toBeDefined();
       expect(result!.byModel[model].input.tokens).toBe(300); // 100 + 200
       expect(result!.byModel[model].output.tokens).toBe(125); // 50 + 75
     });
 
     it("should track separate usage per model", async () => {
-      const workspaceId = "test-workspace";
+      const minionId = "test-minion";
       const sonnet = createUsage(100, 50);
       const opus = createUsage(500, 200);
 
-      await service.recordUsage(workspaceId, "claude-sonnet-4-20250514", sonnet);
-      await service.recordUsage(workspaceId, "claude-opus-4-20250514", opus);
+      await service.recordUsage(minionId, "claude-sonnet-4-20250514", sonnet);
+      await service.recordUsage(minionId, "claude-opus-4-20250514", opus);
 
-      const result = await service.getSessionUsage(workspaceId);
+      const result = await service.getSessionUsage(minionId);
       expect(result).toBeDefined();
       expect(result!.byModel["claude-sonnet-4-20250514"].input.tokens).toBe(100);
       expect(result!.byModel["claude-opus-4-20250514"].input.tokens).toBe(500);
     });
 
     it("should update lastRequest with each recordUsage call", async () => {
-      const workspaceId = "test-workspace";
+      const minionId = "test-minion";
       const usage1 = createUsage(100, 50);
       const usage2 = createUsage(200, 75);
 
-      await service.recordUsage(workspaceId, "claude-sonnet-4-20250514", usage1);
-      let result = await service.getSessionUsage(workspaceId);
+      await service.recordUsage(minionId, "claude-sonnet-4-20250514", usage1);
+      let result = await service.getSessionUsage(minionId);
       expect(result?.lastRequest?.model).toBe("claude-sonnet-4-20250514");
       expect(result?.lastRequest?.usage.input.tokens).toBe(100);
 
-      await service.recordUsage(workspaceId, "claude-opus-4-20250514", usage2);
-      result = await service.getSessionUsage(workspaceId);
+      await service.recordUsage(minionId, "claude-opus-4-20250514", usage2);
+      result = await service.getSessionUsage(minionId);
       expect(result?.lastRequest?.model).toBe("claude-opus-4-20250514");
       expect(result?.lastRequest?.usage.input.tokens).toBe(200);
     });
@@ -191,28 +171,28 @@ describe("SessionUsageService", () => {
       const projectPath = "/tmp/lattice-session-usage-test-project";
       const model = "claude-sonnet-4-20250514";
 
-      const parentWorkspaceId = "parent-workspace";
-      const childWorkspaceId = "child-workspace";
+      const parentMinionId = "parent-minion";
+      const childMinionId = "child-minion";
 
-      await config.addWorkspace(projectPath, {
-        id: parentWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: parentMinionId,
         name: "parent-branch",
         projectName: "test-project",
         projectPath,
         runtimeConfig: { type: "local" },
       });
-      await config.addWorkspace(projectPath, {
-        id: childWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: childMinionId,
         name: "child-branch",
         projectName: "test-project",
         projectPath,
         runtimeConfig: { type: "local" },
-        parentWorkspaceId: parentWorkspaceId,
+        parentMinionId: parentMinionId,
       });
 
       // Seed: base usage + rolledUpFrom ledger
-      await service.recordUsage(parentWorkspaceId, model, createUsage(100, 50));
-      await service.rollUpUsageIntoParent(parentWorkspaceId, childWorkspaceId, {
+      await service.recordUsage(parentMinionId, model, createUsage(100, 50));
+      await service.rollUpUsageIntoParent(parentMinionId, childMinionId, {
         [model]: createUsage(7, 3),
       });
 
@@ -227,12 +207,12 @@ describe("SessionUsageService", () => {
         topFilePaths: [{ path: "/tmp/file.ts", tokens: 10 }],
       };
 
-      await service.setTokenStatsCache(parentWorkspaceId, cache);
+      await service.setTokenStatsCache(parentMinionId, cache);
 
-      const result = await service.getSessionUsage(parentWorkspaceId);
+      const result = await service.getSessionUsage(parentMinionId);
       expect(result).toBeDefined();
       expect(result!.tokenStatsCache).toEqual(cache);
-      expect(result!.rolledUpFrom?.[childWorkspaceId]).toBe(true);
+      expect(result!.rolledUpFrom?.[childMinionId]).toBe(true);
 
       // Existing usage fields preserved
       expect(result!.byModel[model].input.tokens).toBe(107);
@@ -243,24 +223,28 @@ describe("SessionUsageService", () => {
 
   describe("getSessionUsage", () => {
     it("should rebuild from messages when file missing (ENOENT)", async () => {
-      const workspaceId = "test-workspace";
-      const messages = [
+      const minionId = "test-minion";
+      // Seed messages via real historyService
+      await historyService.appendToHistory(
+        minionId,
         createLatticeMessage("msg1", "assistant", "Hello", {
           model: "claude-sonnet-4-20250514",
           usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        }),
+        })
+      );
+      await historyService.appendToHistory(
+        minionId,
         createLatticeMessage("msg2", "assistant", "World", {
           model: "claude-sonnet-4-20250514",
           usage: { inputTokens: 200, outputTokens: 75, totalTokens: 275 },
-        }),
-      ];
-      mockHistoryService = createMockHistoryService(messages);
-      service = new SessionUsageService(config, mockHistoryService);
+        })
+      );
 
-      // Create session dir but NOT the session-usage.json file
-      await fs.mkdir(config.getSessionDir(workspaceId), { recursive: true });
+      // Delete session-usage.json but keep session dir (appendToHistory created it)
+      const usagePath = path.join(config.getSessionDir(minionId), "session-usage.json");
+      await fs.rm(usagePath, { force: true });
 
-      const result = await service.getSessionUsage(workspaceId);
+      const result = await service.getSessionUsage(minionId);
 
       expect(result).toBeDefined();
       // Should have rebuilt and summed the usage
@@ -270,22 +254,21 @@ describe("SessionUsageService", () => {
 
   describe("rebuildFromMessages", () => {
     it("should rebuild from messages when file is corrupted JSON", async () => {
-      const workspaceId = "test-workspace";
-      const messages = [
+      const minionId = "test-minion";
+      // Seed messages via real historyService
+      await historyService.appendToHistory(
+        minionId,
         createLatticeMessage("msg1", "assistant", "Hello", {
           model: "claude-sonnet-4-20250514",
           usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        }),
-      ];
-      mockHistoryService = createMockHistoryService(messages);
-      service = new SessionUsageService(config, mockHistoryService);
+        })
+      );
 
-      // Create session dir with corrupted JSON
-      const sessionDir = config.getSessionDir(workspaceId);
-      await fs.mkdir(sessionDir, { recursive: true });
+      // Overwrite session-usage.json with corrupted JSON
+      const sessionDir = config.getSessionDir(minionId);
       await fs.writeFile(path.join(sessionDir, "session-usage.json"), "{ invalid json");
 
-      const result = await service.getSessionUsage(workspaceId);
+      const result = await service.getSessionUsage(minionId);
 
       expect(result).toBeDefined();
       // Should have rebuilt from messages
@@ -294,20 +277,15 @@ describe("SessionUsageService", () => {
     });
 
     it("should include historicalUsage from legacy compaction summaries", async () => {
-      const workspaceId = "test-workspace";
+      const minionId = "test-minion";
 
       // Create a compaction summary with historicalUsage (legacy format)
-      const compactionSummary = createLatticeMessage(
-        "summary-1",
-        "assistant",
-        "Compacted summary",
-        {
-          historySequence: 1,
-          compacted: true,
-          model: "anthropic:claude-sonnet-4-5",
-          usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
-        }
-      );
+      const compactionSummary = createLatticeMessage("summary-1", "assistant", "Compacted summary", {
+        historySequence: 1,
+        compacted: true,
+        model: "anthropic:claude-sonnet-4-5",
+        usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      });
 
       // Add historicalUsage - this field was removed from LatticeMetadata type
       // but may still exist in persisted data from before the change
@@ -323,13 +301,15 @@ describe("SessionUsageService", () => {
         usage: { inputTokens: 200, outputTokens: 75, totalTokens: 275 },
       });
 
-      mockHistoryService = createMockHistoryService([compactionSummary, postCompactionMsg]);
-      service = new SessionUsageService(config, mockHistoryService);
+      // Seed messages via real historyService
+      await historyService.appendToHistory(minionId, compactionSummary);
+      await historyService.appendToHistory(minionId, postCompactionMsg);
 
-      // Create session dir but NOT the session-usage.json file (triggers rebuild)
-      await fs.mkdir(config.getSessionDir(workspaceId), { recursive: true });
+      // Delete session-usage.json to trigger rebuild from messages
+      const usagePath = path.join(config.getSessionDir(minionId), "session-usage.json");
+      await fs.rm(usagePath, { force: true });
 
-      const result = await service.getSessionUsage(workspaceId);
+      const result = await service.getSessionUsage(minionId);
 
       expect(result).toBeDefined();
       // Should include historical usage under "historical" key

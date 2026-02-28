@@ -18,16 +18,16 @@ export const createBashBackgroundTerminateTool: ToolFactory = (config: ToolConfi
         };
       }
 
-      if (!config.workspaceId) {
+      if (!config.minionId) {
         return {
           success: false,
-          error: "Workspace ID not available",
+          error: "Minion ID not available",
         };
       }
 
-      // Verify process belongs to this workspace before terminating
+      // Verify process belongs to this minion before terminating
       const process = await config.backgroundProcessManager.getProcess(process_id);
-      if (process?.workspaceId !== config.workspaceId) {
+      if (process?.minionId !== config.minionId) {
         return {
           success: false,
           error: `Process not found: ${process_id}`,

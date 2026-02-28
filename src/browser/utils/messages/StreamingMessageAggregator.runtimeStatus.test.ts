@@ -12,17 +12,17 @@ describe("StreamingMessageAggregator runtime-status", () => {
 
     aggregator.handleRuntimeStatus({
       type: "runtime-status",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       phase: "starting",
       runtimeType: "ssh",
-      detail: "Starting workspace...",
+      detail: "Starting minion...",
     });
 
     expect(aggregator.getRuntimeStatus()?.phase).toBe("starting");
 
     aggregator.handleRuntimeStatus({
       type: "runtime-status",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       phase: "ready",
       runtimeType: "ssh",
     });
@@ -31,7 +31,7 @@ describe("StreamingMessageAggregator runtime-status", () => {
 
     aggregator.handleRuntimeStatus({
       type: "runtime-status",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       phase: "waiting",
       runtimeType: "ssh",
     });
@@ -40,7 +40,7 @@ describe("StreamingMessageAggregator runtime-status", () => {
 
     aggregator.handleRuntimeStatus({
       type: "runtime-status",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       phase: "error",
       runtimeType: "ssh",
       detail: "boom",
@@ -54,14 +54,14 @@ describe("StreamingMessageAggregator runtime-status", () => {
 
     aggregator.handleRuntimeStatus({
       type: "runtime-status",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       phase: "starting",
       runtimeType: "ssh",
     });
 
     aggregator.handleStreamStart({
       type: "stream-start",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       messageId: "msg-1",
       historySequence: 1,
       model: "test-model",
@@ -76,14 +76,14 @@ describe("StreamingMessageAggregator runtime-status", () => {
 
     aggregator.handleRuntimeStatus({
       type: "runtime-status",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       phase: "starting",
       runtimeType: "ssh",
     });
 
     aggregator.handleStreamAbort({
       type: "stream-abort",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       messageId: "msg-1",
       metadata: {},
     });
@@ -96,7 +96,7 @@ describe("StreamingMessageAggregator runtime-status", () => {
 
     aggregator.handleRuntimeStatus({
       type: "runtime-status",
-      workspaceId: "ws-1",
+      minionId: "ws-1",
       phase: "starting",
       runtimeType: "ssh",
     });

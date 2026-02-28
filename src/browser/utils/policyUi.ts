@@ -1,0 +1,119 @@
+import { SUPPORTED_PROVIDERS, type ProviderName } from "@/common/constants/providers";
+import { RUNTIME_MODE, type ParsedRuntime, type RuntimeMode } from "@/common/types/runtime";
+import type { EffectivePolicy, PolicyRuntimeId } from "@/common/orpc/types";
+
+/**
+ * Parse a model string into provider and modelId.
+ * Returns null if the string doesn't match the expected "provider:modelId" format.
+ */
+export function parseModelString(
+  modelString: string
+): { provider: string; modelId: string } | null {
+  const colonIndex = modelString.indexOf(":");
+  if (colonIndex <= 0 || colonIndex === modelString.length - 1) {
+    return null;
+  }
+
+  return {
+    provider: modelString.slice(0, colonIndex),
+    modelId: modelString.slice(colonIndex + 1),
+  };
+}
+
+/**
+ * Check if a model is allowed by the effective policy.
+ * Returns true if no policy is set, or if the model's provider is in the allowlist
+ * and either no model restrictions exist or the model is in the allowed list.
+ */
+export function isModelAllowedByPolicy(
+  policy: EffectivePolicy | null,
+  modelString: string
+): boolean {
+  const providerAccess = policy?.providerAccess;
+  if (providerAccess == null) {
+    return true;
+  }
+
+  const parsed = parseModelString(modelString);
+  if (!parsed) {
+    return true;
+  }
+
+  const providerPolicy = providerAccess.find((p) => p.id === parsed.provider);
+  if (!providerPolicy) {
+    return false;
+  }
+
+  const allowedModels = providerPolicy.allowedModels ?? null;
+  if (allowedModels === null) {
+    return true;
+  }
+
+  return allowedModels.includes(parsed.modelId);
+}
+
+export function getAllowedProvidersForUi(policy: EffectivePolicy | null): ProviderName[] {
+  const access = policy?.providerAccess;
+  if (access == null) {
+    return [...SUPPORTED_PROVIDERS];
+  }
+
+  const allowed = new Set(access.map((p) => p.id));
+  return SUPPORTED_PROVIDERS.filter((p) => allowed.has(p));
+}
+
+export function getPolicyRuntimeIdFromParsedRuntime(runtime: ParsedRuntime): PolicyRuntimeId {
+  if (runtime.mode === RUNTIME_MODE.SSH) {
+    return runtime.lattice ? "ssh+lattice" : "ssh";
+  }
+
+  return runtime.mode;
+}
+
+export function isParsedRuntimeAllowedByPolicy(
+  policy: EffectivePolicy | null,
+  runtime: ParsedRuntime
+): boolean {
+  const allowedRuntimes = policy?.runtimes;
+  if (allowedRuntimes == null) {
+    return true;
+  }
+
+  return allowedRuntimes.includes(getPolicyRuntimeIdFromParsedRuntime(runtime));
+}
+
+export function getAllowedRuntimeModesForUi(policy: EffectivePolicy | null): {
+  /** null means "allow all modes" */
+  allowedModes: RuntimeMode[] | null;
+  /** true when policy allows plain host SSH */
+  allowSshHost: boolean;
+  /** true when policy allows SSH backed by a Lattice minion */
+  allowSshLattice: boolean;
+} {
+  const allowedRuntimes = policy?.runtimes;
+  if (allowedRuntimes == null) {
+    return { allowedModes: null, allowSshHost: true, allowSshLattice: true };
+  }
+
+  const allowSshHost = allowedRuntimes.includes("ssh");
+  const allowSshLattice = allowedRuntimes.includes("ssh+lattice");
+
+  const allowedModes: RuntimeMode[] = [];
+  if (allowedRuntimes.includes("local")) {
+    allowedModes.push(RUNTIME_MODE.LOCAL);
+  }
+  if (allowedRuntimes.includes("worktree")) {
+    allowedModes.push(RUNTIME_MODE.WORKTREE);
+  }
+  if (allowSshHost || allowSshLattice) {
+    allowedModes.push(RUNTIME_MODE.SSH);
+  }
+  if (allowedRuntimes.includes("docker")) {
+    allowedModes.push(RUNTIME_MODE.DOCKER);
+  }
+  if (allowedRuntimes.includes("devcontainer")) {
+    allowedModes.push(RUNTIME_MODE.DEVCONTAINER);
+  }
+
+  return { allowedModes, allowSshHost, allowSshLattice };
+}

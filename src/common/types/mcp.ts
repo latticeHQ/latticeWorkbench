@@ -12,6 +12,8 @@ export interface MCPServerBaseInfo {
    * If not set, all tools are exposed.
    */
   toolAllowlist?: string[];
+  /** True for built-in servers that ship with the app (cannot be removed/disabled). */
+  builtin?: boolean;
 }
 
 /** stdio server definition (local process). */
@@ -41,32 +43,45 @@ export interface MCPConfig {
  */
 export type MCPServerMap = Record<string, MCPServerInfo>;
 
+/**
+ * Parsed OAuth hints from a `WWW-Authenticate: Bearer ...` challenge.
+ *
+ * NOTE: This type is safe for IPC/UI; it must never contain tokens.
+ */
+export interface BearerChallenge {
+  scope?: string;
+  /** `resource_metadata` hint URL (if present and parseable). */
+  resourceMetadataUrl?: string;
+}
+
 /** Result of testing an MCP server connection */
-export type MCPTestResult = { success: true; tools: string[] } | { success: false; error: string };
+export type MCPTestResult =
+  | { success: true; tools: string[] }
+  | { success: false; error: string; oauthChallenge?: BearerChallenge };
 
 /** Cached test result with timestamp for age display */
 export interface CachedMCPTestResult {
   result: MCPTestResult;
-  testedAt: number; // Lattice timestamp ms
+  testedAt: number; // Unix timestamp ms
 }
 
 /**
- * Per-workspace MCP overrides.
+ * Per-minion MCP overrides.
  *
- * Stored per-workspace in <workspace>/.lattice/mcp.local.jsonc (workspace-local and intended to be gitignored).
+ * Stored per-minion in <minion>/.lattice/mcp.local.jsonc (minion-local and intended to be gitignored).
  *
- * Legacy note: older lattice versions stored these overrides in ~/.lattice/config.json under each workspace entry.
- * Newer versions migrate those values into the workspace-local file on first read/write.
+ * Legacy note: older lattice versions stored these overrides in ~/.lattice/config.json under each minion entry.
+ * Newer versions migrate those values into the minion-local file on first read/write.
  */
-export interface WorkspaceMCPOverrides {
+export interface MinionMCPOverrides {
   /**
-   * Server names to explicitly disable for this workspace.
+   * Server names to explicitly disable for this minion.
    * Overrides project-level enabled state.
    */
   disabledServers?: string[];
 
   /**
-   * Server names to explicitly enable for this workspace.
+   * Server names to explicitly enable for this minion.
    * Overrides project-level disabled state.
    */
   enabledServers?: string[];

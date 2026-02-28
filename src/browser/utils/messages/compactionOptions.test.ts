@@ -15,7 +15,7 @@ describe("applyCompactionOverrides", () => {
     agentId: "exec",
   };
 
-  it("uses workspace model when no override specified", () => {
+  it("uses minion model when no override specified", () => {
     const compactData: CompactionRequestData = {};
     const result = applyCompactionOverrides(baseOptions, compactData);
 
@@ -30,6 +30,24 @@ describe("applyCompactionOverrides", () => {
     const result = applyCompactionOverrides(baseOptions, compactData);
 
     expect(result.model).toBe(KNOWN_MODELS.HAIKU.id);
+  });
+
+  it("falls back to minion model when override is empty", () => {
+    const compactData: CompactionRequestData = {
+      model: "",
+    };
+    const result = applyCompactionOverrides(baseOptions, compactData);
+
+    expect(result.model).toBe(KNOWN_MODELS.SONNET.id);
+  });
+
+  it("falls back to minion model when override is whitespace", () => {
+    const compactData: CompactionRequestData = {
+      model: "   ",
+    };
+    const result = applyCompactionOverrides(baseOptions, compactData);
+
+    expect(result.model).toBe(KNOWN_MODELS.SONNET.id);
   });
 
   it("enforces thinking policy for the compaction model", () => {
@@ -62,6 +80,7 @@ describe("applyCompactionOverrides", () => {
     const result = applyCompactionOverrides(baseOptions, compactData);
 
     expect(result.agentId).toBe("compact");
+    expect(result.skipAiSettingsPersistence).toBe(true);
     expect(result.toolPolicy).toEqual([{ regex_match: ".*", action: "disable" }]);
   });
 

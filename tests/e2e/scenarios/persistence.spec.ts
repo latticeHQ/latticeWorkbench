@@ -1,4 +1,4 @@
-import { electronTest as test, electronExpect as expect } from "../electronTest";
+import { electronTest as test } from "../electronTest";
 import { MOCK_LIST_PROGRAMMING_LANGUAGES } from "../mockAiPrompts";
 
 test.skip(
@@ -31,8 +31,8 @@ test.describe("persistence", () => {
 
     // Navigate through settings (potential state corruption points)
     await ui.settings.open();
+    await ui.settings.selectSection("Models");
     await ui.settings.selectSection("Providers");
-    await ui.settings.selectSection("General");
     await ui.settings.close();
 
     await ui.chat.expectTranscriptContains("Python");

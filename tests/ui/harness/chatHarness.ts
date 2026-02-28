@@ -2,6 +2,7 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 
 import { updatePersistedState } from "@/browser/hooks/usePersistedState";
 import { getInputKey } from "@/common/constants/storage";
+import { workspaceStore } from "@/browser/stores/WorkspaceStore";
 
 export class ChatHarness {
   constructor(
@@ -95,6 +96,34 @@ export class ChatHarness {
     );
   }
 
+  /**
+   * Wait for the workspace to finish streaming (handleStreamEnd fully processed).
+   * Waits through both the start-pending phase (isStarting) and active streaming
+   * phase (canInterrupt) before resolving — ensuring all lifecycle callbacks
+   * (recency update, onResponseComplete) have completed.
+   */
+  async expectStreamComplete(timeoutMs: number = 30_000): Promise<void> {
+    await waitFor(
+      () => {
+        const state = workspaceStore.getWorkspaceSidebarState(this.workspaceId);
+        // isStarting = pendingStreamStartTime !== null && !canInterrupt.
+        // In gated flows ([mock:wait-start]), the stream hasn't started yet
+        // so canInterrupt is false but isStarting is true — we must wait.
+        if (state.isStarting) {
+          throw new Error("Workspace still waiting for stream-start");
+        }
+        // canInterrupt = activeStreams.length > 0; false = no active streams.
+        // By the time WorkspaceStore bumps state after handleStreamEnd,
+        // all synchronous work (recency update, onResponseComplete callback)
+        // has already completed.
+        if (state.canInterrupt) {
+          throw new Error("Workspace still streaming");
+        }
+      },
+      { timeout: timeoutMs }
+    );
+  }
+
   async expectTranscriptNotContains(needle: string, timeoutMs: number = 30_000): Promise<void> {
     await waitFor(
       () => {
@@ -145,6 +174,30 @@ export class ChatHarness {
         expect(value).toBe(expected);
       },
       { timeout: timeoutMs }
+    );
+  }
+
+  /**
+   * Get the currently displayed model name from the ModelSelector.
+   * Returns the text shown in the model selector button (not the full model ID).
+   */
+  async getModelSelectorText(): Promise<string> {
+    return waitFor(
+      () => {
+        const modelSelectorGroup = this.container.querySelector(
+          '[data-component="ModelSelectorGroup"]'
+        );
+        if (!modelSelectorGroup) {
+          throw new Error("ModelSelectorGroup not found");
+        }
+        // The model name is displayed in a button with role="combobox"
+        const combobox = modelSelectorGroup.querySelector('[role="combobox"]');
+        if (!combobox) {
+          throw new Error("Model selector combobox not found");
+        }
+        return combobox.textContent?.trim() ?? "";
+      },
+      { timeout: 5_000 }
     );
   }
 }

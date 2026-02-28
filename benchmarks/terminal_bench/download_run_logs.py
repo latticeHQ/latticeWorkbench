@@ -26,7 +26,7 @@ Usage:
 
 Prerequisites:
     - GitHub CLI (gh) installed and authenticated
-    - Access to onchainengineer/lattice repository
+    - Access to lattice/lattice repository
 
 Output structure:
     .run_logs/<run-id>/

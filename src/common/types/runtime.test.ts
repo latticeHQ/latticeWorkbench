@@ -1,9 +1,5 @@
 import { describe, it, expect } from "@jest/globals";
-import {
-  parseRuntimeModeAndHost,
-  buildRuntimeString,
-  LATTICE_RUNTIME_PLACEHOLDER,
-} from "./runtime";
+import { parseRuntimeModeAndHost, buildRuntimeString, LATTICE_RUNTIME_PLACEHOLDER } from "./runtime";
 
 describe("parseRuntimeModeAndHost", () => {
   it("parses SSH mode with host", () => {

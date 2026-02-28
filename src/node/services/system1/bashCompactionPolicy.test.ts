@@ -80,7 +80,7 @@ describe("bashCompactionPolicy", () => {
     });
 
     it("skips compaction when script reads the configured plan file", () => {
-      const planFilePath = "~/.lattice/plans/my-project/my-workspace.md";
+      const planFilePath = "~/.lattice/plans/my-project/my-minion.md";
       const scripts = [
         `cat ${planFilePath}`,
         `bat ${planFilePath}`,
@@ -106,8 +106,8 @@ describe("bashCompactionPolicy", () => {
 
     it("skips compaction when script and planFilePath use different home path forms", () => {
       const homePosix = homedir().replaceAll("\\\\", "/");
-      const tildePlanFilePath = "~/.lattice/plans/my-project/my-workspace.md";
-      const expandedPlanFilePath = `${homePosix}/.lattice/plans/my-project/my-workspace.md`;
+      const tildePlanFilePath = "~/.lattice/plans/my-project/my-minion.md";
+      const expandedPlanFilePath = `${homePosix}/.lattice/plans/my-project/my-minion.md`;
 
       const tildeDecision = decideBashOutputCompaction({
         toolName: "bash",
@@ -139,7 +139,7 @@ describe("bashCompactionPolicy", () => {
     });
 
     it("keeps default compaction behavior for non-plan file scripts", () => {
-      const planFilePath = "~/.lattice/plans/my-project/my-workspace.md";
+      const planFilePath = "~/.lattice/plans/my-project/my-minion.md";
       const scripts = ["cat ./stdout.log", "cat file | rg needle"];
 
       for (const script of scripts) {

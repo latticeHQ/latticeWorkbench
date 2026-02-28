@@ -3,17 +3,17 @@ import type { BashToolResult } from "@/common/types/tools";
 
 import { describe, it, test, expect, beforeEach, afterEach, jest } from "@jest/globals";
 import { GitStatusStore } from "./GitStatusStore";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
-import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
+import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/minion";
 
 /**
  * Unit tests for GitStatusStore.
  *
  * Tests cover:
  * - Subscription/unsubscription
- * - syncWorkspaces adding/removing workspaces
+ * - syncMinions adding/removing minions
  * - getStatus caching (returns same reference if unchanged)
- * - Per-workspace cache invalidation
+ * - Per-minion cache invalidation
  * - Status change detection
  * - Cleanup on dispose
  */
@@ -37,7 +37,7 @@ describe("GitStatusStore", () => {
 
     (globalThis as unknown as { window: unknown }).window = {
       api: {
-        workspace: {
+        minion: {
           executeBash: mockExecuteBash,
         },
       },
@@ -46,7 +46,7 @@ describe("GitStatusStore", () => {
     store = new GitStatusStore();
     // Set up mock client for ORPC calls
     store.setClient({
-      workspace: {
+      minion: {
         executeBash: mockExecuteBash,
       },
     } as unknown as Parameters<typeof store.setClient>[0]);
@@ -71,8 +71,8 @@ describe("GitStatusStore", () => {
     unsubscribe();
   });
 
-  test("syncWorkspaces initializes metadata", () => {
-    const metadata = new Map<string, FrontendWorkspaceMetadata>([
+  test("syncMinions initializes metadata", () => {
+    const metadata = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -80,21 +80,21 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    store.syncWorkspaces(metadata);
+    store.syncMinions(metadata);
 
     // Should have empty status initially
     const status = store.getStatus("ws1");
     expect(status).toBeNull();
   });
 
-  test("syncWorkspaces removes deleted workspaces", () => {
-    const metadata1 = new Map<string, FrontendWorkspaceMetadata>([
+  test("syncMinions removes deleted minions", () => {
+    const metadata1 = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -102,7 +102,7 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
@@ -113,22 +113,22 @@ describe("GitStatusStore", () => {
           name: "feature",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/feature",
+          namedMinionPath: "/home/user/.lattice/src/test-project/feature",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    store.syncWorkspaces(metadata1);
+    store.syncMinions(metadata1);
 
-    // Verify status is accessible for both workspaces
+    // Verify status is accessible for both minions
     const status1Initial = store.getStatus("ws1");
     const status2Initial = store.getStatus("ws2");
     expect(status1Initial).toBeNull(); // No status fetched yet
     expect(status2Initial).toBeNull();
 
     // Remove ws2
-    const metadata2 = new Map<string, FrontendWorkspaceMetadata>([
+    const metadata2 = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -136,13 +136,13 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    store.syncWorkspaces(metadata2);
+    store.syncMinions(metadata2);
 
     // ws2 status still returns null (cache not actively cleaned, but won't be updated)
     const status2 = store.getStatus("ws2");
@@ -153,7 +153,7 @@ describe("GitStatusStore", () => {
     const listener = jest.fn();
     store.subscribe(listener);
 
-    const metadata = new Map<string, FrontendWorkspaceMetadata>([
+    const metadata = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -161,13 +161,13 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    store.syncWorkspaces(metadata);
+    store.syncMinions(metadata);
 
     // Get status twice
     const status1 = store.getStatus("ws1");
@@ -179,7 +179,7 @@ describe("GitStatusStore", () => {
   });
 
   test("getStatus caching persists across calls", () => {
-    const metadata = new Map<string, FrontendWorkspaceMetadata>([
+    const metadata = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -187,13 +187,13 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    store.syncWorkspaces(metadata);
+    store.syncMinions(metadata);
 
     // Get status multiple times - should return same cached reference
     const status1 = store.getStatus("ws1");
@@ -209,7 +209,7 @@ describe("GitStatusStore", () => {
     const listener = jest.fn();
     store.subscribe(listener);
 
-    const metadata = new Map<string, FrontendWorkspaceMetadata>([
+    const metadata = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -217,13 +217,13 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    store.syncWorkspaces(metadata);
+    store.syncMinions(metadata);
 
     // Dispose
     store.dispose();
@@ -237,7 +237,7 @@ describe("GitStatusStore", () => {
     const listener = jest.fn();
     store.subscribe(listener);
 
-    const metadata = new Map<string, FrontendWorkspaceMetadata>([
+    const metadata = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -245,28 +245,28 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    store.syncWorkspaces(metadata);
+    store.syncMinions(metadata);
 
     // Initially null
     const status1 = store.getStatus("ws1");
     expect(status1).toBeNull();
 
     // Note: We can't easily test status updates without mocking IPC
-    // The store relies on window.api.workspace.executeBash which doesn't exist in test environment
+    // The store relies on window.api.minion.executeBash which doesn't exist in test environment
     // Real integration tests would need to mock this API
   });
 
-  test("emit only when workspaces are removed", () => {
+  test("emit only when minions are removed", () => {
     const listener = jest.fn();
     const unsub = store.subscribe(listener);
 
-    const metadata1 = new Map<string, FrontendWorkspaceMetadata>([
+    const metadata1 = new Map<string, FrontendMinionMetadata>([
       [
         "ws1",
         {
@@ -274,17 +274,17 @@ describe("GitStatusStore", () => {
           name: "main",
           projectName: "test-project",
           projectPath: "/home/user/test-project",
-          namedWorkspacePath: "/home/user/.lattice/src/test-project/main",
+          namedMinionPath: "/home/user/.lattice/src/test-project/main",
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         },
       ],
     ]);
 
-    // First sync - no workspaces exist yet, so no removal, no emit
-    store.syncWorkspaces(metadata1);
+    // First sync - no minions exist yet, so no removal, no emit
+    store.syncMinions(metadata1);
     expect(listener).not.toHaveBeenCalled();
 
-    // Manually add a workspace to the internal map to simulate it existing
+    // Manually add a minion to the internal map to simulate it existing
     // (normally this would happen via polling, but we can't poll in tests without window.api)
     // @ts-expect-error - Accessing private field for testing
     store.statusCache.set("ws1", { ahead: 0, behind: 0, dirty: false });
@@ -294,16 +294,16 @@ describe("GitStatusStore", () => {
     listener.mockClear();
 
     // Sync with empty metadata to remove ws1
-    const metadata2 = new Map<string, FrontendWorkspaceMetadata>();
-    store.syncWorkspaces(metadata2);
+    const metadata2 = new Map<string, FrontendMinionMetadata>();
+    store.syncMinions(metadata2);
 
-    // Listener should be called (workspace removed)
+    // Listener should be called (minion removed)
     expect(listener).toHaveBeenCalledTimes(1);
 
     listener.mockClear();
 
     // Sync again with same empty metadata (no changes)
-    store.syncWorkspaces(metadata2);
+    store.syncMinions(metadata2);
 
     // Listener should NOT be called (no changes)
     expect(listener).not.toHaveBeenCalled();
@@ -313,22 +313,22 @@ describe("GitStatusStore", () => {
 
   describe("reference stability", () => {
     it("getStatus() returns same reference when status hasn't changed", () => {
-      const status1 = store.getStatus("test-workspace");
-      const status2 = store.getStatus("test-workspace");
+      const status1 = store.getStatus("test-minion");
+      const status2 = store.getStatus("test-minion");
       expect(status1).toBe(status2);
-      expect(status1).toBeNull(); // No workspace = null
+      expect(status1).toBeNull(); // No minion = null
     });
 
-    it("getStatus() returns same reference for same workspace when no changes", () => {
-      const status1 = store.getStatus("test-workspace");
-      const status2 = store.getStatus("test-workspace");
+    it("getStatus() returns same reference for same minion when no changes", () => {
+      const status1 = store.getStatus("test-minion");
+      const status2 = store.getStatus("test-minion");
       expect(status1).toBe(status2);
-      expect(status1).toBeNull(); // No workspace = null
+      expect(status1).toBeNull(); // No minion = null
     });
   });
 
   describe("failure handling", () => {
-    it("preserves old status when checkWorkspaceStatus fails", () => {
+    it("preserves old status when checkMinionStatus fails", () => {
       const listener = jest.fn();
       const unsub = store.subscribe(listener);
 
@@ -343,8 +343,8 @@ describe("GitStatusStore", () => {
 
       listener.mockClear();
 
-      // Simulate a failed status check by calling updateGitStatus with workspace that has status
-      // When checkWorkspaceStatus returns [workspaceId, null], the logic should preserve old status
+      // Simulate a failed status check by calling updateGitStatus with minion that has status
+      // When checkMinionStatus returns [minionId, null], the logic should preserve old status
       // We can test this by directly manipulating the internal state to simulate the condition
 
       // Simulate the update logic receiving a failure result (null status)
@@ -367,7 +367,7 @@ describe("GitStatusStore", () => {
       unsub();
     });
 
-    it("updates status when checkWorkspaceStatus succeeds after previous failure", () => {
+    it("updates status when checkMinionStatus succeeds after previous failure", () => {
       const listener = jest.fn();
       const unsub = store.subscribe(listener);
 
@@ -401,11 +401,11 @@ describe("GitStatusStore", () => {
       name: "main",
       projectName: "test-project",
       projectPath: "/path",
-      namedWorkspacePath: "/path",
+      namedMinionPath: "/path",
       runtimeConfig: DEFAULT_RUNTIME_CONFIG,
     };
 
-    store.syncWorkspaces(new Map([["ws1", metadata]]));
+    store.syncMinions(new Map([["ws1", metadata]]));
 
     // Ensure executeBash is cleared
     mockExecuteBash.mockClear();

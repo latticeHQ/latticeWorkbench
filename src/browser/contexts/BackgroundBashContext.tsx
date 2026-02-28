@@ -15,7 +15,7 @@ const BackgroundBashErrorContext = createContext<ReturnType<typeof usePopoverErr
 );
 
 interface BackgroundBashProviderProps {
-  workspaceId: string;
+  minionId: string;
   children: ReactNode;
 }
 
@@ -26,20 +26,20 @@ export const BackgroundBashProvider: React.FC<BackgroundBashProviderProps> = (pr
   const actions = useMemo<BackgroundBashActions>(
     () => ({
       terminate: (processId: string) => {
-        store.terminate(props.workspaceId, processId).catch((err: Error) => {
+        store.terminate(props.minionId, processId).catch((err: Error) => {
           error.showError(processId, err.message);
         });
       },
       sendToBackground: (toolCallId: string) => {
-        store.sendToBackground(props.workspaceId, toolCallId).catch((err: Error) => {
+        store.sendToBackground(props.minionId, toolCallId).catch((err: Error) => {
           error.showError(`send-to-background-${toolCallId}`, err.message);
         });
       },
       autoBackgroundOnSend: () => {
-        store.autoBackgroundOnSend(props.workspaceId);
+        store.autoBackgroundOnSend(props.minionId);
       },
     }),
-    [error, props.workspaceId, store]
+    [error, props.minionId, store]
   );
 
   return (

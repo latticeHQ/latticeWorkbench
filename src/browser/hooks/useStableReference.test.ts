@@ -134,4 +134,4 @@ describe("compareArrays", () => {
 // Hook integration tests would require jsdom setup with bun.
 // The comparator functions above are the critical logic and are thoroughly tested.
 // The hook itself is tested manually through its usage in useUnreadTracking,
-// useWorkspaceAggregators, and GitStatusContext.
+// useMinionAggregators, and GitStatusContext.

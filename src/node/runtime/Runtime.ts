@@ -16,33 +16,33 @@ import type { Result } from "@/common/types/result";
 /**
  * PATH TERMINOLOGY & HIERARCHY
  *
- * srcBaseDir (base directory for all workspaces):
- *   - Where lattice stores ALL workspace directories
+ * srcBaseDir (base directory for all minions):
+ *   - Where lattice stores ALL minion directories
  *   - Local: ~/.lattice/src (tilde expanded to full path by LocalRuntime)
- *   - SSH: /home/user/workspace (tilde paths are allowed and are resolved before use)
+ *   - SSH: /home/user/minion (tilde paths are allowed and are resolved before use)
  *
- * Workspace Path Computation:
- *   {srcBaseDir}/{projectName}/{workspaceName}
+ * Minion Path Computation:
+ *   {srcBaseDir}/{projectName}/{minionName}
  *
  *   - projectName: basename(projectPath)
  *     Example: "/Users/me/git/my-project" → "my-project"
  *
- *   - workspaceName: branch name or custom name
+ *   - minionName: branch name or custom name
  *     Example: "feature-123" or "main"
  *
  * Full Example (Local):
  *   srcBaseDir:    ~/.lattice/src (expanded to /home/user/.lattice/src)
  *   projectPath:   /Users/me/git/my-project (local git repo)
  *   projectName:   my-project (extracted)
- *   workspaceName: feature-123
- *   → Workspace:   /home/user/.lattice/src/my-project/feature-123
+ *   minionName: feature-123
+ *   → Minion:   /home/user/.lattice/src/my-project/feature-123
  *
  * Full Example (SSH):
- *   srcBaseDir:    /home/user/workspace (absolute path required)
+ *   srcBaseDir:    /home/user/minion (absolute path required)
  *   projectPath:   /Users/me/git/my-project (local git repo)
  *   projectName:   my-project (extracted)
- *   workspaceName: feature-123
- *   → Workspace:   /home/user/workspace/my-project/feature-123
+ *   minionName: feature-123
+ *   → Minion:   /home/user/minion/my-project/feature-123
  */
 
 /**
@@ -145,8 +145,8 @@ export interface FileStat {
 }
 
 /**
- * Logger for streaming workspace initialization events to frontend.
- * Used to report progress during workspace creation and init hook execution.
+ * Logger for streaming minion initialization events to frontend.
+ * Used to report progress during minion creation and init hook execution.
  */
 export interface InitLogger {
   /** Log a creation step (e.g., "Creating worktree", "Syncing files") */
@@ -157,19 +157,21 @@ export interface InitLogger {
   logStderr(line: string): void;
   /** Report init hook completion */
   logComplete(exitCode: number): void;
+  /** Signal that the init hook is about to run (starts timeout window). */
+  enterHookPhase?(): void;
 }
 
 /**
- * Parameters for workspace creation
+ * Parameters for minion creation
  */
-export interface WorkspaceCreationParams {
+export interface MinionCreationParams {
   /** Absolute path to project directory on local machine */
   projectPath: string;
-  /** Branch name to checkout in workspace */
+  /** Branch name to checkout in minion */
   branchName: string;
   /** Trunk branch to base new branches on */
   trunkBranch: string;
-  /** Directory name to use for workspace (typically branch name) */
+  /** Directory name to use for minion (typically branch name) */
   directoryName: string;
   /** Logger for streaming creation progress and init hook output */
   initLogger: InitLogger;
@@ -178,27 +180,27 @@ export interface WorkspaceCreationParams {
 }
 
 /**
- * Result from workspace creation
+ * Result from minion creation
  */
-export interface WorkspaceCreationResult {
+export interface MinionCreationResult {
   success: boolean;
-  /** Absolute path to workspace (local path for LocalRuntime, remote path for SSHRuntime) */
-  workspacePath?: string;
+  /** Absolute path to minion (local path for LocalRuntime, remote path for SSHRuntime) */
+  minionPath?: string;
   error?: string;
 }
 
 /**
- * Parameters for workspace initialization
+ * Parameters for minion initialization
  */
-export interface WorkspaceInitParams {
+export interface MinionInitParams {
   /** Absolute path to project directory on local machine */
   projectPath: string;
-  /** Branch name to checkout in workspace */
+  /** Branch name to checkout in minion */
   branchName: string;
   /** Trunk branch to base new branches on */
   trunkBranch: string;
-  /** Absolute path to workspace (from createWorkspace result) */
-  workspacePath: string;
+  /** Absolute path to minion (from createMinion result) */
+  minionPath: string;
   /** Logger for streaming initialization progress and output */
   initLogger: InitLogger;
   /** Optional abort signal for cancellation */
@@ -215,9 +217,9 @@ export interface WorkspaceInitParams {
 }
 
 /**
- * Result from workspace initialization
+ * Result from minion initialization
  */
-export interface WorkspaceInitResult {
+export interface MinionInitResult {
   success: boolean;
   error?: string;
 }
@@ -229,52 +231,59 @@ export interface WorkspaceInitResult {
  * Use helpers in utils/runtime/ for convenience wrappers (e.g., readFileString, execBuffered).
 
 /**
- * Parameters for forking an existing workspace
+ * Parameters for forking an existing minion
  */
-export interface WorkspaceForkParams {
-  /** Headquarter root path (local path) */
+export interface MinionForkParams {
+  /** Project root path (local path) */
   projectPath: string;
-  /** Name of the source workspace to fork from */
-  sourceWorkspaceName: string;
-  /** Name for the new workspace */
-  newWorkspaceName: string;
+  /** Name of the source minion to fork from */
+  sourceMinionName: string;
+  /** Name for the new minion */
+  newMinionName: string;
   /** Logger for streaming initialization events */
   initLogger: InitLogger;
+  /** Signal to abort long-running operations (e.g. cp -R -P or git worktree add) */
+  abortSignal?: AbortSignal;
 }
 
 /**
- * Result of forking a workspace
+ * Result of forking a minion
  */
-export interface WorkspaceForkResult {
+export interface MinionForkResult {
   /** Whether the fork operation succeeded */
   success: boolean;
-  /** Path to the new workspace (if successful) */
-  workspacePath?: string;
+  /** Path to the new minion (if successful) */
+  minionPath?: string;
   /** Branch that was forked from */
   sourceBranch?: string;
   /** Error message (if failed) */
   error?: string;
-  /** Runtime config for the forked workspace (if different from source) */
+  /** Runtime config for the forked minion (if different from source) */
   forkedRuntimeConfig?: RuntimeConfig;
-  /** Updated runtime config for source workspace (e.g., mark as shared) */
+  /** Updated runtime config for source minion (e.g., mark as shared) */
   sourceRuntimeConfig?: RuntimeConfig;
+  /**
+   * When true and success=false, don't fall back to createMinion.
+   * Use when the runtime provisions shared infrastructure that sidekicks must share.
+   */
+  failureIsFatal?: boolean;
 }
 
 /**
- * Flags that control workspace creation behavior in WorkspaceService.
- * Allows runtimes to customize the create flow without WorkspaceService
+ * Flags that control minion creation behavior in MinionService.
+ * Allows runtimes to customize the create flow without MinionService
  * needing runtime-specific conditionals.
  */
 export interface RuntimeCreateFlags {
   /**
-   * Skip srcBaseDir resolution before createWorkspace.
+   * Skip srcBaseDir resolution before createMinion.
    * Use when runtime access doesn't exist until postCreateSetup (e.g., Lattice).
    */
   deferredRuntimeAccess?: boolean;
 
   /**
-   * Use config-level collision detection instead of runtime.createWorkspace.
-   * Use when createWorkspace can't detect existing workspaces (host doesn't exist).
+   * Use config-level collision detection instead of runtime.createMinion.
+   * Use when createMinion can't detect existing minions (host doesn't exist).
    */
   configLevelCollisionDetection?: boolean;
 }
@@ -298,7 +307,7 @@ export type RuntimeStatusSink = (status: RuntimeStatusEvent) => void;
 export interface EnsureReadyOptions {
   /**
    * Callback to emit runtime-status events for UX feedback.
-   * Lattice uses this to show "Starting Lattice workspace..." during boot.
+   * Lattice uses this to show "Starting Lattice minion..." during boot.
    */
   statusSink?: RuntimeStatusSink;
 
@@ -322,6 +331,11 @@ export type EnsureReadyResult =
     };
 
 /**
+ * Shared error message for missing repositories during runtime readiness checks.
+ */
+export const MINION_REPO_MISSING_ERROR = "Minion setup incomplete: repository not found.";
+
+/**
  * Runtime interface - minimal, low-level abstraction for tool execution environments.
  *
  * All methods return streaming primitives for memory efficiency.
@@ -329,7 +343,7 @@ export type EnsureReadyResult =
  */
 export interface Runtime {
   /**
-   * Flags that control workspace creation behavior.
+   * Flags that control minion creation behavior.
    * If not provided, defaults to standard behavior (no flags set).
    */
   readonly createFlags?: RuntimeCreateFlags;
@@ -379,7 +393,7 @@ export interface Runtime {
 
   /**
    * Resolve a path to its absolute, canonical form (expanding tildes, resolving symlinks, etc.).
-   * This is used at workspace creation time to normalize srcBaseDir paths in config.
+   * This is used at minion creation time to normalize srcBaseDir paths in config.
    *
    * @param path Path to resolve (may contain tildes or be relative)
    * @returns Promise resolving to absolute path
@@ -415,37 +429,37 @@ export interface Runtime {
   normalizePath(targetPath: string, basePath: string): string;
 
   /**
-   * Compute absolute workspace path from project and workspace name.
-   * This is the SINGLE source of truth for workspace path computation.
+   * Compute absolute minion path from project and minion name.
+   * This is the SINGLE source of truth for minion path computation.
    *
-   * - LocalRuntime: {workdir}/{project-name}/{workspace-name}
-   * - SSHRuntime: {workdir}/{project-name}/{workspace-name}
+   * - LocalRuntime: {workdir}/{project-name}/{minion-name}
+   * - SSHRuntime: {workdir}/{project-name}/{minion-name}
    *
    * All Runtime methods (create, delete, rename) MUST use this method internally
    * to ensure consistent path computation.
    *
-   * @param projectPath Headquarter root path (local path, used to extract project name)
-   * @param workspaceName Workspace name (typically branch name)
-   * @returns Absolute path to workspace directory
+   * @param projectPath Project root path (local path, used to extract project name)
+   * @param minionName Minion name (typically branch name)
+   * @returns Absolute path to minion directory
    */
-  getWorkspacePath(projectPath: string, workspaceName: string): string;
+  getMinionPath(projectPath: string, minionName: string): string;
 
   /**
-   * Create a workspace for this runtime (fast, returns immediately)
+   * Create a minion for this runtime (fast, returns immediately)
    * - LocalRuntime: Creates git worktree
    * - SSHRuntime: Creates remote directory only
    * Does NOT run init hook or sync files.
-   * @param params Workspace creation parameters
-   * @returns Result with workspace path or error
+   * @param params Minion creation parameters
+   * @returns Result with minion path or error
    */
-  createWorkspace(params: WorkspaceCreationParams): Promise<WorkspaceCreationResult>;
+  createMinion(params: MinionCreationParams): Promise<MinionCreationResult>;
 
   /**
    * Finalize runtime config after collision handling.
    * Called with final branch name (may have collision suffix).
    *
    * Use cases:
-   * - Lattice: derive workspace name from branch, compute SSH host
+   * - Lattice: derive minion name from branch, compute SSH host
    *
    * @param finalBranchName Branch name after collision handling
    * @param config Current runtime config
@@ -457,20 +471,20 @@ export interface Runtime {
   ): Promise<Result<RuntimeConfig, string>>;
 
   /**
-   * Validate before persisting workspace metadata.
+   * Validate before persisting minion metadata.
    * Called after finalizeConfig, before editConfig.
    * May make network calls for external validation.
    *
    * Use cases:
-   * - Lattice: check if workspace name already exists
+   * - Lattice: check if minion name already exists
    *
-   * IMPORTANT: This hook runs AFTER createWorkspace(). Only implement this if:
-   * - createWorkspace() is side-effect-free for this runtime, OR
+   * IMPORTANT: This hook runs AFTER createMinion(). Only implement this if:
+   * - createMinion() is side-effect-free for this runtime, OR
    * - The runtime can tolerate/clean up side effects on validation failure
    *
-   * If your runtime's createWorkspace() has side effects (e.g., creates directories)
+   * If your runtime's createMinion() has side effects (e.g., creates directories)
    * and validation failure would leave orphaned resources, consider whether those
-   * checks belong in createWorkspace() itself instead.
+   * checks belong in createMinion() itself instead.
    *
    * @param finalBranchName Branch name after collision handling
    * @param config Finalized runtime config
@@ -482,9 +496,9 @@ export interface Runtime {
   ): Promise<Result<void, string>>;
 
   /**
-   * Optional long-running setup that runs after lattice persists workspace metadata.
-   * Used for provisioning steps that must happen before initWorkspace but after
-   * the workspace is registered (e.g., creating Lattice workspaces, pulling Docker images).
+   * Optional long-running setup that runs after lattice persists minion metadata.
+   * Used for provisioning steps that must happen before initMinion but after
+   * the minion is registered (e.g., creating Lattice minions, pulling Docker images).
    *
    * Contract:
    * - MAY take minutes (streams progress via initLogger)
@@ -492,32 +506,32 @@ export interface Runtime {
    * - On failure: throw; caller will log error and mark init failed
    * - Runtimes with this hook expect callers to use runFullInit/runBackgroundInit
    *
-   * @param params Same as initWorkspace params
+   * @param params Same as initMinion params
    */
-  postCreateSetup?(params: WorkspaceInitParams): Promise<void>;
+  postCreateSetup?(params: MinionInitParams): Promise<void>;
 
   /**
-   * Initialize workspace asynchronously (may be slow, streams progress)
+   * Initialize minion asynchronously (may be slow, streams progress)
    * - LocalRuntime: Runs init hook if present
    * - SSHRuntime: Syncs files, checks out branch, runs init hook
    * Streams progress via initLogger.
-   * @param params Workspace initialization parameters
+   * @param params Minion initialization parameters
    * @returns Result indicating success or error
    */
-  initWorkspace(params: WorkspaceInitParams): Promise<WorkspaceInitResult>;
+  initMinion(params: MinionInitParams): Promise<MinionInitResult>;
 
   /**
-   * Rename workspace directory
+   * Rename minion directory
    * - LocalRuntime: Uses git worktree move (worktrees managed by git)
    * - SSHRuntime: Uses mv (plain directories on remote, not worktrees)
-   * Runtime computes workspace paths internally from workdir + projectPath + workspace names.
-   * @param projectPath Headquarter root path (local path, used for git commands in LocalRuntime and to extract project name)
-   * @param oldName Current workspace name
-   * @param newName New workspace name
+   * Runtime computes minion paths internally from workdir + projectPath + minion names.
+   * @param projectPath Project root path (local path, used for git commands in LocalRuntime and to extract project name)
+   * @param oldName Current minion name
+   * @param newName New minion name
    * @param abortSignal Optional abort signal for cancellation
    * @returns Promise resolving to Result with old/new paths on success, or error message
    */
-  renameWorkspace(
+  renameMinion(
     projectPath: string,
     oldName: string,
     newName: string,
@@ -527,24 +541,24 @@ export interface Runtime {
   >;
 
   /**
-   * Delete workspace directory
+   * Delete minion directory
    * - LocalRuntime: Uses git worktree remove (with --force only if force param is true)
    * - SSHRuntime: Checks for uncommitted changes unless force is true, then uses rm -rf
-   * Runtime computes workspace path internally from workdir + projectPath + workspaceName.
+   * Runtime computes minion path internally from workdir + projectPath + minionName.
    *
    * **CRITICAL: Implementations must NEVER auto-apply --force or skip dirty checks without explicit force=true.**
-   * If workspace has uncommitted changes and force=false, implementations MUST return error.
+   * If minion has uncommitted changes and force=false, implementations MUST return error.
    * The force flag is the user's explicit intent - implementations must not override it.
    *
-   * @param projectPath Headquarter root path (local path, used for git commands in LocalRuntime and to extract project name)
-   * @param workspaceName Workspace name to delete
+   * @param projectPath Project root path (local path, used for git commands in LocalRuntime and to extract project name)
+   * @param minionName Minion name to delete
    * @param force If true, force deletion even with uncommitted changes or special conditions (submodules, etc.)
    * @param abortSignal Optional abort signal for cancellation
    * @returns Promise resolving to Result with deleted path on success, or error message
    */
-  deleteWorkspace(
+  deleteMinion(
     projectPath: string,
-    workspaceName: string,
+    minionName: string,
     force: boolean,
     abortSignal?: AbortSignal
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }>;
@@ -554,7 +568,7 @@ export interface Runtime {
    * - LocalRuntime: Always returns ready (no-op)
    * - DockerRuntime: Starts container if stopped
    * - SSHRuntime: Could verify connection (future)
-   * - LatticeSSHRuntime: Checks workspace status, starts if stopped, waits for ready
+   * - LatticeSSHRuntime: Checks minion status, starts if stopped, waits for ready
    *
    * Called automatically by AIService before streaming.
    *
@@ -564,15 +578,15 @@ export interface Runtime {
   ensureReady(options?: EnsureReadyOptions): Promise<EnsureReadyResult>;
 
   /**
-   * Fork an existing workspace to create a new one
-   * Creates a new workspace branching from the source workspace's current branch
-   * - LocalRuntime: Detects source branch via git, creates new worktree from that branch
-   * - SSHRuntime: Currently unimplemented (returns static error)
+   * Fork an existing minion to create a new one.
+   * Creates a new minion branching from the source minion's current branch.
+   * Capability and error behavior are runtime-defined; shared orchestration
+   * (see forkOrchestrator.ts) handles policy differences between user and task forks.
    *
-   * @param params Fork parameters (source workspace name, new workspace name, etc.)
-   * @returns Result with new workspace path and source branch, or error
+   * @param params Fork parameters (source minion name, new minion name, etc.)
+   * @returns Result with new minion path and source branch, or error
    */
-  forkWorkspace(params: WorkspaceForkParams): Promise<WorkspaceForkResult>;
+  forkMinion(params: MinionForkParams): Promise<MinionForkResult>;
 
   /**
    * Get the runtime's temp directory (absolute path, resolved).

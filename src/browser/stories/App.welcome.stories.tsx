@@ -1,5 +1,5 @@
 /**
- * Welcome/Empty state and workspace creation stories
+ * Welcome/Empty state and minion creation stories
  */
 
 import { within, userEvent, waitFor, expect } from "@storybook/test";
@@ -7,7 +7,7 @@ import { within, userEvent, waitFor, expect } from "@storybook/test";
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import { createMockORPCClient, type MockSessionUsage } from "@/browser/stories/mocks/orpc";
 import { expandProjects } from "./storyHelpers";
-import { createArchivedWorkspace, NOW } from "./mockFactory";
+import { createArchivedMinion, NOW } from "./mockFactory";
 import type { ProjectConfig } from "@/node/config";
 
 /** Helper to create session usage data with a specific total cost */
@@ -34,12 +34,12 @@ function createSessionUsage(cost: number): MockSessionUsage {
 }
 
 async function openFirstProjectCreationView(storyRoot: HTMLElement): Promise<void> {
-  // App now boots into the built-in lattice-chat workspace.
+  // App now boots into the built-in lattice-chat minion.
   // Navigate to the first project's creation page so creation/banner UI is visible.
   const projectRow = await waitFor(
     () => {
       const el = storyRoot.querySelector("[data-project-path][aria-controls]");
-      if (!el) throw new Error("Headquarter row not found");
+      if (!el) throw new Error("Project row not found");
       return el;
     },
     { timeout: 10_000 }
@@ -59,27 +59,27 @@ export const ChatWithLattice: AppStory = {
       setup={() =>
         createMockORPCClient({
           projects: new Map(),
-          workspaces: [],
+          minions: [],
         })
       }
     />
   ),
 };
 
-/** Helper to create a project config for a path with no workspaces */
-function projectWithNoWorkspaces(path: string): [string, ProjectConfig] {
-  return [path, { workspaces: [] }];
+/** Helper to create a project config for a path with no minions */
+function projectWithNoMinions(path: string): [string, ProjectConfig] {
+  return [path, { minions: [] }];
 }
 
-/** Creation view - shown when a project exists but no workspace is selected */
-export const CreateWorkspace: AppStory = {
+/** Creation view - shown when a project exists but no minion is selected */
+export const CreateMinion: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
         });
       }}
     />
@@ -91,7 +91,7 @@ export const CreateWorkspace: AppStory = {
 };
 
 /** Creation view with multiple projects - shows sidebar with projects */
-export const CreateWorkspaceMultipleProjects: AppStory = {
+export const CreateMinionMultipleProjects: AppStory = {
   parameters: {
     chromatic: {
       modes: {
@@ -112,11 +112,11 @@ export const CreateWorkspaceMultipleProjects: AppStory = {
         ]);
         return createMockORPCClient({
           projects: new Map([
-            projectWithNoWorkspaces("/Users/dev/frontend-app"),
-            projectWithNoWorkspaces("/Users/dev/backend-api"),
-            projectWithNoWorkspaces("/Users/dev/mobile-client"),
+            projectWithNoMinions("/Users/dev/frontend-app"),
+            projectWithNoMinions("/Users/dev/backend-api"),
+            projectWithNoMinions("/Users/dev/mobile-client"),
           ]),
-          workspaces: [],
+          minions: [],
         });
       }}
     />
@@ -133,8 +133,8 @@ export const NonGitRepository: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/new-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/new-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/new-project")]),
+          minions: [],
           // Return empty branches (indicates non-git repo)
           listBranches: () => Promise.resolve({ branches: [], recommendedTrunk: null }),
           // Mark non-local runtimes as unavailable for non-git repos
@@ -171,8 +171,8 @@ export const NonGitRepositorySuccess: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/new-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/new-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/new-project")]),
+          minions: [],
           // Always return empty branches so banner stays visible after success
           listBranches: () => Promise.resolve({ branches: [], recommendedTrunk: null }),
           // Mark non-local runtimes as unavailable for non-git repos
@@ -204,14 +204,11 @@ export const NonGitRepositorySuccess: AppStory = {
     await userEvent.click(button);
 
     // Wait for success message to appear
-    await waitFor(
-      () => {
-        if (!canvas.queryByTestId("git-init-success")) {
-          throw new Error("Success message not visible");
-        }
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      if (!canvas.queryByTestId("git-init-success")) {
+        throw new Error("Success message not visible");
+      }
+    });
   },
 };
 
@@ -225,8 +222,8 @@ export const NonGitRepositoryInProgress: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/new-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/new-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/new-project")]),
+          minions: [],
           listBranches: () => Promise.resolve({ branches: [], recommendedTrunk: null }),
           // Dev container hidden (no config found) rather than disabled
           runtimeAvailability: {
@@ -257,14 +254,11 @@ export const NonGitRepositoryInProgress: AppStory = {
     await userEvent.click(button);
 
     // Verify loading state is shown
-    await waitFor(
-      () => {
-        if (!canvas.queryByText("Running...")) {
-          throw new Error("Loading state not visible");
-        }
-      },
-      { timeout: 2000 }
-    );
+    await waitFor(() => {
+      if (!canvas.queryByText("Running...")) {
+        throw new Error("Loading state not visible");
+      }
+    });
   },
 };
 
@@ -278,8 +272,8 @@ export const NonGitRepositoryError: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/new-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/new-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/new-project")]),
+          minions: [],
           listBranches: () => Promise.resolve({ branches: [], recommendedTrunk: null }),
           // Dev container hidden (no config found) rather than disabled
           runtimeAvailability: {
@@ -313,14 +307,11 @@ export const NonGitRepositoryError: AppStory = {
     await userEvent.click(button);
 
     // Verify error message is shown
-    await waitFor(
-      () => {
-        if (!canvas.queryByTestId("git-init-error")) {
-          throw new Error("Error message not visible");
-        }
-      },
-      { timeout: 2000 }
-    );
+    await waitFor(() => {
+      if (!canvas.queryByTestId("git-init-error")) {
+        throw new Error("Error message not visible");
+      }
+    });
   },
 };
 
@@ -334,8 +325,8 @@ export const DockerUnavailable: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/new-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/new-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/new-project")]),
+          minions: [],
           // Docker unavailable, but git repo exists
           // Dev container hidden (no config found) rather than disabled
           runtimeAvailability: {
@@ -354,27 +345,24 @@ export const DockerUnavailable: AppStory = {
     await openFirstProjectCreationView(storyRoot);
     const canvas = within(storyRoot);
 
-    // Wait for workspace type buttons to appear
-    await canvas.findByText("Workspace Type", {}, { timeout: 10000 });
+    // Wait for minion type buttons to appear
+    await canvas.findByText("Minion Type", {}, { timeout: 10000 });
 
     // Wait for Docker button to become disabled (runtimeAvailability loads async)
-    await waitFor(
-      async () => {
-        const dockerButton = canvas.getByRole("button", { name: /Docker/i });
-        await expect(dockerButton).toBeDisabled();
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(async () => {
+      const dockerButton = canvas.getByRole("button", { name: /Docker/i });
+      await expect(dockerButton).toBeDisabled();
+    });
   },
 };
 
-/** Helper to generate archived workspaces with varied dates for timeline grouping */
-function generateArchivedWorkspaces(projectPath: string, projectName: string) {
+/** Helper to generate archived minions with varied dates for timeline grouping */
+function generateBenchedMinions(projectPath: string, projectName: string) {
   const MINUTE = 60000;
   const HOUR = 3600000;
   const DAY = 86400000;
 
-  const workspaces: Array<ReturnType<typeof createArchivedWorkspace>> = [];
+  const minions: Array<ReturnType<typeof createArchivedMinion>> = [];
   const sessionUsage = new Map<string, MockSessionUsage>();
 
   // Intentionally large set to exercise ProjectPage scrolling + bulk selection UX.
@@ -416,8 +404,8 @@ function generateArchivedWorkspaces(projectPath: string, projectName: string) {
                 : `bugfix/regression-${n}`;
 
     const id = `archived-${n}`;
-    workspaces.push(
-      createArchivedWorkspace({
+    minions.push(
+      createArchivedMinion({
         id,
         name,
         projectName,
@@ -427,37 +415,37 @@ function generateArchivedWorkspaces(projectPath: string, projectName: string) {
     );
 
     // Generate varied costs: some cheap ($0.05-$0.50), some expensive ($1-$5)
-    // Skip some workspaces to show missing cost data
+    // Skip some minions to show missing cost data
     if (n % 4 !== 0) {
       const baseCost = n % 3 === 0 ? 1.5 + (n % 7) * 0.5 : 0.1 + (n % 5) * 0.08;
       sessionUsage.set(id, createSessionUsage(baseCost));
     }
   }
 
-  return { workspaces, sessionUsage };
+  return { minions, sessionUsage };
 }
 
 /**
- * Headquarter page with archived workspaces - demonstrates:
+ * Project page with archived minions - demonstrates:
  * - Timeline grouping (Today, Yesterday, This Week, etc.)
- * - Cost display per workspace, per time bucket, and total
- * - Search bar (visible with >3 workspaces)
+ * - Cost display per minion, per time bucket, and total
+ * - Search bar (visible with >3 minions)
  * - Bulk selection with checkboxes
  * - Select all checkbox
  * - Restore and delete actions
  */
-export const ProjectPageWithArchivedWorkspaces: AppStory = {
+export const ProjectPageWithBenchedMinions: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
-        const { workspaces, sessionUsage } = generateArchivedWorkspaces(
+        const { minions, sessionUsage } = generateBenchedMinions(
           "/Users/dev/my-project",
           "my-project"
         );
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces,
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions,
           sessionUsage,
         });
       }}
@@ -475,8 +463,8 @@ export const NoProvidersConfigured: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
           // Empty providers config - no API keys set
           providersConfig: {},
         });
@@ -502,10 +490,10 @@ export const SingleProviderConfigured: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
           providersConfig: {
-            anthropic: { apiKeySet: true, isConfigured: true },
+            anthropic: { apiKeySet: true, isEnabled: true, isConfigured: true },
           },
         });
       }}
@@ -537,13 +525,13 @@ export const MultipleProvidersConfigured: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/my-project"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/my-project")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/my-project")]),
+          minions: [],
           providersConfig: {
-            anthropic: { apiKeySet: true, isConfigured: true },
-            openai: { apiKeySet: true, isConfigured: true },
-            google: { apiKeySet: true, isConfigured: true },
-            xai: { apiKeySet: true, isConfigured: true },
+            anthropic: { apiKeySet: true, isEnabled: true, isConfigured: true },
+            openai: { apiKeySet: true, isEnabled: true, isConfigured: true },
+            google: { apiKeySet: true, isEnabled: true, isConfigured: true },
+            xai: { apiKeySet: true, isEnabled: true, isConfigured: true },
           },
         });
       }}

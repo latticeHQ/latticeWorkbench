@@ -1,62 +1,43 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, spyOn } from "bun:test";
 import { EventEmitter } from "events";
 import { MockAiStreamPlayer } from "./mockAiStreamPlayer";
 import { createLatticeMessage, type LatticeMessage } from "@/common/types/message";
 import { Ok } from "@/common/types/result";
 import type { HistoryService } from "@/node/services/historyService";
 import type { AIService } from "@/node/services/aiService";
+import { createTestHistoryService } from "../testHistoryService";
 
-class InMemoryHistoryService {
-  public appended: Array<{ workspaceId: string; message: LatticeMessage }> = [];
-  public messages = new Map<string, LatticeMessage[]>();
-  private nextSequence = 0;
-
-  appendToHistory(workspaceId: string, message: LatticeMessage) {
-    message.metadata ??= {};
-
-    if (message.metadata.historySequence === undefined) {
-      message.metadata.historySequence = this.nextSequence++;
-    } else if (message.metadata.historySequence >= this.nextSequence) {
-      this.nextSequence = message.metadata.historySequence + 1;
-    }
-
-    this.appended.push({ workspaceId, message });
-
-    const existing = this.messages.get(workspaceId) ?? [];
-    this.messages.set(workspaceId, [...existing, message]);
-
-    return Promise.resolve(Ok(undefined));
-  }
-
-  deleteMessage(workspaceId: string, messageId: string) {
-    const existing = this.messages.get(workspaceId) ?? [];
-    this.messages.set(
-      workspaceId,
-      existing.filter((message) => message.id !== messageId)
-    );
-    return Promise.resolve(Ok(undefined));
-  }
-}
-
-function readWorkspaceId(payload: unknown): string | undefined {
+function readMinionId(payload: unknown): string | undefined {
   if (!payload || typeof payload !== "object") return undefined;
-  if (!("workspaceId" in payload)) return undefined;
+  if (!("minionId" in payload)) return undefined;
 
-  const workspaceId = (payload as { workspaceId?: unknown }).workspaceId;
-  return typeof workspaceId === "string" ? workspaceId : undefined;
+  const minionId = (payload as { minionId?: unknown }).minionId;
+  return typeof minionId === "string" ? minionId : undefined;
 }
 
 describe("MockAiStreamPlayer", () => {
+  let historyService: HistoryService;
+  let cleanup: () => Promise<void>;
+
+  beforeEach(async () => {
+    const testHistory = await createTestHistoryService();
+    historyService = testHistory.historyService;
+    cleanup = testHistory.cleanup;
+  });
+
+  afterEach(async () => {
+    await cleanup();
+  });
+
   test("appends assistant placeholder even when router turn ends with stream error", async () => {
-    const historyStub = new InMemoryHistoryService();
     const aiServiceStub = new EventEmitter();
 
     const player = new MockAiStreamPlayer({
-      historyService: historyStub as unknown as HistoryService,
+      historyService,
       aiService: aiServiceStub as unknown as AIService,
     });
 
-    const workspaceId = "workspace-1";
+    const minionId = "minion-1";
 
     const firstTurnUser = createLatticeMessage(
       "user-1",
@@ -67,11 +48,13 @@ describe("MockAiStreamPlayer", () => {
       }
     );
 
-    const firstResult = await player.play([firstTurnUser], workspaceId);
+    const firstResult = await player.play([firstTurnUser], minionId);
     expect(firstResult.success).toBe(true);
-    player.stop(workspaceId);
+    player.stop(minionId);
 
-    const historyBeforeSecondTurn = historyStub.appended.map((entry) => entry.message);
+    // Read back what was appended during the first turn
+    const historyResult = await historyService.getLastMessages(minionId, 100);
+    const historyBeforeSecondTurn = historyResult.success ? historyResult.data : [];
 
     const secondTurnUser = createLatticeMessage(
       "user-2",
@@ -84,57 +67,62 @@ describe("MockAiStreamPlayer", () => {
 
     const secondResult = await player.play(
       [firstTurnUser, ...historyBeforeSecondTurn, secondTurnUser],
-      workspaceId
+      minionId
     );
     expect(secondResult.success).toBe(true);
 
-    expect(historyStub.appended).toHaveLength(2);
-    const [firstAppend, secondAppend] = historyStub.appended;
+    // Read back all messages and check the assistant placeholders
+    const allResult = await historyService.getLastMessages(minionId, 100);
+    const allMessages = allResult.success ? allResult.data : [];
+    const assistantMessages = allMessages.filter((m) => m.role === "assistant");
 
-    expect(firstAppend.message.id).not.toBe(secondAppend.message.id);
+    expect(assistantMessages).toHaveLength(2);
+    const [firstAppend, secondAppend] = assistantMessages;
 
-    const firstSeq = firstAppend.message.metadata?.historySequence ?? -1;
-    const secondSeq = secondAppend.message.metadata?.historySequence ?? -1;
+    expect(firstAppend.id).not.toBe(secondAppend.id);
+
+    const firstSeq = firstAppend.metadata?.historySequence ?? -1;
+    const secondSeq = secondAppend.metadata?.historySequence ?? -1;
     expect(secondSeq).toBe(firstSeq + 1);
 
-    player.stop(workspaceId);
+    player.stop(minionId);
   });
 
   test("removes assistant placeholder when aborted before stream scheduling", async () => {
-    type AppendGateResult = Awaited<ReturnType<InMemoryHistoryService["appendToHistory"]>>;
-    type AppendGatePromise = ReturnType<InMemoryHistoryService["appendToHistory"]>;
+    type AppendResult = Awaited<ReturnType<HistoryService["appendToHistory"]>>;
 
-    class DeferredHistoryService extends InMemoryHistoryService {
-      private appendGateResolve?: (result: AppendGateResult) => void;
-      public appendGate: AppendGatePromise = new Promise<AppendGateResult>((resolve) => {
-        this.appendGateResolve = resolve;
-      });
+    // Control when appendToHistory resolves to test the abort race condition.
+    // The real service writes to disk immediately; we gate the returned promise
+    // so the player sees a pending append while we trigger abort.
+    let appendResolve!: (result: AppendResult) => void;
+    const appendGate = new Promise<AppendResult>((resolve) => {
+      appendResolve = resolve;
+    });
 
-      private appendedMessageResolve?: (message: LatticeMessage) => void;
-      public appendedMessage = new Promise<LatticeMessage>((resolve) => {
-        this.appendedMessageResolve = resolve;
-      });
+    let appendedMessageResolve!: (msg: LatticeMessage) => void;
+    const appendedMessage = new Promise<LatticeMessage>((resolve) => {
+      appendedMessageResolve = resolve;
+    });
 
-      override appendToHistory(workspaceId: string, message: LatticeMessage) {
-        void super.appendToHistory(workspaceId, message);
-        this.appendedMessageResolve?.(message);
-        return this.appendGate;
+    const originalAppend = historyService.appendToHistory.bind(historyService);
+    spyOn(historyService, "appendToHistory").mockImplementation(
+      async (wId: string, message: LatticeMessage) => {
+        // Write to disk so deleteMessage can find it later
+        await originalAppend(wId, message);
+        appendedMessageResolve(message);
+        // Delay returning to the caller until the gate opens
+        return appendGate;
       }
+    );
 
-      resolveAppend() {
-        this.appendGateResolve?.(Ok(undefined));
-      }
-    }
-
-    const historyStub = new DeferredHistoryService();
     const aiServiceStub = new EventEmitter();
 
     const player = new MockAiStreamPlayer({
-      historyService: historyStub as unknown as HistoryService,
+      historyService,
       aiService: aiServiceStub as unknown as AIService,
     });
 
-    const workspaceId = "workspace-abort-startup";
+    const minionId = "minion-abort-startup";
 
     const userMessage = createLatticeMessage(
       "user-1",
@@ -146,39 +134,40 @@ describe("MockAiStreamPlayer", () => {
     );
 
     const abortController = new AbortController();
-    const playPromise = player.play([userMessage], workspaceId, {
+    const playPromise = player.play([userMessage], minionId, {
       abortSignal: abortController.signal,
     });
 
-    const assistantMessage = await historyStub.appendedMessage;
+    const assistantMsg = await appendedMessage;
 
-    historyStub.resolveAppend();
+    appendResolve(Ok(undefined));
     abortController.abort();
 
     const result = await playPromise;
     expect(result.success).toBe(true);
 
-    const storedMessages = historyStub.messages.get(workspaceId) ?? [];
-    expect(storedMessages.some((msg) => msg.id === assistantMessage.id)).toBe(false);
+    // Verify the placeholder was deleted from history
+    const storedResult = await historyService.getLastMessages(minionId, 100);
+    const storedMessages = storedResult.success ? storedResult.data : [];
+    expect(storedMessages.some((msg) => msg.id === assistantMsg.id)).toBe(false);
   });
 
   test("stop prevents queued stream events from emitting", async () => {
-    const historyStub = new InMemoryHistoryService();
     const aiServiceStub = new EventEmitter();
 
     const player = new MockAiStreamPlayer({
-      historyService: historyStub as unknown as HistoryService,
+      historyService,
       aiService: aiServiceStub as unknown as AIService,
     });
 
-    const workspaceId = "workspace-2";
+    const minionId = "minion-2";
 
     let deltaCount = 0;
     let abortCount = 0;
     let stopped = false;
 
     aiServiceStub.on("stream-abort", (payload: unknown) => {
-      if (readWorkspaceId(payload) === workspaceId) {
+      if (readMinionId(payload) === minionId) {
         abortCount += 1;
       }
     });
@@ -189,14 +178,14 @@ describe("MockAiStreamPlayer", () => {
       }, 1000);
 
       aiServiceStub.on("stream-delta", (payload: unknown) => {
-        if (readWorkspaceId(payload) !== workspaceId) return;
+        if (readMinionId(payload) !== minionId) return;
 
         deltaCount += 1;
 
         if (!stopped) {
           stopped = true;
           clearTimeout(timeout);
-          player.stop(workspaceId);
+          player.stop(minionId);
           resolve();
         }
       });
@@ -206,7 +195,7 @@ describe("MockAiStreamPlayer", () => {
       timestamp: Date.now(),
     });
 
-    const playResult = await player.play([forceTurnUser], workspaceId);
+    const playResult = await player.play([forceTurnUser], minionId);
     expect(playResult.success).toBe(true);
 
     await firstDelta;

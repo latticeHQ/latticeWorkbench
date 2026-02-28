@@ -18,15 +18,18 @@
 import { spawn, type ChildProcess } from "child_process";
 import * as path from "path";
 import type {
+  EnsureReadyOptions,
+  EnsureReadyResult,
   ExecOptions,
-  WorkspaceCreationParams,
-  WorkspaceCreationResult,
-  WorkspaceInitParams,
-  WorkspaceInitResult,
-  WorkspaceForkParams,
-  WorkspaceForkResult,
+  MinionCreationParams,
+  MinionCreationResult,
+  MinionInitParams,
+  MinionInitResult,
+  MinionForkParams,
+  MinionForkResult,
   InitLogger,
 } from "./Runtime";
+import { MINION_REPO_MISSING_ERROR } from "./Runtime";
 import { RemoteRuntime, type SpawnResult } from "./RemoteRuntime";
 import { log } from "@/node/services/log";
 import { checkInitHookExists, getLatticeEnv, runInitHookOnRuntime } from "./initHook";
@@ -36,9 +39,16 @@ import { expandTildeForSSH, cdCommandForSSH } from "./tildeExpansion";
 import { getProjectName, execBuffered } from "@/node/utils/runtime/helpers";
 import { getErrorMessage } from "@/common/utils/errors";
 import { type SSHRuntimeConfig } from "./sshConnectionPool";
-import { syncProjectViaGitBundle } from "./gitBundleSync";
+import { getOriginUrlForBundle } from "./gitBundleSync";
 import type { PtyHandle, PtySessionParams, SSHTransport } from "./transports";
 import { streamToString, shescape } from "./streamUtils";
+
+/** Name of the shared bare repo directory under each project on the remote. */
+const BASE_REPO_DIR = ".lattice-base.git";
+
+/** Staging namespace for bundle-imported branch refs. Branches land here instead
+ *  of refs/heads/* so they don't collide with branches checked out in worktrees. */
+const BUNDLE_REF_PREFIX = "refs/lattice-bundle/";
 
 function logSSHBackoffWait(initLogger: InitLogger, waitMs: number): void {
   const secs = Math.max(1, Math.ceil(waitMs / 1000));
@@ -134,6 +144,18 @@ function truncateSSHError(stderr: string): string {
 export type { SSHRuntimeConfig } from "./sshConnectionPool";
 
 /**
+ * Compute the path to the shared bare base repo for a project on the remote.
+ * Convention: <srcBaseDir>/<projectName>/.lattice-base.git
+ *
+ * Exported for unit testing; runtime code should use the private
+ * `SSHRuntime.getBaseRepoPath()` method instead.
+ */
+export function computeBaseRepoPath(srcBaseDir: string, projectPath: string): string {
+  const projectName = getProjectName(projectPath);
+  return path.posix.join(srcBaseDir, projectName, BASE_REPO_DIR);
+}
+
+/**
  * SSH runtime implementation that executes commands and file operations
  * over SSH using the ssh command-line tool.
  *
@@ -142,15 +164,26 @@ export type { SSHRuntimeConfig } from "./sshConnectionPool";
 export class SSHRuntime extends RemoteRuntime {
   private readonly config: SSHRuntimeConfig;
   private readonly transport: SSHTransport;
+  private readonly ensureReadyProjectPath?: string;
+  private readonly ensureReadyMinionName?: string;
   /** Cached resolved bgOutputDir (tilde expanded to absolute path) */
   private resolvedBgOutputDir: string | null = null;
 
-  constructor(config: SSHRuntimeConfig, transport: SSHTransport) {
+  constructor(
+    config: SSHRuntimeConfig,
+    transport: SSHTransport,
+    options?: {
+      projectPath?: string;
+      minionName?: string;
+    }
+  ) {
     super();
     // Note: srcBaseDir may contain tildes - they will be resolved via resolvePath() before use
-    // The WORKSPACE_CREATE IPC handler resolves paths before storing in config
+    // The MINION_CREATE IPC handler resolves paths before storing in config
     this.config = config;
     this.transport = transport;
+    this.ensureReadyProjectPath = options?.projectPath;
+    this.ensureReadyMinionName = options?.minionName;
   }
 
   /**
@@ -265,7 +298,17 @@ export class SSHRuntime extends RemoteRuntime {
 
     const command = `bash -lc ${shescape.quote(script)}`;
 
-    const abortController = createAbortController(10_000);
+    // Wait for connection establishment (including host-key confirmation) before
+    // starting the 10s command timeout. Otherwise users who take >10s to accept
+    // the host key prompt will hit a false timeout immediately after acceptance.
+    const resolvePathTimeoutMs = 10_000;
+
+    await this.transport.acquireConnection({
+      timeoutMs: resolvePathTimeoutMs,
+      maxWaitMs: resolvePathTimeoutMs,
+    });
+
+    const abortController = createAbortController(resolvePathTimeoutMs);
     try {
       const result = await execBuffered(this, command, {
         cwd: "/tmp",
@@ -287,9 +330,234 @@ export class SSHRuntime extends RemoteRuntime {
     }
   }
 
-  getWorkspacePath(projectPath: string, workspaceName: string): string {
+  getMinionPath(projectPath: string, minionName: string): string {
     const projectName = getProjectName(projectPath);
-    return path.posix.join(this.config.srcBaseDir, projectName, workspaceName);
+    return path.posix.join(this.config.srcBaseDir, projectName, minionName);
+  }
+
+  /**
+   * Path to the shared bare repo for a project on the remote.
+   * All worktree-based minions share this object store.
+   */
+  private getBaseRepoPath(projectPath: string): string {
+    return computeBaseRepoPath(this.config.srcBaseDir, projectPath);
+  }
+
+  /**
+   * Ensure the shared bare repo exists on the remote for a project.
+   * Creates it lazily on first use. Returns the shell-expanded path arg
+   * for use in subsequent commands.
+   */
+  private async ensureBaseRepo(
+    projectPath: string,
+    initLogger: InitLogger,
+    abortSignal?: AbortSignal
+  ): Promise<string> {
+    const baseRepoPath = this.getBaseRepoPath(projectPath);
+    const baseRepoPathArg = expandTildeForSSH(baseRepoPath);
+
+    const check = await execBuffered(this, `test -d ${baseRepoPathArg}`, {
+      cwd: "/tmp",
+      timeout: 10,
+      abortSignal,
+    });
+
+    if (check.exitCode !== 0) {
+      initLogger.logStep("Creating shared base repository...");
+      const parentDir = path.posix.dirname(baseRepoPath);
+      await execBuffered(this, `mkdir -p ${expandTildeForSSH(parentDir)}`, {
+        cwd: "/tmp",
+        timeout: 10,
+        abortSignal,
+      });
+      const initResult = await execBuffered(this, `git init --bare ${baseRepoPathArg}`, {
+        cwd: "/tmp",
+        timeout: 30,
+        abortSignal,
+      });
+      if (initResult.exitCode !== 0) {
+        throw new Error(`Failed to create base repo: ${initResult.stderr || initResult.stdout}`);
+      }
+    }
+
+    return baseRepoPathArg;
+  }
+
+  /**
+   * Detect whether a remote minion is a git worktree (`.git` is a file)
+   * vs a legacy full clone (`.git` is a directory).
+   */
+  private async isWorktreeMinion(
+    minionPath: string,
+    abortSignal?: AbortSignal
+  ): Promise<boolean> {
+    const gitPath = path.posix.join(minionPath, ".git");
+    const result = await execBuffered(this, `test -f ${this.quoteForRemote(gitPath)}`, {
+      cwd: "/tmp",
+      timeout: 10,
+      abortSignal,
+    });
+    return result.exitCode === 0;
+  }
+
+  /**
+   * Resolve the bundle staging ref for the trunk branch.
+   * Returns refs/lattice-bundle/<trunkBranch> if it exists, otherwise falls back
+   * to the first available ref under refs/lattice-bundle/ (handles main vs master
+   * mismatches). Returns null if no bundle refs exist.
+   */
+  private async resolveBundleTrunkRef(
+    baseRepoPathArg: string,
+    trunkBranch: string,
+    abortSignal?: AbortSignal
+  ): Promise<string | null> {
+    // Preferred: exact match for the expected trunk branch.
+    const preferredRef = `${BUNDLE_REF_PREFIX}${trunkBranch}`;
+    const check = await execBuffered(
+      this,
+      `git -C ${baseRepoPathArg} rev-parse --verify ${shescape.quote(preferredRef)}`,
+      { cwd: "/tmp", timeout: 10, abortSignal }
+    );
+    if (check.exitCode === 0) {
+      return preferredRef;
+    }
+
+    // Fallback: pick the first ref under refs/lattice-bundle/ (handles main↔master mismatch).
+    const listResult = await execBuffered(
+      this,
+      `git -C ${baseRepoPathArg} for-each-ref --format='%(refname)' ${BUNDLE_REF_PREFIX} --count=1`,
+      { cwd: "/tmp", timeout: 10, abortSignal }
+    );
+    const fallbackRef = listResult.stdout.trim();
+    if (listResult.exitCode === 0 && fallbackRef.length > 0) {
+      log.info(`Bundle trunk ref mismatch: expected ${preferredRef}, using ${fallbackRef}`);
+      return fallbackRef;
+    }
+
+    return null;
+  }
+
+  override async ensureReady(options?: EnsureReadyOptions): Promise<EnsureReadyResult> {
+    const repoCheck = await this.checkMinionRepo(options);
+    if (repoCheck) {
+      if (!repoCheck.ready) {
+        options?.statusSink?.({
+          phase: "error",
+          runtimeType: "ssh",
+          detail: repoCheck.error,
+        });
+        return repoCheck;
+      }
+
+      options?.statusSink?.({ phase: "ready", runtimeType: "ssh" });
+      return { ready: true };
+    }
+
+    return { ready: true };
+  }
+
+  protected async checkMinionRepo(
+    options?: EnsureReadyOptions
+  ): Promise<EnsureReadyResult | null> {
+    if (!this.ensureReadyProjectPath || !this.ensureReadyMinionName) {
+      return null;
+    }
+
+    const statusSink = options?.statusSink;
+    statusSink?.({
+      phase: "checking",
+      runtimeType: "ssh",
+      detail: "Checking repository...",
+    });
+
+    if (options?.signal?.aborted) {
+      return { ready: false, error: "Aborted", errorType: "runtime_start_failed" };
+    }
+
+    const minionPath = this.getMinionPath(
+      this.ensureReadyProjectPath,
+      this.ensureReadyMinionName
+    );
+    const gitDir = path.posix.join(minionPath, ".git");
+    const gitDirProbe = this.quoteForRemote(gitDir);
+
+    let testResult: { exitCode: number; stderr: string };
+    try {
+      // .git is a file for worktrees; accept either file or directory so existing SSH/Lattice
+      // worktree checkouts don't get flagged as setup failures.
+      testResult = await execBuffered(this, `test -d ${gitDirProbe} || test -f ${gitDirProbe}`, {
+        cwd: "~",
+        timeout: 10,
+        abortSignal: options?.signal,
+      });
+    } catch (error) {
+      return {
+        ready: false,
+        error: `Failed to reach SSH host: ${getErrorMessage(error)}`,
+        errorType: "runtime_start_failed",
+      };
+    }
+
+    if (testResult.exitCode !== 0) {
+      if (this.transport.isConnectionFailure(testResult.exitCode, testResult.stderr)) {
+        return {
+          ready: false,
+          error: `Failed to reach SSH host: ${testResult.stderr || "connection failure"}`,
+          errorType: "runtime_start_failed",
+        };
+      }
+
+      return {
+        ready: false,
+        error: MINION_REPO_MISSING_ERROR,
+        errorType: "runtime_not_ready",
+      };
+    }
+
+    let revResult: { exitCode: number; stderr: string; stdout: string };
+    try {
+      revResult = await execBuffered(
+        this,
+        `git -C ${this.quoteForRemote(minionPath)} rev-parse --git-dir`,
+        {
+          cwd: "~",
+          timeout: 10,
+          abortSignal: options?.signal,
+        }
+      );
+    } catch (error) {
+      return {
+        ready: false,
+        error: `Failed to verify repository: ${getErrorMessage(error)}`,
+        errorType: "runtime_start_failed",
+      };
+    }
+
+    if (revResult.exitCode !== 0) {
+      const stderr = revResult.stderr.trim();
+      const stdout = revResult.stdout.trim();
+      const errorDetail = stderr || stdout || "git unavailable";
+      const isCommandMissing =
+        revResult.exitCode === 127 || /command not found/i.test(stderr || stdout);
+      if (
+        isCommandMissing ||
+        this.transport.isConnectionFailure(revResult.exitCode, revResult.stderr)
+      ) {
+        return {
+          ready: false,
+          error: `Failed to verify repository: ${errorDetail}`,
+          errorType: "runtime_start_failed",
+        };
+      }
+
+      return {
+        ready: false,
+        error: MINION_REPO_MISSING_ERROR,
+        errorType: "runtime_not_ready",
+      };
+    }
+
+    return { ready: true };
   }
 
   /**
@@ -309,112 +577,187 @@ export class SSHRuntime extends RemoteRuntime {
    * - No external dependencies (git is always available)
    * - Simpler implementation
    */
-  protected async syncProjectToRemote(
+  /**
+   * Transfer a git bundle to the remote and return its path.
+   * Callers are responsible for cleanup of the remote bundle file.
+   */
+  private async transferBundleToRemote(
     projectPath: string,
-    workspacePath: string,
     initLogger: InitLogger,
     abortSignal?: AbortSignal
-  ): Promise<void> {
+  ): Promise<string> {
     const timestamp = Date.now();
     const remoteBundlePath = `~/.lattice-bundle-${timestamp}.bundle`;
 
-    await syncProjectViaGitBundle({
-      projectPath,
-      workspacePath,
-      remoteTmpDir: "~",
-      remoteBundlePath,
-      exec: (command, options) => this.exec(command, options),
-      quoteRemotePath: (path) => this.quoteForRemote(path),
-      logOriginErrors: true,
-      initLogger,
+    await this.transport.acquireConnection({
       abortSignal,
-      cloneStep: "Cloning repository on remote...",
-      createRemoteBundle: async ({ remoteBundlePath, initLogger, abortSignal }) => {
-        await this.transport.acquireConnection({
-          abortSignal,
-          onWait: (waitMs) => logSSHBackoffWait(initLogger, waitMs),
-        });
-
-        if (abortSignal?.aborted) {
-          throw new Error("Bundle creation aborted");
-        }
-
-        const gitProc = spawn("git", ["-C", projectPath, "bundle", "create", "-", "--all"], {
-          stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
-        });
-
-        // Handle stderr manually - do NOT use streamProcessToLogger here.
-        // It attaches a stdout listener that drains data before pipeReadableToWebWritable
-        // can consume it, corrupting the bundle.
-        let stderr = "";
-        gitProc.stderr?.on("data", (data: Buffer) => {
-          const chunk = data.toString();
-          stderr += chunk;
-          for (const line of chunk.split("\n").filter(Boolean)) {
-            initLogger.logStderr(line);
-          }
-        });
-
-        const remoteAbortController = createAbortController(300_000, abortSignal);
-        const remoteStream = await this.exec(`cat > ${this.quoteForRemote(remoteBundlePath)}`, {
-          cwd: "~",
-          abortSignal: remoteAbortController.signal,
-        });
-
-        try {
-          try {
-            await pipeReadableToWebWritable(gitProc.stdout, remoteStream.stdin, abortSignal);
-          } catch (error) {
-            gitProc.kill();
-            throw error;
-          }
-
-          const [gitExitCode, remoteExitCode] = await Promise.all([
-            waitForProcessExit(gitProc),
-            remoteStream.exitCode,
-          ]);
-
-          if (remoteAbortController.didTimeout()) {
-            throw new Error(
-              `SSH command timed out after 300000ms: cat > ${this.quoteForRemote(remoteBundlePath)}`
-            );
-          }
-
-          if (abortSignal?.aborted) {
-            throw new Error("Bundle creation aborted");
-          }
-
-          if (gitExitCode !== 0) {
-            throw new Error(`Failed to create bundle: ${stderr}`);
-          }
-
-          if (remoteExitCode !== 0) {
-            const remoteStderr = await streamToString(remoteStream.stderr);
-            throw new Error(`Failed to upload bundle: ${remoteStderr}`);
-          }
-        } finally {
-          remoteAbortController.dispose();
-        }
-      },
+      onWait: (waitMs) => logSSHBackoffWait(initLogger, waitMs),
     });
+
+    if (abortSignal?.aborted) {
+      throw new Error("Bundle creation aborted");
+    }
+
+    initLogger.logStep("Creating git bundle...");
+    // Use --branches --tags instead of --all to exclude refs/remotes/origin/*
+    // from the bundle. Those tracking refs are from the local machine's last
+    // fetch and can be arbitrarily stale — importing them into the shared bare
+    // base repo would give worktrees a wrong "commits behind" count.
+    const gitProc = spawn(
+      "git",
+      ["-C", projectPath, "bundle", "create", "-", "--branches", "--tags"],
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      }
+    );
+
+    // Handle stderr manually - do NOT use streamProcessToLogger here.
+    // It attaches a stdout listener that drains data before pipeReadableToWebWritable
+    // can consume it, corrupting the bundle.
+    let stderr = "";
+    gitProc.stderr?.on("data", (data: Buffer) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      for (const line of chunk.split("\n").filter(Boolean)) {
+        initLogger.logStderr(line);
+      }
+    });
+
+    const remoteAbortController = createAbortController(300_000, abortSignal);
+    const remoteStream = await this.exec(`cat > ${this.quoteForRemote(remoteBundlePath)}`, {
+      cwd: "~",
+      abortSignal: remoteAbortController.signal,
+    });
+
+    try {
+      try {
+        await pipeReadableToWebWritable(gitProc.stdout, remoteStream.stdin, abortSignal);
+      } catch (error) {
+        gitProc.kill();
+        throw error;
+      }
+
+      const [gitExitCode, remoteExitCode] = await Promise.all([
+        waitForProcessExit(gitProc),
+        remoteStream.exitCode,
+      ]);
+
+      if (remoteAbortController.didTimeout()) {
+        throw new Error(
+          `SSH command timed out after 300000ms: cat > ${this.quoteForRemote(remoteBundlePath)}`
+        );
+      }
+
+      if (abortSignal?.aborted) {
+        throw new Error("Bundle creation aborted");
+      }
+
+      if (gitExitCode !== 0) {
+        throw new Error(`Failed to create bundle: ${stderr}`);
+      }
+
+      if (remoteExitCode !== 0) {
+        const remoteStderr = await streamToString(remoteStream.stderr);
+        throw new Error(`Failed to upload bundle: ${remoteStderr}`);
+      }
+    } finally {
+      remoteAbortController.dispose();
+    }
+
+    return remoteBundlePath;
   }
 
-  async createWorkspace(params: WorkspaceCreationParams): Promise<WorkspaceCreationResult> {
+  /**
+   * Sync local project to the shared bare base repo on the remote via git bundle.
+   *
+   * Branches land in a staging namespace (refs/lattice-bundle/*) to avoid colliding
+   * with branches checked out in existing worktrees. Tags go to refs/tags/*
+   * directly. Remote tracking refs are excluded entirely.
+   * Idempotent — re-running is a no-op when nothing changed.
+   */
+  protected async syncProjectToRemote(
+    projectPath: string,
+    _minionPath: string,
+    initLogger: InitLogger,
+    abortSignal?: AbortSignal
+  ): Promise<void> {
+    const baseRepoPathArg = await this.ensureBaseRepo(projectPath, initLogger, abortSignal);
+
+    const remoteBundlePath = await this.transferBundleToRemote(
+      projectPath,
+      initLogger,
+      abortSignal
+    );
+    const remoteBundlePathArg = this.quoteForRemote(remoteBundlePath);
+
+    try {
+      // Import branches and tags from the bundle into the shared bare repo.
+      // Branches land in refs/lattice-bundle/* (staging namespace) instead of
+      // refs/heads/* to avoid colliding with branches checked out in existing
+      // worktrees — git refuses to update any ref checked out in a worktree.
+      // Tags go directly to refs/tags/* (they're never checked out).
+      initLogger.logStep("Importing bundle into shared base repository...");
+      const fetchResult = await execBuffered(
+        this,
+        `git -C ${baseRepoPathArg} fetch ${remoteBundlePathArg} '+refs/heads/*:${BUNDLE_REF_PREFIX}*' '+refs/tags/*:refs/tags/*'`,
+        { cwd: "/tmp", timeout: 300, abortSignal }
+      );
+      if (fetchResult.exitCode !== 0) {
+        throw new Error(
+          `Failed to import bundle into base repo: ${fetchResult.stderr || fetchResult.stdout}`
+        );
+      }
+
+      // Set the origin remote on the bare repo so worktrees inherit it.
+      const { originUrl } = await this.getOriginUrlForSync(projectPath, initLogger);
+      if (originUrl) {
+        initLogger.logStep(`Setting origin remote to ${originUrl}...`);
+        // Use add-or-update pattern: try set-url first, fall back to add.
+        await execBuffered(
+          this,
+          `git -C ${baseRepoPathArg} remote set-url origin ${shescape.quote(originUrl)} 2>/dev/null || git -C ${baseRepoPathArg} remote add origin ${shescape.quote(originUrl)}`,
+          { cwd: "/tmp", timeout: 10, abortSignal }
+        );
+      }
+
+      initLogger.logStep("Repository synced to base successfully");
+    } finally {
+      // Best-effort cleanup of the remote bundle file.
+      try {
+        await execBuffered(this, `rm -f ${remoteBundlePathArg}`, {
+          cwd: "/tmp",
+          timeout: 10,
+        });
+      } catch {
+        // Ignore cleanup errors.
+      }
+    }
+  }
+
+  /** Get origin URL from local project for setting on the remote base repo. */
+  private async getOriginUrlForSync(
+    projectPath: string,
+    initLogger: InitLogger
+  ): Promise<{ originUrl: string | null }> {
+    return getOriginUrlForBundle(projectPath, initLogger, /* logErrors */ false);
+  }
+
+  async createMinion(params: MinionCreationParams): Promise<MinionCreationResult> {
     try {
       const { projectPath, branchName, initLogger, abortSignal } = params;
-      // Compute workspace path using canonical method
-      const workspacePath = this.getWorkspacePath(projectPath, branchName);
+      // Compute minion path using canonical method
+      const minionPath = this.getMinionPath(projectPath, branchName);
 
       // Prepare parent directory for git clone (fast - returns immediately)
-      // Note: git clone will create the workspace directory itself during initWorkspace,
+      // Note: git clone will create the minion directory itself during initMinion,
       // but the parent directory must exist first
-      initLogger.logStep("Preparing remote workspace...");
+      initLogger.logStep("Preparing remote minion...");
       try {
-        // Extract parent directory from workspace path
-        // Example: ~/workspace/project/branch -> ~/workspace/project
-        const lastSlash = workspacePath.lastIndexOf("/");
-        const parentDir = lastSlash > 0 ? workspacePath.substring(0, lastSlash) : "~";
+        // Extract parent directory from minion path
+        // Example: ~/minion/project/branch -> ~/minion/project
+        const lastSlash = minionPath.lastIndexOf("/");
+        const parentDir = lastSlash > 0 ? minionPath.substring(0, lastSlash) : "~";
 
         // Expand tilde for mkdir command
         const expandedParentDir = expandTildeForSSH(parentDir);
@@ -430,21 +773,21 @@ export class SSHRuntime extends RemoteRuntime {
           const stderr = await streamToString(mkdirStream.stderr);
           return {
             success: false,
-            error: `Failed to prepare remote workspace: ${stderr}`,
+            error: `Failed to prepare remote minion: ${stderr}`,
           };
         }
       } catch (error) {
         return {
           success: false,
-          error: `Failed to prepare remote workspace: ${getErrorMessage(error)}`,
+          error: `Failed to prepare remote minion: ${getErrorMessage(error)}`,
         };
       }
 
-      initLogger.logStep("Remote workspace prepared");
+      initLogger.logStep("Remote minion prepared");
 
       return {
         success: true,
-        workspacePath,
+        minionPath,
       };
     } catch (error) {
       return {
@@ -454,12 +797,12 @@ export class SSHRuntime extends RemoteRuntime {
     }
   }
 
-  async initWorkspace(params: WorkspaceInitParams): Promise<WorkspaceInitResult> {
+  async initMinion(params: MinionInitParams): Promise<MinionInitResult> {
     const {
       projectPath,
       branchName,
       trunkBranch,
-      workspacePath,
+      minionPath,
       initLogger,
       abortSignal,
       env,
@@ -467,13 +810,13 @@ export class SSHRuntime extends RemoteRuntime {
     } = params;
 
     try {
-      // If the workspace directory already exists and contains a git repo (e.g. forked from
-      // another SSH workspace), skip the expensive local→remote sync step.
-      const workspacePathArg = expandTildeForSSH(workspacePath);
+      // If the minion directory already exists and contains a git repo (e.g. forked from
+      // another SSH minion via worktree add or legacy cp), skip the expensive sync step.
+      const minionPathArg = expandTildeForSSH(minionPath);
       let shouldSync = true;
 
       try {
-        const dirCheck = await execBuffered(this, `test -d ${workspacePathArg}`, {
+        const dirCheck = await execBuffered(this, `test -d ${minionPathArg}`, {
           cwd: "/tmp",
           timeout: 10,
           abortSignal,
@@ -481,7 +824,7 @@ export class SSHRuntime extends RemoteRuntime {
         if (dirCheck.exitCode === 0) {
           const gitCheck = await execBuffered(
             this,
-            `git -C ${workspacePathArg} rev-parse --is-inside-work-tree`,
+            `git -C ${minionPathArg} rev-parse --is-inside-work-tree`,
             {
               cwd: "/tmp",
               timeout: 20,
@@ -496,13 +839,13 @@ export class SSHRuntime extends RemoteRuntime {
       }
 
       if (shouldSync) {
-        // 1. Sync project to remote with retry for transient SSH failures
-        // Errors like "pack-objects died" occur when SSH drops mid-transfer
+        // 1. Sync project to the shared bare base repo with retry for transient SSH failures.
+        // Errors like "pack-objects died" occur when SSH drops mid-transfer.
         initLogger.logStep("Syncing project files to remote...");
         const maxSyncAttempts = 3;
         for (let attempt = 1; attempt <= maxSyncAttempts; attempt++) {
           try {
-            await this.syncProjectToRemote(projectPath, workspacePath, initLogger, abortSignal);
+            await this.syncProjectToRemote(projectPath, minionPath, initLogger, abortSignal);
             break;
           } catch (error) {
             const errorMsg = getErrorMessage(error);
@@ -510,7 +853,8 @@ export class SSHRuntime extends RemoteRuntime {
               errorMsg.includes("pack-objects died") ||
               errorMsg.includes("Connection reset") ||
               errorMsg.includes("Connection closed") ||
-              errorMsg.includes("Broken pipe");
+              errorMsg.includes("Broken pipe") ||
+              errorMsg.includes("EPIPE");
 
             if (!isRetryable || attempt === maxSyncAttempts) {
               initLogger.logStderr(`Failed to sync project: ${errorMsg}`);
@@ -521,19 +865,9 @@ export class SSHRuntime extends RemoteRuntime {
               };
             }
 
-            // Clean up partial remote state before retry
             log.info(
               `Sync failed (attempt ${attempt}/${maxSyncAttempts}), will retry: ${errorMsg}`
             );
-            try {
-              const rmStream = await this.exec(`rm -rf ${workspacePathArg}`, {
-                cwd: "~",
-                timeout: 30,
-              });
-              await rmStream.exitCode;
-            } catch {
-              // Ignore cleanup errors
-            }
 
             initLogger.logStep(
               `Sync failed, retrying (attempt ${attempt + 1}/${maxSyncAttempts})...`
@@ -542,65 +876,94 @@ export class SSHRuntime extends RemoteRuntime {
           }
         }
         initLogger.logStep("Files synced successfully");
+
+        // 2. Create a worktree from the shared bare base repo for this minion.
+        const baseRepoPath = this.getBaseRepoPath(projectPath);
+        const baseRepoPathArg = expandTildeForSSH(baseRepoPath);
+
+        // Fetch latest from origin in the base repo (best-effort) so new branches
+        // can start from the latest upstream state.
+        const fetchedOrigin = await this.fetchOriginTrunk(
+          baseRepoPath,
+          trunkBranch,
+          initLogger,
+          abortSignal
+        );
+
+        // Resolve the bundle's staging ref to use as the local fallback start
+        // point. The staging ref is refs/lattice-bundle/<trunk> — but the local
+        // project's default branch may differ from what was passed as trunkBranch
+        // (e.g. "master" vs "main"), so probe for the expected ref and fall back
+        // to whatever is available in refs/lattice-bundle/.
+        const bundleTrunkRef = await this.resolveBundleTrunkRef(
+          baseRepoPathArg,
+          trunkBranch,
+          abortSignal
+        );
+
+        const shouldUseOrigin =
+          fetchedOrigin &&
+          bundleTrunkRef != null &&
+          (await this.canFastForwardToOrigin(
+            baseRepoPath,
+            bundleTrunkRef,
+            trunkBranch,
+            initLogger,
+            abortSignal
+          ));
+
+        // When origin is reachable, branch from the fresh remote tracking ref.
+        // Otherwise, use the bundle's staging ref (or HEAD as last resort).
+        const newBranchBase = shouldUseOrigin
+          ? `origin/${trunkBranch}`
+          : (bundleTrunkRef ?? "HEAD");
+
+        // git worktree add creates the directory and checks out the branch in one step.
+        // -B creates the branch or resets it to the start point if it already exists
+        // (e.g. orphaned from a previously deleted minion). Git still prevents
+        // checking out a branch that's active in another worktree.
+        initLogger.logStep(`Creating worktree for branch: ${branchName}`);
+        const worktreeCmd = `git -C ${baseRepoPathArg} worktree add ${minionPathArg} -B ${shescape.quote(branchName)} ${shescape.quote(newBranchBase)}`;
+
+        const worktreeResult = await execBuffered(this, worktreeCmd, {
+          cwd: "/tmp",
+          timeout: 300,
+          abortSignal,
+        });
+
+        if (worktreeResult.exitCode !== 0) {
+          const errorMsg = `Failed to create worktree: ${worktreeResult.stderr || worktreeResult.stdout}`;
+          initLogger.logStderr(errorMsg);
+          initLogger.logComplete(-1);
+          return { success: false, error: errorMsg };
+        }
+        initLogger.logStep("Worktree created successfully");
       } else {
-        initLogger.logStep("Remote workspace already contains a git repo; skipping sync");
+        initLogger.logStep("Remote minion already contains a git repo; skipping sync");
+
+        // Existing minion (e.g. forked): fetch origin and checkout as before.
+        const fetchedOrigin = await this.fetchOriginTrunk(
+          minionPath,
+          trunkBranch,
+          initLogger,
+          abortSignal
+        );
+        const shouldUseOrigin =
+          fetchedOrigin &&
+          (await this.canFastForwardToOrigin(
+            minionPath,
+            trunkBranch,
+            trunkBranch,
+            initLogger,
+            abortSignal
+          ));
+
+        if (shouldUseOrigin) {
+          await this.fastForwardToOrigin(minionPath, trunkBranch, initLogger, abortSignal);
+        }
       }
 
-      // 2. Fetch latest from origin before checkout (best-effort)
-      // This ensures new branches start from the latest origin state, not a stale bundle
-      const fetchedOrigin = await this.fetchOriginTrunk(
-        workspacePath,
-        trunkBranch,
-        initLogger,
-        abortSignal
-      );
-
-      // Determine best base for new branches: use origin if local can fast-forward to it,
-      // otherwise preserve local state (user may have unpushed work)
-      const shouldUseOrigin =
-        fetchedOrigin &&
-        (await this.canFastForwardToOrigin(workspacePath, trunkBranch, initLogger, abortSignal));
-
-      // 3. Checkout branch remotely
-      // If branch exists locally, check it out; otherwise create it from origin (if fetched) or local trunk
-      initLogger.logStep(`Checking out branch: ${branchName}`);
-
-      // Try to checkout existing branch, or create new branch from the best available base:
-      // - origin/<trunk> if local is behind/equal (ensures fresh starting point)
-      // - local <trunk> if local is ahead/diverged (preserves user's work)
-      const newBranchBase = shouldUseOrigin ? `origin/${trunkBranch}` : trunkBranch;
-      const checkoutCmd = `git checkout ${shescape.quote(branchName)} 2>/dev/null || git checkout -b ${shescape.quote(branchName)} ${shescape.quote(newBranchBase)}`;
-
-      const checkoutStream = await this.exec(checkoutCmd, {
-        cwd: workspacePath, // Use the full workspace path for git operations
-        timeout: 300, // 5 minutes for git checkout (can be slow on large repos)
-        abortSignal,
-      });
-
-      const [stdout, stderr, exitCode] = await Promise.all([
-        streamToString(checkoutStream.stdout),
-        streamToString(checkoutStream.stderr),
-        checkoutStream.exitCode,
-      ]);
-
-      if (exitCode !== 0) {
-        const errorMsg = `Failed to checkout branch: ${stderr || stdout}`;
-        initLogger.logStderr(errorMsg);
-        initLogger.logComplete(-1);
-        return {
-          success: false,
-          error: errorMsg,
-        };
-      }
-      initLogger.logStep("Branch checked out successfully");
-
-      // 4. For existing branches, fast-forward to latest origin (best-effort)
-      // Only if local can fast-forward (preserves unpushed work)
-      if (shouldUseOrigin) {
-        await this.fastForwardToOrigin(workspacePath, trunkBranch, initLogger, abortSignal);
-      }
-
-      // 5. Run .lattice/init hook if it exists
+      // 3. Run .lattice/init hook if it exists
       // Note: runInitHookOnRuntime calls logComplete() internally
       if (skipInitHook) {
         initLogger.logStep("Skipping .lattice/init hook (disabled for this task)");
@@ -608,13 +971,14 @@ export class SSHRuntime extends RemoteRuntime {
       } else {
         const hookExists = await checkInitHookExists(projectPath);
         if (hookExists) {
+          initLogger.enterHookPhase?.();
           const latticeEnv = { ...env, ...getLatticeEnv(projectPath, "ssh", branchName) };
           // Expand tilde in hook path (quoted paths don't auto-expand on remote)
-          const hookPath = expandHookPath(`${workspacePath}/.lattice/init`);
+          const hookPath = expandHookPath(`${minionPath}/.lattice/init`);
           await runInitHookOnRuntime(
             this,
             hookPath,
-            workspacePath,
+            minionPath,
             latticeEnv,
             initLogger,
             abortSignal
@@ -642,7 +1006,7 @@ export class SSHRuntime extends RemoteRuntime {
    * Returns true if fetch succeeded (origin is available for branching).
    */
   private async fetchOriginTrunk(
-    workspacePath: string,
+    minionPath: string,
     trunkBranch: string,
     initLogger: InitLogger,
     abortSignal?: AbortSignal
@@ -652,7 +1016,7 @@ export class SSHRuntime extends RemoteRuntime {
 
       const fetchCmd = `git fetch origin ${shescape.quote(trunkBranch)}`;
       const fetchStream = await this.exec(fetchCmd, {
-        cwd: workspacePath,
+        cwd: minionPath,
         timeout: 120, // 2 minutes for network operation
         abortSignal,
       });
@@ -660,7 +1024,7 @@ export class SSHRuntime extends RemoteRuntime {
       const fetchExitCode = await fetchStream.exitCode;
       if (fetchExitCode !== 0) {
         const fetchStderr = await streamToString(fetchStream.stderr);
-        // Branch doesn't exist on origin (common for subagent local-only branches)
+        // Branch doesn't exist on origin (common for sidekick local-only branches)
         if (fetchStderr.includes("couldn't find remote ref")) {
           initLogger.logStep(`Branch "${trunkBranch}" not found on origin; using local state.`);
         } else {
@@ -683,22 +1047,26 @@ export class SSHRuntime extends RemoteRuntime {
   }
 
   /**
-   * Check if local trunk can fast-forward to origin/<trunk>.
-   * Returns true if local is behind or equal to origin (safe to use origin).
-   * Returns false if local is ahead or diverged (preserve local state).
+   * Check if a local ref can fast-forward to origin/<originBranch>.
+   * Returns true if localRef is behind or equal to origin (safe to use origin).
+   * Returns false if localRef is ahead or diverged (preserve local state).
+   *
+   * @param localRef - The ref to compare (e.g. "main" or "refs/lattice-bundle/main")
+   * @param originBranch - The branch name on origin (e.g. "main")
    */
   private async canFastForwardToOrigin(
-    workspacePath: string,
-    trunkBranch: string,
+    minionPath: string,
+    localRef: string,
+    originBranch: string,
     initLogger: InitLogger,
     abortSignal?: AbortSignal
   ): Promise<boolean> {
     try {
-      // Check if local trunk is an ancestor of origin/trunk
+      // Check if localRef is an ancestor of origin/<originBranch>
       // Exit code 0 = local is ancestor (can fast-forward), non-zero = cannot
-      const checkCmd = `git merge-base --is-ancestor ${shescape.quote(trunkBranch)} origin/${shescape.quote(trunkBranch)}`;
+      const checkCmd = `git merge-base --is-ancestor ${shescape.quote(localRef)} origin/${shescape.quote(originBranch)}`;
       const checkStream = await this.exec(checkCmd, {
-        cwd: workspacePath,
+        cwd: minionPath,
         timeout: 30,
         abortSignal,
       });
@@ -710,7 +1078,7 @@ export class SSHRuntime extends RemoteRuntime {
 
       // Local is ahead or diverged - preserve local state
       initLogger.logStderr(
-        `Note: Local ${trunkBranch} is ahead of or diverged from origin, using local state`
+        `Note: Local ${localRef} is ahead of or diverged from origin/${originBranch}, using local state`
       );
       return false;
     } catch {
@@ -724,7 +1092,7 @@ export class SSHRuntime extends RemoteRuntime {
    * Best-effort operation for existing branches that may be behind origin.
    */
   private async fastForwardToOrigin(
-    workspacePath: string,
+    minionPath: string,
     trunkBranch: string,
     initLogger: InitLogger,
     abortSignal?: AbortSignal
@@ -734,7 +1102,7 @@ export class SSHRuntime extends RemoteRuntime {
 
       const mergeCmd = `git merge --ff-only origin/${shescape.quote(trunkBranch)}`;
       const mergeStream = await this.exec(mergeCmd, {
-        cwd: workspacePath,
+        cwd: minionPath,
         timeout: 60, // 1 minute for fast-forward merge
         abortSignal,
       });
@@ -759,7 +1127,7 @@ export class SSHRuntime extends RemoteRuntime {
     }
   }
 
-  async renameWorkspace(
+  async renameMinion(
     projectPath: string,
     oldName: string,
     newName: string,
@@ -771,32 +1139,37 @@ export class SSHRuntime extends RemoteRuntime {
     if (abortSignal?.aborted) {
       return { success: false, error: "Rename operation aborted" };
     }
-    // Compute workspace paths using canonical method
-    const oldPath = this.getWorkspacePath(projectPath, oldName);
-    const newPath = this.getWorkspacePath(projectPath, newName);
+    // Compute minion paths using canonical method
+    const oldPath = this.getMinionPath(projectPath, oldName);
+    const newPath = this.getMinionPath(projectPath, newName);
 
     try {
-      // SSH runtimes use plain directories, not git worktrees
-      // Expand tilde and quote paths (expandTildeForSSH handles both expansion and quoting)
       const expandedOldPath = expandTildeForSSH(oldPath);
       const expandedNewPath = expandTildeForSSH(newPath);
 
-      // Just use mv to rename the directory on the remote host
-      const moveCommand = `mv ${expandedOldPath} ${expandedNewPath}`;
+      // Detect if minion is a worktree vs legacy full clone.
+      const isWorktree = await this.isWorktreeMinion(oldPath, abortSignal);
 
-      // Execute via the runtime's exec method (handles SSH connection multiplexing, etc.)
+      let moveCommand: string;
+      if (isWorktree) {
+        // Worktree: use `git worktree move` to keep base repo metadata consistent.
+        const baseRepoPathArg = expandTildeForSSH(this.getBaseRepoPath(projectPath));
+        moveCommand = `git -C ${baseRepoPathArg} worktree move ${expandedOldPath} ${expandedNewPath}`;
+      } else {
+        // Legacy full clone: plain mv.
+        moveCommand = `mv ${expandedOldPath} ${expandedNewPath}`;
+      }
+
       const stream = await this.exec(moveCommand, {
         cwd: this.config.srcBaseDir,
         timeout: 30,
         abortSignal,
       });
 
-      // Command doesn't use stdin - abort to close immediately without waiting
       await stream.stdin.abort();
       const exitCode = await stream.exitCode;
 
       if (exitCode !== 0) {
-        // Read stderr for error message
         const stderrReader = stream.stderr.getReader();
         const decoder = new TextDecoder();
         let stderr = "";
@@ -825,9 +1198,9 @@ export class SSHRuntime extends RemoteRuntime {
     }
   }
 
-  async deleteWorkspace(
+  async deleteMinion(
     projectPath: string,
-    workspaceName: string,
+    minionName: string,
     force: boolean,
     abortSignal?: AbortSignal
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }> {
@@ -836,8 +1209,8 @@ export class SSHRuntime extends RemoteRuntime {
       return { success: false, error: "Delete operation aborted" };
     }
 
-    // Compute workspace path using canonical method
-    const deletedPath = this.getWorkspacePath(projectPath, workspaceName);
+    // Compute minion path using canonical method
+    const deletedPath = this.getMinionPath(projectPath, minionName);
 
     try {
       // Combine all pre-deletion checks into a single bash script to minimize round trips
@@ -922,7 +1295,10 @@ export class SSHRuntime extends RemoteRuntime {
 
       const checkStream = await this.exec(checkScript, {
         cwd: this.config.srcBaseDir,
-        timeout: 10,
+        // Non-force path includes `git fetch origin` (network op) that can
+        // easily exceed 10s on slow SSH connections. Force path only checks
+        // existence, so a short timeout is fine.
+        timeout: force ? 10 : 30,
         abortSignal,
       });
 
@@ -939,7 +1315,7 @@ export class SSHRuntime extends RemoteRuntime {
       if (checkExitCode === 1) {
         return {
           success: false,
-          error: "Workspace contains uncommitted changes. Use force flag to delete anyway.",
+          error: "Minion contains uncommitted changes. Use force flag to delete anyway.",
         };
       }
 
@@ -948,8 +1324,8 @@ export class SSHRuntime extends RemoteRuntime {
         const stderr = await streamToString(checkStream.stderr);
         const commitList = stderr.trim();
         const errorMsg = commitList
-          ? `Workspace contains unpushed commits:\n\n${commitList}`
-          : "Workspace contains unpushed commits. Use force flag to delete anyway.";
+          ? `Minion contains unpushed commits:\n\n${commitList}`
+          : "Minion contains unpushed commits. Use force flag to delete anyway.";
 
         return {
           success: false,
@@ -962,32 +1338,79 @@ export class SSHRuntime extends RemoteRuntime {
         const stderr = await streamToString(checkStream.stderr);
         return {
           success: false,
-          error: `Failed to check workspace state: ${stderr.trim() || `exit code ${checkExitCode}`}`,
+          error: `Failed to check minion state: ${stderr.trim() || `exit code ${checkExitCode}`}`,
         };
       }
 
-      // SSH runtimes use plain directories, not git worktrees
-      // Use rm -rf to remove the directory on the remote host
-      const removeCommand = `rm -rf ${shescape.quote(deletedPath)}`;
+      // Detect if minion is a worktree (.git is a file) vs a legacy full clone (.git is a directory).
+      const isWorktree = await this.isWorktreeMinion(deletedPath, abortSignal);
 
-      // Execute via the runtime's exec method (handles SSH connection multiplexing, etc.)
-      const stream = await this.exec(removeCommand, {
-        cwd: this.config.srcBaseDir,
-        timeout: 30,
-        abortSignal,
-      });
+      if (isWorktree) {
+        // Worktree: use `git worktree remove` to clean up the base repo's worktree metadata.
+        const baseRepoPathArg = expandTildeForSSH(this.getBaseRepoPath(projectPath));
+        const removeCmd = force
+          ? `git -C ${baseRepoPathArg} worktree remove --force ${this.quoteForRemote(deletedPath)}`
+          : `git -C ${baseRepoPathArg} worktree remove ${this.quoteForRemote(deletedPath)}`;
+        const stream = await this.exec(removeCmd, {
+          cwd: this.config.srcBaseDir,
+          timeout: 30,
+          abortSignal,
+        });
+        await stream.stdin.abort();
+        const exitCode = await stream.exitCode;
 
-      // Command doesn't use stdin - abort to close immediately without waiting
-      await stream.stdin.abort();
-      const exitCode = await stream.exitCode;
+        if (exitCode !== 0) {
+          const stderr = await streamToString(stream.stderr);
+          // Fallback: if worktree remove fails (e.g., locked), rm -rf + prune.
+          const fallbackStream = await this.exec(
+            // Use quoteForRemote (expandTildeForSSH) to match the quoting in the
+            // worktree remove command above — shescape.quote doesn't expand tilde.
+            // `worktree prune` is best-effort: if the base repo was externally
+            // deleted/corrupted the prune fails, but the minion IS gone after
+            // rm -rf — don't report failure for a cosmetic prune error.
+            `rm -rf ${this.quoteForRemote(deletedPath)} && (git -C ${baseRepoPathArg} worktree prune 2>/dev/null || true)`,
+            { cwd: this.config.srcBaseDir, timeout: 30, abortSignal }
+          );
+          await fallbackStream.stdin.abort();
+          const fallbackExitCode = await fallbackStream.exitCode;
+          if (fallbackExitCode !== 0) {
+            const fallbackStderr = await streamToString(fallbackStream.stderr);
+            return {
+              success: false,
+              error: `Failed to delete worktree: ${stderr.trim() || fallbackStderr.trim() || "Unknown error"}`,
+            };
+          }
+        }
+        // Best-effort: delete the orphaned branch ref from the base repo so
+        // that re-forking with the same minion name can use the fast worktree
+        // path (git worktree add -b fails if the branch already exists).
+        // Skip protected trunk branch names to avoid accidental deletion.
+        const PROTECTED_BRANCHES = ["main", "master", "trunk", "develop", "default"];
+        if (!PROTECTED_BRANCHES.includes(minionName)) {
+          await execBuffered(
+            this,
+            `git -C ${baseRepoPathArg} branch -D ${shescape.quote(minionName)} 2>/dev/null || true`,
+            { cwd: "/tmp", timeout: 10 }
+          ).catch(() => undefined);
+        }
+      } else {
+        // Legacy full clone: rm -rf to remove the directory on the remote host.
+        const removeCommand = `rm -rf ${shescape.quote(deletedPath)}`;
+        const stream = await this.exec(removeCommand, {
+          cwd: this.config.srcBaseDir,
+          timeout: 30,
+          abortSignal,
+        });
+        await stream.stdin.abort();
+        const exitCode = await stream.exitCode;
 
-      if (exitCode !== 0) {
-        // Read stderr for error message
-        const stderr = await streamToString(stream.stderr);
-        return {
-          success: false,
-          error: `Failed to delete directory: ${stderr.trim() || "Unknown error"}`,
-        };
+        if (exitCode !== 0) {
+          const stderr = await streamToString(stream.stderr);
+          return {
+            success: false,
+            error: `Failed to delete directory: ${stderr.trim() || "Unknown error"}`,
+          };
+        }
       }
 
       return { success: true, deletedPath };
@@ -996,37 +1419,39 @@ export class SSHRuntime extends RemoteRuntime {
     }
   }
 
-  async forkWorkspace(params: WorkspaceForkParams): Promise<WorkspaceForkResult> {
-    const { projectPath, sourceWorkspaceName, newWorkspaceName, initLogger } = params;
+  async forkMinion(params: MinionForkParams): Promise<MinionForkResult> {
+    const { projectPath, sourceMinionName, newMinionName, initLogger, abortSignal } = params;
 
-    // Compute workspace paths using canonical method
-    const sourceWorkspacePath = this.getWorkspacePath(projectPath, sourceWorkspaceName);
-    const newWorkspacePath = this.getWorkspacePath(projectPath, newWorkspaceName);
+    // Compute minion paths using canonical method
+    const sourceMinionPath = this.getMinionPath(projectPath, sourceMinionName);
+    const newMinionPath = this.getMinionPath(projectPath, newMinionName);
 
     // For SSH commands, tilde must be expanded using $HOME - plain quoting won't expand it.
-    const sourceWorkspacePathArg = expandTildeForSSH(sourceWorkspacePath);
-    const newWorkspacePathArg = expandTildeForSSH(newWorkspacePath);
+    const sourceMinionPathArg = expandTildeForSSH(sourceMinionPath);
+    const newMinionPathArg = expandTildeForSSH(newMinionPath);
 
     try {
       // Guard: avoid clobbering an existing directory.
       {
-        const exists = await execBuffered(this, `test -e ${newWorkspacePathArg}`, {
+        const exists = await execBuffered(this, `test -e ${newMinionPathArg}`, {
           cwd: "/tmp",
           timeout: 10,
+          abortSignal,
         });
         if (exists.exitCode === 0) {
-          return { success: false, error: `Workspace already exists at ${newWorkspacePath}` };
+          return { success: false, error: `Minion already exists at ${newMinionPath}` };
         }
       }
 
-      // Detect current branch from the source workspace.
-      initLogger.logStep("Detecting source workspace branch...");
+      // Detect current branch from the source minion.
+      initLogger.logStep("Detecting source minion branch...");
       const branchResult = await execBuffered(
         this,
-        `git -C ${sourceWorkspacePathArg} branch --show-current`,
+        `git -C ${sourceMinionPathArg} branch --show-current`,
         {
           cwd: "/tmp",
           timeout: 30,
+          abortSignal,
         }
       );
       const sourceBranch = branchResult.stdout.trim();
@@ -1034,109 +1459,156 @@ export class SSHRuntime extends RemoteRuntime {
       if (branchResult.exitCode !== 0 || sourceBranch.length === 0) {
         return {
           success: false,
-          error: "Failed to detect branch in source workspace",
+          error: "Failed to detect branch in source minion",
         };
       }
 
-      // Ensure parent directory exists.
-      initLogger.logStep("Preparing remote workspace...");
-      const parentDir = path.posix.dirname(newWorkspacePath);
-      const mkdirResult = await execBuffered(this, `mkdir -p ${expandTildeForSSH(parentDir)}`, {
+      // Try fast worktree path first when the shared base repo exists.
+      // Falls back to full directory copy when the base repo is missing OR when
+      // worktree creation fails (e.g. forking a legacy minion whose branch
+      // only exists locally and not in the base repo).
+      //
+      // Note: worktree-based fork creates a clean checkout from sourceBranch's
+      // committed HEAD. Uncommitted working-tree changes from the source are NOT
+      // carried over (inherent git worktree limitation). The cp -R -P fallback
+      // preserves full working-tree state including uncommitted changes.
+      const baseRepoPath = this.getBaseRepoPath(projectPath);
+      const baseRepoPathArg = expandTildeForSSH(baseRepoPath);
+      let usedWorktree = false;
+
+      const hasBaseRepo = await execBuffered(this, `test -d ${baseRepoPathArg}`, {
         cwd: "/tmp",
         timeout: 10,
+        abortSignal,
       });
-      if (mkdirResult.exitCode !== 0) {
-        return {
-          success: false,
-          error: `Failed to prepare remote workspace: ${mkdirResult.stderr || mkdirResult.stdout}`,
-        };
-      }
 
-      // Clone the repo from the source workspace on the remote host.
-      // NOTE: This intentionally does not attempt to copy uncommitted changes.
-      initLogger.logStep("Cloning workspace on remote...");
-      const cloneResult = await execBuffered(
-        this,
-        `git clone --quiet ${sourceWorkspacePathArg} ${newWorkspacePathArg}`,
-        {
+      if (hasBaseRepo.exitCode === 0) {
+        initLogger.logStep("Creating worktree for forked minion...");
+        // Use -b (not -B) so we fail instead of silently resetting an existing
+        // branch that another worktree might reference. initMinion uses -B
+        // because it owns the branch lifecycle; fork is creating a new name.
+        const worktreeCmd = `git -C ${baseRepoPathArg} worktree add ${newMinionPathArg} -b ${shescape.quote(newMinionName)} ${shescape.quote(sourceBranch)}`;
+        const worktreeResult = await execBuffered(this, worktreeCmd, {
           cwd: "/tmp",
-          timeout: 300,
-        }
-      );
-      if (cloneResult.exitCode !== 0) {
-        return {
-          success: false,
-          error: `Failed to clone workspace: ${cloneResult.stderr || cloneResult.stdout}`,
-        };
-      }
+          timeout: 60,
+          abortSignal,
+        });
 
-      // Best-effort: create local tracking branches for all remote branches.
-      // This keeps initWorkspace semantics consistent with syncProjectToRemote().
-      initLogger.logStep("Creating local tracking branches...");
-      try {
-        await execBuffered(
-          this,
-          `cd ${newWorkspacePathArg} && for branch in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v 'origin/HEAD'); do localname=\${branch#origin/}; git show-ref --verify --quiet refs/heads/$localname || git branch $localname $branch; done`,
-          {
-            cwd: "/tmp",
-            timeout: 30,
-          }
-        );
-      } catch {
-        // Ignore - best-effort.
-      }
-
-      // Best-effort: preserve the origin URL from the source workspace, if one exists.
-      try {
-        const originResult = await execBuffered(
-          this,
-          `git -C ${sourceWorkspacePathArg} remote get-url origin 2>/dev/null || true`,
-          {
+        if (worktreeResult.exitCode === 0) {
+          usedWorktree = true;
+        } else {
+          // Source branch likely doesn't exist in the base repo (legacy minion).
+          // Clean up any partial directory left by the failed `worktree add`
+          // before falling through to cp -R -P (which behaves differently if
+          // the target dir already exists — it copies *into* it, creating a
+          // nested mess instead of a clean clone).
+          await execBuffered(this, `rm -rf ${newMinionPathArg}`, {
             cwd: "/tmp",
             timeout: 10,
-          }
-        );
-        const originUrl = originResult.stdout.trim();
-        if (originUrl.length > 0) {
-          await execBuffered(
-            this,
-            `git -C ${newWorkspacePathArg} remote set-url origin ${shescape.quote(originUrl)}`,
-            {
-              cwd: "/tmp",
-              timeout: 10,
-            }
+            // Best-effort cleanup — ignore failures since we're about to fall
+            // through to the cp path which will overwrite the target anyway.
+          }).catch(() => undefined);
+          log.info(
+            `Worktree fork failed (${(worktreeResult.stderr || worktreeResult.stdout).trim()}); falling back to full copy`
           );
-        } else {
-          await execBuffered(
-            this,
-            `git -C ${newWorkspacePathArg} remote remove origin 2>/dev/null || true`,
-            {
-              cwd: "/tmp",
-              timeout: 10,
-            }
-          );
+          initLogger.logStep("Worktree creation failed; falling back to full copy...");
         }
-      } catch {
-        // Ignore - best-effort.
       }
 
-      // Checkout the destination branch, creating it from sourceBranch if needed.
-      initLogger.logStep(`Checking out branch: ${newWorkspaceName}`);
-      const checkoutCmd =
-        `git checkout ${shescape.quote(newWorkspaceName)} 2>/dev/null || ` +
-        `git checkout -b ${shescape.quote(newWorkspaceName)} ${shescape.quote(sourceBranch)}`;
-      const checkoutResult = await execBuffered(this, checkoutCmd, {
-        cwd: newWorkspacePath,
-        timeout: 120,
-      });
-      if (checkoutResult.exitCode !== 0) {
-        return {
-          success: false,
-          error: `Failed to checkout forked branch: ${checkoutResult.stderr || checkoutResult.stdout}`,
-        };
+      if (!usedWorktree) {
+        // Full directory copy — either no base repo or worktree creation failed.
+        initLogger.logStep("Preparing remote minion...");
+        const parentDir = path.posix.dirname(newMinionPath);
+        const mkdirResult = await execBuffered(this, `mkdir -p ${expandTildeForSSH(parentDir)}`, {
+          cwd: "/tmp",
+          timeout: 10,
+          abortSignal,
+        });
+        if (mkdirResult.exitCode !== 0) {
+          return {
+            success: false,
+            error: `Failed to prepare remote minion: ${mkdirResult.stderr || mkdirResult.stdout}`,
+          };
+        }
+
+        // Copy the source minion on the remote host so we preserve working tree state.
+        // Avoid preserving ownership to prevent fork failures when files are owned by another user.
+        initLogger.logStep("Copying minion on remote...");
+        const copyResult = await execBuffered(
+          this,
+          `cp -R -P ${sourceMinionPathArg} ${newMinionPathArg}`,
+          { cwd: "/tmp", timeout: 300, abortSignal }
+        );
+        if (copyResult.exitCode !== 0) {
+          try {
+            await execBuffered(this, `rm -rf ${newMinionPathArg}`, {
+              cwd: "/tmp",
+              timeout: 30,
+            });
+          } catch {
+            // Best-effort cleanup of partially copied minion.
+          }
+          return {
+            success: false,
+            error: `Failed to copy minion: ${copyResult.stderr || copyResult.stdout}`,
+          };
+        }
+
+        // Best-effort: create local tracking branches for all remote branches.
+        initLogger.logStep("Creating local tracking branches...");
+        try {
+          await execBuffered(
+            this,
+            `cd ${newMinionPathArg} && for branch in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ | grep -v 'origin/HEAD'); do localname=\${branch#origin/}; git show-ref --verify --quiet refs/heads/$localname || git branch $localname $branch; done`,
+            { cwd: "/tmp", timeout: 30 }
+          );
+        } catch {
+          // Ignore - best-effort.
+        }
+
+        // Best-effort: preserve the origin URL from the source minion, if one exists.
+        try {
+          const originResult = await execBuffered(
+            this,
+            `git -C ${sourceMinionPathArg} remote get-url origin 2>/dev/null || true`,
+            { cwd: "/tmp", timeout: 10 }
+          );
+          const originUrl = originResult.stdout.trim();
+          if (originUrl.length > 0) {
+            await execBuffered(
+              this,
+              `git -C ${newMinionPathArg} remote set-url origin ${shescape.quote(originUrl)}`,
+              { cwd: "/tmp", timeout: 10 }
+            );
+          } else {
+            await execBuffered(
+              this,
+              `git -C ${newMinionPathArg} remote remove origin 2>/dev/null || true`,
+              { cwd: "/tmp", timeout: 10 }
+            );
+          }
+        } catch {
+          // Ignore - best-effort.
+        }
+
+        // Checkout the destination branch, creating it from sourceBranch if needed.
+        initLogger.logStep(`Checking out branch: ${newMinionName}`);
+        const checkoutCmd =
+          `git checkout ${shescape.quote(newMinionName)} 2>/dev/null || ` +
+          `git checkout -b ${shescape.quote(newMinionName)} ${shescape.quote(sourceBranch)}`;
+        const checkoutResult = await execBuffered(this, checkoutCmd, {
+          cwd: newMinionPath,
+          timeout: 120,
+        });
+        if (checkoutResult.exitCode !== 0) {
+          return {
+            success: false,
+            error: `Failed to checkout forked branch: ${checkoutResult.stderr || checkoutResult.stdout}`,
+          };
+        }
       }
 
-      return { success: true, workspacePath: newWorkspacePath, sourceBranch };
+      return { success: true, minionPath: newMinionPath, sourceBranch };
     } catch (error) {
       return { success: false, error: getErrorMessage(error) };
     }

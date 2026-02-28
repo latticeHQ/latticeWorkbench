@@ -52,14 +52,14 @@ function getTestInitStateManager(): InitStateManager {
  */
 export function createTestToolConfig(
   tempDir: string,
-  options?: { workspaceId?: string; sessionsDir?: string }
+  options?: { minionId?: string; sessionsDir?: string }
 ): ToolConfiguration {
   return {
     cwd: tempDir,
-    workspaceSessionDir: options?.sessionsDir ?? tempDir,
+    minionSessionDir: options?.sessionsDir ?? tempDir,
     runtime: new LocalRuntime(tempDir),
     runtimeTempDir: tempDir,
-    workspaceId: options?.workspaceId ?? "test-workspace",
+    minionId: options?.minionId ?? "test-minion",
   };
 }
 
@@ -69,7 +69,7 @@ export function createTestToolConfig(
  */
 export function getTestDeps() {
   return {
-    workspaceId: "test-workspace" as const,
+    minionId: "test-minion" as const,
     initStateManager: getTestInitStateManager(),
   };
 }

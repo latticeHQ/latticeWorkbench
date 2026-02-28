@@ -18,13 +18,9 @@ export interface SpawnOptions {
 }
 
 export interface PtySessionParams {
-  workspacePath: string;
+  minionPath: string;
   cols: number;
   rows: number;
-  /** Command to execute directly (bypassing shell) when directExec is true */
-  initialCommand?: string;
-  /** When true, run initialCommand directly instead of starting an interactive shell */
-  directExec?: boolean;
 }
 
 export interface SSHTransport {
@@ -44,6 +40,7 @@ export interface SSHTransport {
   acquireConnection(options?: {
     abortSignal?: AbortSignal;
     timeoutMs?: number;
+    maxWaitMs?: number;
     onWait?: (waitMs: number) => void;
   }): Promise<void>;
 

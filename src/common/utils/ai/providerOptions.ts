@@ -1,7 +1,8 @@
 /**
- * Provider options builder for AI SDK
+ * Provider-specific request configuration for AI SDK
  *
- * Converts unified thinking levels to provider-specific options
+ * Builds both `providerOptions` (thinking, reasoning) and per-request HTTP
+ * `headers` (e.g. Anthropic 1M context beta) for streamText().
  */
 
 import type { AnthropicProviderOptions } from "@ai-sdk/anthropic";
@@ -11,7 +12,7 @@ import type { XaiProviderOptions } from "@ai-sdk/xai";
 import type { LatticeProviderOptions } from "@/common/types/providerOptions";
 import type { ThinkingLevel } from "@/common/types/thinking";
 import {
-  ANTHROPIC_EFFORT,
+  getAnthropicEffort,
   ANTHROPIC_THINKING_BUDGETS,
   GEMINI_THINKING_BUDGETS,
   OPENAI_REASONING_EFFORT,
@@ -19,8 +20,7 @@ import {
 } from "@/common/types/thinking";
 import { log } from "@/node/services/log";
 import type { LatticeMessage } from "@/common/types/message";
-import { enforceThinkingPolicy } from "@/common/utils/thinking/policy";
-import { normalizeGatewayModel } from "./models";
+import { supports1MContext } from "./models";
 
 /**
  * OpenRouter reasoning options
@@ -45,6 +45,16 @@ type ProviderOptions =
   | { xai: XaiProviderOptions }
   | Record<string, never>; // Empty object for unsupported providers
 
+const OPENAI_REASONING_SUMMARY_UNSUPPORTED_MODELS = new Set<string>([
+  // gpt-5.3-codex-spark rejects reasoning.summary with:
+  // "Unsupported parameter: 'reasoning.summary' ...".
+  "gpt-5.3-codex-spark",
+]);
+
+function supportsOpenAIReasoningSummary(modelName: string): boolean {
+  return !OPENAI_REASONING_SUMMARY_UNSUPPORTED_MODELS.has(modelName);
+}
+
 /**
  * Build provider-specific options for AI SDK based on thinking level
  *
@@ -55,11 +65,11 @@ type ProviderOptions =
  * 4. Extract previousResponseId for OpenAI persistence (when available)
  *
  * @param modelString - Full model string (e.g., "anthropic:claude-opus-4-1")
- * @param thinkingLevel - Unified thinking level
+ * @param thinkingLevel - Unified thinking level (must be pre-clamped via enforceThinkingPolicy)
  * @param messages - Conversation history to extract previousResponseId from
  * @param lostResponseIds - Optional callback to check if a responseId has been invalidated by OpenAI
  * @param latticeProviderOptions - Optional provider overrides from config
- * @param workspaceId - Optional for non-OpenAI providers
+ * @param minionId - Optional for non-OpenAI providers
  * @param openaiTruncationMode - Optional truncation mode for OpenAI responses (auto/disabled)
  * @returns Provider options object for AI SDK
  */
@@ -69,13 +79,14 @@ export function buildProviderOptions(
   messages?: LatticeMessage[],
   lostResponseIds?: (id: string) => boolean,
   latticeProviderOptions?: LatticeProviderOptions,
-  workspaceId?: string, // Optional for non-OpenAI providers
+  minionId?: string, // Optional for non-OpenAI providers
   openaiTruncationMode?: OpenAIResponsesProviderOptions["truncation"]
 ): ProviderOptions {
-  // Always clamp to the model's supported thinking policy (e.g., gpt-5-pro = HIGH only)
-  const effectiveThinking = enforceThinkingPolicy(modelString, thinkingLevel);
-  // Parse provider from normalized model string
-  const [provider, modelName] = normalizeGatewayModel(modelString).split(":", 2);
+  // Caller is responsible for enforcing thinking policy before calling this function.
+  // agentSession.ts is the canonical enforcement point.
+  const effectiveThinking = thinkingLevel;
+  // Parse provider from model string
+  const [provider, modelName] = modelString.split(":", 2);
 
   log.debug("buildProviderOptions", {
     modelString,
@@ -91,44 +102,46 @@ export function buildProviderOptions(
 
   // Build Anthropic-specific options
   if (provider === "anthropic") {
-    // Check if this is Opus 4.5 (supports effort parameter)
-    // Opus 4.5 uses the new "effort" parameter for reasoning control
-    // All other Anthropic models use the "thinking" parameter with budgetTokens
-    const isOpus45 = modelName?.includes("opus-4-5") ?? false;
+    const cacheTtl = latticeProviderOptions?.anthropic?.cacheTtl;
+    const cacheControl = cacheTtl ? { type: "ephemeral" as const, ttl: cacheTtl } : undefined;
 
-    if (isOpus45) {
-      // Opus 4.5: Use effort parameter AND optionally thinking for visible reasoning
-      // - "off" or "low" → effort: "low", no thinking (fast, no visible reasoning for off)
-      // - "low" → effort: "low", thinking enabled (visible reasoning)
-      // - "medium" → effort: "medium", thinking enabled
-      // - "high" → effort: "high", thinking enabled
-      const effortLevel = ANTHROPIC_EFFORT[effectiveThinking];
+    // Opus 4.5+ and Sonnet 4.6 use the effort parameter for reasoning control.
+    // Opus 4.6 / Sonnet 4.6 use adaptive thinking (model decides when/how much to think).
+    // Opus 4.5 uses enabled thinking with a budgetTokens ceiling.
+    const isOpus45 = modelName?.includes("opus-4-5") ?? false;
+    const isOpus46 = modelName?.includes("opus-4-6") ?? false;
+    const isSonnet46 = modelName?.includes("sonnet-4-6") ?? false;
+    const usesAdaptiveThinking = isOpus46 || isSonnet46;
+
+    if (isOpus45 || usesAdaptiveThinking) {
+      // xhigh maps to "max" effort; policy clamps Opus 4.5 to "high" max
+      const effortLevel = getAnthropicEffort(effectiveThinking);
       const budgetTokens = ANTHROPIC_THINKING_BUDGETS[effectiveThinking];
-      log.debug("buildProviderOptions: Anthropic Opus 4.5 config", {
+      // Opus 4.6 / Sonnet 4.6: adaptive thinking when on, disabled when off
+      // Opus 4.5: enabled thinking with budgetTokens ceiling (only when not "off")
+      const thinking: AnthropicProviderOptions["thinking"] = usesAdaptiveThinking
+        ? effectiveThinking === "off"
+          ? { type: "disabled" }
+          : { type: "adaptive" }
+        : budgetTokens > 0
+          ? { type: "enabled", budgetTokens }
+          : undefined;
+
+      log.debug("buildProviderOptions: Anthropic effort model config", {
         effort: effortLevel,
-        budgetTokens,
+        thinking,
         thinkingLevel: effectiveThinking,
       });
 
-      const options: ProviderOptions = {
+      return {
         anthropic: {
-          disableParallelToolUse: false, // Always enable concurrent tool execution
-          sendReasoning: true, // Include reasoning traces in requests sent to the model
-          // Enable thinking to get visible reasoning traces (only when not "off")
-          // budgetTokens sets the ceiling; effort controls how eagerly tokens are spent
-          ...(budgetTokens > 0 && {
-            thinking: {
-              type: "enabled",
-              budgetTokens,
-            },
-          }),
-          // Use effort parameter (Opus 4.5 only) to control token spend
-          // SDK auto-adds beta header "effort-2025-11-24" when effort is set
+          disableParallelToolUse: false,
+          sendReasoning: true,
+          ...(thinking && { thinking }),
+          ...(cacheControl && { cacheControl }),
           effort: effortLevel,
         },
       };
-      log.debug("buildProviderOptions: Returning Anthropic Opus 4.5 options", options);
-      return options;
     }
 
     // Other Anthropic models: Use thinking parameter with budgetTokens
@@ -142,6 +155,7 @@ export function buildProviderOptions(
       anthropic: {
         disableParallelToolUse: false, // Always enable concurrent tool execution
         sendReasoning: true, // Include reasoning traces in requests sent to the model
+        ...(cacheControl && { cacheControl }),
         // Conditionally add thinking configuration (non-Opus 4.5 models)
         ...(budgetTokens > 0 && {
           thinking: {
@@ -167,8 +181,8 @@ export function buildProviderOptions(
     // 4. The response ID hasn't been invalidated by OpenAI
     let previousResponseId: string | undefined;
     if (messages && messages.length > 0 && reasoningEffort) {
-      // Parse current model name (without provider prefix), normalize gateway format if needed
-      const currentModelName = normalizeGatewayModel(modelString).split(":")[1];
+      // Parse current model name (without provider prefix)
+      const currentModelName = modelString.split(":")[1];
 
       // Find last assistant message from the same model
       for (let i = messages.length - 1; i >= 0; i--) {
@@ -176,7 +190,7 @@ export function buildProviderOptions(
         if (msg.role === "assistant") {
           // Check if this message is from the same model
           const msgModel = msg.metadata?.model;
-          const msgModelName = msgModel ? normalizeGatewayModel(msgModel).split(":")[1] : undefined;
+          const msgModelName = msgModel ? msgModel.split(":")[1] : undefined;
 
           if (msgModelName === currentModelName) {
             const metadata = msg.metadata?.providerMetadata;
@@ -212,16 +226,18 @@ export function buildProviderOptions(
       }
     }
 
-    // Prompt cache key: derive from workspaceId
+    // Prompt cache key: derive from minionId
     // This helps OpenAI route requests to cached prefixes for improved hit rates
-    // workspaceId is always passed from AIService.streamMessage for real requests
-    const promptCacheKey = workspaceId ? `lattice-v1-${workspaceId}` : undefined;
+    // minionId is always passed from AIService.streamMessage for real requests
+    const promptCacheKey = minionId ? `lattice-v1-${minionId}` : undefined;
 
     const serviceTier = latticeProviderOptions?.openai?.serviceTier ?? "auto";
     const truncationMode = openaiTruncationMode ?? "disabled";
+    const shouldSendReasoningSummary = supportsOpenAIReasoningSummary(modelName);
 
     log.debug("buildProviderOptions: OpenAI config", {
       reasoningEffort,
+      shouldSendReasoningSummary,
       thinkingLevel: effectiveThinking,
       previousResponseId,
       promptCacheKey,
@@ -240,7 +256,9 @@ export function buildProviderOptions(
         // Conditionally add reasoning configuration
         ...(reasoningEffort && {
           reasoningEffort,
-          reasoningSummary: "detailed", // Enable detailed reasoning summaries
+          ...(shouldSendReasoningSummary && {
+            reasoningSummary: "detailed", // Enable detailed reasoning summaries when the model supports it
+          }),
           // Include reasoning encrypted content to preserve reasoning context across conversation steps
           // Required when using reasoning models (gpt-5, o3, o4-mini) with tool calls
           // See: https://sdk.vercel.ai/providers/ai-sdk-providers/openai#responses-models
@@ -266,18 +284,13 @@ export function buildProviderOptions(
       };
 
       if (isGemini3) {
-        const isFlash = modelString.includes("gemini-3-flash");
-        if (isFlash) {
-          // Flash supports: minimal (maps to off), low, medium, high
-          // When off, we don't set thinkingConfig at all (API defaults to minimal)
-          thinkingConfig.thinkingLevel = effectiveThinking === "xhigh" ? "high" : effectiveThinking;
-        } else {
-          // Pro only supports: low, high - map medium/xhigh to high
-          thinkingConfig.thinkingLevel =
-            effectiveThinking === "medium" || effectiveThinking === "xhigh"
-              ? "high"
-              : effectiveThinking;
-        }
+        // Policy enforcement already clamped to valid levels for Flash/Pro,
+        // so effectiveThinking is guaranteed in the model's allowed set.
+        // Flash: off/low/medium/high; Pro: low/high. "xhigh" can't reach here.
+        thinkingConfig.thinkingLevel = effectiveThinking as Exclude<
+          ThinkingLevel,
+          "off" | "xhigh" | "max"
+        >;
       } else {
         // Gemini 2.5 uses thinkingBudget
         const budget = GEMINI_THINKING_BUDGETS[effectiveThinking];
@@ -348,4 +361,35 @@ export function buildProviderOptions(
   // No provider-specific options for unsupported providers
   log.debug("buildProviderOptions: Unsupported provider", provider);
   return {};
+}
+
+// ---------------------------------------------------------------------------
+// Per-request HTTP headers
+// ---------------------------------------------------------------------------
+
+/** Header value for Anthropic 1M context beta */
+export const ANTHROPIC_1M_CONTEXT_HEADER = "context-1m-2025-08-07";
+
+/**
+ * Build per-request HTTP headers for provider-specific features.
+ *
+ * These flow through streamText({ headers }) to the provider SDK, which merges
+ * them with provider-creation-time headers via combineHeaders(). This is the
+ * single injection site for features like the Anthropic 1M context beta header.
+ */
+export function buildRequestHeaders(
+  modelString: string,
+  latticeProviderOptions?: LatticeProviderOptions
+): Record<string, string> | undefined {
+  const [provider] = modelString.split(":", 2);
+
+  if (provider !== "anthropic") return undefined;
+
+  const is1MEnabled =
+    ((latticeProviderOptions?.anthropic?.use1MContextModels?.includes(modelString) ?? false) ||
+      latticeProviderOptions?.anthropic?.use1MContext === true) &&
+    supports1MContext(modelString);
+
+  if (!is1MEnabled) return undefined;
+  return { "anthropic-beta": ANTHROPIC_1M_CONTEXT_HEADER };
 }

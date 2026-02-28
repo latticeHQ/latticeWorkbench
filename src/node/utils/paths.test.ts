@@ -41,7 +41,7 @@ describe("PlatformPaths", () => {
 
   describe("abbreviate", () => {
     test("abbreviates path", () => {
-      const testPath = path.join("/", "home", "user", "Headquarters", "lattice", "lattice");
+      const testPath = path.join("/", "home", "user", "Projects", "lattice", "lattice");
       const result = PlatformPaths.abbreviate(testPath);
 
       // Should end with the full basename
@@ -119,9 +119,7 @@ describe("PlatformPaths", () => {
       try {
         const sep = path.sep;
         const latticePath = `~${sep}.lattice${sep}src${sep}project`;
-        expect(PlatformPaths.expandHome(latticePath)).toBe(
-          path.join(testLatticeRoot, "src", "project")
-        );
+        expect(PlatformPaths.expandHome(latticePath)).toBe(path.join(testLatticeRoot, "src", "project"));
 
         // Other ~ paths should still resolve to the actual OS home directory.
         const home = os.homedir();
@@ -220,7 +218,7 @@ describe("toPosixPath", () => {
       // On Windows with Git Bash/MSYS2, cygpath converts:
       //   "C:\\Users\\test" → "/c/Users/test"
       //   "C:\\Program Files\\Git" → "/c/Program Files/Git"
-      //   "D:\\Headquarters\\lattice" → "/d/Headquarters/lattice"
+      //   "D:\\Projects\\lattice" → "/d/Projects/lattice"
       //
       // On non-Windows, this is a no-op (returns input unchanged)
       if (process.platform === "win32") {

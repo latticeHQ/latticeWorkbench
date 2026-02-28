@@ -8,7 +8,6 @@ import {
   type TerminalFontConfig,
 } from "@/common/constants/storage";
 import { useTerminalRouter } from "@/browser/terminal/TerminalRouterContext";
-import { createScrollbackClient } from "@/browser/terminal/terminalScrollback";
 import {
   appendTerminalIconFallback,
   formatCssFontFamilyList,
@@ -19,7 +18,6 @@ import {
   TERMINAL_ICON_FALLBACK_FAMILY,
 } from "@/browser/terminal/terminalFontFamily";
 import { TERMINAL_CONTAINER_ATTR } from "@/browser/utils/ui/keybinds";
-import { WrappedUrlLinkProvider } from "@/browser/terminal/WrappedUrlLinkProvider";
 
 function normalizeTerminalFontConfig(value: unknown): TerminalFontConfig {
   if (!value || typeof value !== "object") {
@@ -127,15 +125,15 @@ async function preloadTerminalWebfonts(
 }
 
 interface TerminalViewProps {
-  workspaceId: string;
+  minionId: string;
   /** Session ID to connect to (required - must be created before mounting) */
   sessionId: string;
   visible: boolean;
   /**
-   * Whether to set document.title based on workspace name.
+   * Whether to set document.title based on minion name.
    *
    * Default: true (used by the dedicated terminal window).
-   * Set to false when embedding inside the app (e.g. RightSidebar).
+   * Set to false when embedding inside the app (e.g. WorkbenchPanel).
    */
   setDocumentTitle?: boolean;
   /** Called when the terminal title changes (via OSC escape sequences from running processes) */
@@ -146,33 +144,28 @@ interface TerminalViewProps {
    * Whether to auto-focus the terminal on mount/visibility change.
    *
    * Default: true (used by dedicated terminal window).
-   * Set to false when embedding (e.g. RightSidebar) to avoid stealing focus on workspace switch.
+   * Set to false when embedding (e.g. WorkbenchPanel) to avoid stealing focus on minion switch.
    */
   autoFocus?: boolean;
-  /**
-   * Whether to persist terminal output to localStorage so scrollback history
-   * survives page reloads. On reconnect, the stored buffer is written to the
-   * terminal before subscribing, filling the scrollback with prior history.
-   *
-   * Default: false. Enable for employee agent terminals in MainArea.
-   */
-  persistScrollback?: boolean;
+  /** Called when the terminal process exits. */
+  onExit?: (exitCode: number) => void;
 }
 
 export function TerminalView({
-  workspaceId,
+  minionId,
   sessionId,
   visible,
   setDocumentTitle = true,
   onTitleChange,
   onAutoFocusConsumed,
   autoFocus = true,
-  persistScrollback = false,
+  onExit,
 }: TerminalViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const autoFocusRef = useRef(autoFocus);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const exitHandledRef = useRef(false);
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [terminalReady, setTerminalReady] = useState(false);
   // Track whether we've received the initial screen state from backend
@@ -186,25 +179,30 @@ export function TerminalView({
   const terminalFontConfig = normalizeTerminalFontConfig(rawTerminalFontConfig);
   const { api } = useAPI();
   const router = useTerminalRouter();
+  const routerRef = useRef(router);
+  const sessionIdRef = useRef(sessionId);
+  // Keep refs in sync so input/resize handlers always use the latest router/session.
+  routerRef.current = router;
+  sessionIdRef.current = sessionId;
 
   // Set window title (dedicated terminal window only)
   useEffect(() => {
     if (!api || !setDocumentTitle) return;
     const setWindowDetails = async () => {
       try {
-        const workspaces = await api.workspace.list();
-        const workspace = workspaces.find((ws) => ws.id === workspaceId);
-        if (workspace) {
-          document.title = `Terminal — ${workspace.projectName}/${workspace.name}`;
+        const minions = await api.minion.list();
+        const minion = minions.find((ws) => ws.id === minionId);
+        if (minion) {
+          document.title = `Terminal — ${minion.projectName}/${minion.name}`;
         } else {
-          document.title = `Terminal — ${workspaceId}`;
+          document.title = `Terminal — ${minionId}`;
         }
       } catch {
-        document.title = `Terminal — ${workspaceId}`;
+        document.title = `Terminal — ${minionId}`;
       }
     };
     void setWindowDetails();
-  }, [api, workspaceId, setDocumentTitle]);
+  }, [api, minionId, setDocumentTitle]);
 
   const autoFocusConsumedRef = useRef(false);
 
@@ -215,6 +213,27 @@ export function TerminalView({
     autoFocusConsumedRef.current = true;
     onAutoFocusConsumed?.();
   }, [onAutoFocusConsumed]);
+
+  const handleExit = useCallback(
+    (code: number) => {
+      if (exitHandledRef.current) {
+        return;
+      }
+      exitHandledRef.current = true;
+
+      const term = termRef.current;
+      if (term) {
+        try {
+          term.write(`\r\n[Process exited with code ${code}]\r\n`);
+        } catch (err) {
+          console.warn("[TerminalView] Error writing exit message:", err);
+        }
+      }
+
+      onExit?.(code);
+    },
+    [onExit]
+  );
 
   useEffect(() => {
     autoFocusRef.current = autoFocus;
@@ -275,117 +294,88 @@ export function TerminalView({
     setIsLoading(true);
   }, [sessionId]);
 
-  // Subscribe to router when terminal is ready and visible.
-  // When persistScrollback is enabled, first loads the stored buffer from disk
-  // (via ORPC) and writes it into the terminal to fill the scrollback, then
-  // subscribes to the live stream. New output is buffered in the ScrollbackClient
-  // with a 2-second debounce before flushing to disk.
+  // Listen for exit events even when the terminal is hidden.
   useEffect(() => {
-    if (!visible || !terminalReady || !termRef.current || !api) {
+    exitHandledRef.current = false;
+    if (!api) {
       return;
     }
 
-    // Capture refs for this subscription's lifetime
-    const term = termRef.current;
-    let cancelled = false;
-    let unsubscribe: (() => void) | null = null;
-
-    // Build the scrollback client (in-memory delta + debounced ORPC flush)
-    const sb = persistScrollback ? createScrollbackClient(api, sessionId) : null;
-
-    const setupSubscription = async () => {
-      // 1. Load stored history from disk (one async round-trip before subscribing)
-      if (sb) {
-        const stored = await sb.load();
-        if (cancelled) return;
-
-        if (stored) {
-          // Write stored history to fill the scrollback buffer, then immediately
-          // clear the visible viewport with a standard VT100 erase-display sequence.
-          // This preserves the scrollback (user can scroll up to see history) while
-          // leaving the visible screen blank for the backend's screenState to paint
-          // fresh — without it, the last N lines appear twice (once from scrollback
-          // replay, once from screenState redrawing the same content).
-          try {
-            term.write(stored);
-            // \x1b[2J = Erase display (viewport only, scrollback untouched)
-            // \x1b[H  = Cursor to home (top-left)
-            term.write("\x1b[2J\x1b[H");
-          } catch (err) {
-            console.warn("[TerminalView] Error writing stored scrollback:", err);
+    const controller = new AbortController();
+    const listen = async () => {
+      try {
+        const iterator = await api.terminal.onExit({ sessionId }, { signal: controller.signal });
+        for await (const code of iterator) {
+          if (!controller.signal.aborted) {
+            handleExit(code);
           }
-        } else {
-          // No history — clear stale content from previous session
-          try {
-            term.clear();
-          } catch (err) {
-            console.warn("[TerminalView] Error clearing terminal:", err);
-          }
+          break;
         }
-      } else {
-        // No persistence — clear stale content
-        try {
-          term.clear();
-        } catch (err) {
-          console.warn("[TerminalView] Error clearing terminal:", err);
+      } catch {
+        if (!controller.signal.aborted) {
+          // Treat failed subscriptions as exits (session ended before listener attached).
+          handleExit(0);
         }
       }
-
-      if (cancelled) return;
-
-      // 2. Subscribe to live stream
-      unsubscribe = router.subscribe(sessionId, {
-        onOutput: (data) => {
-          try {
-            term.write(data);
-          } catch (err) {
-            // WASM can throw "memory access out of bounds" intermittently
-            console.warn("[TerminalView] Error writing output:", err);
-          }
-          sb?.onOutput(data);
-        },
-        onScreenState: (state) => {
-          if (state) {
-            try {
-              term.write(state);
-            } catch (err) {
-              console.warn("[TerminalView] Error writing screenState:", err);
-            }
-          }
-          // Mark loading complete — we now have valid content to show
-          setIsLoading(false);
-        },
-        onExit: (code) => {
-          try {
-            term.write(`\r\n[Process exited with code ${code}]\r\n`);
-          } catch (err) {
-            console.warn("[TerminalView] Error writing exit message:", err);
-          }
-          // Flush remaining delta then wipe the file
-          if (sb) void sb.onExit();
-        },
-      });
-
-      if (cancelled) {
-        unsubscribe();
-        unsubscribe = null;
-        return;
-      }
-
-      // 3. Sync PTY dimensions
-      const { cols, rows } = term;
-      void router.resize(sessionId, cols, rows);
     };
 
-    void setupSubscription();
+    listen().catch((err) => {
+      console.warn("[TerminalView] Exit listener failed:", err);
+    });
 
     return () => {
-      cancelled = true;
-      unsubscribe?.();
-      // Flush any buffered delta so it survives this unmount
-      sb?.dispose();
+      controller.abort();
     };
-  }, [visible, terminalReady, sessionId, router, persistScrollback, api]);
+  }, [api, sessionId, handleExit]);
+
+  // Subscribe to router when terminal is ready and visible
+  useEffect(() => {
+    // Router may be null during API reconnection - skip subscription until it's back
+    if (!visible || !terminalReady || !termRef.current || !router) {
+      return;
+    }
+
+    // Capture current terminal ref for this subscription's lifetime
+    const term = termRef.current;
+
+    // Clear terminal before subscribing to prevent any stale content flash
+    try {
+      term.clear();
+    } catch (err) {
+      console.warn("[TerminalView] Error clearing terminal:", err);
+    }
+
+    const unsubscribe = router.subscribe(sessionId, {
+      onOutput: (data) => {
+        try {
+          term.write(data);
+        } catch (err) {
+          // xterm WASM can throw "memory access out of bounds" intermittently
+          console.warn("[TerminalView] Error writing output:", err);
+        }
+      },
+      onScreenState: (state) => {
+        // Write screen state (may be empty for new sessions)
+        if (state) {
+          try {
+            term.write(state);
+          } catch (err) {
+            // xterm WASM can throw "memory access out of bounds" intermittently
+            console.warn("[TerminalView] Error writing screenState:", err);
+          }
+        }
+        // Mark loading complete - we now have valid content to show
+        setIsLoading(false);
+      },
+      onExit: handleExit,
+    });
+
+    // Send initial resize to sync PTY dimensions
+    const { cols, rows } = term;
+    void router.resize(sessionId, cols, rows);
+
+    return unsubscribe;
+  }, [visible, terminalReady, sessionId, router, handleExit]);
 
   // Keep ref to onTitleChange for use in terminal callback
   const onTitleChangeRef = useRef(onTitleChange);
@@ -397,7 +387,7 @@ export function TerminalView({
   const disposeOnTitleChangeRef = useRef<{ dispose: () => void } | null>(null);
   const initInProgressRef = useRef(false);
 
-  // Clean up the terminal instance when workspace changes (or component unmounts).
+  // Clean up the terminal instance when minion changes (or component unmounts).
   useEffect(() => {
     const containerEl = containerRef.current;
 
@@ -417,7 +407,7 @@ export function TerminalView({
       initInProgressRef.current = false;
       setTerminalReady(false);
     };
-  }, [workspaceId]);
+  }, [minionId]);
 
   // Initialize terminal when it first becomes visible.
   // We intentionally keep the terminal instance alive when hidden so we don't lose
@@ -461,7 +451,7 @@ export function TerminalView({
 
         // Resolve CSS variables for xterm.js (canvas rendering doesn't support CSS vars)
         const styles = getComputedStyle(document.documentElement);
-        const terminalBg = styles.getPropertyValue("--color-terminal-bg").trim() || "#1e1e1e";
+        const terminalBg = styles.getPropertyValue("--color-terminal-bg").trim() || "#0D0D0D";
 
         const resolvedFontFamily = resolveTerminalFontFamily(
           terminalFontConfig.fontFamily,
@@ -491,36 +481,6 @@ export function TerminalView({
 
         terminal.open(containerEl);
         fitAddon.fit();
-
-        // Replace the built-in UrlRegexProvider with our own that correctly
-        // handles URLs spanning multiple wrapped lines. The built-in only
-        // detects single-line URLs, so long OAuth URLs get truncated on click.
-        // Our UrlLinkProvider joins wrapped line groups before running the
-        // regex, detecting the full URL across all lines.
-        //
-        // Strategy: register our provider, then remove the built-in
-        // UrlRegexProvider from the LinkDetector so there's no conflict.
-        terminal.registerLinkProvider(
-          new WrappedUrlLinkProvider(terminal) as Parameters<typeof terminal.registerLinkProvider>[0]
-        );
-
-        // Remove the built-in UrlRegexProvider from the LinkDetector.
-        // Our provider handles both single-line and multi-line URLs, so the
-        // built-in is redundant and would conflict (its single-line match
-        // shadows our full multi-line match in the LinkDetector cache).
-        //
-        // ghostty-web registers providers in open() in this order:
-        //   [0] OSC8LinkProvider  — hyperlink escape sequences (keep)
-        //   [1] UrlRegexProvider  — single-line URL regex (REMOVE)
-        // Then registerLinkProvider appends ours:
-        //   [2] UrlLinkProvider   — our single+multi-line URL handler (keep)
-        //
-        // We splice out index 1 directly rather than using instanceof
-        // because the class reference may differ across bundle boundaries.
-        const linkDet = (terminal as unknown as { linkDetector?: { providers?: unknown[] } }).linkDetector;
-        if (linkDet?.providers && linkDet.providers.length >= 3) {
-          linkDet.providers.splice(1, 1);
-        }
 
         // Platform-aware clipboard shortcuts matching VS Code's integrated terminal:
         // https://code.visualstudio.com/docs/terminal/basics#_copy-paste
@@ -601,8 +561,13 @@ export function TerminalView({
         }
 
         // User input → router
+        // Drop input when the router has been disposed during reconnects.
         disposeOnData = terminal.onData((data: string) => {
-          router.sendInput(sessionId, data);
+          const activeRouter = routerRef.current;
+          if (!activeRouter) {
+            return;
+          }
+          activeRouter.sendInput(sessionIdRef.current, data);
         });
 
         // Terminal title changes (from OSC escape sequences like "echo -ne '\033]0;Title\007'")
@@ -648,7 +613,7 @@ export function TerminalView({
     };
   }, [
     visible,
-    workspaceId,
+    minionId,
     router,
     sessionId,
     terminalFontConfig.fontFamily,
@@ -700,14 +665,15 @@ export function TerminalView({
       }
 
       const proposed = fitAddon.proposeDimensions();
-      if (!proposed) {
+      const activeRouter = routerRef.current;
+      if (!proposed || !activeRouter || activeRouter !== router) {
         return;
       }
 
       try {
-        await router.resize(sessionId, proposed.cols, proposed.rows);
+        await activeRouter.resize(sessionId, proposed.cols, proposed.rows);
 
-        if (cancelled || term !== termRef.current) {
+        if (cancelled || term !== termRef.current || routerRef.current !== activeRouter) {
           return;
         }
 
@@ -789,7 +755,9 @@ export function TerminalView({
     // before the PTY (shell output is formatted for old dimensions but displayed in the
     // already-resized frontend terminal).
     const doResize = async () => {
-      if (!fitAddonRef.current) return;
+      const activeRouter = routerRef.current;
+      // Router may be null during API reconnection - skip resize
+      if (!fitAddonRef.current || !activeRouter || activeRouter !== router) return;
 
       // Calculate what size we want without applying it yet.
       // (fit() would resize the frontend immediately, reintroducing the race.)
@@ -806,9 +774,9 @@ export function TerminalView({
 
       try {
         // Resize PTY first - wait for backend to confirm.
-        await router.resize(sessionId, cols, rows);
+        await activeRouter.resize(sessionId, cols, rows);
 
-        if (disposed) {
+        if (disposed || routerRef.current !== activeRouter) {
           return;
         }
 

@@ -21,10 +21,10 @@ import { getLatticeHome } from "@/common/constants/paths";
 import { VERSION } from "@/version";
 import type { TelemetryEventPayload, BaseTelemetryProperties } from "@/common/telemetry/payload";
 
-// Telemetry disabled — no data is sent to any external service.
-// To re-enable, set your own PostHog key and host below.
-const DEFAULT_POSTHOG_KEY = "";
-const DEFAULT_POSTHOG_HOST = "";
+// PostHog configuration — supply your own project key and host.
+// Set via environment or replace these placeholders before shipping.
+const DEFAULT_POSTHOG_KEY = process.env.LATTICE_POSTHOG_KEY ?? "";
+const DEFAULT_POSTHOG_HOST = process.env.LATTICE_POSTHOG_HOST ?? "";
 
 // File to persist anonymous distinct ID across sessions
 const TELEMETRY_ID_FILE = "telemetry_id";
@@ -90,9 +90,14 @@ export interface TelemetryEnablementContext {
   isPackaged: boolean | null;
 }
 
-export function shouldEnableTelemetry(_context: TelemetryEnablementContext): boolean {
-  // Telemetry is permanently disabled in this build.
-  return false;
+export function shouldEnableTelemetry(context: TelemetryEnablementContext): boolean {
+  // Telemetry is disabled by explicit env vars, CI, or test environments
+  if (isTelemetryDisabledByEnv(context.env)) {
+    return false;
+  }
+
+  // Otherwise, telemetry is enabled (including dev mode)
+  return true;
 }
 
 async function getElectronIsPackaged(isElectron: boolean): Promise<boolean | null> {
@@ -130,6 +135,12 @@ export class TelemetryService {
   private featureFlagVariants: Record<string, string | boolean> = {};
   private readonly latticeHome: string;
 
+  /**
+   * When true, telemetry has been disabled via the Settings toggle (config.json).
+   * This is separate from the env-level disable (LATTICE_DISABLE_TELEMETRY=1).
+   */
+  _configDisabled = false;
+
   getPostHogClient(): PostHog | null {
     return this.client;
   }
@@ -147,13 +158,13 @@ export class TelemetryService {
   }
 
   /**
-   * Check if telemetry was explicitly disabled by the user via LATTICE_DISABLE_TELEMETRY=1.
-   * This is different from isEnabled() which also returns false in dev mode.
+   * Check if telemetry was explicitly disabled by the user via LATTICE_DISABLE_TELEMETRY=1
+   * or the Settings toggle.
    * Used to gate features like link sharing that should only be hidden when
    * the user explicitly opts out of lattice services.
    */
   isExplicitlyDisabled(): boolean {
-    return process.env.LATTICE_DISABLE_TELEMETRY === "1";
+    return process.env.LATTICE_DISABLE_TELEMETRY === "1" || this._configDisabled;
   }
 
   /**
@@ -203,10 +214,21 @@ export class TelemetryService {
       return;
     }
 
+    // Config-level disable (Settings toggle)
+    if (this._configDisabled) {
+      return;
+    }
+
     const isElectron = typeof process.versions.electron === "string";
     const isPackaged = await getElectronIsPackaged(isElectron);
 
     if (!shouldEnableTelemetry({ env, isElectron, isPackaged })) {
+      return;
+    }
+
+    // Skip initialization if no PostHog key is configured
+    if (!DEFAULT_POSTHOG_KEY || !DEFAULT_POSTHOG_HOST) {
+      console.debug("[TelemetryService] Skipped — no PostHog key/host configured");
       return;
     }
 
@@ -215,7 +237,6 @@ export class TelemetryService {
 
     this.client = new PostHog(DEFAULT_POSTHOG_KEY, {
       host: DEFAULT_POSTHOG_HOST,
-      // Avoid geo-IP enrichment (we don't need coarse location for lattice telemetry)
       disableGeoip: true,
     });
 
@@ -300,6 +321,52 @@ export class TelemetryService {
       event: payload.event,
       properties,
     });
+  }
+
+  /**
+   * Disable telemetry at runtime (called when user toggles off in Settings).
+   * Captures a final `telemetry_disabled` event, flushes, and shuts down the client.
+   */
+  async disable(): Promise<void> {
+    this._configDisabled = true;
+
+    // Capture final event before shutting down
+    if (this.client && this.distinctId) {
+      this.client.capture({
+        distinctId: this.distinctId,
+        event: "telemetry_disabled",
+        properties: this.getBaseProperties(),
+      });
+    }
+
+    // Flush and tear down
+    if (this.client) {
+      try {
+        await this.client.shutdown();
+      } catch {
+        // Silently ignore shutdown errors
+      }
+      this.client = null;
+    }
+
+    console.debug("[TelemetryService] Disabled via Settings");
+  }
+
+  /**
+   * Re-enable telemetry at runtime (called when user toggles on in Settings).
+   * Checks env-level disable first, then creates a new PostHog client.
+   */
+  async enable(): Promise<void> {
+    this._configDisabled = false;
+
+    // Don't enable if env-level disabled
+    if (isTelemetryDisabledByEnv(process.env)) {
+      return;
+    }
+
+    // Re-initialize
+    await this.initialize();
+    console.debug("[TelemetryService] Re-enabled via Settings");
   }
 
   /**

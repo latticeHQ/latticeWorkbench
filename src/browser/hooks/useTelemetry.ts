@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import {
-  trackWorkspaceCreated,
-  trackWorkspaceSwitched,
+  trackMinionCreated,
+  trackMinionSwitched,
   trackMessageSent,
   trackStatsTabOpened,
   trackStreamCompleted,
@@ -29,9 +29,9 @@ import type {
  * ```tsx
  * const telemetry = useTelemetry();
  *
- * telemetry.workspaceSwitched(fromId, toId);
- * telemetry.workspaceCreated(workspaceId, runtimeType);
- * telemetry.messageSent(workspaceId, model, agentId, messageLength, runtimeType, thinkingLevel);
+ * telemetry.minionSwitched(fromId, toId);
+ * telemetry.minionCreated(minionId, runtimeType);
+ * telemetry.messageSent(minionId, model, agentId, messageLength, runtimeType, thinkingLevel);
  * telemetry.streamCompleted(model, wasInterrupted, durationSecs, outputTokens);
  * telemetry.providerConfigured(provider, keyType);
  * telemetry.commandUsed(commandType);
@@ -41,24 +41,24 @@ import type {
  * ```
  */
 export function useTelemetry() {
-  const workspaceSwitched = useCallback((fromWorkspaceId: string, toWorkspaceId: string) => {
-    trackWorkspaceSwitched(fromWorkspaceId, toWorkspaceId);
+  const minionSwitched = useCallback((fromMinionId: string, toMinionId: string) => {
+    trackMinionSwitched(fromMinionId, toMinionId);
   }, []);
 
-  const workspaceCreated = useCallback((workspaceId: string, runtimeType: TelemetryRuntimeType) => {
-    trackWorkspaceCreated(workspaceId, runtimeType);
+  const minionCreated = useCallback((minionId: string, runtimeType: TelemetryRuntimeType) => {
+    trackMinionCreated(minionId, runtimeType);
   }, []);
 
   const messageSent = useCallback(
     (
-      workspaceId: string,
+      minionId: string,
       model: string,
       agentId: string,
       messageLength: number,
       runtimeType: TelemetryRuntimeType,
       thinkingLevel: TelemetryThinkingLevel
     ) => {
-      trackMessageSent(workspaceId, model, agentId, messageLength, runtimeType, thinkingLevel);
+      trackMessageSent(minionId, model, agentId, messageLength, runtimeType, thinkingLevel);
     },
     []
   );
@@ -100,8 +100,8 @@ export function useTelemetry() {
   );
 
   return {
-    workspaceSwitched,
-    workspaceCreated,
+    minionSwitched,
+    minionCreated,
     messageSent,
     statsTabOpened,
     streamCompleted,

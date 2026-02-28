@@ -1,13 +1,14 @@
 /**
  * Platform-specific bash path resolution
  *
- * On Lattice/Linux/macOS, bash is in PATH by default.
+ * On Unix/Linux/macOS, bash is in PATH by default.
  * On Windows, lattice requires Git for Windows' Git Bash (WSL is not supported).
  */
 
 import { execSync, type ExecSyncOptionsWithStringEncoding } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
+import { getErrorMessage } from "@/common/utils/errors";
 
 const WIN_PATH = path.win32;
 
@@ -223,7 +224,7 @@ export function getBashPathForPlatform(params: GetBashPathForPlatformParams): st
 /**
  * Get the bash executable path for the current platform
  *
- * @returns Path to bash executable. On Lattice/macOS returns "bash",
+ * @returns Path to bash executable. On Unix/macOS returns "bash",
  *          on Windows returns full path to Git Bash if found.
  * @throws Error if Git Bash cannot be found on Windows
  */
@@ -238,7 +239,7 @@ export function getBashPath(
 ): string {
   const platform = params.platform ?? process.platform;
 
-  // On Lattice/Linux/macOS, bash is in PATH
+  // On Unix/Linux/macOS, bash is in PATH
   if (platform !== "win32") {
     return "bash";
   }
@@ -267,7 +268,7 @@ export function getBashPath(
     cachedBashPathError = null;
     return cachedBashPath;
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     cachedBashPathError = { message, lastCheckedMs: now };
     throw error;
   }

@@ -5,7 +5,7 @@ describe("planStorage", () => {
   const expectedLatticeHome = "~/.lattice";
 
   describe("getPlanFilePath", () => {
-    it("should return path with project name and workspace name", () => {
+    it("should return path with project name and minion name", () => {
       const result = getPlanFilePath("fix-plan-a1b2", "lattice");
       expect(result).toBe(`${expectedLatticeHome}/plans/lattice/fix-plan-a1b2.md`);
     });
@@ -29,14 +29,14 @@ describe("planStorage", () => {
     });
 
     it("should default to ~/.lattice when latticeHome not provided", () => {
-      const withDefault = getPlanFilePath("workspace", "project");
-      const withExplicit = getPlanFilePath("workspace", "project", "~/.lattice");
+      const withDefault = getPlanFilePath("minion", "project");
+      const withExplicit = getPlanFilePath("minion", "project", "~/.lattice");
       expect(withDefault).toBe(withExplicit);
     });
   });
 
   describe("getLegacyPlanFilePath", () => {
-    it("should return path with workspace ID", () => {
+    it("should return path with minion ID", () => {
       const result = getLegacyPlanFilePath("a1b2c3d4e5");
       expect(result).toBe(`${expectedLatticeHome}/plans/a1b2c3d4e5.md`);
     });

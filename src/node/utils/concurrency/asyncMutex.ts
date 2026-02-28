@@ -8,7 +8,7 @@
  * ```typescript
  * const mutex = new AsyncMutex();
  * await using lock = await mutex.acquire();
- * // Critical section - only one execution at a time
+ * // Critical crew - only one execution at a time
  * // Lock automatically released when scope exits
  * ```
  */

@@ -1,18 +1,21 @@
 import { useEffect, useCallback, useRef } from "react";
-import type { WorkspaceSelection } from "@/browser/components/ProjectSidebar";
-import { getWorkspaceLastReadKey } from "@/common/constants/storage";
+import type { MinionSelection } from "@/browser/components/ProjectSidebar";
+import { getMinionLastReadKey } from "@/common/constants/storage";
 import { readPersistedState, updatePersistedState } from "./usePersistedState";
 
-const LEGACY_LAST_READ_KEY = "workspaceLastRead";
+const LEGACY_LAST_READ_KEY = "minionLastRead";
 
 /**
- * Track last-read timestamps for workspaces.
- * Individual WorkspaceListItem components compute their own unread state
+ * Track last-read timestamps for minions.
+ * Individual MinionListItem components compute their own unread state
  * by comparing their recency timestamp with the last-read timestamp.
  *
  * This hook only manages the timestamps, not the unread computation.
  */
-export function useUnreadTracking(selectedWorkspace: WorkspaceSelection | null) {
+export function useUnreadTracking(
+  selectedMinion: MinionSelection | null,
+  currentMinionId: string | null
+) {
   const didMigrateRef = useRef(false);
 
   useEffect(() => {
@@ -23,9 +26,9 @@ export function useUnreadTracking(selectedWorkspace: WorkspaceSelection | null) 
     const entries = Object.entries(legacy);
     if (entries.length === 0) return;
 
-    for (const [workspaceId, timestamp] of entries) {
+    for (const [minionId, timestamp] of entries) {
       if (!Number.isFinite(timestamp)) continue;
-      const nextKey = getWorkspaceLastReadKey(workspaceId);
+      const nextKey = getMinionLastReadKey(minionId);
       const existing = readPersistedState<number | undefined>(nextKey, undefined);
       if (existing === undefined) {
         updatePersistedState(nextKey, timestamp);
@@ -35,14 +38,29 @@ export function useUnreadTracking(selectedWorkspace: WorkspaceSelection | null) 
     updatePersistedState(LEGACY_LAST_READ_KEY, null);
   }, []);
 
-  const markAsRead = useCallback((workspaceId: string) => {
-    updatePersistedState(getWorkspaceLastReadKey(workspaceId), Date.now());
+  const markAsRead = useCallback((minionId: string) => {
+    updatePersistedState(getMinionLastReadKey(minionId), Date.now());
   }, []);
 
-  // Mark workspace as read when user switches to it
+  const selectedMinionId = selectedMinion?.minionId ?? null;
+  const visibleSelectedMinionId =
+    selectedMinionId != null && currentMinionId === selectedMinionId
+      ? selectedMinionId
+      : null;
+
+  const markSelectedAsReadIfVisible = useCallback(() => {
+    if (visibleSelectedMinionId == null) return;
+    markAsRead(visibleSelectedMinionId);
+  }, [visibleSelectedMinionId, markAsRead]);
+
+  // Mark as read when visibility changes (minion selected + chat route active).
   useEffect(() => {
-    if (selectedWorkspace) {
-      markAsRead(selectedWorkspace.workspaceId);
-    }
-  }, [selectedWorkspace, markAsRead]);
+    markSelectedAsReadIfVisible();
+  }, [markSelectedAsReadIfVisible]);
+
+  // Mark as read when window regains focus — only when chat is visible.
+  useEffect(() => {
+    window.addEventListener("focus", markSelectedAsReadIfVisible);
+    return () => window.removeEventListener("focus", markSelectedAsReadIfVisible);
+  }, [markSelectedAsReadIfVisible]);
 }

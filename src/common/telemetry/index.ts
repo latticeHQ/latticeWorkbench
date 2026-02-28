@@ -16,8 +16,8 @@ export { trackAppStarted } from "./lifecycle";
 
 // Tracking functions - callers pass raw values, rounding handled internally
 export {
-  trackWorkspaceCreated,
-  trackWorkspaceSwitched,
+  trackMinionCreated,
+  trackMinionSwitched,
   trackMessageSent,
   trackStatsTabOpened,
   trackStreamCompleted,

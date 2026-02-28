@@ -112,7 +112,7 @@ describe("ServerLockfile", () => {
     await lockfile.release();
   });
 
-  test("lockfile has restrictive permissions on lattice", async () => {
+  test("lockfile has restrictive permissions on unix", async () => {
     // Skip on Windows where file permissions work differently
     if (process.platform === "win32") {
       return;

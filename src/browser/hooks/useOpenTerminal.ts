@@ -9,23 +9,23 @@ import {
 } from "@/browser/utils/terminal";
 
 /**
- * Hook to open a terminal window for a workspace.
+ * Hook to open a terminal window for a minion.
  * Handles the difference between Desktop (Electron) and Browser (Web) environments.
  *
- * For SSH/Devcontainer workspaces: Always opens a web-based xterm.js terminal that
+ * For SSH/Devcontainer minions: Always opens a web-based xterm.js terminal that
  * connects through the backend PTY service (works in both browser and Electron modes).
  *
- * For local workspaces in Electron: Opens the user's native terminal emulator
- * (Ghostty, Terminal.app, etc.) with the working directory set to the workspace path.
+ * For local minions in Electron: Opens the user's native terminal emulator
+ * (Ghostty, Terminal.app, etc.) with the working directory set to the minion path.
  *
- * For local workspaces in browser: Opens a web-based xterm.js terminal in a popup window.
+ * For local minions in browser: Opens a web-based xterm.js terminal in a popup window.
  */
 export function useOpenTerminal() {
   const { api } = useAPI();
 
   return useCallback(
     async (
-      workspaceId: string,
+      minionId: string,
       runtimeConfig?: RuntimeConfig,
       options?: TerminalSessionCreateOptions
     ) => {
@@ -38,14 +38,14 @@ export function useOpenTerminal() {
       const isSSH = isSSHRuntime(runtimeConfig);
       const isDevcontainer = isDevcontainerRuntime(runtimeConfig);
 
-      // SSH/Devcontainer workspaces always use web terminal (in browser popup or Electron window)
+      // SSH/Devcontainer minions always use web terminal (in browser popup or Electron window)
       // because the PTY service handles the SSH/container connection
       if (isBrowser || isSSH || isDevcontainer) {
         // Create terminal session first - window needs sessionId to connect
-        const session = await createTerminalSession(api, workspaceId, options);
-        openTerminalPopout(api, workspaceId, session.sessionId);
+        const session = await createTerminalSession(api, minionId, options);
+        openTerminalPopout(api, minionId, session.sessionId);
       } else {
-        void api.terminal.openNative({ workspaceId });
+        void api.terminal.openNative({ minionId });
       }
     },
     [api]

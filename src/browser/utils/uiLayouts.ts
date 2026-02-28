@@ -4,17 +4,19 @@ import {
   type LayoutPreset,
   type LayoutPresetsConfig,
   type LayoutSlotNumber,
-  type RightSidebarLayoutPresetNode,
-  type RightSidebarLayoutPresetState,
-  type RightSidebarPresetTabType,
-  type RightSidebarWidthPreset,
+  type WorkbenchPanelLayoutPresetNode,
+  type WorkbenchPanelLayoutPresetState,
+  type WorkbenchPanelPresetTabType,
+  type WorkbenchPanelWidthPreset,
 } from "@/common/types/uiLayouts";
 import type { Keybind } from "@/common/types/keybind";
 import {
-  getRightSidebarLayoutKey,
-  RIGHT_SIDEBAR_COLLAPSED_KEY,
-  RIGHT_SIDEBAR_TAB_KEY,
-  RIGHT_SIDEBAR_WIDTH_KEY,
+  getWorkbenchPanelLayoutKey,
+  LEFT_SIDEBAR_COLLAPSED_KEY,
+  LEFT_SIDEBAR_WIDTH_KEY,
+  WORKBENCH_PANEL_COLLAPSED_KEY,
+  WORKBENCH_PANEL_TAB_KEY,
+  WORKBENCH_PANEL_WIDTH_KEY,
 } from "@/common/constants/storage";
 import {
   readPersistedState,
@@ -22,20 +24,18 @@ import {
   updatePersistedState,
 } from "@/browser/hooks/usePersistedState";
 import {
-  addTabToFocusedTabset,
+  addTabToTerminalTabset,
   collectAllTabs,
   findFirstTabsetId,
   findTabset,
-  getDefaultRightSidebarLayoutState,
-  parseRightSidebarLayoutState,
-  type RightSidebarLayoutNode,
-  type RightSidebarLayoutState,
-} from "@/browser/utils/rightSidebarLayout";
-import { isTabType, makeTerminalTabType, type TabType } from "@/browser/types/rightSidebar";
+  getDefaultWorkbenchPanelLayoutState,
+  parseWorkbenchPanelLayoutState,
+  type WorkbenchPanelLayoutNode,
+  type WorkbenchPanelLayoutState,
+} from "@/browser/utils/workbenchPanelLayout";
+import { isTabType, makeTerminalTabType, type TabType } from "@/browser/types/workbenchPanel";
 import { createTerminalSession } from "@/browser/utils/terminal";
 import type { APIClient } from "@/browser/contexts/API";
-
-const LEFT_SIDEBAR_COLLAPSED_KEY = "sidebarCollapsed";
 
 export function createLayoutPresetId(): string {
   const maybeCrypto = globalThis.crypto;
@@ -79,7 +79,7 @@ function clampInt(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, rounded));
 }
 
-export function resolveRightSidebarWidthPx(width: RightSidebarWidthPreset): number {
+export function resolveWorkbenchPanelWidthPx(width: WorkbenchPanelWidthPreset): number {
   if (width.mode === "px") {
     return clampInt(width.value, 300, 1200);
   }
@@ -88,24 +88,24 @@ export function resolveRightSidebarWidthPx(width: RightSidebarWidthPreset): numb
   return clampInt(viewportWidth * width.value, 300, 1200);
 }
 
-function getRightSidebarTabFallback(): TabType {
-  const raw = readPersistedState<string>(RIGHT_SIDEBAR_TAB_KEY, "costs");
+function getWorkbenchPanelTabFallback(): TabType {
+  const raw = readPersistedState<string>(WORKBENCH_PANEL_TAB_KEY, "costs");
   return isTabType(raw) ? raw : "costs";
 }
 
-function readCurrentRightSidebarLayoutState(workspaceId: string): RightSidebarLayoutState {
-  const fallback = getRightSidebarTabFallback();
-  const defaultLayout = getDefaultRightSidebarLayoutState(fallback);
-  const raw = readPersistedState<unknown>(getRightSidebarLayoutKey(workspaceId), defaultLayout);
-  return parseRightSidebarLayoutState(raw, fallback);
+function readCurrentWorkbenchPanelLayoutState(minionId: string): WorkbenchPanelLayoutState {
+  const fallback = getWorkbenchPanelTabFallback();
+  const defaultLayout = getDefaultWorkbenchPanelLayoutState(fallback);
+  const raw = readPersistedState<unknown>(getWorkbenchPanelLayoutKey(minionId), defaultLayout);
+  return parseWorkbenchPanelLayoutState(raw, fallback);
 }
 
-function readCurrentRightSidebarCollapsed(): boolean {
-  return readPersistedState<boolean>(RIGHT_SIDEBAR_COLLAPSED_KEY, false);
+function readCurrentWorkbenchPanelCollapsed(): boolean {
+  return readPersistedState<boolean>(WORKBENCH_PANEL_COLLAPSED_KEY, false);
 }
 
-function readCurrentRightSidebarWidthPx(): number {
-  const raw = readPersistedString(RIGHT_SIDEBAR_WIDTH_KEY);
+function readCurrentWorkbenchPanelWidthPx(): number {
+  const raw = readPersistedString(WORKBENCH_PANEL_WIDTH_KEY);
   if (!raw) return 400;
   const parsed = parseInt(raw, 10);
   if (!Number.isFinite(parsed)) return 400;
@@ -119,7 +119,15 @@ function readCurrentLeftSidebarCollapsed(): boolean {
   return readPersistedState<boolean>(LEFT_SIDEBAR_COLLAPSED_KEY, defaultCollapsed);
 }
 
-function createTerminalPlaceholder(counter: number): RightSidebarPresetTabType {
+function readCurrentLeftSidebarWidthPx(): number {
+  const raw = readPersistedString(LEFT_SIDEBAR_WIDTH_KEY);
+  if (!raw) return 288;
+  const parsed = parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return 288;
+  return clampInt(parsed, 200, 600);
+}
+
+function createTerminalPlaceholder(counter: number): WorkbenchPanelPresetTabType {
   const id = `t${counter}`;
   return `terminal_new:${id}`;
 }
@@ -127,12 +135,12 @@ function createTerminalPlaceholder(counter: number): RightSidebarPresetTabType {
 function toPresetTab(
   tab: TabType,
   ctx: { terminalCounter: number }
-): RightSidebarPresetTabType | null {
+): WorkbenchPanelPresetTabType | null {
   if (tab.startsWith("file:")) {
     return null;
   }
 
-  if (tab.startsWith("terminal:")) {
+  if (tab === "terminal" || tab.startsWith("terminal:")) {
     ctx.terminalCounter += 1;
     return createTerminalPlaceholder(ctx.terminalCounter);
   }
@@ -146,12 +154,12 @@ function toPresetTab(
 }
 
 function convertNodeToPreset(
-  node: RightSidebarLayoutNode,
+  node: WorkbenchPanelLayoutNode,
   ctx: { terminalCounter: number }
-): RightSidebarLayoutPresetNode | null {
+): WorkbenchPanelLayoutPresetNode | null {
   if (node.type === "tabset") {
-    const tabs: RightSidebarPresetTabType[] = [];
-    let resolvedActiveTab: RightSidebarPresetTabType | null = null;
+    const tabs: WorkbenchPanelPresetTabType[] = [];
+    let resolvedActiveTab: WorkbenchPanelPresetTabType | null = null;
 
     for (const tab of node.tabs) {
       const converted = toPresetTab(tab, ctx);
@@ -196,9 +204,9 @@ function convertNodeToPreset(
 }
 
 function findPresetTabset(
-  root: RightSidebarLayoutPresetNode,
+  root: WorkbenchPanelLayoutPresetNode,
   tabsetId: string
-): Extract<RightSidebarLayoutPresetNode, { type: "tabset" }> | null {
+): Extract<WorkbenchPanelLayoutPresetNode, { type: "tabset" }> | null {
   if (root.type === "tabset") {
     return root.id === tabsetId ? root : null;
   }
@@ -208,20 +216,20 @@ function findPresetTabset(
   );
 }
 
-function findFirstPresetTabsetId(root: RightSidebarLayoutPresetNode): string | null {
+function findFirstPresetTabsetId(root: WorkbenchPanelLayoutPresetNode): string | null {
   if (root.type === "tabset") return root.id;
   return findFirstPresetTabsetId(root.children[0]) ?? findFirstPresetTabsetId(root.children[1]);
 }
 
-function convertLayoutStateToPreset(state: RightSidebarLayoutState): RightSidebarLayoutPresetState {
+function convertLayoutStateToPreset(state: WorkbenchPanelLayoutState): WorkbenchPanelLayoutPresetState {
   const ctx = { terminalCounter: 0 };
   const root = convertNodeToPreset(state.root, ctx);
 
   if (!root) {
     // Fallback to default layout without terminals.
-    const fallback = getDefaultRightSidebarLayoutState("costs");
+    const fallback = getDefaultWorkbenchPanelLayoutState("costs");
     const fallbackRoot = convertNodeToPreset(fallback.root, { terminalCounter: 0 });
-    assert(fallbackRoot !== null, "default right sidebar layout must convert");
+    assert(fallbackRoot !== null, "default workbench panel layout must convert");
     return {
       version: 1,
       nextId: fallback.nextId,
@@ -243,8 +251,8 @@ function convertLayoutStateToPreset(state: RightSidebarLayoutState): RightSideba
   };
 }
 
-export function createPresetFromCurrentWorkspace(
-  workspaceId: string,
+export function createPresetFromCurrentMinion(
+  minionId: string,
   name: string,
   existingPresetId?: string
 ): LayoutPreset {
@@ -252,19 +260,21 @@ export function createPresetFromCurrentWorkspace(
   assert(trimmedName.length > 0, "preset name must be non-empty");
 
   const leftSidebarCollapsed = readCurrentLeftSidebarCollapsed();
-  const rightSidebarCollapsed = readCurrentRightSidebarCollapsed();
-  const rightSidebarWidthPx = readCurrentRightSidebarWidthPx();
-  const rightSidebarLayout = readCurrentRightSidebarLayoutState(workspaceId);
+  const leftSidebarWidthPx = readCurrentLeftSidebarWidthPx();
+  const workbenchPanelCollapsed = readCurrentWorkbenchPanelCollapsed();
+  const workbenchPanelWidthPx = readCurrentWorkbenchPanelWidthPx();
+  const workbenchPanelLayout = readCurrentWorkbenchPanelLayoutState(minionId);
 
-  const presetLayout = convertLayoutStateToPreset(rightSidebarLayout);
+  const presetLayout = convertLayoutStateToPreset(workbenchPanelLayout);
 
   const preset: LayoutPreset = {
     id: existingPresetId ?? createLayoutPresetId(),
     name: trimmedName,
     leftSidebarCollapsed,
-    rightSidebar: {
-      collapsed: rightSidebarCollapsed,
-      width: { mode: "px", value: rightSidebarWidthPx },
+    leftSidebarWidthPx,
+    workbenchPanel: {
+      collapsed: workbenchPanelCollapsed,
+      width: { mode: "px", value: workbenchPanelWidthPx },
       layout: presetLayout,
     },
   };
@@ -273,8 +283,8 @@ export function createPresetFromCurrentWorkspace(
 }
 
 function collectTerminalTabs(
-  root: RightSidebarLayoutPresetNode,
-  out: RightSidebarPresetTabType[]
+  root: WorkbenchPanelLayoutPresetNode,
+  out: WorkbenchPanelPresetTabType[]
 ): void {
   if (root.type === "tabset") {
     for (const tab of root.tabs) {
@@ -291,21 +301,21 @@ function collectTerminalTabs(
 
 async function resolveTerminalSessions(
   api: APIClient,
-  workspaceId: string,
-  terminalTabs: RightSidebarPresetTabType[]
-): Promise<Map<RightSidebarPresetTabType, string>> {
-  const mapping = new Map<RightSidebarPresetTabType, string>();
+  minionId: string,
+  terminalTabs: WorkbenchPanelPresetTabType[]
+): Promise<Map<WorkbenchPanelPresetTabType, string>> {
+  const mapping = new Map<WorkbenchPanelPresetTabType, string>();
 
-  const existing = await api.terminal.listSessions({ workspaceId }).catch(() => []);
+  const existingSessions = await api.terminal.listSessions({ minionId }).catch(() => []);
   let existingIndex = 0;
 
   for (const tab of terminalTabs) {
-    let sessionId: string | undefined = existing[existingIndex];
+    let sessionId: string | undefined = existingSessions[existingIndex]?.sessionId;
     if (sessionId) {
       existingIndex += 1;
     } else {
       try {
-        const session = await createTerminalSession(api, workspaceId);
+        const session = await createTerminalSession(api, minionId);
         sessionId = session.sessionId;
       } catch {
         sessionId = undefined;
@@ -320,13 +330,13 @@ async function resolveTerminalSessions(
   return mapping;
 }
 
-function isTerminalPlaceholderTab(tab: RightSidebarPresetTabType): tab is `terminal_new:${string}` {
+function isTerminalPlaceholderTab(tab: WorkbenchPanelPresetTabType): tab is `terminal_new:${string}` {
   return tab.startsWith("terminal_new:");
 }
 
 function resolvePresetTab(
-  tab: RightSidebarPresetTabType,
-  mapping: Map<RightSidebarPresetTabType, string>
+  tab: WorkbenchPanelPresetTabType,
+  mapping: Map<WorkbenchPanelPresetTabType, string>
 ): TabType | null {
   if (isTerminalPlaceholderTab(tab)) {
     const sessionId = mapping.get(tab);
@@ -337,9 +347,9 @@ function resolvePresetTab(
 }
 
 function resolvePresetNodeToLayout(
-  node: RightSidebarLayoutPresetNode,
-  mapping: Map<RightSidebarPresetTabType, string>
-): RightSidebarLayoutNode | null {
+  node: WorkbenchPanelLayoutPresetNode,
+  mapping: Map<WorkbenchPanelPresetTabType, string>
+): WorkbenchPanelLayoutNode | null {
   if (node.type === "tabset") {
     const tabs = node.tabs
       .map((t) => resolvePresetTab(t, mapping))
@@ -379,12 +389,12 @@ function resolvePresetNodeToLayout(
 }
 
 function resolvePresetLayoutToLayoutState(
-  preset: RightSidebarLayoutPresetState,
-  mapping: Map<RightSidebarPresetTabType, string>
-): RightSidebarLayoutState {
+  preset: WorkbenchPanelLayoutPresetState,
+  mapping: Map<WorkbenchPanelPresetTabType, string>
+): WorkbenchPanelLayoutState {
   const root = resolvePresetNodeToLayout(preset.root, mapping);
   if (!root) {
-    return getDefaultRightSidebarLayoutState("costs");
+    return getDefaultWorkbenchPanelLayoutState("costs");
   }
 
   const focusedTabsetId =
@@ -398,57 +408,63 @@ function resolvePresetLayoutToLayoutState(
   };
 }
 
-export async function applyLayoutPresetToWorkspace(
+export async function applyLayoutPresetToMinion(
   api: APIClient | null,
-  workspaceId: string,
+  minionId: string,
   preset: LayoutPreset
 ): Promise<void> {
   assert(
-    typeof workspaceId === "string" && workspaceId.length > 0,
-    "workspaceId must be non-empty"
+    typeof minionId === "string" && minionId.length > 0,
+    "minionId must be non-empty"
   );
 
   // Apply global UI keys first so the UI immediately reflects a partially-applied preset
   // even if terminal creation fails.
   updatePersistedState<boolean>(LEFT_SIDEBAR_COLLAPSED_KEY, preset.leftSidebarCollapsed);
-  updatePersistedState<boolean>(RIGHT_SIDEBAR_COLLAPSED_KEY, preset.rightSidebar.collapsed);
+  if (preset.leftSidebarWidthPx !== undefined) {
+    updatePersistedState<number>(
+      LEFT_SIDEBAR_WIDTH_KEY,
+      clampInt(preset.leftSidebarWidthPx, 200, 600)
+    );
+  }
+  updatePersistedState<boolean>(WORKBENCH_PANEL_COLLAPSED_KEY, preset.workbenchPanel.collapsed);
   updatePersistedState<number>(
-    RIGHT_SIDEBAR_WIDTH_KEY,
-    resolveRightSidebarWidthPx(preset.rightSidebar.width)
+    WORKBENCH_PANEL_WIDTH_KEY,
+    resolveWorkbenchPanelWidthPx(preset.workbenchPanel.width)
   );
 
   if (!api) {
     return;
   }
 
-  const terminalTabs: RightSidebarPresetTabType[] = [];
-  collectTerminalTabs(preset.rightSidebar.layout.root, terminalTabs);
+  const terminalTabs: WorkbenchPanelPresetTabType[] = [];
+  collectTerminalTabs(preset.workbenchPanel.layout.root, terminalTabs);
 
-  const terminalMapping = await resolveTerminalSessions(api, workspaceId, terminalTabs);
+  const terminalMapping = await resolveTerminalSessions(api, minionId, terminalTabs);
 
-  let layout = resolvePresetLayoutToLayoutState(preset.rightSidebar.layout, terminalMapping);
+  let layout = resolvePresetLayoutToLayoutState(preset.workbenchPanel.layout, terminalMapping);
 
   // Preserve any extra backend terminal sessions that aren't referenced by the preset.
-  // Otherwise those sessions remain running but have no tabs until the workspace is re-mounted.
-  const backendSessionIds = await api.terminal.listSessions({ workspaceId }).catch(() => []);
+  // Otherwise those sessions remain running but have no tabs until the minion is re-mounted.
+  const backendSessions = await api.terminal.listSessions({ minionId }).catch(() => []);
 
-  if (backendSessionIds.length > 0) {
+  if (backendSessions.length > 0) {
     const currentTabs = collectAllTabs(layout.root);
     const currentTerminalSessionIds = new Set(
       currentTabs.filter((t) => t.startsWith("terminal:")).map((t) => t.slice("terminal:".length))
     );
 
-    for (const sessionId of backendSessionIds) {
-      if (currentTerminalSessionIds.has(sessionId)) {
+    for (const session of backendSessions) {
+      if (currentTerminalSessionIds.has(session.sessionId)) {
         continue;
       }
 
-      layout = addTabToFocusedTabset(layout, makeTerminalTabType(sessionId), false);
-      currentTerminalSessionIds.add(sessionId);
+      layout = addTabToTerminalTabset(layout, makeTerminalTabType(session.sessionId), false);
+      currentTerminalSessionIds.add(session.sessionId);
     }
   }
 
-  updatePersistedState<RightSidebarLayoutState>(getRightSidebarLayoutKey(workspaceId), layout);
+  updatePersistedState<WorkbenchPanelLayoutState>(getWorkbenchPanelLayoutKey(minionId), layout);
 }
 
 export function updateSlotPreset(

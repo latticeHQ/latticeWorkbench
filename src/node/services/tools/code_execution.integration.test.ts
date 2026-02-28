@@ -16,12 +16,12 @@ import { createFileReadTool } from "./file_read";
 import { createBashTool } from "./bash";
 import { QuickJSRuntimeFactory } from "@/node/services/ptc/quickjsRuntime";
 import { ToolBridge } from "@/node/services/ptc/toolBridge";
-import type { Tool, ToolCallOptions } from "ai";
+import type { Tool, ToolExecutionOptions } from "ai";
 import type { PTCEvent, PTCExecutionResult, PTCToolCallEndEvent } from "@/node/services/ptc/types";
 import { createTestToolConfig, TestTempDir, getTestDeps } from "./testHelpers";
 import { z } from "zod";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "integration-test-call",
   messages: [],
 };
@@ -63,7 +63,7 @@ describe("code_execution integration tests", () => {
 
         // Execute code that reads the file
         const code = `
-        const result =lattice.file_read({ file_path: "test.txt" });
+        const result = lattice.file_read({ path: "test.txt" });
         return result;
       `;
 
@@ -109,7 +109,7 @@ describe("code_execution integration tests", () => {
         );
 
         const code = `
-        const result =lattice.file_read({ file_path: "nonexistent.txt" });
+        const result = lattice.file_read({ path: "nonexistent.txt" });
         return result;
       `;
 
@@ -151,7 +151,7 @@ describe("code_execution integration tests", () => {
 
       // Execute a simple echo command
       const code = `
-        const result =lattice.bash({
+        const result = lattice.bash({
           script: "echo 'hello from sandbox'",
           timeout_secs: 5,
           run_in_background: false,
@@ -207,7 +207,7 @@ describe("code_execution integration tests", () => {
       // Code that creates a file with bash, then reads it with file_read
       const code = `
         // Create a file using bash
-        const bashResult =lattice.bash({
+        const bashResult = lattice.bash({
           script: "echo 'created by sandbox' > sandbox_created.txt",
           timeout_secs: 5,
           run_in_background: false,
@@ -219,7 +219,7 @@ describe("code_execution integration tests", () => {
         }
         
         // Read the file we just created
-        const readResult =lattice.file_read({ file_path: "sandbox_created.txt" });
+        const readResult = lattice.file_read({ path: "sandbox_created.txt" });
         
         return {
           bashResult,
@@ -272,9 +272,9 @@ describe("code_execution integration tests", () => {
         new ToolBridge(tools)
       );
 
-      // Call file_read without required file_path argument
+      // Call file_read without required path argument
       const code = `
-        const result =lattice.file_read({});
+        const result = lattice.file_read({});
         return result;
       `;
 
@@ -286,7 +286,7 @@ describe("code_execution integration tests", () => {
       // Tool bridge validation throws, which causes sandbox execution to fail
       // The error is propagated to the PTCExecutionResult
       expect(result.success).toBe(false);
-      expect(result.error).toContain("file_path");
+      expect(result.error).toContain("path");
     });
 
     it("handles tool execution exceptions gracefully", async () => {
@@ -309,7 +309,7 @@ describe("code_execution integration tests", () => {
       );
 
       const code = `
-        const result =lattice.throwing_tool({});
+        const result = lattice.throwing_tool({});
         return result;
       `;
 

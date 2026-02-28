@@ -1,26 +1,25 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock, afterEach, spyOn } from "bun:test";
 import { EventEmitter } from "events";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 
 import type { AIService } from "@/node/services/aiService";
-import type { HistoryService } from "@/node/services/historyService";
-import type { PartialService } from "@/node/services/partialService";
 import type { InitStateManager } from "@/node/services/initStateManager";
 import type { BackgroundProcessManager } from "@/node/services/backgroundProcessManager";
 import type { Config } from "@/node/config";
 
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import { createLatticeMessage, type LatticeMessage } from "@/common/types/message";
 import type { SendMessageError } from "@/common/types/errors";
 import type { Result } from "@/common/types/result";
 import { Ok } from "@/common/types/result";
 
 import { AgentSession } from "./agentSession";
+import { createTestHistoryService } from "./testHistoryService";
 
 describe("AgentSession.sendMessage (agent skill snapshots)", () => {
-  async function createTestWorkspaceWithSkill(args: { skillName: string; skillBody: string }) {
+  async function createTestMinionWithSkill(args: { skillName: string; skillBody: string }) {
     const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-agent-skill-"));
     const skillDir = path.join(tmp, ".lattice", "skills", args.skillName);
     await fs.mkdir(skillDir, { recursive: true });
@@ -28,65 +27,58 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     const skillMarkdown = `---\nname: ${args.skillName}\ndescription: Test skill\n---\n\n${args.skillBody}\n`;
     await fs.writeFile(path.join(skillDir, "SKILL.md"), skillMarkdown, "utf-8");
 
-    return { workspacePath: tmp };
+    return { minionPath: tmp };
   }
 
-  it("persists a synthetic agent skill snapshot before the user message", async () => {
-    const workspaceId = "ws-test";
+  let historyCleanup: (() => Promise<void>) | undefined;
+  afterEach(async () => {
+    await historyCleanup?.();
+  });
 
-    const { workspacePath } = await createTestWorkspaceWithSkill({
+  it("persists a synthetic agent skill snapshot before the user message", async () => {
+    const minionId = "ws-test";
+
+    const { minionPath } = await createTestMinionWithSkill({
       skillName: "test-skill",
       skillBody: "Follow this skill.",
     });
 
     const config = {
       srcDir: "/tmp",
-      getSessionDir: (_workspaceId: string) => "/tmp",
+      getSessionDir: (_minionId: string) => "/tmp",
     } as unknown as Config;
 
+    const { historyService, cleanup } = await createTestHistoryService();
+    historyCleanup = cleanup;
+
     const messages: LatticeMessage[] = [];
-    let nextSeq = 0;
-
-    const appendToHistory = mock((_workspaceId: string, message: LatticeMessage) => {
-      message.metadata = { ...(message.metadata ?? {}), historySequence: nextSeq++ };
-      messages.push(message);
-      return Promise.resolve(Ok(undefined));
-    });
-
-    const historyService = {
-      appendToHistory,
-      truncateAfterMessage: mock((_workspaceId: string, _messageId: string) => {
-        void _messageId;
-        return Promise.resolve(Ok(undefined));
-      }),
-      getHistory: mock((_workspaceId: string): Promise<Result<LatticeMessage[], string>> => {
-        return Promise.resolve(Ok([...messages]));
-      }),
-    } as unknown as HistoryService;
-
-    const partialService = {
-      commitToHistory: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
-    } as unknown as PartialService;
+    const realAppend = historyService.appendToHistory.bind(historyService);
+    const appendToHistory = spyOn(historyService, "appendToHistory").mockImplementation(
+      async (wId: string, message: LatticeMessage) => {
+        messages.push(message);
+        return realAppend(wId, message);
+      }
+    );
 
     const aiEmitter = new EventEmitter();
 
-    const workspaceMeta: FrontendWorkspaceMetadata = {
-      id: workspaceId,
+    const minionMeta: FrontendMinionMetadata = {
+      id: minionId,
       name: "ws",
       projectName: "proj",
-      projectPath: workspacePath,
-      namedWorkspacePath: workspacePath,
+      projectPath: minionPath,
+      namedMinionPath: minionPath,
       runtimeConfig: { type: "local" },
-    } as unknown as FrontendWorkspaceMetadata;
+    } as unknown as FrontendMinionMetadata;
 
     const streamMessage = mock((_messages: LatticeMessage[]) => {
       return Promise.resolve(Ok(undefined));
     });
 
     const aiService = Object.assign(aiEmitter, {
-      isStreaming: mock((_workspaceId: string) => false),
-      stopStream: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
-      getWorkspaceMetadata: mock((_workspaceId: string) => Promise.resolve(Ok(workspaceMeta))),
+      isStreaming: mock((_minionId: string) => false),
+      stopStream: mock((_minionId: string) => Promise.resolve(Ok(undefined))),
+      getMinionMetadata: mock((_minionId: string) => Promise.resolve(Ok(minionMeta))),
       streamMessage: streamMessage as unknown as (
         ...args: Parameters<AIService["streamMessage"]>
       ) => Promise<Result<void, SendMessageError>>,
@@ -95,17 +87,16 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     const initStateManager = new EventEmitter() as unknown as InitStateManager;
 
     const backgroundProcessManager = {
-      cleanup: mock((_workspaceId: string) => Promise.resolve()),
-      setMessageQueued: mock((_workspaceId: string, _queued: boolean) => {
+      cleanup: mock((_minionId: string) => Promise.resolve()),
+      setMessageQueued: mock((_minionId: string, _queued: boolean) => {
         void _queued;
       }),
     } as unknown as BackgroundProcessManager;
 
     const session = new AgentSession({
-      workspaceId,
+      minionId,
       config,
       historyService,
-      partialService,
       aiService,
       initStateManager,
       backgroundProcessManager,
@@ -132,6 +123,11 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     expect(snapshotMessage.metadata?.agentSkillSnapshot?.skillName).toBe("test-skill");
     expect(snapshotMessage.metadata?.agentSkillSnapshot?.sha256).toBeTruthy();
 
+    const frontmatterYaml = snapshotMessage.metadata?.agentSkillSnapshot?.frontmatterYaml;
+    expect(frontmatterYaml).toBeTruthy();
+    expect(frontmatterYaml ?? "").toContain("name:");
+    expect(frontmatterYaml ?? "").toContain("description:");
+
     const snapshotText = snapshotMessage.parts.find((p) => p.type === "text")?.text;
     expect(snapshotText).toContain("<agent-skill");
     expect(snapshotText).toContain("Follow this skill.");
@@ -141,65 +137,53 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     expect(userText).toBe("do X");
   });
 
-  it("honors disableWorkspaceAgents when resolving skill snapshots", async () => {
-    const workspaceId = "ws-test";
+  it("honors disableMinionAgents when resolving skill snapshots", async () => {
+    const minionId = "ws-test";
 
-    const { workspacePath: projectPath } = await createTestWorkspaceWithSkill({
+    const { minionPath: projectPath } = await createTestMinionWithSkill({
       // Built-in: use a project-local override to ensure we don't accidentally fall back.
       skillName: "init",
-      skillBody: "Headquarter override for init skill.",
+      skillBody: "Project override for init skill.",
     });
 
     const srcBaseDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-agent-skill-src-"));
 
     const config = {
       srcDir: "/tmp",
-      getSessionDir: (_workspaceId: string) => "/tmp",
+      getSessionDir: (_minionId: string) => "/tmp",
     } as unknown as Config;
 
+    const { historyService, cleanup } = await createTestHistoryService();
+    historyCleanup = cleanup;
+
     const messages: LatticeMessage[] = [];
-    let nextSeq = 0;
-
-    const appendToHistory = mock((_workspaceId: string, message: LatticeMessage) => {
-      message.metadata = { ...(message.metadata ?? {}), historySequence: nextSeq++ };
-      messages.push(message);
-      return Promise.resolve(Ok(undefined));
-    });
-
-    const historyService = {
-      appendToHistory,
-      truncateAfterMessage: mock((_workspaceId: string, _messageId: string) => {
-        void _messageId;
-        return Promise.resolve(Ok(undefined));
-      }),
-      getHistory: mock((_workspaceId: string): Promise<Result<LatticeMessage[], string>> => {
-        return Promise.resolve(Ok([...messages]));
-      }),
-    } as unknown as HistoryService;
-
-    const partialService = {
-      commitToHistory: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
-    } as unknown as PartialService;
+    const realAppend = historyService.appendToHistory.bind(historyService);
+    const appendToHistory = spyOn(historyService, "appendToHistory").mockImplementation(
+      async (wId: string, message: LatticeMessage) => {
+        messages.push(message);
+        return realAppend(wId, message);
+      }
+    );
 
     const aiEmitter = new EventEmitter();
 
-    const workspaceMeta: FrontendWorkspaceMetadata = {
-      id: workspaceId,
+    const minionMeta: FrontendMinionMetadata = {
+      id: minionId,
       name: "ws",
       projectName: "proj",
       projectPath,
-      namedWorkspacePath: projectPath,
+      namedMinionPath: projectPath,
       runtimeConfig: { type: "worktree", srcBaseDir },
-    } as unknown as FrontendWorkspaceMetadata;
+    } as unknown as FrontendMinionMetadata;
 
     const streamMessage = mock((_messages: LatticeMessage[]) => {
       return Promise.resolve(Ok(undefined));
     });
 
     const aiService = Object.assign(aiEmitter, {
-      isStreaming: mock((_workspaceId: string) => false),
-      stopStream: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
-      getWorkspaceMetadata: mock((_workspaceId: string) => Promise.resolve(Ok(workspaceMeta))),
+      isStreaming: mock((_minionId: string) => false),
+      stopStream: mock((_minionId: string) => Promise.resolve(Ok(undefined))),
+      getMinionMetadata: mock((_minionId: string) => Promise.resolve(Ok(minionMeta))),
       streamMessage: streamMessage as unknown as (
         ...args: Parameters<AIService["streamMessage"]>
       ) => Promise<Result<void, SendMessageError>>,
@@ -208,17 +192,16 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     const initStateManager = new EventEmitter() as unknown as InitStateManager;
 
     const backgroundProcessManager = {
-      cleanup: mock((_workspaceId: string) => Promise.resolve()),
-      setMessageQueued: mock((_workspaceId: string, _queued: boolean) => {
+      cleanup: mock((_minionId: string) => Promise.resolve()),
+      setMessageQueued: mock((_minionId: string, _queued: boolean) => {
         void _queued;
       }),
     } as unknown as BackgroundProcessManager;
 
     const session = new AgentSession({
-      workspaceId,
+      minionId,
       config,
       historyService,
-      partialService,
       aiService,
       initStateManager,
       backgroundProcessManager,
@@ -227,7 +210,7 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     const result = await session.sendMessage("do X", {
       model: "anthropic:claude-3-5-sonnet-latest",
       agentId: "exec",
-      disableWorkspaceAgents: true,
+      disableMinionAgents: true,
       latticeMetadata: {
         type: "agent-skill",
         rawCommand: "/init",
@@ -242,65 +225,53 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     const [snapshotMessage] = messages;
 
     const snapshotText = snapshotMessage.parts.find((p) => p.type === "text")?.text;
-    expect(snapshotText).toContain("Headquarter override for init skill.");
+    expect(snapshotText).toContain("Project override for init skill.");
   });
 
   it("dedupes identical skill snapshots when recently inserted", async () => {
-    const workspaceId = "ws-test";
+    const minionId = "ws-test";
 
-    const { workspacePath } = await createTestWorkspaceWithSkill({
+    const { minionPath } = await createTestMinionWithSkill({
       skillName: "test-skill",
       skillBody: "Follow this skill.",
     });
 
     const config = {
       srcDir: "/tmp",
-      getSessionDir: (_workspaceId: string) => "/tmp",
+      getSessionDir: (_minionId: string) => "/tmp",
     } as unknown as Config;
 
+    const { historyService, cleanup } = await createTestHistoryService();
+    historyCleanup = cleanup;
+
     const messages: LatticeMessage[] = [];
-    let nextSeq = 0;
-
-    const appendToHistory = mock((_workspaceId: string, message: LatticeMessage) => {
-      message.metadata = { ...(message.metadata ?? {}), historySequence: nextSeq++ };
-      messages.push(message);
-      return Promise.resolve(Ok(undefined));
-    });
-
-    const historyService = {
-      appendToHistory,
-      truncateAfterMessage: mock((_workspaceId: string, _messageId: string) => {
-        void _messageId;
-        return Promise.resolve(Ok(undefined));
-      }),
-      getHistory: mock((_workspaceId: string): Promise<Result<LatticeMessage[], string>> => {
-        return Promise.resolve(Ok([...messages]));
-      }),
-    } as unknown as HistoryService;
-
-    const partialService = {
-      commitToHistory: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
-    } as unknown as PartialService;
+    const realAppend = historyService.appendToHistory.bind(historyService);
+    const appendToHistory = spyOn(historyService, "appendToHistory").mockImplementation(
+      async (wId: string, message: LatticeMessage) => {
+        messages.push(message);
+        return realAppend(wId, message);
+      }
+    );
 
     const aiEmitter = new EventEmitter();
 
-    const workspaceMeta: FrontendWorkspaceMetadata = {
-      id: workspaceId,
+    const minionMeta: FrontendMinionMetadata = {
+      id: minionId,
       name: "ws",
       projectName: "proj",
-      projectPath: workspacePath,
-      namedWorkspacePath: workspacePath,
+      projectPath: minionPath,
+      namedMinionPath: minionPath,
       runtimeConfig: { type: "local" },
-    } as unknown as FrontendWorkspaceMetadata;
+    } as unknown as FrontendMinionMetadata;
 
     const streamMessage = mock((_messages: LatticeMessage[]) => {
       return Promise.resolve(Ok(undefined));
     });
 
     const aiService = Object.assign(aiEmitter, {
-      isStreaming: mock((_workspaceId: string) => false),
-      stopStream: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
-      getWorkspaceMetadata: mock((_workspaceId: string) => Promise.resolve(Ok(workspaceMeta))),
+      isStreaming: mock((_minionId: string) => false),
+      stopStream: mock((_minionId: string) => Promise.resolve(Ok(undefined))),
+      getMinionMetadata: mock((_minionId: string) => Promise.resolve(Ok(minionMeta))),
       streamMessage: streamMessage as unknown as (
         ...args: Parameters<AIService["streamMessage"]>
       ) => Promise<Result<void, SendMessageError>>,
@@ -309,17 +280,16 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     const initStateManager = new EventEmitter() as unknown as InitStateManager;
 
     const backgroundProcessManager = {
-      cleanup: mock((_workspaceId: string) => Promise.resolve()),
-      setMessageQueued: mock((_workspaceId: string, _queued: boolean) => {
+      cleanup: mock((_minionId: string) => Promise.resolve()),
+      setMessageQueued: mock((_minionId: string, _queued: boolean) => {
         void _queued;
       }),
     } as unknown as BackgroundProcessManager;
 
     const session = new AgentSession({
-      workspaceId,
+      minionId,
       config,
       historyService,
-      partialService,
       aiService,
       initStateManager,
       backgroundProcessManager,
@@ -358,12 +328,136 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     expect(secondSendAppendedIds[0]).toStartWith("user-");
   });
 
-  it("truncates edits starting from preceding skill/file snapshots", async () => {
-    const workspaceId = "ws-test";
+  it("persists a new skill snapshot when frontmatter changes (body unchanged)", async () => {
+    const minionId = "ws-test";
+
+    const skillName = "test-skill";
+    const skillBody = "Follow this skill.";
+
+    const { minionPath } = await createTestMinionWithSkill({
+      skillName,
+      skillBody,
+    });
 
     const config = {
       srcDir: "/tmp",
-      getSessionDir: (_workspaceId: string) => "/tmp",
+      getSessionDir: (_minionId: string) => "/tmp",
+    } as unknown as Config;
+
+    const { historyService, cleanup } = await createTestHistoryService();
+    historyCleanup = cleanup;
+
+    const messages: LatticeMessage[] = [];
+    const realAppend = historyService.appendToHistory.bind(historyService);
+    const appendToHistory = spyOn(historyService, "appendToHistory").mockImplementation(
+      async (wId: string, message: LatticeMessage) => {
+        messages.push(message);
+        return realAppend(wId, message);
+      }
+    );
+
+    const aiEmitter = new EventEmitter();
+
+    const minionMeta: FrontendMinionMetadata = {
+      id: minionId,
+      name: "ws",
+      projectName: "proj",
+      projectPath: minionPath,
+      namedMinionPath: minionPath,
+      runtimeConfig: { type: "local" },
+    } as unknown as FrontendMinionMetadata;
+
+    const aiService = Object.assign(aiEmitter, {
+      isStreaming: mock((_minionId: string) => false),
+      stopStream: mock((_minionId: string) => Promise.resolve(Ok(undefined))),
+      getMinionMetadata: mock((_minionId: string) => Promise.resolve(Ok(minionMeta))),
+      streamMessage: mock((_messages: LatticeMessage[]) => {
+        return Promise.resolve(Ok(undefined));
+      }) as unknown as (
+        ...args: Parameters<AIService["streamMessage"]>
+      ) => Promise<Result<void, SendMessageError>>,
+    }) as unknown as AIService;
+
+    const initStateManager = new EventEmitter() as unknown as InitStateManager;
+
+    const backgroundProcessManager = {
+      cleanup: mock((_minionId: string) => Promise.resolve()),
+      setMessageQueued: mock((_minionId: string, _queued: boolean) => {
+        void _queued;
+      }),
+    } as unknown as BackgroundProcessManager;
+
+    const session = new AgentSession({
+      minionId,
+      config,
+      historyService,
+      aiService,
+      initStateManager,
+      backgroundProcessManager,
+    });
+
+    const baseOptions = {
+      model: "anthropic:claude-3-5-sonnet-latest",
+      agentId: "exec",
+      latticeMetadata: {
+        type: "agent-skill",
+        rawCommand: "/test-skill do X",
+        skillName,
+        scope: "project",
+      },
+    };
+
+    const first = await session.sendMessage("do X", baseOptions);
+    expect(first.success).toBe(true);
+    expect(appendToHistory.mock.calls).toHaveLength(2);
+
+    const firstSnapshot = messages[0];
+    expect(firstSnapshot.id).toStartWith("agent-skill-snapshot-");
+
+    const firstSnapshotText = firstSnapshot.parts.find((p) => p.type === "text")?.text;
+    expect(firstSnapshotText).toBeTruthy();
+
+    const firstSha = firstSnapshot.metadata?.agentSkillSnapshot?.sha256;
+    expect(firstSha).toBeTruthy();
+
+    // Update frontmatter only.
+    const skillFilePath = path.join(minionPath, ".lattice", "skills", skillName, "SKILL.md");
+    const updatedSkillMarkdown = `---\nname: ${skillName}\ndescription: Updated description\n---\n\n${skillBody}\n`;
+    await fs.writeFile(skillFilePath, updatedSkillMarkdown, "utf-8");
+
+    const second = await session.sendMessage("do Y", {
+      ...baseOptions,
+      latticeMetadata: {
+        ...baseOptions.latticeMetadata,
+        rawCommand: "/test-skill do Y",
+      },
+    });
+
+    expect(second.success).toBe(true);
+
+    // Second send should persist a new snapshot (frontmatter differs) + user message.
+    expect(appendToHistory.mock.calls).toHaveLength(4);
+
+    const secondSnapshot = messages[2];
+    expect(secondSnapshot.id).toStartWith("agent-skill-snapshot-");
+
+    const secondSnapshotText = secondSnapshot.parts.find((p) => p.type === "text")?.text;
+    expect(secondSnapshotText).toBe(firstSnapshotText);
+
+    const secondSha = secondSnapshot.metadata?.agentSkillSnapshot?.sha256;
+    expect(secondSha).toBeTruthy();
+    expect(secondSha).not.toBe(firstSha);
+
+    const secondFrontmatter = secondSnapshot.metadata?.agentSkillSnapshot?.frontmatterYaml;
+    expect(secondFrontmatter ?? "").toContain("Updated description");
+  });
+
+  it("truncates edits starting from preceding skill/file snapshots", async () => {
+    const minionId = "ws-test";
+
+    const config = {
+      srcDir: "/tmp",
+      getSessionDir: (_minionId: string) => "/tmp",
     } as unknown as Config;
 
     const fileSnapshotId = "file-snapshot-0";
@@ -396,30 +490,21 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
       }),
     ];
 
-    const truncateAfterMessage = mock((_workspaceId: string, _messageId: string) => {
-      void _workspaceId;
-      void _messageId;
-      return Promise.resolve(Ok(undefined));
-    });
+    const { historyService, cleanup } = await createTestHistoryService();
+    historyCleanup = cleanup;
 
-    const historyService = {
-      truncateAfterMessage,
-      appendToHistory: mock((_workspaceId: string, _message: LatticeMessage) => {
-        return Promise.resolve(Ok(undefined));
-      }),
-      getHistory: mock((_workspaceId: string): Promise<Result<LatticeMessage[], string>> => {
-        return Promise.resolve(Ok([...historyMessages]));
-      }),
-    } as unknown as HistoryService;
+    // Seed history messages before setting up spies
+    for (const msg of historyMessages) {
+      await historyService.appendToHistory(minionId, msg);
+    }
 
-    const partialService = {
-      commitToHistory: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
-    } as unknown as PartialService;
+    const truncateAfterMessage = spyOn(historyService, "truncateAfterMessage");
+    spyOn(historyService, "appendToHistory");
 
     const aiEmitter = new EventEmitter();
     const aiService = Object.assign(aiEmitter, {
-      isStreaming: mock((_workspaceId: string) => false),
-      stopStream: mock((_workspaceId: string) => Promise.resolve(Ok(undefined))),
+      isStreaming: mock((_minionId: string) => false),
+      stopStream: mock((_minionId: string) => Promise.resolve(Ok(undefined))),
       streamMessage: mock((_messages: LatticeMessage[]) =>
         Promise.resolve(Ok(undefined))
       ) as unknown as (
@@ -430,17 +515,16 @@ describe("AgentSession.sendMessage (agent skill snapshots)", () => {
     const initStateManager = new EventEmitter() as unknown as InitStateManager;
 
     const backgroundProcessManager = {
-      cleanup: mock((_workspaceId: string) => Promise.resolve()),
-      setMessageQueued: mock((_workspaceId: string, _queued: boolean) => {
+      cleanup: mock((_minionId: string) => Promise.resolve()),
+      setMessageQueued: mock((_minionId: string, _queued: boolean) => {
         void _queued;
       }),
     } as unknown as BackgroundProcessManager;
 
     const session = new AgentSession({
-      workspaceId,
+      minionId,
       config,
       historyService,
-      partialService,
       aiService,
       initStateManager,
       backgroundProcessManager,

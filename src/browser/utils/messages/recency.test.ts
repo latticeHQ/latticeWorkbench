@@ -105,6 +105,74 @@ describe("computeRecencyTimestamp", () => {
     expect(computeRecencyTimestamp(messages)).toBe(250);
   });
 
+  describe("compaction semantics", () => {
+    it("manual compaction summary bumps recency", () => {
+      const now = Date.now();
+      const messages = [
+        createLatticeMessage("1", "assistant", "summary", { compacted: "user", timestamp: now }),
+      ];
+
+      const result = computeRecencyTimestamp(messages);
+      expect(result).toBe(now);
+    });
+
+    it("idle compaction request user message is ignored", () => {
+      const messages = [
+        createLatticeMessage("1", "user", "compact", {
+          timestamp: 2000,
+          latticeMetadata: {
+            type: "compaction-request",
+            rawCommand: "/compact",
+            parsed: {},
+            source: "idle-compaction",
+          },
+        }),
+      ];
+
+      const result = computeRecencyTimestamp(messages);
+      expect(result).toBeNull();
+    });
+
+    it("idle compacted summary timestamp governs recency (backdated)", () => {
+      const requestTime = Date.now();
+      const backdatedTime = requestTime - 60000;
+      const messages = [
+        createLatticeMessage("idle-req", "user", "compact", {
+          timestamp: requestTime,
+          latticeMetadata: {
+            type: "compaction-request",
+            rawCommand: "/compact",
+            parsed: {},
+            source: "idle-compaction",
+          },
+        }),
+        createLatticeMessage("idle-summary", "assistant", "Summary", {
+          compacted: "idle",
+          timestamp: backdatedTime,
+        }),
+      ];
+
+      const result = computeRecencyTimestamp(messages);
+      expect(result).toBe(backdatedTime);
+    });
+
+    it("manual compaction request user message does bump recency", () => {
+      const messages = [
+        createLatticeMessage("1", "user", "/compact", {
+          timestamp: 3000,
+          latticeMetadata: {
+            type: "compaction-request",
+            rawCommand: "/compact",
+            parsed: {},
+          },
+        }),
+      ];
+
+      const result = computeRecencyTimestamp(messages);
+      expect(result).toBe(3000);
+    });
+  });
+
   // Tests for createdAt parameter
   describe("with createdAt parameter", () => {
     it("returns createdAt timestamp when no messages exist", () => {
@@ -117,7 +185,7 @@ describe("computeRecencyTimestamp", () => {
       const createdAt = "2024-01-15T10:30:00.000Z"; // 1705316400000
       const createdTimestamp = new Date(createdAt).getTime();
 
-      // Old message (before workspace created)
+      // Old message (before minion created)
       const messages = [
         createLatticeMessage("1", "user", "old message", { timestamp: createdTimestamp - 1000 }),
       ];
@@ -128,7 +196,7 @@ describe("computeRecencyTimestamp", () => {
       const createdAt = "2024-01-15T10:30:00.000Z";
       const createdTimestamp = new Date(createdAt).getTime();
 
-      // New message (after workspace created)
+      // New message (after minion created)
       const messages = [
         createLatticeMessage("1", "user", "new message", { timestamp: createdTimestamp + 5000 }),
       ];

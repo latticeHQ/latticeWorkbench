@@ -32,15 +32,15 @@ export class AttachmentService {
    * Falls back to legacy plan path if new path doesn't exist.
    */
   static async generatePlanFileReference(
-    workspaceName: string,
+    minionName: string,
     projectName: string,
-    workspaceId: string,
+    minionId: string,
     runtime: Runtime
   ): Promise<PlanFileReferenceAttachment | null> {
     const latticeHome = runtime.getLatticeHome();
-    const planFilePath = getPlanFilePath(workspaceName, projectName, latticeHome);
+    const planFilePath = getPlanFilePath(minionName, projectName, latticeHome);
     // Legacy paths only used for non-Docker runtimes (Docker has no legacy files)
-    const legacyPlanPath = getLegacyPlanFilePath(workspaceId);
+    const legacyPlanPath = getLegacyPlanFilePath(minionId);
 
     // Try new path first
     try {
@@ -113,25 +113,25 @@ export class AttachmentService {
    * @param excludedItems - Set of item IDs to exclude ("plan" or "file:<path>")
    */
   static async generatePostCompactionAttachments(
-    workspaceName: string,
+    minionName: string,
     projectName: string,
-    workspaceId: string,
+    minionId: string,
     fileDiffs: FileEditDiff[],
     runtime: Runtime,
     excludedItems: Set<string> = new Set<string>()
   ): Promise<PostCompactionAttachment[]> {
     const attachments: PostCompactionAttachment[] = [];
     const latticeHome = runtime.getLatticeHome();
-    const planFilePath = getPlanFilePath(workspaceName, projectName, latticeHome);
-    const legacyPlanPath = getLegacyPlanFilePath(workspaceId);
+    const planFilePath = getPlanFilePath(minionName, projectName, latticeHome);
+    const legacyPlanPath = getLegacyPlanFilePath(minionId);
 
     // Plan file reference (skip if excluded)
     let planRef: PlanFileReferenceAttachment | null = null;
     if (!excludedItems.has("plan")) {
       planRef = await this.generatePlanFileReference(
-        workspaceName,
+        minionName,
         projectName,
-        workspaceId,
+        minionId,
         runtime
       );
       if (planRef) {

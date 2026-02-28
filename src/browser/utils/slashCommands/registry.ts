@@ -10,11 +10,11 @@ import type {
 } from "./types";
 import minimist from "minimist";
 import { MODEL_ABBREVIATIONS } from "@/common/constants/knownModels";
-import { resolveModelAlias } from "@/common/utils/ai/models";
+import { normalizeModelInput } from "@/browser/utils/models/normalizeModelInput";
 
 /**
- * Parse multiline command input into first-line tokens and remaining message
- * Used by commands that support messages on subsequent lines (/compact, /fork, /new)
+ * Parse multiline command input into first-line tokens and remaining message.
+ * Used by commands that support messages on subsequent lines (/compact, /new).
  */
 function parseMultilineCommand(rawInput: string): {
   firstLine: string;
@@ -43,91 +43,6 @@ function parseMultilineCommand(rawInput: string): {
 // Re-export MODEL_ABBREVIATIONS from constants for backwards compatibility
 export { MODEL_ABBREVIATIONS };
 
-// Provider configuration data
-const DEFAULT_PROVIDER_NAMES: SuggestionDefinition[] = [
-  {
-    key: "anthropic",
-    description: "Anthropic (Claude) provider",
-  },
-  {
-    key: "openai",
-    description: "OpenAI provider",
-  },
-  {
-    key: "google",
-    description: "Google Gemini provider",
-  },
-  {
-    key: "bedrock",
-    description: "Amazon Bedrock provider (AWS)",
-  },
-];
-
-const DEFAULT_PROVIDER_KEYS: Record<string, SuggestionDefinition[]> = {
-  anthropic: [
-    {
-      key: "apiKey",
-      description: "API key used when calling Anthropic",
-    },
-    {
-      key: "baseUrl",
-      description: "Override Anthropic base URL",
-    },
-    {
-      key: "baseUrl.scheme",
-      description: "Protocol to use for the base URL",
-    },
-  ],
-  openai: [
-    {
-      key: "apiKey",
-      description: "API key used when calling OpenAI",
-    },
-    {
-      key: "baseUrl",
-      description: "Override OpenAI base URL",
-    },
-  ],
-  google: [
-    {
-      key: "apiKey",
-      description: "API key used when calling Google Gemini",
-    },
-  ],
-  bedrock: [
-    {
-      key: "region",
-      description: "AWS region (e.g., us-east-1, us-west-2)",
-    },
-    {
-      key: "bearerToken",
-      description: "Bedrock bearer token (maps to AWS_BEARER_TOKEN_BEDROCK)",
-    },
-    {
-      key: "accessKeyId",
-      description: "AWS Access Key ID (alternative to bearerToken)",
-    },
-    {
-      key: "secretAccessKey",
-      description: "AWS Secret Access Key (use with accessKeyId)",
-    },
-  ],
-  default: [
-    {
-      key: "apiKey",
-      description: "API key required by the provider",
-    },
-    {
-      key: "baseUrl",
-      description: "Override provider base URL",
-    },
-    {
-      key: "baseUrl.scheme",
-      description: "Protocol to use for the base URL",
-    },
-  ],
-};
-
 // Suggestion helper functions
 function filterAndMapSuggestions<T extends SuggestionDefinition>(
   definitions: readonly T[],
@@ -141,22 +56,6 @@ function filterAndMapSuggestions<T extends SuggestionDefinition>(
       normalizedPartial ? definition.key.toLowerCase().startsWith(normalizedPartial) : true
     )
     .map((definition) => build(definition));
-}
-
-function dedupeDefinitions<T extends SuggestionDefinition>(definitions: readonly T[]): T[] {
-  const seen = new Set<string>();
-  const result: T[] = [];
-
-  for (const definition of definitions) {
-    const key = definition.key.toLowerCase();
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    result.push(definition);
-  }
-
-  return result;
 }
 
 const clearCommandDefinition: SlashCommandDefinition = {
@@ -269,7 +168,8 @@ const compactCommandDefinition: SlashCommandDefinition = {
     // Handle -m (model) flag: resolve abbreviation if present, otherwise use as-is
     let model: string | undefined;
     if (parsed.m !== undefined && typeof parsed.m === "string" && parsed.m.trim().length > 0) {
-      model = resolveModelAlias(parsed.m.trim());
+      const normalized = normalizeModelInput(parsed.m.trim());
+      model = normalized.model ?? parsed.m.trim();
     }
 
     // Reject extra positional arguments UNLESS they're from multiline content
@@ -299,88 +199,6 @@ const compactCommandDefinition: SlashCommandDefinition = {
   },
 };
 
-const PROVIDERS_SET_USAGE = "/providers set <provider> <key> <value>";
-
-const providersSetCommandDefinition: SlashCommandDefinition = {
-  key: "set",
-  description: "Set a provider configuration value",
-  handler: ({ cleanRemainingTokens }) => {
-    if (cleanRemainingTokens.length < 3) {
-      return {
-        type: "providers-missing-args",
-        subcommand: "set",
-        argCount: cleanRemainingTokens.length,
-      };
-    }
-
-    const [provider, key, ...valueParts] = cleanRemainingTokens;
-
-    const value = valueParts.join(" ");
-    const keyPath = key.split(".");
-
-    return {
-      type: "providers-set",
-      provider,
-      keyPath,
-      value,
-    };
-  },
-  suggestions: ({ stage, partialToken, completedTokens, context }) => {
-    // Stage 2: /providers set [provider]
-    if (stage === 2) {
-      const dynamicDefinitions = (context.providerNames ?? []).map((name) => ({
-        key: name,
-        description: `${name} provider configuration`,
-      }));
-
-      const combined = dedupeDefinitions([...dynamicDefinitions, ...DEFAULT_PROVIDER_NAMES]);
-
-      return filterAndMapSuggestions(combined, partialToken, (definition) => ({
-        id: `command:providers:set:${definition.key}`,
-        display: definition.key,
-        description: definition.description,
-        replacement: `/providers set ${definition.key} `,
-      }));
-    }
-
-    // Stage 3: /providers set <provider> [key]
-    if (stage === 3) {
-      const providerName = completedTokens[2];
-
-      // Use provider-specific keys if defined, otherwise fall back to defaults
-      const definitions =
-        providerName && DEFAULT_PROVIDER_KEYS[providerName]
-          ? DEFAULT_PROVIDER_KEYS[providerName]
-          : DEFAULT_PROVIDER_KEYS.default;
-
-      return filterAndMapSuggestions(definitions, partialToken, (definition) => ({
-        id: `command:providers:set:${providerName}:${definition.key}`,
-        display: definition.key,
-        description: definition.description,
-        replacement: `/providers set ${providerName ?? ""} ${definition.key} `,
-      }));
-    }
-
-    return null;
-  },
-};
-
-const providersCommandDefinition: SlashCommandDefinition = {
-  key: "providers",
-  description: "Configure AI provider settings",
-  handler: ({ cleanRemainingTokens }) => {
-    if (cleanRemainingTokens.length === 0) {
-      return { type: "providers-help" };
-    }
-
-    return {
-      type: "providers-invalid-subcommand",
-      subcommand: cleanRemainingTokens[0] ?? "",
-    };
-  },
-  children: [providersSetCommandDefinition],
-};
-
 const modelCommandDefinition: SlashCommandDefinition = {
   key: "model",
   description: "Select AI model",
@@ -391,11 +209,12 @@ const modelCommandDefinition: SlashCommandDefinition = {
 
     if (cleanRemainingTokens.length === 1) {
       const token = cleanRemainingTokens[0];
+      const normalized = normalizeModelInput(token);
 
       // Resolve abbreviation if present, otherwise use as full model string
       return {
         type: "model-set",
-        modelString: resolveModelAlias(token),
+        modelString: normalized.model ?? token,
       };
     }
 
@@ -467,33 +286,18 @@ const planCommandDefinition: SlashCommandDefinition = {
 
 const forkCommandDefinition: SlashCommandDefinition = {
   key: "fork",
-  description:
-    "Fork workspace with new name and optional start message. Add start message on lines after the command.",
+  description: "Clone minion. Optionally include a start message.",
   handler: ({ rawInput }): ParsedCommand => {
-    const { tokens, message } = parseMultilineCommand(rawInput);
-
-    if (tokens.length === 0) {
-      return {
-        type: "fork-help",
-      };
+    const trimmed = rawInput.trim();
+    if (trimmed.length === 0) {
+      // No args → immediate fork with auto-generated name, no start message
+      return { type: "fork" };
     }
 
-    const newName = tokens[0];
-
-    // Start message can be from remaining tokens on same line or multiline content
-    let startMessage: string | undefined;
-    if (message) {
-      // Multiline content takes precedence
-      startMessage = message;
-    } else if (tokens.length > 1) {
-      // Join remaining tokens on first line
-      startMessage = tokens.slice(1).join(" ").trim();
-    }
-
+    // Everything after /fork is the start message (name is auto-generated by backend)
     return {
       type: "fork",
-      newName,
-      startMessage: startMessage && startMessage.length > 0 ? startMessage : undefined,
+      startMessage: trimmed,
     };
   },
 };
@@ -501,7 +305,7 @@ const forkCommandDefinition: SlashCommandDefinition = {
 const newCommandDefinition: SlashCommandDefinition = {
   key: "new",
   description:
-    "Create new workspace with optional trunk branch and runtime. Use -t <branch> to specify trunk, -r <runtime> for remote execution (e.g., 'ssh hostname' or 'ssh user@host'). Add start message on lines after the command.",
+    "Summon new minion with optional trunk branch and runtime. Use -t <branch> to specify trunk, -r <runtime> for remote execution (e.g., 'ssh hostname' or 'ssh user@host'). Add start message on lines after the command.",
   handler: ({ rawInput }): ParsedCommand => {
     const {
       tokens: firstLineTokens,
@@ -521,21 +325,21 @@ const newCommandDefinition: SlashCommandDefinition = {
       },
     });
 
-    // Check for unknown flags - return undefined workspaceName to open modal
+    // Check for unknown flags - return undefined minionName to open modal
     const unknownFlags = firstLineTokens.filter(
       (token) => token.startsWith("-") && token !== "-t" && token !== "-r"
     );
     if (unknownFlags.length > 0) {
       return {
         type: "new",
-        workspaceName: undefined,
+        minionName: undefined,
         trunkBranch: undefined,
         runtime: undefined,
         startMessage: undefined,
       };
     }
 
-    // No workspace name provided - return undefined to open modal
+    // No minion name provided - return undefined to open modal
     if (parsed._.length === 0) {
       // Get trunk branch from -t flag
       let trunkBranch: string | undefined;
@@ -551,21 +355,21 @@ const newCommandDefinition: SlashCommandDefinition = {
 
       return {
         type: "new",
-        workspaceName: undefined,
+        minionName: undefined,
         trunkBranch,
         runtime,
         startMessage: remainingLines,
       };
     }
 
-    // Get workspace name (first positional argument)
-    const workspaceName = String(parsed._[0]);
+    // Get minion name (first positional argument)
+    const minionName = String(parsed._[0]);
 
     // Reject extra positional arguments - return undefined to open modal
     if (parsed._.length > 1 && !hasMultiline) {
       return {
         type: "new",
-        workspaceName: undefined,
+        minionName: undefined,
         trunkBranch: undefined,
         runtime: undefined,
         startMessage: undefined,
@@ -586,32 +390,13 @@ const newCommandDefinition: SlashCommandDefinition = {
 
     return {
       type: "new",
-      workspaceName,
+      minionName,
       trunkBranch,
       runtime,
       startMessage: remainingLines,
     };
   },
 };
-
-/**
- * Parse MCP subcommand that takes name + command (add/edit).
- * Returns { name, command } or null if invalid.
- */
-function parseMCPNameCommand(
-  subcommand: string,
-  tokens: string[],
-  rawInput: string
-): { name: string; command: string } | null {
-  const name = tokens[1];
-  // Extract command text after "subcommand name"
-  const command = rawInput
-    .trim()
-    .replace(new RegExp(`^${subcommand}\\s+[^\\s]+\\s*`, "i"), "")
-    .trim();
-  if (!name || !command) return null;
-  return { name, command };
-}
 
 const IDLE_USAGE = "/idle <hours> or /idle off";
 
@@ -656,56 +441,16 @@ const debugLlmRequestCommandDefinition: SlashCommandDefinition = {
   handler: (): ParsedCommand => ({ type: "debug-llm-request" }),
 };
 
-const mcpCommandDefinition: SlashCommandDefinition = {
-  key: "mcp",
-  description: "Manage MCP servers for this project",
-  handler: ({ cleanRemainingTokens, rawInput }) => {
-    if (cleanRemainingTokens.length === 0) {
-      return { type: "mcp-open" };
-    }
-
-    const sub = cleanRemainingTokens[0];
-
-    if (sub === "add" || sub === "edit") {
-      const parsed = parseMCPNameCommand(sub, cleanRemainingTokens, rawInput);
-      if (!parsed) {
-        return {
-          type: "command-missing-args",
-          command: `mcp ${sub}`,
-          usage: `/mcp ${sub} <name> <command>`,
-        };
-      }
-      return { type: sub === "add" ? "mcp-add" : "mcp-edit", ...parsed };
-    }
-
-    if (sub === "remove") {
-      const name = cleanRemainingTokens[1];
-      if (!name) {
-        return {
-          type: "command-missing-args",
-          command: "mcp remove",
-          usage: "/mcp remove <server-name>",
-        };
-      }
-      return { type: "mcp-remove", name };
-    }
-
-    return { type: "unknown-command", command: "mcp", subcommand: sub };
-  },
-};
-
 export const SLASH_COMMAND_DEFINITIONS: readonly SlashCommandDefinition[] = [
   clearCommandDefinition,
   truncateCommandDefinition,
   compactCommandDefinition,
   modelCommandDefinition,
-  providersCommandDefinition,
   planCommandDefinition,
 
   forkCommandDefinition,
   newCommandDefinition,
   vimCommandDefinition,
-  mcpCommandDefinition,
   idleCommandDefinition,
   debugLlmRequestCommandDefinition,
 ];

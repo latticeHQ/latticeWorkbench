@@ -149,10 +149,10 @@ describe("getDevcontainerDeepLink", () => {
       editor: "vscode",
       containerName: "jovial_newton",
       hostPath: "/Users/me/projects/myapp",
-      containerPath: "/workspaces/myapp",
+      containerPath: "/minions/myapp",
     });
     expect(url).not.toBeNull();
-    expect(url).toMatch(/^vscode:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/workspaces\/myapp$/);
+    expect(url).toMatch(/^vscode:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/minions\/myapp$/);
   });
 
   test("generates cursor:// URL for devcontainer", () => {
@@ -160,10 +160,10 @@ describe("getDevcontainerDeepLink", () => {
       editor: "cursor",
       containerName: "jovial_newton",
       hostPath: "/Users/me/projects/myapp",
-      containerPath: "/workspaces/myapp",
+      containerPath: "/minions/myapp",
     });
     expect(url).not.toBeNull();
-    expect(url).toMatch(/^cursor:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/workspaces\/myapp$/);
+    expect(url).toMatch(/^cursor:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/minions\/myapp$/);
   });
 
   test("returns null for zed (unsupported)", () => {
@@ -171,7 +171,7 @@ describe("getDevcontainerDeepLink", () => {
       editor: "zed",
       containerName: "jovial_newton",
       hostPath: "/Users/me/projects/myapp",
-      containerPath: "/workspaces/myapp",
+      containerPath: "/minions/myapp",
     });
     expect(url).toBeNull();
   });
@@ -181,22 +181,22 @@ describe("getDevcontainerDeepLink", () => {
       editor: "vscode",
       containerName: "jovial_newton",
       hostPath: "/Users/me/projects/myapp",
-      containerPath: "workspaces\\myapp",
+      containerPath: "minions\\myapp",
     });
     expect(url).not.toBeNull();
-    expect(url).toMatch(/^vscode:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/workspaces\/myapp$/);
+    expect(url).toMatch(/^vscode:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/minions\/myapp$/);
   });
   test("includes config file path when provided", () => {
     const url = getDevcontainerDeepLink({
       editor: "vscode",
       containerName: "jovial_newton",
       hostPath: "/Users/me/projects/myapp",
-      containerPath: "/workspaces/myapp",
+      containerPath: "/minions/myapp",
       configFilePath: "/Users/me/projects/myapp/.devcontainer/devcontainer.json",
     });
     expect(url).not.toBeNull();
     // The hex-encoded JSON should contain configFile
-    expect(url).toMatch(/^vscode:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/workspaces\/myapp$/);
+    expect(url).toMatch(/^vscode:\/\/vscode-remote\/dev-container\+[0-9a-f]+\/minions\/myapp$/);
   });
 
   test("hex-encodes JSON config with container name prefixed with /", () => {
@@ -204,7 +204,7 @@ describe("getDevcontainerDeepLink", () => {
       editor: "vscode",
       containerName: "my_container",
       hostPath: "/home/user/project",
-      containerPath: "/workspace",
+      containerPath: "/minion",
     });
     expect(url).not.toBeNull();
     // Extract hex portion and decode to verify format
@@ -226,7 +226,7 @@ describe("getDevcontainerDeepLink", () => {
       editor: "vscode",
       containerName: "test_container",
       hostPath: "/Users/José/projects/myapp",
-      containerPath: "/workspaces/myapp",
+      containerPath: "/minions/myapp",
     });
     expect(url).not.toBeNull();
     // Extract hex portion and decode to verify UTF-8 encoding

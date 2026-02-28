@@ -1,9 +1,9 @@
 import * as fsPromises from "fs/promises";
 import * as path from "path";
 import type {
-  WorkspaceCreationResult,
-  WorkspaceForkParams,
-  WorkspaceForkResult,
+  MinionCreationResult,
+  MinionForkParams,
+  MinionForkResult,
   InitLogger,
 } from "@/node/runtime/Runtime";
 import { listLocalBranches, cleanStaleLock, getCurrentBranch } from "@/node/git";
@@ -23,44 +23,44 @@ export class WorktreeManager {
     this.srcBaseDir = expandTilde(srcBaseDir);
   }
 
-  getWorkspacePath(projectPath: string, workspaceName: string): string {
+  getMinionPath(projectPath: string, minionName: string): string {
     const projectName = getProjectName(projectPath);
-    return path.join(this.srcBaseDir, projectName, workspaceName);
+    return path.join(this.srcBaseDir, projectName, minionName);
   }
 
-  async createWorkspace(params: {
+  async createMinion(params: {
     projectPath: string;
     branchName: string;
     trunkBranch: string;
     initLogger: InitLogger;
-  }): Promise<WorkspaceCreationResult> {
+  }): Promise<MinionCreationResult> {
     const { projectPath, branchName, trunkBranch, initLogger } = params;
 
     // Clean up stale lock before git operations on main repo
     cleanStaleLock(projectPath);
 
     try {
-      // Compute workspace path using the canonical method
-      const workspacePath = this.getWorkspacePath(projectPath, branchName);
+      // Compute minion path using the canonical method
+      const minionPath = this.getMinionPath(projectPath, branchName);
       initLogger.logStep("Creating git worktree...");
 
       // Create parent directory if needed
-      const parentDir = path.dirname(workspacePath);
+      const parentDir = path.dirname(minionPath);
       try {
         await fsPromises.access(parentDir);
       } catch {
         await fsPromises.mkdir(parentDir, { recursive: true });
       }
 
-      // Check if workspace already exists
+      // Check if minion already exists
       try {
-        await fsPromises.access(workspacePath);
+        await fsPromises.access(minionPath);
         return {
           success: false,
-          error: `Workspace already exists at ${workspacePath}`,
+          error: `Minion already exists at ${minionPath}`,
         };
       } catch {
-        // Workspace doesn't exist, proceed with creation
+        // Minion doesn't exist, proceed with creation
       }
 
       // Check if branch exists locally
@@ -80,7 +80,7 @@ export class WorktreeManager {
       if (branchExists) {
         // Branch exists, just add worktree pointing to it
         using proc = execAsync(
-          `git -C "${projectPath}" worktree add "${workspacePath}" "${branchName}"`
+          `git -C "${projectPath}" worktree add "${minionPath}" "${branchName}"`
         );
         await proc.result;
       } else {
@@ -89,7 +89,7 @@ export class WorktreeManager {
         // - local <trunk> if local is ahead/diverged (preserves user's work)
         const newBranchBase = shouldUseOrigin ? `origin/${trunkBranch}` : trunkBranch;
         using proc = execAsync(
-          `git -C "${projectPath}" worktree add -b "${branchName}" "${workspacePath}" "${newBranchBase}"`
+          `git -C "${projectPath}" worktree add -b "${branchName}" "${minionPath}" "${newBranchBase}"`
         );
         await proc.result;
       }
@@ -99,10 +99,10 @@ export class WorktreeManager {
       // For existing branches, fast-forward to latest origin (best-effort)
       // Only if local can fast-forward (preserves unpushed work)
       if (shouldUseOrigin && branchExists) {
-        await this.fastForwardToOrigin(workspacePath, trunkBranch, initLogger);
+        await this.fastForwardToOrigin(minionPath, trunkBranch, initLogger);
       }
 
-      return { success: true, workspacePath };
+      return { success: true, minionPath };
     } catch (error) {
       return {
         success: false,
@@ -130,7 +130,7 @@ export class WorktreeManager {
       return true;
     } catch (error) {
       const errorMsg = getErrorMessage(error);
-      // Branch doesn't exist on origin (common for subagent local-only branches)
+      // Branch doesn't exist on origin (common for sidekick local-only branches)
       if (errorMsg.includes("couldn't find remote ref")) {
         initLogger.logStep(`Branch "${trunkBranch}" not found on origin; using local state.`);
       } else {
@@ -174,7 +174,7 @@ export class WorktreeManager {
    * Best-effort operation for existing branches that may be behind origin.
    */
   private async fastForwardToOrigin(
-    workspacePath: string,
+    minionPath: string,
     trunkBranch: string,
     initLogger: InitLogger
   ): Promise<void> {
@@ -182,7 +182,7 @@ export class WorktreeManager {
       initLogger.logStep("Fast-forward merging...");
 
       using mergeProc = execAsync(
-        `git -C "${workspacePath}" merge --ff-only "origin/${trunkBranch}"`
+        `git -C "${minionPath}" merge --ff-only "origin/${trunkBranch}"`
       );
       await mergeProc.result;
       initLogger.logStep("Fast-forwarded to latest origin successfully");
@@ -193,7 +193,7 @@ export class WorktreeManager {
     }
   }
 
-  async renameWorkspace(
+  async renameMinion(
     projectPath: string,
     oldName: string,
     newName: string
@@ -203,17 +203,17 @@ export class WorktreeManager {
     // Clean up stale lock before git operations on main repo
     cleanStaleLock(projectPath);
 
-    // Compute workspace paths using canonical method
-    const oldPath = this.getWorkspacePath(projectPath, oldName);
-    const newPath = this.getWorkspacePath(projectPath, newName);
+    // Compute minion paths using canonical method
+    const oldPath = this.getMinionPath(projectPath, oldName);
+    const newPath = this.getMinionPath(projectPath, newName);
 
     try {
       // Move the worktree directory (updates git's internal worktree metadata)
       using moveProc = execAsync(`git -C "${projectPath}" worktree move "${oldPath}" "${newPath}"`);
       await moveProc.result;
 
-      // Rename the git branch to match the new workspace name
-      // In lattice, branch name and workspace name are always kept in sync.
+      // Rename the git branch to match the new minion name
+      // In lattice, branch name and minion name are always kept in sync.
       // Run from the new worktree path since that's where the branch is checked out.
       // Best-effort: ignore errors (e.g., branch might have a different name in test scenarios).
       try {
@@ -226,34 +226,34 @@ export class WorktreeManager {
 
       return { success: true, oldPath, newPath };
     } catch (error) {
-      return { success: false, error: `Failed to rename workspace: ${getErrorMessage(error)}` };
+      return { success: false, error: `Failed to rename minion: ${getErrorMessage(error)}` };
     }
   }
 
-  async deleteWorkspace(
+  async deleteMinion(
     projectPath: string,
-    workspaceName: string,
+    minionName: string,
     force: boolean
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }> {
     // Clean up stale lock before git operations on main repo
     cleanStaleLock(projectPath);
 
-    // In-place workspaces are identified by projectPath === workspaceName
-    // These are direct workspace directories (e.g., CLI/benchmark sessions), not git worktrees
-    const isInPlace = projectPath === workspaceName;
+    // In-place minions are identified by projectPath === minionName
+    // These are direct minion directories (e.g., CLI/benchmark sessions), not git worktrees
+    const isInPlace = projectPath === minionName;
 
-    // For git worktree workspaces, workspaceName is the branch name.
-    // Now that archiving exists, deleting a workspace should also delete its local branch by default.
+    // For git worktree minions, minionName is the branch name.
+    // Now that archiving exists, deleting a minion should also delete its local branch by default.
     const shouldDeleteBranch = !isInPlace;
 
     const tryDeleteBranch = async () => {
       if (!shouldDeleteBranch) return;
 
-      const branchToDelete = workspaceName.trim();
+      const branchToDelete = minionName.trim();
       if (!branchToDelete) {
-        log.debug("Skipping git branch deletion: empty workspace name", {
+        log.debug("Skipping git branch deletion: empty minion name", {
           projectPath,
-          workspaceName,
+          minionName,
         });
         return;
       }
@@ -264,7 +264,7 @@ export class WorktreeManager {
       } catch (error) {
         log.debug("Failed to list local branches; skipping branch deletion", {
           projectPath,
-          workspaceName: branchToDelete,
+          minionName: branchToDelete,
           error: getErrorMessage(error),
         });
         return;
@@ -273,7 +273,7 @@ export class WorktreeManager {
       if (!localBranches.includes(branchToDelete)) {
         log.debug("Skipping git branch deletion: branch does not exist locally", {
           projectPath,
-          workspaceName: branchToDelete,
+          minionName: branchToDelete,
         });
         return;
       }
@@ -309,7 +309,7 @@ export class WorktreeManager {
       if (protectedBranches.has(branchToDelete)) {
         log.debug("Skipping git branch deletion: protected branch", {
           projectPath,
-          workspaceName: branchToDelete,
+          minionName: branchToDelete,
         });
         return;
       }
@@ -323,7 +323,7 @@ export class WorktreeManager {
         if (isCheckedOut) {
           log.debug("Skipping git branch deletion: branch still checked out by a worktree", {
             projectPath,
-            workspaceName: branchToDelete,
+            minionName: branchToDelete,
           });
           return;
         }
@@ -331,7 +331,7 @@ export class WorktreeManager {
         // If the worktree list fails, proceed anyway - git itself will refuse to delete a checked-out branch.
         log.debug("Failed to check worktree list before branch deletion; proceeding", {
           projectPath,
-          workspaceName: branchToDelete,
+          minionName: branchToDelete,
           error: getErrorMessage(error),
         });
       }
@@ -343,17 +343,17 @@ export class WorktreeManager {
         );
         await deleteProc.result;
       } catch (error) {
-        // Best-effort: workspace deletion should not fail just because branch cleanup failed.
+        // Best-effort: minion deletion should not fail just because branch cleanup failed.
         log.debug("Failed to delete git branch after removing worktree", {
           projectPath,
-          workspaceName: branchToDelete,
+          minionName: branchToDelete,
           error: getErrorMessage(error),
         });
       }
     };
 
-    // Compute workspace path using the canonical method
-    const deletedPath = this.getWorkspacePath(projectPath, workspaceName);
+    // Compute minion path using the canonical method
+    const deletedPath = this.getMinionPath(projectPath, minionName);
 
     // Check if directory exists - if not, operation is idempotent
     try {
@@ -375,8 +375,8 @@ export class WorktreeManager {
       return { success: true, deletedPath };
     }
 
-    // For in-place workspaces, there's no worktree to remove
-    // Just return success - the workspace directory itself should not be deleted
+    // For in-place minions, there's no worktree to remove
+    // Just return success - the minion directory itself should not be deleted
     // as it may contain the user's actual project files
     if (isInPlace) {
       return { success: true, deletedPath };
@@ -413,7 +413,7 @@ export class WorktreeManager {
         } catch {
           // Ignore prune errors
         }
-        // Treat as success - workspace is gone (idempotent)
+        // Treat as success - minion is gone (idempotent)
         await tryDeleteBranch();
         return { success: true, deletedPath };
       }
@@ -453,43 +453,43 @@ export class WorktreeManager {
     }
   }
 
-  async forkWorkspace(params: WorkspaceForkParams): Promise<WorkspaceForkResult> {
-    const { projectPath, sourceWorkspaceName, newWorkspaceName, initLogger } = params;
+  async forkMinion(params: MinionForkParams): Promise<MinionForkResult> {
+    const { projectPath, sourceMinionName, newMinionName, initLogger } = params;
 
-    // Get source workspace path
-    const sourceWorkspacePath = this.getWorkspacePath(projectPath, sourceWorkspaceName);
+    // Get source minion path
+    const sourceMinionPath = this.getMinionPath(projectPath, sourceMinionName);
 
-    // Get current branch from source workspace
+    // Get current branch from source minion
     try {
-      using proc = execAsync(`git -C "${sourceWorkspacePath}" branch --show-current`);
+      using proc = execAsync(`git -C "${sourceMinionPath}" branch --show-current`);
       const { stdout } = await proc.result;
       const sourceBranch = stdout.trim();
 
       if (!sourceBranch) {
         return {
           success: false,
-          error: "Failed to detect branch in source workspace",
+          error: "Failed to detect branch in source minion",
         };
       }
 
-      // Use createWorkspace with sourceBranch as trunk to fork from source branch
-      const createResult = await this.createWorkspace({
+      // Use createMinion with sourceBranch as trunk to fork from source branch
+      const createResult = await this.createMinion({
         projectPath,
-        branchName: newWorkspaceName,
+        branchName: newMinionName,
         trunkBranch: sourceBranch, // Fork from source branch instead of main/master
         initLogger,
       });
 
-      if (!createResult.success || !createResult.workspacePath) {
+      if (!createResult.success || !createResult.minionPath) {
         return {
           success: false,
-          error: createResult.error ?? "Failed to create workspace",
+          error: createResult.error ?? "Failed to summon minion",
         };
       }
 
       return {
         success: true,
-        workspacePath: createResult.workspacePath,
+        minionPath: createResult.minionPath,
         sourceBranch,
       };
     } catch (error) {

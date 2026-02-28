@@ -3,15 +3,38 @@ import { tool } from "ai";
 import { coerceThinkingLevel } from "@/common/types/thinking";
 import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools";
 import { TaskToolResultSchema, TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
+import type { TaskCreatedEvent } from "@/common/types/stream";
 import { log } from "@/node/services/log";
 
-import { parseToolResult, requireTaskService, requireWorkspaceId } from "./toolUtils";
+import { parseToolResult, requireTaskService, requireMinionId } from "./toolUtils";
+import { getErrorMessage } from "@/common/utils/errors";
+
+/**
+ * Build dynamic task tool description with available sidekicks.
+ * Injects the list of available sidekicks directly into the tool description
+ * so the model sees them adjacent to the tool call schema.
+ */
+function buildTaskDescription(config: ToolConfiguration): string {
+  const baseDescription = TOOL_DEFINITIONS.task.description;
+  const sidekicks = config.availableSidekicks?.filter((a) => a.sidekickRunnable) ?? [];
+
+  if (sidekicks.length === 0) {
+    return baseDescription;
+  }
+
+  const sidekickLines = sidekicks.map((agent) => {
+    const desc = agent.description ? `: ${agent.description}` : "";
+    return `- ${agent.id}${desc}`;
+  });
+
+  return `${baseDescription}\n\nAvailable sub-agents (use \`agentId\` parameter):\n${sidekickLines.join("\n")}`;
+}
 
 export const createTaskTool: ToolFactory = (config: ToolConfiguration) => {
   return tool({
-    description: TOOL_DEFINITIONS.task.description,
+    description: buildTaskDescription(config),
     inputSchema: TOOL_DEFINITIONS.task.schema,
-    execute: async (args, { abortSignal }): Promise<unknown> => {
+    execute: async (args, { abortSignal, toolCallId }): Promise<unknown> => {
       // Defensive: tool() should have already validated args via inputSchema,
       // but keep runtime validation here to preserve type-safety.
       const parsedArgs = TOOL_DEFINITIONS.task.schema.safeParse(args);
@@ -32,20 +55,18 @@ export const createTaskTool: ToolFactory = (config: ToolConfiguration) => {
         throw new Error("Interrupted");
       }
 
-      const { agentId, subagent_type, prompt, title, run_in_background } = validatedArgs;
+      const { agentId, sidekick_type, prompt, title, run_in_background } = validatedArgs;
       const requestedAgentId =
-        typeof agentId === "string" && agentId.trim().length > 0 ? agentId : subagent_type;
+        typeof agentId === "string" && agentId.trim().length > 0 ? agentId : sidekick_type;
       if (!requestedAgentId || !prompt || !title) {
         throw new Error("task tool input validation failed: expected agent task args");
       }
 
-      const workspaceId = requireWorkspaceId(config, "task");
+      const minionId = requireMinionId(config, "task");
       const taskService = requireTaskService(config, "task");
 
-      // Disallow recursive sub-agent spawning.
-      if (config.enableAgentReport) {
-        throw new Error("Sub-agent workspaces may not spawn additional sub-agent tasks.");
-      }
+      // Nested task spawning is allowed and enforced via maxTaskNestingDepth in TaskService
+      // (and by tool policy at/over the depth limit).
 
       // Plan agent is explicitly non-executing. Allow only read-only exploration tasks.
       if (config.planFileOnly && requestedAgentId !== "explore") {
@@ -59,7 +80,7 @@ export const createTaskTool: ToolFactory = (config: ToolConfiguration) => {
       const thinkingLevel = coerceThinkingLevel(config.latticeEnv?.LATTICE_THINKING_LEVEL);
 
       const created = await taskService.create({
-        parentWorkspaceId: workspaceId,
+        parentMinionId: minionId,
         kind: "agent",
         agentId: requestedAgentId,
         // Legacy alias (persisted for older clients / on-disk compatibility).
@@ -75,31 +96,74 @@ export const createTaskTool: ToolFactory = (config: ToolConfiguration) => {
         throw new Error(created.error);
       }
 
+      const taskId = created.data.taskId;
+
+      // UI-only signal: expose the spawned taskId as soon as the minion exists.
+      // This allows the frontend to show the taskId even when the task tool is running
+      // in foreground (run_in_background=false).
+      if (config.emitChatEvent && config.minionId && toolCallId) {
+        config.emitChatEvent({
+          type: "task-created",
+          minionId,
+          toolCallId,
+          taskId,
+          timestamp: Date.now(),
+        } satisfies TaskCreatedEvent);
+      }
+
       if (run_in_background) {
         return parseToolResult(
           TaskToolResultSchema,
-          { status: created.data.status, taskId: created.data.taskId },
+          {
+            status: created.data.status,
+            taskId,
+            note: "Task started in background. Use task_await to monitor progress.",
+          },
           "task"
         );
       }
 
-      const report = await taskService.waitForAgentReport(created.data.taskId, {
-        abortSignal,
-        requestingWorkspaceId: workspaceId,
-      });
+      try {
+        const report = await taskService.waitForAgentReport(taskId, {
+          abortSignal,
+          requestingMinionId: minionId,
+        });
 
-      return parseToolResult(
-        TaskToolResultSchema,
-        {
-          status: "completed" as const,
-          taskId: created.data.taskId,
-          reportMarkdown: report.reportMarkdown,
-          title: report.title,
-          agentId: requestedAgentId,
-          agentType: requestedAgentId,
-        },
-        "task"
-      );
+        return parseToolResult(
+          TaskToolResultSchema,
+          {
+            status: "completed" as const,
+            taskId,
+            reportMarkdown: report.reportMarkdown,
+            title: report.title,
+            agentId: requestedAgentId,
+            agentType: requestedAgentId,
+          },
+          "task"
+        );
+      } catch (error: unknown) {
+        if (abortSignal?.aborted) {
+          throw new Error("Interrupted");
+        }
+
+        const message = getErrorMessage(error);
+        if (message === "Timed out waiting for agent_report") {
+          const currentStatus = taskService.getAgentTaskStatus(taskId) ?? created.data.status;
+          const normalizedStatus = currentStatus === "queued" ? "queued" : "running";
+
+          return parseToolResult(
+            TaskToolResultSchema,
+            {
+              status: normalizedStatus,
+              taskId,
+              note: "Task exceeded foreground wait limit and continues running in background. Use task_await to monitor progress.",
+            },
+            "task"
+          );
+        }
+
+        throw error;
+      }
     },
   });
 };

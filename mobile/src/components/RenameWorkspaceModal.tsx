@@ -162,13 +162,13 @@ export function RenameWorkspaceModal({
               </TouchableOpacity>
             </View>
 
-            {/* Headquarter Name */}
+            {/* Project Name */}
             <View style={{ marginBottom: spacing.md }}>
               <ThemedText
                 variant="caption"
                 style={{ marginBottom: spacing.xs, color: theme.colors.foregroundSecondary }}
               >
-                Headquarter
+                Project
               </ThemedText>
               <ThemedText
                 variant="body"

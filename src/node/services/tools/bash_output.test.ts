@@ -8,9 +8,9 @@ import { LocalRuntime } from "@/node/runtime/LocalRuntime";
 import type { Runtime } from "@/node/runtime/Runtime";
 import type { BashOutputToolResult } from "@/common/types/tools";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -40,14 +40,14 @@ describe("bash_output tool", () => {
     tempDir[Symbol.dispose]();
   });
 
-  it("should return error when workspaceId not available", async () => {
+  it("should return error when minionId not available", async () => {
     const tempDir = new TestTempDir("test-bash-output");
     const manager = new BackgroundProcessManager(tempDir.path);
 
     const config = createTestToolConfig(process.cwd());
     config.runtimeTempDir = tempDir.path;
     config.backgroundProcessManager = manager;
-    delete config.workspaceId;
+    delete config.minionId;
 
     const tool = createBashOutputTool(config);
     const result = (await tool.execute!(
@@ -57,7 +57,7 @@ describe("bash_output tool", () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toContain("Workspace ID not available");
+      expect(result.error).toContain("Minion ID not available");
     }
 
     tempDir[Symbol.dispose]();
@@ -97,7 +97,7 @@ describe("bash_output tool", () => {
     // Spawn a process that outputs incrementally
     const spawnResult = await manager.spawn(
       runtime,
-      "test-workspace",
+      "test-minion",
       "echo 'line1'; sleep 0.5; echo 'line2'",
       { cwd: process.cwd(), displayName: "test" }
     );
@@ -139,7 +139,7 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -155,7 +155,7 @@ describe("bash_output tool", () => {
     // Spawn a process that outputs multiple lines
     const spawnResult = await manager.spawn(
       runtime,
-      "test-workspace",
+      "test-minion",
       "echo 'ERROR: something failed'; echo 'INFO: everything ok'; echo 'ERROR: another error'",
       { cwd: process.cwd(), displayName: "test" }
     );
@@ -181,7 +181,7 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -194,7 +194,7 @@ describe("bash_output tool", () => {
     config.runtimeTempDir = tempDir.path;
     config.backgroundProcessManager = manager;
 
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "echo 'test'", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "echo 'test'", {
       cwd: process.cwd(),
       displayName: "test",
     });
@@ -218,25 +218,25 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
-  it("should not return output from other workspace's processes", async () => {
+  it("should not return output from other minion's processes", async () => {
     const tempDir = new TestTempDir("test-bash-output");
     const manager = new BackgroundProcessManager(tempDir.path);
 
     const runtime = createTestRuntime();
 
     const config = createTestToolConfig(process.cwd(), {
-      workspaceId: "workspace-a",
+      minionId: "minion-a",
       sessionsDir: tempDir.path,
     });
     config.runtimeTempDir = tempDir.path;
     config.backgroundProcessManager = manager;
 
-    // Spawn process in different workspace
-    const spawnResult = await manager.spawn(runtime, "workspace-b", "echo 'test'", {
+    // Spawn process in different minion
+    const spawnResult = await manager.spawn(runtime, "minion-b", "echo 'test'", {
       cwd: process.cwd(),
       displayName: "test",
     });
@@ -257,7 +257,7 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("workspace-b");
+    await manager.cleanup("minion-b");
     tempDir[Symbol.dispose]();
   });
 
@@ -271,7 +271,7 @@ describe("bash_output tool", () => {
     config.backgroundProcessManager = manager;
 
     // Spawn a process that exits quickly
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "echo 'done'", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "echo 'done'", {
       cwd: process.cwd(),
       displayName: "test",
     });
@@ -296,7 +296,7 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -317,7 +317,7 @@ describe("bash_output tool", () => {
     // This avoids flakiness from the spawn call itself taking a non-trivial amount of time.
     const spawnResult = await manager.spawn(
       runtime,
-      "test-workspace",
+      "test-minion",
       `while [ ! -f "${signalPath}" ]; do sleep 0.1; done; echo 'delayed output'`,
       { cwd: process.cwd(), displayName: processId }
     );
@@ -350,7 +350,7 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -367,7 +367,7 @@ describe("bash_output tool", () => {
     const processId = `quick-exit-${Date.now()}`;
 
     // Spawn a process that exits quickly
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "echo 'quick exit'", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "echo 'quick exit'", {
       cwd: process.cwd(),
       displayName: processId,
     });
@@ -397,7 +397,7 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -413,7 +413,7 @@ describe("bash_output tool", () => {
     const processId = `long-sleep-${Date.now()}`;
 
     // Spawn a process that sleeps for a long time with no output
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 30", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 30", {
       cwd: process.cwd(),
       displayName: processId,
     });
@@ -443,7 +443,7 @@ describe("bash_output tool", () => {
 
     // Cleanup
     await manager.terminate(spawnResult.processId);
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -459,7 +459,7 @@ describe("bash_output tool", () => {
     const processId = `no-wait-${Date.now()}`;
 
     // Spawn a process that sleeps (no immediate output)
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 30", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 30", {
       cwd: process.cwd(),
       displayName: processId,
     });
@@ -487,7 +487,7 @@ describe("bash_output tool", () => {
 
     // Cleanup
     await manager.terminate(spawnResult.processId);
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -503,7 +503,7 @@ describe("bash_output tool", () => {
     const processId = `abort-test-${Date.now()}`;
 
     // Spawn a long-running process with no output
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 60", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 60", {
       cwd: process.cwd(),
       displayName: processId,
     });
@@ -537,7 +537,7 @@ describe("bash_output tool", () => {
 
     // Cleanup
     await manager.terminate(spawnResult.processId);
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -553,7 +553,7 @@ describe("bash_output tool", () => {
     const processId = `queued-msg-test-${Date.now()}`;
 
     // Spawn a long-running process with no output
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 60", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 60", {
       cwd: process.cwd(),
       displayName: processId,
     });
@@ -565,7 +565,7 @@ describe("bash_output tool", () => {
     const tool = createBashOutputTool(config);
 
     // Queue a message after 200ms
-    setTimeout(() => manager.setMessageQueued("test-workspace", true), 200);
+    setTimeout(() => manager.setMessageQueued("test-minion", true), 200);
 
     // Call with long timeout - should be interrupted by queued message
     const start = Date.now();
@@ -585,9 +585,9 @@ describe("bash_output tool", () => {
     }
 
     // Cleanup
-    manager.setMessageQueued("test-workspace", false);
+    manager.setMessageQueued("test-minion", false);
     await manager.terminate(spawnResult.processId);
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 });

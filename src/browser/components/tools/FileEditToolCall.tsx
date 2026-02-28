@@ -1,6 +1,7 @@
 import React from "react";
+import { FileIcon } from "@/browser/components/FileIcon";
 import { parsePatch } from "diff";
-import { ClickableFilePath } from "./shared/ClickableFilePath";
+import { extractToolFilePath } from "@/common/utils/tools/toolInputFilePath";
 import type {
   FileEditInsertToolArgs,
   FileEditInsertToolResult,
@@ -109,7 +110,7 @@ export const FileEditToolCall: React.FC<FileEditToolCallProps> = ({
 
   const uiOnlyDiff = getToolOutputUiOnly(result)?.file_edit?.diff;
   const diff = result && result.success ? (uiOnlyDiff ?? result.diff) : undefined;
-  const filePath = "file_path" in args ? args.file_path : undefined;
+  const filePath = extractToolFilePath(args);
 
   // Copy to clipboard with feedback
   const { copied, copyToClipboard } = useCopyToClipboard();
@@ -148,7 +149,10 @@ export const FileEditToolCall: React.FC<FileEditToolCallProps> = ({
         >
           <ExpandIcon expanded={expanded}>▶</ExpandIcon>
           <ToolIcon toolName={toolName} />
-          <ClickableFilePath filePath={filePath ?? ""} className="text-text" />
+          <div className="text-text flex max-w-96 min-w-0 items-center gap-1.5">
+            <FileIcon filePath={filePath} className="text-[15px] leading-none" />
+            <span className="font-monospace truncate">{filePath}</span>
+          </div>
         </div>
         {!(result && result.success && diff) && (
           <StatusIndicator status={status}>{getStatusDisplay(status)}</StatusIndicator>

@@ -1,4 +1,4 @@
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import { getBuiltInSkillByName } from "@/node/services/agentSkills/builtInSkillDefinitions";
 
 import { tool } from "ai";
@@ -6,6 +6,7 @@ import { tool } from "ai";
 import type { AgentSkillReadFileToolResult } from "@/common/types/tools";
 import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools";
 import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
+import { getErrorMessage } from "@/common/utils/errors";
 import { SkillNameSchema } from "@/common/orpc/schemas";
 import {
   readAgentSkill,
@@ -20,8 +21,8 @@ function readContentWithFileReadLimits(input: {
   fullContent: string;
   fileSize: number;
   modifiedTime: string;
-  offset?: number;
-  limit?: number;
+  offset?: number | null;
+  limit?: number | null;
 }): AgentSkillReadFileToolResult {
   if (input.fileSize > MAX_FILE_SIZE) {
     const sizeMB = (input.fileSize / (1024 * 1024)).toFixed(2);
@@ -34,7 +35,7 @@ function readContentWithFileReadLimits(input: {
 
   const lines = input.fullContent === "" ? [] : input.fullContent.split("\n");
 
-  if (input.offset !== undefined && input.offset > lines.length) {
+  if (input.offset != null && input.offset > lines.length) {
     return {
       success: false,
       error: `Offset ${input.offset} is beyond file length`,
@@ -43,7 +44,7 @@ function readContentWithFileReadLimits(input: {
 
   const startLineNumber = input.offset ?? 1;
   const startIdx = startLineNumber - 1;
-  const endIdx = input.limit !== undefined ? startIdx + input.limit : lines.length;
+  const endIdx = input.limit != null ? startIdx + input.limit : lines.length;
 
   const numberedLines: string[] = [];
   let totalBytesAccumulated = 0;
@@ -91,9 +92,6 @@ function readContentWithFileReadLimits(input: {
     content: numberedLines.join("\n"),
   };
 }
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * Agent Skill read_file tool factory.
@@ -104,8 +102,8 @@ export const createAgentSkillReadFileTool: ToolFactory = (config: ToolConfigurat
     description: TOOL_DEFINITIONS.agent_skill_read_file.description,
     inputSchema: TOOL_DEFINITIONS.agent_skill_read_file.schema,
     execute: async ({ name, filePath, offset, limit }): Promise<AgentSkillReadFileToolResult> => {
-      const workspacePath = config.cwd;
-      if (!workspacePath) {
+      const minionPath = config.cwd;
+      if (!minionPath) {
         return {
           success: false,
           error: "Tool misconfigured: cwd is required.",
@@ -122,7 +120,7 @@ export const createAgentSkillReadFileTool: ToolFactory = (config: ToolConfigurat
       }
 
       try {
-        if (offset !== undefined && offset < 1) {
+        if (offset != null && offset < 1) {
           return {
             success: false,
             error: `Offset must be positive (got ${offset})`,
@@ -132,7 +130,7 @@ export const createAgentSkillReadFileTool: ToolFactory = (config: ToolConfigurat
         // Chat with Lattice intentionally has no generic filesystem access. Restrict skill file reads
         // to built-in skills (bundled in the app) so users can access help like `lattice-docs` without
         // granting access to project/global skills on disk.
-        if (config.workspaceId === LATTICE_HELP_CHAT_WORKSPACE_ID) {
+        if (config.minionId === LATTICE_HELP_CHAT_MINION_ID) {
           const builtInSkill = getBuiltInSkillByName(parsedName.data);
           if (!builtInSkill) {
             return {
@@ -151,7 +149,7 @@ export const createAgentSkillReadFileTool: ToolFactory = (config: ToolConfigurat
           });
         }
 
-        const resolvedSkill = await readAgentSkill(config.runtime, workspacePath, parsedName.data);
+        const resolvedSkill = await readAgentSkill(config.runtime, minionPath, parsedName.data);
 
         // Built-in skills are embedded in the app bundle (no filesystem access).
         if (resolvedSkill.package.scope === "built-in") {
@@ -222,7 +220,7 @@ export const createAgentSkillReadFileTool: ToolFactory = (config: ToolConfigurat
       } catch (error) {
         return {
           success: false,
-          error: `Failed to read file: ${formatError(error)}`,
+          error: `Failed to read file: ${getErrorMessage(error)}`,
         };
       }
     },

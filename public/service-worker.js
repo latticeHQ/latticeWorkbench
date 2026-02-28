@@ -1,4 +1,4 @@
-// Lattice Service Worker for PWA support
+// lattice Service Worker for PWA support
 const CACHE_NAME = "lattice-v1";
 const urlsToCache = ["/", "/index.html"];
 

@@ -28,12 +28,12 @@ function isReminderDue(toolCallsSinceLastTodoWrite: number): boolean {
 }
 
 export class TodoListReminderSource implements NotificationSource {
-  private readonly workspaceSessionDir: string;
+  private readonly minionSessionDir: string;
   private toolCallsSinceLastTodoWrite = 0;
 
-  constructor(args: { workspaceSessionDir: string }) {
-    assert(typeof args.workspaceSessionDir === "string", "workspaceSessionDir must be a string");
-    this.workspaceSessionDir = args.workspaceSessionDir;
+  constructor(args: { minionSessionDir: string }) {
+    assert(typeof args.minionSessionDir === "string", "minionSessionDir must be a string");
+    this.minionSessionDir = args.minionSessionDir;
   }
 
   async poll(ctx: NotificationPollContext): Promise<AgentNotification[]> {
@@ -52,7 +52,7 @@ export class TodoListReminderSource implements NotificationSource {
       return [];
     }
 
-    const todos = await readTodosForSessionDir(this.workspaceSessionDir);
+    const todos = await readTodosForSessionDir(this.minionSessionDir);
     if (todos.length === 0) {
       return [];
     }

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import { useCallback, useState } from "react";
 import { Check, GitBranch, Loader2 } from "lucide-react";
 import { useAPI } from "@/browser/contexts/API";
 
@@ -53,7 +53,7 @@ export function GitInitBanner(props: GitInitBannerProps) {
             Git repository initialized
           </span>
           <span className="text-muted-foreground text-xs">
-            You can now use Worktree and Remote runtimes for isolated workspaces
+            You can now use Worktree and Remote runtimes for isolated minions
           </span>
         </div>
       </div>

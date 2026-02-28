@@ -8,8 +8,8 @@ interface ConsoleOutputDisplayProps {
 // Use CSS variables from globals.css
 const levelStyles: Record<string, React.CSSProperties> = {
   log: { color: "var(--color-muted-foreground)" },
-  warn: { color: "var(--color-warning, #f59e0b)" },
-  error: { color: "var(--color-error, #ef4444)" },
+  warn: { color: "var(--color-warning, #d4880a)" },
+  error: { color: "var(--color-error, #cc4040)" },
 };
 
 export const ConsoleOutputDisplay: React.FC<ConsoleOutputDisplayProps> = ({ output }) => {

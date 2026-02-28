@@ -5,9 +5,9 @@ import type { z } from "zod";
 import type { ToolConfiguration } from "@/common/utils/tools/tools";
 import type { TaskService } from "@/node/services/taskService";
 
-export function requireWorkspaceId(config: ToolConfiguration, toolName: string): string {
-  assert(config.workspaceId, `${toolName} requires workspaceId`);
-  return config.workspaceId;
+export function requireMinionId(config: ToolConfiguration, toolName: string): string {
+  assert(config.minionId, `${toolName} requires minionId`);
+  return config.minionId;
 }
 
 export function requireTaskService(config: ToolConfiguration, toolName: string): TaskService {

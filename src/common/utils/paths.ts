@@ -1,13 +1,13 @@
 /**
  * Renderer-safe path utilities for cross-platform compatibility.
- * Handles differences between Lattice-style paths (/) and Windows paths (\).
+ * Handles differences between Unix-style paths (/) and Windows paths (\).
  *
  * This module is safe for BOTH main and renderer, but intentionally avoids any
  * Node globals (process/env). Main-only helpers live in './paths.main'.
  */
 
 export interface PathComponents {
-  root: string; // "/" on Lattice, "C:\\" on Windows, "" for relative paths
+  root: string; // "/" on Unix, "C:\\" on Windows, "" for relative paths
   segments: string[]; // Directory segments (excluding basename)
   basename: string; // Final path component
 }
@@ -19,7 +19,7 @@ function isWindowsPlatform(): boolean {
   if (typeof navigator !== "undefined" && navigator.platform) {
     return navigator.platform.toLowerCase().includes("win");
   }
-  // Default to Lattice-style when navigator is unavailable (e.g., Node context)
+  // Default to Unix-style when navigator is unavailable (e.g., Node context)
   return false;
 }
 
@@ -28,7 +28,7 @@ function getSeparator(): string {
 }
 
 /**
- * OS-aware path utilities that handle Windows and Lattice paths correctly.
+ * OS-aware path utilities that handle Windows and Unix paths correctly.
  * This class provides a single source of truth for path operations that need
  * to be aware of platform differences.
  */
@@ -47,7 +47,7 @@ export class PlatformPaths {
    * @returns The final component of the path
    *
    * @example
-   * // Lattice
+   * // Unix
    * basename("/home/user/project") // => "project"
    *
    * // Windows
@@ -74,7 +74,7 @@ export class PlatformPaths {
    * @returns Object with root, segments, and basename
    *
    * @example
-   * // Lattice
+   * // Unix
    * parse("/home/user/project") // => { root: "/", segments: ["home", "user"], basename: "project" }
    *
    * // Windows
@@ -118,7 +118,7 @@ export class PlatformPaths {
           dir = dir.slice(root.length);
         }
       }
-      // Also treat Lattice-style absolute paths as absolute even on Windows
+      // Also treat Unix-style absolute paths as absolute even on Windows
       if (!root && original.startsWith("/")) {
         root = "/";
         if (dir.startsWith(root)) {
@@ -150,8 +150,8 @@ export class PlatformPaths {
    * @returns Abbreviated path
    *
    * @example
-   * // Lattice
-   * abbreviate("/home/user/Headquarters/lattice") // => "/h/u/P/lattice"
+   * // Unix
+   * abbreviate("/home/user/Projects/lattice") // => "/h/u/P/lattice"
    *
    * // Windows
    * abbreviate("C:\\Users\\john\\Documents\\project") // => "C:\\U\\j\\D\\project"
@@ -215,7 +215,7 @@ export class PlatformPaths {
    * Extracts the final directory name from a project path
    *
    * @param projectPath - Path to the project
-   * @returns Headquarter name (final directory component)
+   * @returns Project name (final directory component)
    *
    * @example
    * getProjectName("/home/user/projects/lattice") // => "lattice"

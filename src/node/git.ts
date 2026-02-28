@@ -5,6 +5,7 @@ import type { RuntimeConfig } from "@/common/types/runtime";
 import { execAsync } from "@/node/utils/disposableExec";
 import { createRuntime } from "./runtime/runtimeFactory";
 import { log } from "./services/log";
+import { getErrorMessage } from "@/common/utils/errors";
 
 /**
  * Remove stale .git/index.lock file if it exists and is old.
@@ -42,7 +43,7 @@ export interface CreateWorktreeOptions {
   trunkBranch: string;
   /** Directory name to use for the worktree (if not provided, uses branchName) */
   directoryName?: string;
-  /** Runtime configuration (needed to compute workspace path) */
+  /** Runtime configuration (needed to compute minion path) */
   runtimeConfig?: RuntimeConfig;
 }
 
@@ -112,19 +113,19 @@ export async function createWorktree(
   try {
     // Use directoryName if provided, otherwise fall back to branchName (legacy)
     const dirName = options.directoryName ?? branchName;
-    // Compute workspace path using Runtime (single source of truth)
+    // Compute minion path using Runtime (single source of truth)
     const runtime = createRuntime(
       options.runtimeConfig ?? { type: "local", srcBaseDir: config.srcDir },
       { projectPath }
     );
-    const workspacePath = runtime.getWorkspacePath(projectPath, dirName);
+    const minionPath = runtime.getMinionPath(projectPath, dirName);
     const { trunkBranch } = options;
     const normalizedTrunkBranch = typeof trunkBranch === "string" ? trunkBranch.trim() : "";
 
     if (!normalizedTrunkBranch) {
       return {
         success: false,
-        error: "Trunk branch is required to create a workspace",
+        error: "Trunk branch is required to create a minion",
       };
     }
 
@@ -133,16 +134,16 @@ export async function createWorktree(
       "Expected trunk branch to be validated before calling createWorktree"
     );
 
-    // Create workspace directory if it doesn't exist
-    if (!fs.existsSync(path.dirname(workspacePath))) {
-      fs.mkdirSync(path.dirname(workspacePath), { recursive: true });
+    // Create minion directory if it doesn't exist
+    if (!fs.existsSync(path.dirname(minionPath))) {
+      fs.mkdirSync(path.dirname(minionPath), { recursive: true });
     }
 
-    // Check if workspace already exists
-    if (fs.existsSync(workspacePath)) {
+    // Check if minion already exists
+    if (fs.existsSync(minionPath)) {
       return {
         success: false,
-        error: `Workspace already exists at ${workspacePath}`,
+        error: `Minion already exists at ${minionPath}`,
       };
     }
 
@@ -151,10 +152,10 @@ export async function createWorktree(
     // If branch already exists locally, reuse it instead of creating a new one
     if (localBranches.includes(branchName)) {
       using proc = execAsync(
-        `git -C "${projectPath}" worktree add "${workspacePath}" "${branchName}"`
+        `git -C "${projectPath}" worktree add "${minionPath}" "${branchName}"`
       );
       await proc.result;
-      return { success: true, path: workspacePath };
+      return { success: true, path: minionPath };
     }
 
     // Check if branch exists remotely (origin/<branchName>)
@@ -167,10 +168,10 @@ export async function createWorktree(
 
     if (branchExists) {
       using proc = execAsync(
-        `git -C "${projectPath}" worktree add "${workspacePath}" "${branchName}"`
+        `git -C "${projectPath}" worktree add "${minionPath}" "${branchName}"`
       );
       await proc.result;
-      return { success: true, path: workspacePath };
+      return { success: true, path: minionPath };
     }
 
     if (!localBranches.includes(normalizedTrunkBranch)) {
@@ -181,13 +182,13 @@ export async function createWorktree(
     }
 
     using proc = execAsync(
-      `git -C "${projectPath}" worktree add -b "${branchName}" "${workspacePath}" "${normalizedTrunkBranch}"`
+      `git -C "${projectPath}" worktree add -b "${branchName}" "${minionPath}" "${normalizedTrunkBranch}"`
     );
     await proc.result;
 
-    return { success: true, path: workspacePath };
+    return { success: true, path: minionPath };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     return { success: false, error: message };
   }
 }
@@ -219,7 +220,7 @@ export async function getMainWorktreeFromWorktree(worktreePath: string): Promise
 
 export async function removeWorktree(
   projectPath: string,
-  workspacePath: string,
+  minionPath: string,
   options: { force: boolean } = { force: false }
 ): Promise<WorktreeResult> {
   // Clean up stale lock before git operations on main repo
@@ -228,12 +229,12 @@ export async function removeWorktree(
   try {
     // Remove the worktree (from the main repository context)
     using proc = execAsync(
-      `git -C "${projectPath}" worktree remove "${workspacePath}" ${options.force ? "--force" : ""}`
+      `git -C "${projectPath}" worktree remove "${minionPath}" ${options.force ? "--force" : ""}`
     );
     await proc.result;
     return { success: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     return { success: false, error: message };
   }
 }
@@ -247,7 +248,7 @@ export async function pruneWorktrees(projectPath: string): Promise<WorktreeResul
     await proc.result;
     return { success: true };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = getErrorMessage(error);
     return { success: false, error: message };
   }
 }

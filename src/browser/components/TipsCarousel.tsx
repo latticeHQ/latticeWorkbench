@@ -13,13 +13,13 @@ const TIPS = [
   {
     content: (
       <>
-        Navigate workspaces with{" "}
+        Navigate minions with{" "}
         <span className="keybind font-primary text-[color-mix(in_srgb,var(--color-text),transparent_30%)] transition-colors duration-300">
-          {formatKeybind(KEYBINDS.PREV_WORKSPACE)}
+          {formatKeybind(KEYBINDS.PREV_MINION)}
         </span>{" "}
         and{" "}
         <span className="keybind font-primary text-[color-mix(in_srgb,var(--color-text),transparent_30%)] transition-colors duration-300">
-          {formatKeybind(KEYBINDS.NEXT_WORKSPACE)}
+          {formatKeybind(KEYBINDS.NEXT_MINION)}
         </span>
       </>
     ),

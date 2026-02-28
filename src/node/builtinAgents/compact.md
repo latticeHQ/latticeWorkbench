@@ -3,7 +3,7 @@ name: Compact
 description: History compaction (internal)
 ui:
   hidden: true
-subagent:
+sidekick:
   runnable: false
 ---
 

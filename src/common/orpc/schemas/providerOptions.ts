@@ -3,8 +3,22 @@ import { z } from "zod";
 export const LatticeProviderOptionsSchema = z.object({
   anthropic: z
     .object({
+      // Deprecated: prefer use1MContextModels for per-model control.
+      // Kept for backward compat with agentSession auto-retry which sets it directly.
       use1MContext: z.boolean().optional().meta({
-        description: "Enable 1M context window (requires beta header)",
+        description: "Enable 1M context window globally (deprecated: use use1MContextModels)",
+      }),
+      use1MContextModels: z.array(z.string()).optional().meta({
+        description:
+          "Model IDs with 1M context enabled (e.g. ['anthropic:claude-sonnet-4-20250514'])",
+      }),
+      // Anthropic prompt cache TTL. "5m" is the default (free refresh on hit).
+      // "1h" costs 2× base input for cache writes but keeps the cache alive longer —
+      // useful for agentic workflows where turns take >5 minutes.
+      // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching#1-hour-cache-duration
+      cacheTtl: z.enum(["5m", "1h"]).nullish().meta({
+        description:
+          'Anthropic prompt cache TTL: "5m" (default, free refresh) or "1h" (2× write cost, longer cache)',
       }),
     })
     .optional(),

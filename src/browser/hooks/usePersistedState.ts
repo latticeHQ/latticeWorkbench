@@ -109,7 +109,7 @@ export function readPersistedString(key: string): string | undefined {
 /**
  * Update a persisted state value from outside the hook.
  * This is useful when you need to update state from a different component/context
- * that doesn't have access to the setter (e.g., command palette updating workspace state).
+ * that doesn't have access to the setter (e.g., command palette updating minion state).
  *
  * Supports functional updates to avoid races when toggling values.
  *

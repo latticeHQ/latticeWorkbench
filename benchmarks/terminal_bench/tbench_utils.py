@@ -15,7 +15,7 @@ import sys
 from pathlib import Path
 
 # GitHub repository for fetching artifacts
-GITHUB_REPO = "onchainengineer/lattice"
+GITHUB_REPO = "lattice/lattice"
 
 # Smoke test model - excluded from submissions by default
 SMOKE_TEST_MODEL = "anthropic/claude-sonnet-4-5"

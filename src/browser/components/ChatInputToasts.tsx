@@ -1,4 +1,3 @@
-import React from "react";
 import type { Toast } from "./ChatInputToast";
 import { SolutionLabel } from "./ChatInputToast";
 import { DocsLink } from "./DocsLink";
@@ -21,7 +20,7 @@ export function createInvalidCompactModelToast(model: string): Toast {
         <br />
         <br />
         <SolutionLabel>Supported models:</SolutionLabel>
-        <span className="text-muted">See settings for supported models</span>
+        <DocsLink path="/config/models">latticeruntime.com/models</DocsLink>
       </>
     ),
   };
@@ -34,98 +33,32 @@ export const createCommandToast = (parsed: ParsedCommand): Toast | null => {
   if (!parsed) return null;
 
   switch (parsed.type) {
-    case "providers-help":
-      return {
-        id: Date.now().toString(),
-        type: "error",
-        title: "Providers Command",
-        message: "Configure AI provider settings",
-        solution: (
-          <>
-            <SolutionLabel>Usage:</SolutionLabel>
-            /providers set &lt;provider&gt; &lt;key&gt; &lt;value&gt;
-            <br />
-            <br />
-            <SolutionLabel>Example:</SolutionLabel>
-            /providers set anthropic apiKey YOUR_API_KEY
-          </>
-        ),
-      };
-
-    case "providers-missing-args": {
-      const missing =
-        parsed.argCount === 0
-          ? "provider, key, and value"
-          : parsed.argCount === 1
-            ? "key and value"
-            : parsed.argCount === 2
-              ? "value"
-              : "";
-
-      return {
-        id: Date.now().toString(),
-        type: "error",
-        title: "Missing Arguments",
-        message: `Missing ${missing} for /providers set`,
-        solution: (
-          <>
-            <SolutionLabel>Usage:</SolutionLabel>
-            /providers set &lt;provider&gt; &lt;key&gt; &lt;value&gt;
-          </>
-        ),
-      };
-    }
-
-    case "providers-invalid-subcommand":
-      return {
-        id: Date.now().toString(),
-        type: "error",
-        title: "Invalid Subcommand",
-        message: `Invalid subcommand '${parsed.subcommand}'`,
-        solution: (
-          <>
-            <SolutionLabel>Available Commands:</SolutionLabel>
-            /providers set - Configure provider settings
-          </>
-        ),
-      };
-
     case "model-help":
       return {
         id: Date.now().toString(),
         type: "error",
         title: "Model Command",
-        message: "Select AI model for this session",
+        message: "Select AI model for this session or send a one-shot message",
         solution: (
           <>
-            <SolutionLabel>Usage:</SolutionLabel>
-            /model &lt;abbreviation&gt; or /model &lt;provider:model&gt;
-            <br />
-            <br />
-            <SolutionLabel>Examples:</SolutionLabel>
+            <SolutionLabel>Set model for session:</SolutionLabel>
             /model sonnet
             <br />
-            /model anthropic:opus-4-1
-          </>
-        ),
-      };
-
-    case "fork-help":
-      return {
-        id: Date.now().toString(),
-        type: "error",
-        title: "Fork Command",
-        message: "Fork current workspace with a new name",
-        solution: (
-          <>
-            <SolutionLabel>Usage:</SolutionLabel>
-            /fork &lt;new-name&gt; [optional start message]
+            /model anthropic:claude-sonnet-4-5
             <br />
             <br />
-            <SolutionLabel>Examples:</SolutionLabel>
-            /fork experiment-branch
+            <SolutionLabel>One-shot (single message):</SolutionLabel>
+            /haiku explain this code
             <br />
-            /fork refactor Continue with refactoring approach
+            /opus review my changes
+            <br />
+            <br />
+            <SolutionLabel>With thinking override:</SolutionLabel>
+            /opus+high deep review
+            <br />
+            /haiku+0 quick answer (0=lowest for model)
+            <br />
+            /+2 use current model, thinking level 2
           </>
         ),
       };
@@ -184,12 +117,50 @@ export const createErrorToast = (error: SendMessageErrorType): Toast => {
         type: "error",
         title: "API Key Not Found",
         message: `The ${error.provider} provider requires an API key to function.`,
-        solution: formatted.providerCommand ? (
+        solution: (
           <>
-            <SolutionLabel>Quick Fix:</SolutionLabel>
-            {formatted.providerCommand}
+            <SolutionLabel>Fix:</SolutionLabel>
+            {formatted.resolutionHint ?? "Open Settings → Providers and add an API key."}
+            <br />
+            <DocsLink path="/config/providers">latticeruntime.com/providers</DocsLink>
           </>
-        ) : undefined,
+        ),
+      };
+    }
+
+    case "oauth_not_connected": {
+      const formatted = formatSendMessageError(error);
+      return {
+        id: Date.now().toString(),
+        type: "error",
+        title: "OAuth Not Connected",
+        message: `The ${error.provider} provider requires an OAuth connection to function.`,
+        solution: (
+          <>
+            <SolutionLabel>Fix:</SolutionLabel>
+            {formatted.resolutionHint ?? "Open Settings → Providers and connect your account."}
+            <br />
+            <DocsLink path="/config/providers">latticeruntime.com/providers</DocsLink>
+          </>
+        ),
+      };
+    }
+
+    case "provider_disabled": {
+      const formatted = formatSendMessageError(error);
+      return {
+        id: Date.now().toString(),
+        type: "error",
+        title: "Provider Disabled",
+        message: formatted.message,
+        solution: (
+          <>
+            <SolutionLabel>Fix:</SolutionLabel>
+            {formatted.resolutionHint ?? "Open Settings → Providers and enable this provider."}
+            <br />
+            <DocsLink path="/config/providers">latticeruntime.com/providers</DocsLink>
+          </>
+        ),
       };
     }
 
@@ -203,7 +174,9 @@ export const createErrorToast = (error: SendMessageErrorType): Toast => {
         solution: (
           <>
             <SolutionLabel>Try This:</SolutionLabel>
-            Use an available provider from /providers list
+            Choose a supported provider in Settings → Providers.
+            <br />
+            <DocsLink path="/config/providers">latticeruntime.com/providers</DocsLink>
           </>
         ),
       };
@@ -225,16 +198,16 @@ export const createErrorToast = (error: SendMessageErrorType): Toast => {
       };
     }
 
-    case "incompatible_workspace": {
+    case "incompatible_minion": {
       return {
         id: Date.now().toString(),
         type: "error",
-        title: "Incompatible Workspace",
+        title: "Incompatible Minion",
         message: error.message,
         solution: (
           <>
             <SolutionLabel>Solution:</SolutionLabel>
-            Upgrade lattice to use this workspace, or delete it and create a new one.
+            Upgrade lattice to use this minion, or delete it and create a new one.
           </>
         ),
       };

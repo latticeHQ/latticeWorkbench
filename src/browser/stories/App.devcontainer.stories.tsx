@@ -11,12 +11,12 @@ import { expandProjects } from "./storyHelpers";
 import type { ProjectConfig } from "@/node/config";
 
 async function openProjectCreationView(storyRoot: HTMLElement, projectPath: string): Promise<void> {
-  // App now boots into the built-in lattice-chat workspace.
+  // App now boots into the built-in lattice-chat minion.
   // Navigate to the project creation page so runtime controls are visible.
   const projectRow = await waitFor(
     () => {
       const el = storyRoot.querySelector(`[data-project-path="${projectPath}"][aria-controls]`);
-      if (!el) throw new Error("Headquarter row not found");
+      if (!el) throw new Error("Project row not found");
       return el;
     },
     { timeout: 10_000 }
@@ -31,9 +31,9 @@ export default {
 
 type RuntimeAvailability = NonNullable<MockORPCClientOptions["runtimeAvailability"]>;
 
-/** Helper to create a project config for a path with no workspaces */
-function projectWithNoWorkspaces(path: string): [string, ProjectConfig] {
-  return [path, { workspaces: [] }];
+/** Helper to create a project config for a path with no minions */
+function projectWithNoMinions(path: string): [string, ProjectConfig] {
+  return [path, { minions: [] }];
 }
 
 const baseRuntimeAvailability: Pick<RuntimeAvailability, "local" | "worktree" | "ssh" | "docker"> =
@@ -97,8 +97,8 @@ export const DevcontainerUnavailable: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/no-devcontainer-cli"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/no-devcontainer-cli")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/no-devcontainer-cli")]),
+          minions: [],
           runtimeAvailability: unavailableDevcontainer,
         });
       }}
@@ -121,12 +121,9 @@ export const DevcontainerUnavailable: AppStory = {
     const devcontainerText = await groupCanvas.findByText("Dev container");
     const devcontainerButton = devcontainerText.closest("button");
     if (!devcontainerButton) throw new Error("Dev container button not found");
-    await waitFor(
-      async () => {
-        await expect(devcontainerButton).toBeDisabled();
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(async () => {
+      await expect(devcontainerButton).toBeDisabled();
+    });
   },
 };
 
@@ -139,8 +136,8 @@ export const DevcontainerSingleConfig: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/devcontainer-app"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/devcontainer-app")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/devcontainer-app")]),
+          minions: [],
           runtimeAvailability: singleConfigAvailability,
         });
       }}
@@ -166,16 +163,14 @@ export const DevcontainerSingleConfig: AppStory = {
     await userEvent.click(devcontainerButton);
 
     // Wait for the config controls box to appear with a disabled dropdown
-    await waitFor(
-      () => {
-        const configSelect = canvas.queryByRole("combobox", { name: "Dev container config" });
-        if (!configSelect) throw new Error("Dev container config dropdown not found");
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const configSelect = canvas.queryByRole("combobox", { name: "Dev container config" });
+      if (!configSelect) throw new Error("Dev container config dropdown not found");
+    });
 
-    // Should show the dropdown with the single config selected
-    const configSelect = canvas.getByRole("combobox", { name: "Dev container config" });
+    // Should show the dropdown with the single config selected.
+    // Use findByRole (retry-capable) to handle transient DOM gaps between awaits.
+    const configSelect = await canvas.findByRole("combobox", { name: "Dev container config" });
     await expect(configSelect).toBeEnabled();
     await expect(
       canvas.findByText("Default (.devcontainer/devcontainer.json)")
@@ -192,8 +187,8 @@ export const DevcontainerMultiConfig: AppStory = {
       setup={() => {
         expandProjects(["/Users/dev/devcontainer-multi"]);
         return createMockORPCClient({
-          projects: new Map([projectWithNoWorkspaces("/Users/dev/devcontainer-multi")]),
-          workspaces: [],
+          projects: new Map([projectWithNoMinions("/Users/dev/devcontainer-multi")]),
+          minions: [],
           runtimeAvailability: multiConfigAvailability,
         });
       }}
@@ -220,15 +215,13 @@ export const DevcontainerMultiConfig: AppStory = {
     await userEvent.click(devcontainerButton);
 
     // Wait for Dev container mode to be active and config dropdown to appear
-    await waitFor(
-      () => {
-        const configSelect = canvas.queryByRole("combobox", { name: "Dev container config" });
-        if (!configSelect) throw new Error("Dev container config dropdown not found");
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const configSelect = canvas.queryByRole("combobox", { name: "Dev container config" });
+      if (!configSelect) throw new Error("Dev container config dropdown not found");
+    });
 
-    const configSelect = canvas.getByRole("combobox", { name: "Dev container config" });
+    // Use findByRole (retry-capable) to handle transient DOM gaps between awaits.
+    const configSelect = await canvas.findByRole("combobox", { name: "Dev container config" });
     await userEvent.click(configSelect);
 
     const backendOption = await body.findByRole("option", {

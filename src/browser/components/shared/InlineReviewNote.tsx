@@ -5,12 +5,13 @@
  * Does NOT include code chunk rendering; parent components provide that context.
  */
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Pencil, Check, Trash2, Unlink, MessageSquare } from "lucide-react";
 import { Button } from "../ui/button";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import { formatLineRangeCompact } from "@/browser/utils/review/lineRange";
 import { matchesKeybind, formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
+import { stopKeyboardPropagation } from "@/browser/utils/events";
 import { cn } from "@/common/lib/utils";
 import type { Review } from "@/common/types/review";
 
@@ -21,6 +22,8 @@ import type { Review } from "@/common/types/review";
 export interface ReviewActionCallbacks {
   /** Edit the review comment */
   onEditComment?: (reviewId: string, newComment: string) => void;
+  /** Notify parent when inline note enters/leaves edit mode */
+  onEditingChange?: (reviewId: string, isEditing: boolean) => void;
   /** Mark review as complete (checked) */
   onComplete?: (reviewId: string) => void;
   /** Detach review from message (back to pending) */
@@ -41,6 +44,8 @@ export interface InlineReviewNoteProps {
   actions?: ReviewActionCallbacks;
   /** Additional className for the container */
   className?: string;
+  /** Request id that should put this note into edit mode */
+  editRequestId?: number | null;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -56,35 +61,72 @@ export const InlineReviewNote: React.FC<InlineReviewNoteProps> = ({
   showFilePath = false,
   actions,
   className,
+  editRequestId,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(review.data.userNote);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isEditingRef = useRef(false);
+  const actionsRef = useRef(actions);
+  const handledEditRequestIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    actionsRef.current = actions;
+  }, [actions]);
+
+  useEffect(() => {
+    return () => {
+      if (isEditingRef.current) {
+        actionsRef.current?.onEditingChange?.(review.id, false);
+      }
+    };
+  }, [review.id]);
 
   const handleStartEdit = useCallback(() => {
     setEditValue(review.data.userNote);
     setIsEditing(true);
+    isEditingRef.current = true;
+    actions?.onEditingChange?.(review.id, true);
     setTimeout(() => textareaRef.current?.focus(), 0);
-  }, [review.data.userNote]);
+  }, [review.data.userNote, review.id, actions]);
+
+  useEffect(() => {
+    if (editRequestId == null || !actions?.onEditComment) {
+      return;
+    }
+
+    if (handledEditRequestIdRef.current === editRequestId) {
+      return;
+    }
+
+    handledEditRequestIdRef.current = editRequestId;
+    handleStartEdit();
+  }, [actions?.onEditComment, editRequestId, handleStartEdit]);
 
   const handleSaveEdit = useCallback(() => {
     if (actions?.onEditComment && editValue.trim() !== review.data.userNote) {
       actions.onEditComment(review.id, editValue.trim());
     }
     setIsEditing(false);
+    isEditingRef.current = false;
+    actions?.onEditingChange?.(review.id, false);
   }, [editValue, review.data.userNote, review.id, actions]);
 
   const handleCancelEdit = useCallback(() => {
     setEditValue(review.data.userNote);
     setIsEditing(false);
-  }, [review.data.userNote]);
+    isEditingRef.current = false;
+    actions?.onEditingChange?.(review.id, false);
+  }, [review.data.userNote, review.id, actions]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (matchesKeybind(e, KEYBINDS.SAVE_EDIT)) {
+        stopKeyboardPropagation(e);
         e.preventDefault();
         handleSaveEdit();
       } else if (matchesKeybind(e, KEYBINDS.CANCEL_EDIT)) {
+        stopKeyboardPropagation(e);
         e.preventDefault();
         handleCancelEdit();
       }

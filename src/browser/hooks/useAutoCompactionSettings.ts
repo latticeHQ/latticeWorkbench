@@ -14,12 +14,12 @@ export interface AutoCompactionSettings {
  * - Threshold is per-model (different models have different context windows)
  * - Threshold >= 100% means disabled for that model
  *
- * @param workspaceId - Workspace identifier (unused now, kept for API compatibility if needed)
+ * @param minionId - Minion identifier (unused now, kept for API compatibility if needed)
  * @param model - Model identifier for threshold (e.g., "claude-sonnet-4-5")
  * @returns Settings object with getters and setters
  */
 export function useAutoCompactionSettings(
-  workspaceId: string,
+  _minionId: string,
   model: string | null
 ): AutoCompactionSettings {
   // Use model for threshold key, fall back to "default" if no model

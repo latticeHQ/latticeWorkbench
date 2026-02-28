@@ -13,16 +13,12 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as prettier from "prettier";
-import * as yaml from "yaml";
 
 const ARGS = new Set(process.argv.slice(2));
 const MODE = ARGS.has("check") ? "check" : "write";
-const SYNC_LATTICE_DOCS_SKILL = ARGS.has("--sync-lattice-docs-skill");
 
 const PROJECT_ROOT = path.join(import.meta.dir, "..");
 const BUILTIN_SKILLS_DIR = path.join(PROJECT_ROOT, "src", "node", "builtinSkills");
-const BUILTIN_PLUGINS_DIR = path.join(PROJECT_ROOT, "src", "node", "builtinPlugins");
-const DOCS_DIR = path.join(PROJECT_ROOT, "docs");
 const OUTPUT_PATH = path.join(
   PROJECT_ROOT,
   "src",
@@ -36,241 +32,19 @@ function normalizeNewlines(input: string): string {
   return input.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
-function readFileLines(filePath: string): string[] {
-  return normalizeNewlines(fs.readFileSync(filePath, "utf-8")).split("\n");
-}
-
-function oneLine(input: string): string {
-  return input.replace(/\s+/g, " ").trim();
-}
-
-function injectBetweenHtmlCommentMarkers(
-  content: string,
-  markerName: string,
-  block: string
-): string {
-  const beginMarker = `<!-- BEGIN ${markerName} -->`;
-  const endMarker = `<!-- END ${markerName} -->`;
-
-  const beginIdx = content.indexOf(beginMarker);
-  const endIdx = content.indexOf(endMarker);
-
-  if (beginIdx === -1 || endIdx === -1 || endIdx < beginIdx) {
-    throw new Error(`Missing markers for ${markerName}`);
-  }
-
-  const before = content.slice(0, beginIdx + beginMarker.length);
-  const after = content.slice(endIdx);
-
-  const trimmedBlock = block.trimEnd();
-  return `${before}\n${trimmedBlock}\n${after}`;
-}
-
-function parseYamlFrontmatter(content: string): Record<string, unknown> | null {
-  const normalized = normalizeNewlines(content);
-  if (!normalized.startsWith("---\n")) return null;
-
-  const lines = normalized.split("\n");
-  const endIndex = lines.findIndex((line, idx) => idx > 0 && line.trim() === "---");
-  if (endIndex === -1) return null;
-
-  const yamlText = lines.slice(1, endIndex).join("\n");
-  const parsed = yaml.parse(yamlText);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-  return parsed as Record<string, unknown>;
-}
-
-function extractDocMeta(content: string): { title?: string; description?: string } {
-  const fm = parseYamlFrontmatter(content);
-  if (!fm) return {};
-
-  const title = typeof fm.title === "string" ? oneLine(fm.title) : undefined;
-  const description = typeof fm.description === "string" ? oneLine(fm.description) : undefined;
-  return { title, description };
-}
-
-function routeForDocsPage(page: string): string {
-  return page === "index" ? "/" : `/${page}`;
-}
-function posixPath(input: string): string {
-  return input.split(path.sep).join(path.posix.sep);
-}
-
-function extractDocsPagesFromNav(node: unknown, out: string[], seen: Set<string>): void {
-  if (typeof node === "string") {
-    if (!seen.has(node)) {
-      seen.add(node);
-      out.push(node);
-    }
-    return;
-  }
-
-  if (!node || typeof node !== "object") return;
-
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      extractDocsPagesFromNav(item, out, seen);
-    }
-    return;
-  }
-
-  const anyNode = node as Record<string, unknown>;
-  if (Array.isArray(anyNode.groups)) {
-    extractDocsPagesFromNav(anyNode.groups, out, seen);
-  }
-  if (Array.isArray(anyNode.pages)) {
-    extractDocsPagesFromNav(anyNode.pages, out, seen);
-  }
-}
-
-interface DocsPageInfo {
-  page: string;
-  route: string;
-  referencePath: string;
-  title: string;
-  description?: string;
-}
-
-function renderDocsTreeNode(
-  node: unknown,
-  indent: number,
-  lines: string[],
-  pageInfoByPage: Map<string, DocsPageInfo>
-): void {
-  const prefix = "  ".repeat(indent);
-
-  if (typeof node === "string") {
-    const info = pageInfoByPage.get(node);
-    if (!info) {
-      throw new Error(`Missing docs page info for '${node}'`);
-    }
-
-    const suffix = info.description ? ` — ${info.description}` : "";
-    lines.push(`${prefix}- ${info.title} (\`${info.route}\`) → \`${info.referencePath}\`${suffix}`);
-    return;
-  }
-
-  if (!node || typeof node !== "object") return;
-
-  if (Array.isArray(node)) {
-    for (const item of node) {
-      renderDocsTreeNode(item, indent, lines, pageInfoByPage);
-    }
-    return;
-  }
-
-  const anyNode = node as Record<string, unknown>;
-
-  if (typeof anyNode.tab === "string" && Array.isArray(anyNode.groups)) {
-    lines.push(`${prefix}- **${anyNode.tab}**`);
-    renderDocsTreeNode(anyNode.groups, indent + 1, lines, pageInfoByPage);
-    return;
-  }
-
-  if (typeof anyNode.group === "string" && Array.isArray(anyNode.pages)) {
-    lines.push(`${prefix}- **${anyNode.group}**`);
-    renderDocsTreeNode(anyNode.pages, indent + 1, lines, pageInfoByPage);
-    return;
-  }
-
-  // Fallback: recurse into known containers.
-  if (Array.isArray(anyNode.groups)) {
-    renderDocsTreeNode(anyNode.groups, indent, lines, pageInfoByPage);
-  }
-  if (Array.isArray(anyNode.pages)) {
-    renderDocsTreeNode(anyNode.pages, indent, lines, pageInfoByPage);
-  }
-}
-
-function renderDocsTree(docsJson: unknown, pageInfoByPage: Map<string, DocsPageInfo>): string {
-  const tabs = (docsJson as any)?.navigation?.tabs;
-  if (!Array.isArray(tabs)) {
-    throw new Error("docs/docs.json: expected navigation.tabs array");
-  }
-
-  const lines: string[] = [];
-  for (const tab of tabs) {
-    renderDocsTreeNode(tab, 0, lines, pageInfoByPage);
-  }
-
-  return lines.join("\n");
-}
-function extractDocsPages(docsJson: unknown): string[] {
-  const tabs = (docsJson as any)?.navigation?.tabs;
-  if (!Array.isArray(tabs)) {
-    throw new Error("docs/docs.json: expected navigation.tabs array");
-  }
-
-  const pages: string[] = [];
-  const seen = new Set<string>();
-  for (const tab of tabs) {
-    extractDocsPagesFromNav((tab as any)?.groups, pages, seen);
-  }
-  return pages;
-}
-
-function resolveDocsPageFilePath(page: string): string {
-  function pathExistsWithExactCase(baseDir: string, relativePath: string): boolean {
-    // macOS and Windows filesystems are commonly case-insensitive. `fs.existsSync()` will return
-    // true even when the requested path casing does not match what's actually on disk.
-    //
-    // This matters for lattice docs generation because the docs tree is indexed by exact page IDs
-    // (e.g. "agents" vs "AGENTS"). If we accept case-insensitive matches, we can accidentally
-    // resolve the wrong file (and produce platform-dependent output).
-    let current = baseDir;
-    const parts = relativePath.split(path.sep).filter(Boolean);
-
-    for (const part of parts) {
-      const entries = fs.readdirSync(current);
-      if (!entries.includes(part)) {
-        return false;
-      }
-      current = path.join(current, part);
-    }
-
-    return true;
-  }
-
-  const candidates = [
-    path.join(DOCS_DIR, `${page}.mdx`),
-    path.join(DOCS_DIR, `${page}.md`),
-    path.join(DOCS_DIR, page, "index.mdx"),
-    path.join(DOCS_DIR, page, "index.md"),
-  ];
-
-  for (const candidate of candidates) {
-    if (!fs.existsSync(candidate)) continue;
-
-    const rel = path.relative(DOCS_DIR, candidate);
-    if (pathExistsWithExactCase(DOCS_DIR, rel)) {
-      return candidate;
-    }
-  }
-
-  throw new Error(`docs/docs.json references '${page}' but no file found under docs/`);
-}
-
-interface GenerateResult {
-  output: string;
-  latticeDocsSkillWasUpdated: boolean;
-  latticeDocsSkillOutOfSync: boolean;
-}
 function renderJoinedLines(lines: string[], indent: string): string {
   const innerIndent = indent + "  ";
   const rendered = lines.map((line) => `${innerIndent}${JSON.stringify(line)},`).join("\n");
   return `[\n${rendered}\n${indent}].join(\"\\n\")`;
 }
 
-function generate(): GenerateResult {
+function generate(): string {
   const skills = fs
     .readdirSync(BUILTIN_SKILLS_DIR)
     .filter((entry) => entry.endsWith(".md"))
     .sort((a, b) => a.localeCompare(b));
 
   const fileMaps: Record<string, Record<string, string[]>> = {};
-
-  let latticeDocsSkillWasUpdated = false;
-  let latticeDocsSkillOutOfSync = false;
 
   for (const filename of skills) {
     const skillName = filename.slice(0, -3);
@@ -282,126 +56,13 @@ function generate(): GenerateResult {
       "SKILL.md": skillContent.split("\n"),
     };
 
-    // lattice-docs: embed docs site content as progressive-disclosure reference files.
-    // Skipped if docs/docs.json doesn't exist (docs directory may be partially removed).
-    const docsConfigPath = path.join(DOCS_DIR, "docs.json");
-    if (skillName === "lattice-docs" && fs.existsSync(docsConfigPath)) {
-      const docsConfigRaw = fs.readFileSync(docsConfigPath, "utf-8");
-      files["references/docs/docs.json"] = readFileLines(docsConfigPath);
-
-      const docsConfig = JSON.parse(docsConfigRaw);
-      const pages = extractDocsPages(docsConfig);
-
-      const pageInfoByPage = new Map<string, DocsPageInfo>();
-
-      for (const page of pages) {
-        const resolvedPath = resolveDocsPageFilePath(page);
-        const rel = posixPath(path.relative(DOCS_DIR, resolvedPath));
-        const key = `references/docs/${rel}`;
-
-        const docLines = readFileLines(resolvedPath);
-        files[key] = docLines;
-
-        const meta = extractDocMeta(docLines.join("\n"));
-        pageInfoByPage.set(page, {
-          page,
-          route: routeForDocsPage(page),
-          referencePath: key,
-          title: meta.title ?? page,
-          description: meta.description,
-        });
-      }
-
-      const docsTree = renderDocsTree(docsConfig, pageInfoByPage);
-      const updatedSkillContent = injectBetweenHtmlCommentMarkers(
-        skillContent,
-        "DOCS_TREE",
-        docsTree
-      );
-      files["SKILL.md"] = updatedSkillContent.split("\n");
-
-      if (SYNC_LATTICE_DOCS_SKILL && updatedSkillContent !== skillContent) {
-        if (MODE === "check") {
-          latticeDocsSkillOutOfSync = true;
-        } else {
-          fs.writeFileSync(skillPath, updatedSkillContent, "utf-8");
-          latticeDocsSkillWasUpdated = true;
-        }
-      }
-    }
-
     fileMaps[skillName] = files;
-  }
-
-  // Scan builtinPlugins/ directories for plugin-provided skills
-  if (fs.existsSync(BUILTIN_PLUGINS_DIR)) {
-    const plugins = fs
-      .readdirSync(BUILTIN_PLUGINS_DIR)
-      .filter((e) => {
-        if (e.startsWith(".") || e.startsWith("_")) return false;
-        return fs.statSync(path.join(BUILTIN_PLUGINS_DIR, e)).isDirectory();
-      })
-      .sort();
-
-    for (const pluginName of plugins) {
-      const pluginDir = path.join(BUILTIN_PLUGINS_DIR, pluginName);
-
-      for (const subdir of ["commands", "skills"]) {
-        const subdirPath = path.join(pluginDir, subdir);
-        if (!fs.existsSync(subdirPath)) continue;
-
-        const skillDirs = fs
-          .readdirSync(subdirPath)
-          .filter((e) => fs.statSync(path.join(subdirPath, e)).isDirectory())
-          .sort();
-
-        for (const skillDirName of skillDirs) {
-          const skillDirPath = path.join(subdirPath, skillDirName);
-          const skillMdPath = path.join(skillDirPath, "SKILL.md");
-          if (!fs.existsSync(skillMdPath)) continue;
-
-          const files: Record<string, string[]> = {};
-          files["SKILL.md"] = readFileLines(skillMdPath);
-
-          // Discover references/, scripts/, examples/ subdirectories
-          for (const extraDir of ["references", "scripts", "examples"]) {
-            const extraDirPath = path.join(skillDirPath, extraDir);
-            if (!fs.existsSync(extraDirPath)) continue;
-
-            function walkDir(dirPath: string, relBase: string): void {
-              const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-              for (const entry of entries) {
-                const fullPath = path.join(dirPath, entry.name);
-                const relPath = relBase ? `${relBase}/${entry.name}` : entry.name;
-                if (entry.isDirectory()) {
-                  walkDir(fullPath, relPath);
-                } else {
-                  const key = `${extraDir}/${relPath}`;
-                  files[key] = readFileLines(fullPath);
-                }
-              }
-            }
-
-            walkDir(extraDirPath, "");
-          }
-
-          if (fileMaps[skillDirName]) {
-            console.warn(
-              `  Warning: plugin skill '${skillDirName}' conflicts with existing skill, skipping`
-            );
-            continue;
-          }
-
-          fileMaps[skillDirName] = files;
-        }
-      }
-    }
   }
 
   let output = "";
   output += "// AUTO-GENERATED - DO NOT EDIT\n";
   output += "// Run: bun scripts/gen_builtin_skills.ts\n";
-  output += "// Source: src/node/builtinSkills/*.md, src/node/builtinPlugins/, and docs/\n\n";
+  output += "// Source: src/node/builtinSkills/*.md\n\n";
   output += "export const BUILTIN_SKILL_FILES: Record<string, Record<string, string>> = {\n";
 
   const sortedSkillNames = Object.keys(fileMaps).sort((a, b) => a.localeCompare(b));
@@ -416,11 +77,11 @@ function generate(): GenerateResult {
 
   output += "};\n";
 
-  return { output, latticeDocsSkillWasUpdated, latticeDocsSkillOutOfSync };
+  return output;
 }
 
 async function main(): Promise<void> {
-  const { output: raw, latticeDocsSkillWasUpdated, latticeDocsSkillOutOfSync } = generate();
+  const raw = generate();
 
   const prettierConfig = await prettier.resolveConfig(OUTPUT_PATH);
   const formatted = await prettier.format(raw, {
@@ -429,37 +90,24 @@ async function main(): Promise<void> {
   });
 
   const current = fs.existsSync(OUTPUT_PATH) ? fs.readFileSync(OUTPUT_PATH, "utf-8") : null;
-  const outputOutOfSync = current !== formatted;
-
-  const latticeDocsSkillPath = path.join(BUILTIN_SKILLS_DIR, "lattice-docs.md");
+  const outOfSync = current !== formatted;
 
   if (MODE === "check") {
-    if (!outputOutOfSync && !latticeDocsSkillOutOfSync) {
+    if (!outOfSync) {
       console.log(`✓ ${path.relative(PROJECT_ROOT, OUTPUT_PATH)} is up-to-date`);
       return;
     }
 
-    if (latticeDocsSkillOutOfSync) {
-      console.error(`✗ ${path.relative(PROJECT_ROOT, latticeDocsSkillPath)} is out of sync`);
-    }
-
-    if (outputOutOfSync) {
-      console.error(`✗ ${path.relative(PROJECT_ROOT, OUTPUT_PATH)} is out of sync`);
-    }
-
+    console.error(`✗ ${path.relative(PROJECT_ROOT, OUTPUT_PATH)} is out of sync`);
     console.error("  Run 'make fmt' to regenerate.");
     process.exit(1);
   }
 
-  if (outputOutOfSync) {
+  if (outOfSync) {
     fs.writeFileSync(OUTPUT_PATH, formatted, "utf-8");
     console.log(`✓ Updated ${path.relative(PROJECT_ROOT, OUTPUT_PATH)}`);
   } else {
     console.log(`✓ ${path.relative(PROJECT_ROOT, OUTPUT_PATH)} is up-to-date`);
-  }
-
-  if (latticeDocsSkillWasUpdated) {
-    console.log(`✓ Updated ${path.relative(PROJECT_ROOT, latticeDocsSkillPath)}`);
   }
 }
 

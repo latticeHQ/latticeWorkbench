@@ -22,10 +22,12 @@ interface PRLinkBadgeProps {
 }
 
 /**
- * Get status color class based on PR merge state
+ * Get status color class based on PR merge state.
+ * When refreshing with cached status, we keep the existing color rather than fading to muted.
  */
 function getStatusColorClass(prLink: GitHubPRLinkWithStatus): string {
-  if (prLink.loading) return "text-muted";
+  // When loading without cached status, show muted
+  if (prLink.loading && !prLink.status) return "text-muted";
   if (prLink.error) return "text-danger-soft";
   if (!prLink.status) return "text-muted";
 
@@ -42,8 +44,11 @@ function getStatusColorClass(prLink: GitHubPRLinkWithStatus): string {
   if (mergeStateStatus === "BEHIND") return "text-warning";
 
   // Prefer check rollup when available; fall back to mergeStateStatus.
-  if (hasFailedChecks || mergeStateStatus === "UNSTABLE") return "text-danger-soft";
+  if (hasFailedChecks) return "text-danger-soft";
   if (hasPendingChecks) return "text-warning";
+  // GitHub marks UNSTABLE for non-passing states (including pending), so only treat it
+  // as failing when rollup doesn't already say pending/failed.
+  if (mergeStateStatus === "UNSTABLE") return "text-danger-soft";
 
   if (mergeStateStatus === "BLOCKED" || mergeStateStatus === "HAS_HOOKS") {
     return "text-warning";
@@ -53,10 +58,12 @@ function getStatusColorClass(prLink: GitHubPRLinkWithStatus): string {
 }
 
 /**
- * Get status icon based on PR state
+ * Get status icon based on PR state.
+ * When refreshing with cached status, we show the cached status icon (not a spinner).
  */
 function StatusIcon({ prLink }: { prLink: GitHubPRLinkWithStatus }) {
-  if (prLink.loading) {
+  // Only show spinner when loading without any cached status
+  if (prLink.loading && !prLink.status) {
     return <Loader2 className="h-3 w-3 animate-spin" />;
   }
   if (prLink.error) {
@@ -89,11 +96,16 @@ function StatusIcon({ prLink }: { prLink: GitHubPRLinkWithStatus }) {
   }
 
   // Prefer check rollup when available; fall back to mergeStateStatus.
-  if (hasFailedChecks || mergeStateStatus === "UNSTABLE") {
+  if (hasFailedChecks) {
     return <X className="h-3 w-3" />;
   }
   if (hasPendingChecks || mergeStateStatus === "BLOCKED") {
     return <CircleDot className="h-3 w-3" />;
+  }
+  // GitHub marks UNSTABLE for non-passing states (including pending), so only treat it
+  // as failing when rollup doesn't already say pending/failed.
+  if (mergeStateStatus === "UNSTABLE") {
+    return <X className="h-3 w-3" />;
   }
 
   return <GitPullRequest className="h-3 w-3" />;
@@ -103,7 +115,8 @@ function StatusIcon({ prLink }: { prLink: GitHubPRLinkWithStatus }) {
  * Format PR tooltip content
  */
 function getTooltipContent(prLink: GitHubPRLinkWithStatus): string {
-  if (prLink.loading) return "Loading PR status...";
+  // When refreshing with cached status, don't show "Loading..." - show the cached status
+  if (prLink.loading && !prLink.status) return "Loading PR status...";
   if (prLink.error) return `Error: ${prLink.error}`;
   if (!prLink.status) return `PR #${prLink.number}`;
 
@@ -134,10 +147,13 @@ function getTooltipContent(prLink: GitHubPRLinkWithStatus): string {
       lines.push("Behind base branch");
     } else if (mergeStateStatus === "CLEAN") {
       lines.push("Ready to merge");
-    } else if (hasFailedChecks || mergeStateStatus === "UNSTABLE") {
+    } else if (hasFailedChecks) {
       lines.push("Checks failing");
     } else if (hasPendingChecks) {
       lines.push("Checks pending");
+    } else if (mergeStateStatus === "UNSTABLE") {
+      // GitHub marks UNSTABLE for non-passing states (including pending), so only fall back here.
+      lines.push("Checks failing");
     } else if (mergeStateStatus === "BLOCKED" || mergeStateStatus === "HAS_HOOKS") {
       lines.push("Merge blocked");
     } else {
@@ -152,6 +168,8 @@ function getTooltipContent(prLink: GitHubPRLinkWithStatus): string {
 
 export function PRLinkBadge({ prLink }: PRLinkBadgeProps) {
   const colorClass = getStatusColorClass(prLink);
+  // Show pulse effect when refreshing with cached status (optimistic UI)
+  const isRefreshing = prLink.loading && prLink.status != null;
 
   return (
     <Tooltip>
@@ -159,7 +177,11 @@ export function PRLinkBadge({ prLink }: PRLinkBadgeProps) {
         <Button
           variant="ghost"
           size="sm"
-          className={cn("h-6 gap-1 px-2 text-xs font-medium", colorClass)}
+          className={cn(
+            "h-6 gap-1 px-2 text-xs font-medium",
+            colorClass,
+            isRefreshing && "animate-pulse"
+          )}
           asChild
         >
           <a href={prLink.url} target="_blank" rel="noopener noreferrer">

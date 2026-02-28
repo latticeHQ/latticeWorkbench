@@ -217,7 +217,7 @@ export default defineConfig([
     files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
-        project: ["./tsconfig.json"],
+        projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
       globals: {
@@ -421,12 +421,13 @@ export default defineConfig([
     },
   },
   {
-    // Allow dynamic imports for lazy-loading AI SDK packages (startup optimization)
+    // Allow dynamic imports for lazy-loading (startup optimization / platform compat)
     files: [
       "src/services/aiService.ts",
       "src/utils/tools/tools.ts",
       "src/utils/ai/providerFactory.ts",
       "src/utils/main/tokenizer.ts",
+      "src/node/runtime/SSH2ConnectionPool.ts",
     ],
     rules: {
       "no-restricted-syntax": "off",

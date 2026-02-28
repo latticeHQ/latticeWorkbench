@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useTheme, THEME_OPTIONS, type ThemeMode } from "@/browser/contexts/ThemeContext";
 import {
   Select,
@@ -8,8 +8,11 @@ import {
   SelectValue,
 } from "@/browser/components/ui/select";
 import { Input } from "@/browser/components/ui/input";
+import { Switch } from "@/browser/components/ui/switch";
 import { usePersistedState } from "@/browser/hooks/usePersistedState";
 import { useAPI } from "@/browser/contexts/API";
+import { useFeatureFlags } from "@/browser/contexts/FeatureFlagsContext";
+import { useTelemetryRefresh } from "@/browser/contexts/TelemetryEnabledContext";
 import {
   EDITOR_CONFIG_KEY,
   DEFAULT_EDITOR_CONFIG,
@@ -127,6 +130,7 @@ const isBrowserMode = typeof window !== "undefined" && !window.api;
 export function GeneralSection() {
   const { theme, setTheme } = useTheme();
   const { api } = useAPI();
+  const refreshTelemetryContext = useTelemetryRefresh();
   const [rawTerminalFontConfig, setTerminalFontConfig] = usePersistedState<TerminalFontConfig>(
     TERMINAL_FONT_CONFIG_KEY,
     DEFAULT_TERMINAL_FONT_CONFIG
@@ -151,6 +155,137 @@ export function GeneralSection() {
   const editorConfig = normalizeEditorConfig(rawEditorConfig);
   const [sshHost, setSshHost] = useState<string>("");
   const [sshHostLoaded, setSshHostLoaded] = useState(false);
+  const [defaultProjectDir, setDefaultProjectDir] = useState("");
+  const [cloneDirLoaded, setCloneDirLoaded] = useState(false);
+  // Track whether the initial load succeeded to prevent saving empty string
+  // (which would clear the config) when the initial fetch failed.
+  const [cloneDirLoadedOk, setCloneDirLoadedOk] = useState(false);
+
+  // --- Privacy: telemetry toggle ---
+  const [telemetryEnabled, setTelemetryEnabled] = useState(true);
+  const [telemetryEnvDisabled, setTelemetryEnvDisabled] = useState(false);
+  const [telemetryLoaded, setTelemetryLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!api) return;
+    let cancelled = false;
+    void api.telemetry
+      .status()
+      .then((result) => {
+        if (cancelled) return;
+        setTelemetryEnabled(result.enabled);
+        setTelemetryEnvDisabled(result.envDisabled);
+        setTelemetryLoaded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setTelemetryLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
+  const handleTelemetryToggle = useCallback(
+    (checked: boolean) => {
+      if (!api) return;
+      // Optimistic update
+      setTelemetryEnabled(checked);
+      void api.telemetry
+        .setEnabled({ enabled: checked })
+        .then((result) => {
+          setTelemetryEnabled(result.enabled);
+          // Refresh the app-wide telemetry context so link sharing updates
+          refreshTelemetryContext();
+        })
+        .catch(() => {
+          // Revert on error
+          setTelemetryEnabled(!checked);
+        });
+    },
+    [api, refreshTelemetryContext]
+  );
+
+  // Backend config: default to ON so archiving is safest even before async load completes.
+  const [stopLatticeMinionOnArchive, setStopLatticeMinionOnArchive] = useState(true);
+  const stopLatticeMinionOnArchiveLoadNonceRef = useRef(0);
+
+  // updateLatticePrefs writes config.json on the backend. Serialize (and coalesce) updates so rapid
+  // toggles can't race and persist a stale value via out-of-order writes.
+  const stopLatticeMinionOnArchiveUpdateChainRef = useRef<Promise<void>>(Promise.resolve());
+  const stopLatticeMinionOnArchivePendingUpdateRef = useRef<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+
+    const nonce = ++stopLatticeMinionOnArchiveLoadNonceRef.current;
+
+    void api.config
+      .getConfig()
+      .then((cfg) => {
+        // If the user toggled the setting while this request was in flight, keep the UI selection.
+        if (nonce !== stopLatticeMinionOnArchiveLoadNonceRef.current) {
+          return;
+        }
+
+        setStopLatticeMinionOnArchive(cfg.stopLatticeMinionOnArchive);
+      })
+      .catch(() => {
+        // Best-effort only. Keep the default (ON) if config fails to load.
+      });
+  }, [api]);
+
+  const handleStopLatticeMinionOnArchiveChange = useCallback(
+    (checked: boolean) => {
+      // Invalidate any in-flight initial load so it doesn't overwrite the user's selection.
+      stopLatticeMinionOnArchiveLoadNonceRef.current++;
+      setStopLatticeMinionOnArchive(checked);
+
+      if (!api?.config?.updateLatticePrefs) {
+        return;
+      }
+
+      stopLatticeMinionOnArchivePendingUpdateRef.current = checked;
+
+      stopLatticeMinionOnArchiveUpdateChainRef.current =
+        stopLatticeMinionOnArchiveUpdateChainRef.current
+          .then(async () => {
+            // Drain the pending ref so a toggle that happens while updateLatticePrefs is in-flight
+            // doesn't get stranded without a subsequent write scheduled.
+            for (;;) {
+              const pending = stopLatticeMinionOnArchivePendingUpdateRef.current;
+              if (pending === undefined) {
+                return;
+              }
+
+              // Clear before awaiting so rapid toggles coalesce into a new pending value.
+              stopLatticeMinionOnArchivePendingUpdateRef.current = undefined;
+
+              try {
+                await api.config.updateLatticePrefs({ stopLatticeMinionOnArchive: pending });
+              } catch {
+                // Best-effort only. Swallow errors so the queue doesn't get stuck.
+              }
+            }
+          })
+          .catch(() => {
+            // Best-effort only.
+          });
+    },
+    [api]
+  );
+
+  const { statsTabState, setStatsTabEnabled } = useFeatureFlags();
+
+  const handleStatsTabToggle = useCallback(
+    (enabled: boolean) => {
+      setStatsTabEnabled(enabled).catch(() => {
+        // ignore
+      });
+    },
+    [setStatsTabEnabled]
+  );
 
   // Load SSH host from server on mount (browser mode only)
   useEffect(() => {
@@ -160,6 +295,25 @@ export function GeneralSection() {
         setSshHostLoaded(true);
       });
     }
+  }, [api]);
+
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+
+    void api.projects
+      .getDefaultProjectDir()
+      .then((dir) => {
+        setDefaultProjectDir(dir);
+        setCloneDirLoaded(true);
+        setCloneDirLoadedOk(true);
+      })
+      .catch(() => {
+        // Best-effort only. Keep the input editable if load fails,
+        // but don't mark as successfully loaded to prevent clearing config on blur.
+        setCloneDirLoaded(true);
+      });
   }, [api]);
 
   const handleEditorChange = (editor: EditorType) => {
@@ -191,23 +345,43 @@ export function GeneralSection() {
     [api]
   );
 
+  const handleCloneDirBlur = useCallback(() => {
+    // Only persist once the initial load has completed (success or failure).
+    // After a failed load, allow saves only if the user has actively typed
+    // a non-empty value, so we never silently clear a configured directory.
+    if (!cloneDirLoaded || !api) {
+      return;
+    }
+
+    const trimmedProjectDir = defaultProjectDir.trim();
+    if (!cloneDirLoadedOk && !trimmedProjectDir) {
+      return;
+    }
+
+    void api.projects
+      .setDefaultProjectDir({ path: defaultProjectDir })
+      .then(() => {
+        // A successful save means subsequent clears are safe, even if the
+        // initial getDefaultProjectDir() request failed earlier in this session.
+        setCloneDirLoadedOk(true);
+      })
+      .catch(() => {
+        // Best-effort save: keep current UI state on failure.
+      });
+  }, [api, cloneDirLoaded, cloneDirLoadedOk, defaultProjectDir]);
+
   return (
-    <div className="space-y-5">
-      {/* ── Appearance ──────────────────────────────────────────────────── */}
-      <div className="border-border-medium overflow-hidden rounded-md border">
-        <div className="border-border-medium bg-background-secondary/50 border-b px-3 py-1.5">
-          <span className="text-muted text-[11px] font-medium tracking-wide uppercase">
-            Appearance
-          </span>
-        </div>
-        <div className="divide-border-medium divide-y">
-          <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-foreground mb-4 text-sm font-medium">Appearance</h3>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
-              <div className="text-foreground text-xs">Theme</div>
-              <div className="text-muted text-[11px]">Choose your preferred theme</div>
+              <div className="text-foreground text-sm">Theme</div>
+              <div className="text-muted text-xs">Choose your preferred theme</div>
             </div>
             <Select value={theme} onValueChange={(value) => setTheme(value as ThemeMode)}>
-              <SelectTrigger className="border-border-medium bg-background-secondary hover:bg-hover h-7 w-auto cursor-pointer rounded-md border px-2.5 text-xs transition-colors">
+              <SelectTrigger className="border-border-medium bg-background-secondary hover:bg-hover h-9 w-auto cursor-pointer rounded-md border px-3 text-sm transition-colors">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -220,34 +394,36 @@ export function GeneralSection() {
             </Select>
           </div>
 
-          <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
-              <div className="text-foreground text-xs">Terminal Font</div>
+              <div className="text-foreground text-sm">Terminal Font</div>
               {terminalFontWarning ? (
-                <div className="text-warning text-[11px]">{terminalFontWarning}</div>
+                <div className="text-warning text-xs">{terminalFontWarning}</div>
               ) : null}
-              <div className="text-muted text-[11px]">Monospace font for terminal.</div>
-              <div className="text-muted text-[11px]">
+              <div className="text-muted text-xs">Set this to a monospace font you like.</div>
+              <div className="text-muted text-xs">
                 Preview:{" "}
                 <span className="text-foreground" style={{ fontFamily: terminalFontPreviewFamily }}>
                   {terminalFontPreviewText}
                 </span>
               </div>
             </div>
-            <Input
-              value={terminalFontConfig.fontFamily}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                handleTerminalFontFamilyChange(e.target.value)
-              }
-              placeholder={DEFAULT_TERMINAL_FONT_CONFIG.fontFamily}
-              className="border-border-medium bg-background-secondary h-7 w-56 text-xs"
-            />
+            <div className="flex flex-col items-end gap-2">
+              <Input
+                value={terminalFontConfig.fontFamily}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  handleTerminalFontFamilyChange(e.target.value)
+                }
+                placeholder={DEFAULT_TERMINAL_FONT_CONFIG.fontFamily}
+                className="border-border-medium bg-background-secondary h-9 w-80"
+              />
+            </div>
           </div>
 
-          <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
-              <div className="text-foreground text-xs">Terminal Font Size</div>
-              <div className="text-muted text-[11px]">Size in pixels</div>
+              <div className="text-foreground text-sm">Terminal Font Size</div>
+              <div className="text-muted text-xs">Font size for the integrated terminal</div>
             </div>
             <Input
               type="number"
@@ -256,81 +432,154 @@ export function GeneralSection() {
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 handleTerminalFontSizeChange(e.target.value)
               }
-              className="border-border-medium bg-background-secondary h-7 w-20 text-xs"
+              className="border-border-medium bg-background-secondary h-9 w-28"
             />
           </div>
         </div>
       </div>
 
-      {/* ── Editor ──────────────────────────────────────────────────────── */}
-      <div className="border-border-medium overflow-hidden rounded-md border">
-        <div className="border-border-medium bg-background-secondary/50 border-b px-3 py-1.5">
-          <span className="text-muted text-[11px] font-medium tracking-wide uppercase">Editor</span>
-        </div>
-        <div className="divide-border-medium divide-y">
-          <div className="flex items-center justify-between gap-4 px-3 py-2.5">
-            <div>
-              <div className="text-foreground text-xs">Editor</div>
-              <div className="text-muted text-[11px]">Editor to open files in</div>
-            </div>
-            <Select value={editorConfig.editor} onValueChange={handleEditorChange}>
-              <SelectTrigger className="border-border-medium bg-background-secondary hover:bg-hover h-7 w-auto cursor-pointer rounded-md border px-2.5 text-xs transition-colors">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {EDITOR_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {editorConfig.editor === "custom" && (
-            <div className="px-3 py-2.5">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <div className="text-foreground text-xs">Custom Command</div>
-                  <div className="text-muted text-[11px]">
-                    Command to run (path will be appended)
-                  </div>
-                </div>
-                <Input
-                  value={editorConfig.customCommand ?? ""}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleCustomCommandChange(e.target.value)
-                  }
-                  placeholder="e.g., nvim"
-                  className="border-border-medium bg-background-secondary h-7 w-36 text-xs"
-                />
+      <div>
+        <h3 className="text-foreground mb-4 text-sm font-medium">Minion insights</h3>
+        <div className="divide-border-light divide-y">
+          <div className="flex items-center justify-between py-3">
+            <div className="flex-1 pr-4">
+              <div className="text-foreground text-sm">Stats tab</div>
+              <div className="text-muted mt-0.5 text-xs">
+                Show timing statistics in the workbench panel
               </div>
-              {isBrowserMode && (
-                <div className="text-warning mt-1.5 text-[11px]">
-                  Custom editors are not supported in browser mode. Use VS Code or Cursor instead.
+            </div>
+            <Switch
+              checked={statsTabState?.enabled ?? true}
+              onCheckedChange={handleStatsTabToggle}
+              aria-label="Toggle Stats tab"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-foreground text-sm">Editor</div>
+          <div className="text-muted text-xs">Editor to open files in</div>
+        </div>
+        <Select value={editorConfig.editor} onValueChange={handleEditorChange}>
+          <SelectTrigger className="border-border-medium bg-background-secondary hover:bg-hover h-9 w-auto cursor-pointer rounded-md border px-3 text-sm transition-colors">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {EDITOR_OPTIONS.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      {editorConfig.editor === "custom" && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-foreground text-sm">Custom Command</div>
+              <div className="text-muted text-xs">Command to run (path will be appended)</div>
+            </div>
+            <Input
+              value={editorConfig.customCommand ?? ""}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                handleCustomCommandChange(e.target.value)
+              }
+              placeholder="e.g., nvim"
+              className="border-border-medium bg-background-secondary h-9 w-40"
+            />
+          </div>
+          {isBrowserMode && (
+            <div className="text-warning text-xs">
+              Custom editors are not supported in browser mode. Use VS Code or Cursor instead.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1">
+          <div className="text-foreground text-sm">Stop Lattice minion when benching</div>
+          <div className="text-muted text-xs">
+            When enabled, benching a Lattice minion will stop its dedicated Lattice minion first.
+          </div>
+        </div>
+        <Switch
+          checked={stopLatticeMinionOnArchive}
+          onCheckedChange={handleStopLatticeMinionOnArchiveChange}
+          disabled={!api?.config?.updateLatticePrefs}
+          aria-label="Toggle stopping the dedicated Lattice minion when benching a Lattice minion"
+        />
+      </div>
+
+      {isBrowserMode && sshHostLoaded && (
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-foreground text-sm">SSH Host</div>
+            <div className="text-muted text-xs">
+              SSH hostname for &apos;Open in Editor&apos; deep links
+            </div>
+          </div>
+          <Input
+            value={sshHost}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              handleSshHostChange(e.target.value)
+            }
+            placeholder={window.location.hostname}
+            className="border-border-medium bg-background-secondary h-9 w-40"
+          />
+        </div>
+      )}
+
+      <div>
+        <h3 className="text-foreground mb-4 text-sm font-medium">Projects</h3>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <div className="text-foreground text-sm">Default project directory</div>
+              <div className="text-muted text-xs">
+                Parent folder for new projects and cloned repositories
+              </div>
+            </div>
+            <Input
+              value={defaultProjectDir}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setDefaultProjectDir(e.target.value)
+              }
+              onBlur={handleCloneDirBlur}
+              placeholder="~/.lattice/projects"
+              disabled={!cloneDirLoaded}
+              className="border-border-medium bg-background-secondary h-9 w-80"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-foreground mb-4 text-sm font-medium">Privacy</h3>
+        <div className="divide-border-light divide-y">
+          <div className="flex items-center justify-between py-3">
+            <div className="flex-1 pr-4">
+              <div className="text-foreground text-sm">Usage analytics</div>
+              <div className="text-muted mt-0.5 text-xs">
+                Send anonymous usage data to help improve lattice. No personal information is collected.
+              </div>
+              {telemetryEnvDisabled && (
+                <div className="text-warning mt-1 text-xs">
+                  Disabled via LATTICE_DISABLE_TELEMETRY environment variable
                 </div>
               )}
             </div>
-          )}
-
-          {isBrowserMode && sshHostLoaded && (
-            <div className="flex items-center justify-between gap-4 px-3 py-2.5">
-              <div>
-                <div className="text-foreground text-xs">SSH Host</div>
-                <div className="text-muted text-[11px]">
-                  SSH hostname for &apos;Open in Editor&apos; deep links
-                </div>
-              </div>
-              <Input
-                value={sshHost}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  handleSshHostChange(e.target.value)
-                }
-                placeholder={window.location.hostname}
-                className="border-border-medium bg-background-secondary h-7 w-36 text-xs"
-              />
-            </div>
-          )}
+            <Switch
+              checked={telemetryEnabled}
+              onCheckedChange={handleTelemetryToggle}
+              disabled={!telemetryLoaded || telemetryEnvDisabled}
+              aria-label="Toggle usage analytics"
+            />
+          </div>
         </div>
       </div>
     </div>

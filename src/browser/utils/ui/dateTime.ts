@@ -1,9 +1,9 @@
 /**
- * Formats a Lattice timestamp (milliseconds) into a "kitchen" format:
+ * Formats a Unix timestamp (milliseconds) into a "kitchen" format:
  * - "8:13 PM" if the timestamp is from today
  * - "Oct 23, 8:13 PM" if the timestamp is from a different day
  *
- * @param timestamp Lattice timestamp in milliseconds
+ * @param timestamp Unix timestamp in milliseconds
  * @returns Formatted time string
  */
 export function formatTimestamp(timestamp: number): string {
@@ -36,10 +36,10 @@ export function formatTimestamp(timestamp: number): string {
 }
 
 /**
- * Formats a Lattice timestamp (milliseconds) into a human-readable relative time string.
+ * Formats a Unix timestamp (milliseconds) into a human-readable relative time string.
  * Examples: "2 minutes ago", "3 hours ago", "2 days ago", "3 weeks ago"
  *
- * @param timestamp Lattice timestamp in milliseconds
+ * @param timestamp Unix timestamp in milliseconds
  * @returns Humanized relative time string
  */
 export function formatRelativeTime(timestamp: number): string {

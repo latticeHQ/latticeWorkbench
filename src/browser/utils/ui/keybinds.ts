@@ -18,11 +18,28 @@ export type { Keybind };
 export function isMac(): boolean {
   try {
     if (typeof window === "undefined") return false;
+
+    // Prefer Electron's preload API when available.
     interface MinimalAPI {
-      platform: string;
+      platform?: string;
     }
     const api = (window as unknown as { api?: MinimalAPI }).api;
-    return api?.platform === "darwin";
+    if (api?.platform != null) {
+      return api.platform === "darwin";
+    }
+
+    // Browser mode fallback: detect platform via Navigator.
+    if (typeof navigator === "undefined") return false;
+    interface MinimalNavigator {
+      platform?: string;
+      userAgent?: string;
+      userAgentData?: {
+        platform?: string;
+      };
+    }
+    const nav = navigator as unknown as MinimalNavigator;
+    const platform = nav.userAgentData?.platform ?? nav.platform ?? nav.userAgent ?? "";
+    return /mac|iphone|ipad|ipod/i.test(platform);
   } catch {
     return false;
   }
@@ -114,7 +131,7 @@ export function matchesKeybind(
 }
 
 /**
- * Check if the event target is an editable element (input, textarea, contentEditable).
+ * Check if the event target is an editable element (input, textarea, select, contentEditable).
  * Used to prevent global keyboard shortcuts from interfering with text input.
  */
 export function isEditableElement(target: EventTarget | null): boolean {
@@ -123,7 +140,12 @@ export function isEditableElement(target: EventTarget | null): boolean {
   }
 
   const tagName = target.tagName.toLowerCase();
-  return tagName === "input" || tagName === "textarea" || target.contentEditable === "true";
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.contentEditable === "true"
+  );
 }
 
 /**
@@ -132,6 +154,25 @@ export function isEditableElement(target: EventTarget | null): boolean {
  * routed to the terminal instead of handled globally.
  */
 export const TERMINAL_CONTAINER_ATTR = "data-terminal-container";
+
+/**
+ * Data attribute used to opt an element (or one of its ancestors) into allowing Escape
+ * to interrupt streams, even when the event target is editable (input/textarea/etc).
+ *
+ * This is intentionally opt-in to keep Escape safe-by-default in text inputs.
+ */
+export const ESCAPE_INTERRUPTS_STREAM_ATTR = "data-escape-interrupts-stream";
+
+export function allowsEscapeToInterruptStream(target: EventTarget | null): boolean {
+  if (!target) {
+    return false;
+  }
+  // Check if HTMLElement exists (not available in non-DOM test environments)
+  if (typeof HTMLElement === "undefined" || !(target instanceof HTMLElement)) {
+    return false;
+  }
+  return target.closest(`[${ESCAPE_INTERRUPTS_STREAM_ATTR}]`) !== null;
+}
 
 /**
  * Check if the event target is inside a terminal container.
@@ -147,6 +188,19 @@ export function isTerminalFocused(target: EventTarget | null): boolean {
     return false;
   }
   return target.closest(`[${TERMINAL_CONTAINER_ATTR}]`) !== null;
+}
+
+/**
+ * Check if a modal dialog is currently open.
+ * Used by capture-phase keyboard handlers to skip shortcuts while a modal is active,
+ * since bubble-phase stopPropagation from dialog onKeyDown can't block capture-phase listeners.
+ *
+ * Only matches true modal dialogs (aria-modal="true"), not non-modal Radix popovers
+ * which also use role="dialog" but should not suppress global shortcuts.
+ */
+export function isDialogOpen(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
 }
 
 /**
@@ -234,21 +288,30 @@ export const KEYBINDS = {
   /** Focus chat input (alternate) */
   FOCUS_INPUT_A: { key: "a" },
 
-  /** Create new workspace for current project */
-  NEW_WORKSPACE: { key: "n", ctrl: true },
+  /** Create new minion for current project */
+  NEW_MINION: { key: "n", ctrl: true },
 
-  /** Archive current workspace */
+  /** Edit title of current minion (inline edit) */
+  EDIT_MINION_TITLE: { key: "F2" },
+
+  /** Generate new title for current minion via AI */
+  GENERATE_MINION_TITLE: { key: "F2", shift: true },
+
+  /** Archive current minion */
   // macOS: Cmd+Shift+Backspace, Win/Linux: Ctrl+Shift+Backspace
-  ARCHIVE_WORKSPACE: { key: "Backspace", ctrl: true, shift: true, macCtrlBehavior: "command" },
+  ARCHIVE_MINION: { key: "Backspace", ctrl: true, shift: true, macCtrlBehavior: "command" },
 
   /** Jump to bottom of chat */
   JUMP_TO_BOTTOM: { key: "G", shift: true },
 
-  /** Navigate to next workspace in current project */
-  NEXT_WORKSPACE: { key: "j", ctrl: true },
+  /** Load older transcript messages when pagination is available */
+  LOAD_OLDER_MESSAGES: { key: "h", shift: true },
 
-  /** Navigate to previous workspace in current project */
-  PREV_WORKSPACE: { key: "k", ctrl: true },
+  /** Navigate to next minion in current project */
+  NEXT_MINION: { key: "j", ctrl: true },
+
+  /** Navigate to previous minion in current project */
+  PREV_MINION: { key: "k", ctrl: true },
 
   /** Toggle sidebar visibility */
   // VS Code-style quick toggle
@@ -262,14 +325,31 @@ export const KEYBINDS = {
   // macOS: Cmd+T, Win/Linux: Ctrl+T
   OPEN_TERMINAL: { key: "T", ctrl: true },
 
-  /** Open workspace in editor */
+  /** Open minion in editor */
   // macOS: Cmd+Shift+E, Win/Linux: Ctrl+Shift+E
   OPEN_IN_EDITOR: { key: "E", ctrl: true, shift: true },
+
+  /** Share transcript for current minion */
+  // macOS: Cmd+Shift+S, Win/Linux: Ctrl+Shift+S
+  // (was Cmd+Shift+L, but Chrome intercepts that in server/browser mode)
+  SHARE_TRANSCRIPT: { key: "S", ctrl: true, shift: true },
+
+  /** Configure MCP servers for current minion */
+  // macOS: Cmd+Shift+M, Win/Linux: Ctrl+Shift+M
+  CONFIGURE_MCP: { key: "M", ctrl: true, shift: true },
 
   /** Open Command Palette */
   // VS Code-style palette
   // macOS: Cmd+Shift+P, Win/Linux: Ctrl+Shift+P
   OPEN_COMMAND_PALETTE: { key: "P", ctrl: true, shift: true },
+
+  /** Open Command Palette directly in command mode (prefills ">") */
+  // F4 avoids browser-level collisions with Ctrl/Cmd+Shift+P in Firefox.
+  OPEN_COMMAND_PALETTE_ACTIONS: { key: "F4" },
+
+  /** Open Chat with Lattice */
+  // User requested F1 for quick access to the built-in help chat.
+  OPEN_LATTICE_CHAT: { key: "F1" },
 
   /** Toggle thinking level between off and last-used value for current model */
   // Saves/restores thinking level per model (defaults to "medium" if not found)
@@ -281,11 +361,11 @@ export const KEYBINDS = {
   // macOS: Cmd+I, Win/Linux: Ctrl+I
   FOCUS_CHAT: { key: "I", ctrl: true },
 
-  /** Close current tab in right sidebar (if closeable - currently only terminal tabs) */
+  /** Close current tab in workbench panel (if closeable - currently only terminal tabs) */
   // macOS: Cmd+W (matches Ghostty), Win/Linux: Ctrl+W
   CLOSE_TAB: { key: "w", ctrl: true, macCtrlBehavior: "command" },
 
-  /** Switch to tab by position in right sidebar (1-9) */
+  /** Switch to tab by position in workbench panel (1-9) */
   // macOS: Cmd+N, Win/Linux: Ctrl+N
   // NOTE: Both Ctrl and Cmd work for switching tabs on Mac (macOS has no standard Cmd+number behavior)
   SIDEBAR_TAB_1: { key: "1", ctrl: true, description: "Tab 1" },
@@ -314,10 +394,10 @@ export const KEYBINDS = {
   TOGGLE_HUNK_READ: { key: "m" },
 
   /** Mark selected hunk as read in Code Review panel */
-  MARK_HUNK_READ: { key: "l" },
+  MARK_HUNK_READ: { key: "r" },
 
   /** Mark selected hunk as unread in Code Review panel */
-  MARK_HUNK_UNREAD: { key: "h" },
+  MARK_HUNK_UNREAD: { key: "u" },
 
   /** Mark entire file (all hunks) as read in Code Review panel */
   MARK_FILE_READ: { key: "M", shift: true },
@@ -328,6 +408,11 @@ export const KEYBINDS = {
   /** Open settings modal */
   // macOS: Cmd+, Win/Linux: Ctrl+,
   OPEN_SETTINGS: { key: ",", ctrl: true },
+
+  /** Open analytics dashboard */
+  // macOS: Cmd+Shift+Y, Win/Linux: Ctrl+Shift+Y
+  // "Y" for analYtics — Ctrl+. is reserved for CYCLE_AGENT
+  OPEN_ANALYTICS: { key: "Y", ctrl: true, shift: true },
 
   /** Toggle voice input (dictation) */
   // macOS: Cmd+D, Win/Linux: Ctrl+D
@@ -344,10 +429,57 @@ export const KEYBINDS = {
   // Standard browser/editor forward navigation
   NAVIGATE_FORWARD: { key: "]", ctrl: true },
 
-  /** Toggle notifications on response for current workspace */
+  /** Toggle notifications on response for current minion */
   // macOS: Cmd+Shift+N, Win/Linux: Ctrl+Shift+N
   // "N" for Notifications
   TOGGLE_NOTIFICATIONS: { key: "N", ctrl: true, shift: true },
+
+  /** Confirm action in confirmation dialogs */
+  CONFIRM_DIALOG_YES: { key: "y", allowShift: true },
+
+  /** Cancel/dismiss confirmation dialogs */
+  CONFIRM_DIALOG_NO: { key: "n", allowShift: true },
+
+  /** Toggle immersive review mode */
+  TOGGLE_REVIEW_IMMERSIVE: { key: "i", shift: true },
+
+  /** Navigate to next file in immersive review */
+  REVIEW_NEXT_FILE: { key: "l" },
+
+  /** Navigate to previous file in immersive review */
+  REVIEW_PREV_FILE: { key: "h" },
+
+  /** Navigate to next hunk in immersive review */
+  REVIEW_NEXT_HUNK: { key: "j" },
+
+  /** Navigate to previous hunk in immersive review */
+  REVIEW_PREV_HUNK: { key: "k" },
+
+  /** Move line cursor down in immersive review */
+  REVIEW_CURSOR_DOWN: { key: "ArrowDown", allowShift: true },
+
+  /** Move line cursor up in immersive review */
+  REVIEW_CURSOR_UP: { key: "ArrowUp", allowShift: true },
+
+  /** Jump line cursor 10 lines down in immersive review */
+  REVIEW_CURSOR_JUMP_DOWN: { key: "ArrowDown", ctrl: true, allowShift: true },
+
+  /** Jump line cursor 10 lines up in immersive review */
+  REVIEW_CURSOR_JUMP_UP: { key: "ArrowUp", ctrl: true, allowShift: true },
+
+  /** Quick "I like this" feedback in immersive review */
+  REVIEW_QUICK_LIKE: { key: "l", shift: true },
+
+  /** Quick "I don't like this" feedback in immersive review */
+  REVIEW_QUICK_DISLIKE: { key: "d", shift: true },
+
+  /** Add comment in immersive review */
+  REVIEW_COMMENT: { key: "c", shift: true },
+
+  /** Toggle focus between diff and notes sidebar in immersive review */
+  REVIEW_FOCUS_NOTES: { key: "Tab" },
+
+  TOGGLE_POWER_MODE: { key: "F12", shift: true },
 } as const;
 
 /**

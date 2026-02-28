@@ -9,12 +9,12 @@ import type {
   ExecOptions,
   ExecStream,
   FileStat,
-  WorkspaceCreationParams,
-  WorkspaceCreationResult,
-  WorkspaceInitParams,
-  WorkspaceInitResult,
-  WorkspaceForkParams,
-  WorkspaceForkResult,
+  MinionCreationParams,
+  MinionCreationResult,
+  MinionInitParams,
+  MinionInitResult,
+  MinionForkParams,
+  MinionForkResult,
   InitLogger,
   EnsureReadyResult,
 } from "./Runtime";
@@ -26,6 +26,7 @@ import { EXIT_CODE_ABORTED, EXIT_CODE_TIMEOUT } from "@/common/constants/exitCod
 import { DisposableProcess, killProcessTree } from "@/node/utils/disposableExec";
 import { expandTilde } from "./tildeExpansion";
 import { getInitHookPath, createLineBufferedLoggers } from "./initHook";
+import { getErrorMessage } from "@/common/utils/errors";
 
 /**
  * Abstract base class for local runtimes (both WorktreeRuntime and LocalRuntime).
@@ -38,19 +39,19 @@ import { getInitHookPath, createLineBufferedLoggers } from "./initHook";
  * - resolvePath() - Path resolution with tilde expansion
  * - normalizePath() - Path normalization
  *
- * Subclasses must implement workspace-specific methods:
- * - getWorkspacePath()
- * - createWorkspace()
- * - initWorkspace()
- * - deleteWorkspace()
- * - renameWorkspace()
- * - forkWorkspace()
+ * Subclasses must implement minion-specific methods:
+ * - getMinionPath()
+ * - createMinion()
+ * - initMinion()
+ * - deleteMinion()
+ * - renameMinion()
+ * - forkMinion()
  */
 export abstract class LocalBaseRuntime implements Runtime {
   async exec(command: string, options: ExecOptions): Promise<ExecStream> {
     const startTime = performance.now();
 
-    // Use the specified working directory (must be a specific workspace path)
+    // Use the specified working directory (must be a specific minion path)
     const cwd = options.cwd;
 
     // Check if working directory exists before spawning
@@ -131,7 +132,7 @@ export abstract class LocalBaseRuntime implements Runtime {
         if (childProcess.pid !== undefined) {
           // Kill the full process tree to prevent hangs when scripts spawn background jobs.
           //
-          // On Lattice we can kill the whole group via process.kill(-pid).
+          // On Unix we can kill the whole group via process.kill(-pid).
           // On Windows we must use taskkill to avoid leaking child processes.
           killProcessTree(childProcess.pid);
         }
@@ -215,7 +216,7 @@ export abstract class LocalBaseRuntime implements Runtime {
         } catch (err) {
           controller.error(
             new RuntimeErrorClass(
-              `Failed to read file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+              `Failed to read file ${filePath}: ${getErrorMessage(err)}`,
               "file_io",
               err instanceof Error ? err : undefined
             )
@@ -272,7 +273,7 @@ export abstract class LocalBaseRuntime implements Runtime {
           await fsPromises.rename(tempPath, resolvedPath);
         } catch (err) {
           throw new RuntimeErrorClass(
-            `Failed to write file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+            `Failed to write file ${filePath}: ${getErrorMessage(err)}`,
             "file_io",
             err instanceof Error ? err : undefined
           );
@@ -307,7 +308,7 @@ export abstract class LocalBaseRuntime implements Runtime {
       };
     } catch (err) {
       throw new RuntimeErrorClass(
-        `Failed to stat ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to stat ${filePath}: ${getErrorMessage(err)}`,
         "file_io",
         err instanceof Error ? err : undefined
       );
@@ -320,7 +321,7 @@ export abstract class LocalBaseRuntime implements Runtime {
       await fsPromises.mkdir(expandedPath, { recursive: true });
     } catch (err) {
       throw new RuntimeErrorClass(
-        `Failed to create directory ${dirPath}: ${err instanceof Error ? err.message : String(err)}`,
+        `Failed to create directory ${dirPath}: ${getErrorMessage(err)}`,
         "file_io",
         err instanceof Error ? err : undefined
       );
@@ -348,13 +349,13 @@ export abstract class LocalBaseRuntime implements Runtime {
   }
 
   // Abstract methods that subclasses must implement
-  abstract getWorkspacePath(projectPath: string, workspaceName: string): string;
+  abstract getMinionPath(projectPath: string, minionName: string): string;
 
-  abstract createWorkspace(params: WorkspaceCreationParams): Promise<WorkspaceCreationResult>;
+  abstract createMinion(params: MinionCreationParams): Promise<MinionCreationResult>;
 
-  abstract initWorkspace(params: WorkspaceInitParams): Promise<WorkspaceInitResult>;
+  abstract initMinion(params: MinionInitParams): Promise<MinionInitResult>;
 
-  abstract renameWorkspace(
+  abstract renameMinion(
     projectPath: string,
     oldName: string,
     newName: string,
@@ -363,21 +364,21 @@ export abstract class LocalBaseRuntime implements Runtime {
     { success: true; oldPath: string; newPath: string } | { success: false; error: string }
   >;
 
-  abstract deleteWorkspace(
+  abstract deleteMinion(
     projectPath: string,
-    workspaceName: string,
+    minionName: string,
     force: boolean,
     abortSignal?: AbortSignal
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }>;
 
-  abstract forkWorkspace(params: WorkspaceForkParams): Promise<WorkspaceForkResult>;
+  abstract forkMinion(params: MinionForkParams): Promise<MinionForkResult>;
 
   /**
    * Get the runtime's temp directory.
    * Uses OS temp dir on local systems.
    */
   tempDir(): Promise<string> {
-    // Use /tmp on Lattice, or OS temp dir on Windows
+    // Use /tmp on Unix, or OS temp dir on Windows
     const isWindows = process.platform === "win32";
     return Promise.resolve(isWindows ? (process.env.TEMP ?? "C:\\Temp") : "/tmp");
   }
@@ -396,19 +397,26 @@ export abstract class LocalBaseRuntime implements Runtime {
   /**
    * Helper to run .lattice/init hook if it exists and is executable.
    * Shared between WorktreeRuntime and LocalRuntime.
-   * @param workspacePath - Path to the workspace directory
+   * @param minionPath - Path to the minion directory
    * @param latticeEnv - LATTICE_ environment variables (from getLatticeEnv)
    * @param initLogger - Logger for streaming output
+   * @param abortSignal - Optional abort signal
    */
   protected async runInitHook(
-    workspacePath: string,
+    minionPath: string,
     latticeEnv: Record<string, string>,
-    initLogger: InitLogger
+    initLogger: InitLogger,
+    abortSignal?: AbortSignal
   ): Promise<void> {
     // Hook path is derived from LATTICE_PROJECT_PATH in latticeEnv
     const projectPath = latticeEnv.LATTICE_PROJECT_PATH;
     const hookPath = getInitHookPath(projectPath);
     initLogger.logStep(`Running init hook: ${hookPath}`);
+
+    if (abortSignal?.aborted) {
+      initLogger.logComplete(EXIT_CODE_ABORTED);
+      return;
+    }
 
     // Create line-buffered loggers
     const loggers = createLineBufferedLoggers(initLogger);
@@ -416,7 +424,7 @@ export abstract class LocalBaseRuntime implements Runtime {
     return new Promise<void>((resolve) => {
       const bashPath = getBashPath();
       const proc = spawn(bashPath, ["-c", `"${hookPath}"`], {
-        cwd: workspacePath,
+        cwd: minionPath,
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
@@ -424,7 +432,31 @@ export abstract class LocalBaseRuntime implements Runtime {
         },
         // Prevent console window from appearing on Windows
         windowsHide: true,
+        // Spawn as a detached process group leader so we can reliably cancel the hook.
+        detached: true,
       });
+
+      let aborted = false;
+
+      const onAbort = () => {
+        aborted = true;
+
+        if (proc.pid !== undefined) {
+          killProcessTree(proc.pid);
+          return;
+        }
+
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // ignore
+        }
+      };
+
+      abortSignal?.addEventListener("abort", onAbort, { once: true });
+      if (abortSignal?.aborted) {
+        onAbort();
+      }
 
       proc.stdout.on("data", (data: Buffer) => {
         loggers.stdout.append(data.toString());
@@ -435,15 +467,25 @@ export abstract class LocalBaseRuntime implements Runtime {
       });
 
       proc.on("close", (code) => {
+        abortSignal?.removeEventListener("abort", onAbort);
+
         // Flush any remaining buffered output
         loggers.stdout.flush();
         loggers.stderr.flush();
 
-        initLogger.logComplete(code ?? 0);
+        initLogger.logComplete(aborted || abortSignal?.aborted ? EXIT_CODE_ABORTED : (code ?? 0));
         resolve();
       });
 
       proc.on("error", (err) => {
+        abortSignal?.removeEventListener("abort", onAbort);
+
+        if (aborted || abortSignal?.aborted) {
+          initLogger.logComplete(EXIT_CODE_ABORTED);
+          resolve();
+          return;
+        }
+
         initLogger.logStderr(`Error running init hook: ${err.message}`);
         initLogger.logComplete(-1);
         resolve();

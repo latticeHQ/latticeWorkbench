@@ -4,10 +4,9 @@ import type {
   LatticeFilePart,
   DisplayedMessage,
   CompactionRequestData,
-  CompactionFollowUpRequest,
-  LatticeFrontendMetadata,
+  LatticeMessageMetadata,
 } from "@/common/types/message";
-import { createLatticeMessage } from "@/common/types/message";
+import { createLatticeMessage, getCompactionFollowUpContent } from "@/common/types/message";
 
 import type {
   StreamStartEvent,
@@ -27,7 +26,13 @@ import type { LanguageModelV2Usage } from "@ai-sdk/provider";
 import type { TodoItem, StatusSetToolResult, NotifyToolResult } from "@/common/types/tools";
 import { getToolOutputUiOnly } from "@/common/utils/tools/toolOutputUiOnly";
 
-import type { WorkspaceChatMessage, StreamErrorMessage, DeleteMessage } from "@/common/orpc/types";
+import { computePriorHistoryFingerprint } from "@/common/orpc/onChatCursorFingerprint";
+import type {
+  MinionChatMessage,
+  StreamErrorMessage,
+  DeleteMessage,
+  OnChatCursor,
+} from "@/common/orpc/types";
 import { isInitStart, isInitOutput, isInitEnd, isLatticeMessage } from "@/common/orpc/types";
 import type {
   DynamicToolPart,
@@ -39,6 +44,7 @@ import { INIT_HOOK_MAX_LINES } from "@/common/constants/toolLimits";
 import { isDynamicToolPart } from "@/common/types/toolParts";
 import { z } from "zod";
 import { createDeltaStorage, type DeltaRecordStorage } from "./StreamingTPSCalculator";
+import { buildTranscriptTruncationPlan } from "./transcriptTruncationPlan";
 import { computeRecencyTimestamp } from "./recency";
 import { assert } from "@/common/utils/assert";
 import { getStatusStateKey } from "@/common/constants/storage";
@@ -52,11 +58,46 @@ const AgentStatusSchema = z.object({
   url: z.string().optional(),
 });
 
+// Synthetic agent-skill snapshot messages include metadata.agentSkillSnapshot.
+// We use this to keep the SkillIndicator in sync for /{skillName} invocations.
+const AgentSkillSnapshotMetadataSchema = z.object({
+  skillName: z.string().min(1),
+  scope: z.enum(["project", "global", "built-in"]),
+  sha256: z.string().optional(),
+  frontmatterYaml: z.string().optional(),
+});
+
 /** Re-export for consumers that need the loaded skill type */
 export type LoadedSkill = AgentSkillDescriptor;
 
+/** A runtime skill load failure (agent_skill_read returned { success: false }) */
+export interface SkillLoadError {
+  /** Skill name that was requested */
+  name: string;
+  /** Error message from the backend */
+  error: string;
+}
+
 type AgentStatus = z.infer<typeof AgentStatusSchema>;
-const MAX_DISPLAYED_MESSAGES = 128;
+
+/**
+ * Maximum number of DisplayedMessages to render before truncation kicks in.
+ * We keep all user prompts and structural markers, while allowing older assistant
+ * content to collapse behind history-hidden markers for faster initial paint.
+ */
+const MAX_DISPLAYED_MESSAGES = 64;
+
+/**
+ * Message types that are always preserved even in truncated history.
+ * Older assistant/tool/reasoning rows may be omitted until the user clicks “Load all”.
+ */
+const ALWAYS_KEEP_MESSAGE_TYPES = new Set<DisplayedMessage["type"]>([
+  "user",
+  "stream-error",
+  "compaction-boundary",
+  "plan-display",
+  "minion-init",
+]);
 
 interface StreamingContext {
   /** Backend timestamp when stream started (Date.now()) */
@@ -72,8 +113,8 @@ interface StreamingContext {
   isComplete: boolean;
   isCompacting: boolean;
   hasCompactionContinue: boolean;
+  isReplay: boolean;
   model: string;
-
   /** Timestamp of first content token (text or reasoning delta) - backend Date.now() */
   serverFirstTokenTime: number | null;
 
@@ -84,6 +125,9 @@ interface StreamingContext {
 
   /** Mode (plan/exec) */
   mode?: string;
+
+  /** Effective thinking level after model policy clamping */
+  thinkingLevel?: string;
 }
 
 /**
@@ -168,6 +212,41 @@ function mergeAdjacentParts(parts: LatticeMessage["parts"]): LatticeMessage["par
   return merged;
 }
 
+function extractAgentSkillSnapshotBody(snapshotText: string): string | null {
+  assert(typeof snapshotText === "string", "extractAgentSkillSnapshotBody requires snapshotText");
+
+  // Expected format (backend):
+  // <agent-skill ...>\n{body}\n</agent-skill>
+  if (!snapshotText.startsWith("<agent-skill")) {
+    return null;
+  }
+
+  const openTagEnd = snapshotText.indexOf(">\n");
+  if (openTagEnd === -1) {
+    return null;
+  }
+
+  const closeTag = "\n</agent-skill>";
+  const closeTagStart = snapshotText.lastIndexOf(closeTag);
+  if (closeTagStart === -1) {
+    return null;
+  }
+
+  const bodyStart = openTagEnd + ">\n".length;
+  if (closeTagStart < bodyStart) {
+    return null;
+  }
+
+  // Be strict about trailing content: if we can't confidently extract the body,
+  // avoid showing a misleading preview.
+  const trailing = snapshotText.slice(closeTagStart + closeTag.length);
+  if (trailing.trim().length > 0) {
+    return null;
+  }
+
+  return snapshotText.slice(bodyStart, closeTagStart);
+}
+
 export class StreamingMessageAggregator {
   private messages = new Map<string, LatticeMessage>();
   private activeStreams = new Map<string, StreamingContext>();
@@ -176,7 +255,7 @@ export class StreamingMessageAggregator {
   // Adding a new cached value? Add it here and it will auto-invalidate.
   private displayedMessageCache = new Map<
     string,
-    { version: number; messages: DisplayedMessage[] }
+    { version: number; agentSkillSnapshotCacheKey?: string; messages: DisplayedMessage[] }
   >();
   private messageVersions = new Map<string, number>();
   private cache: {
@@ -185,6 +264,12 @@ export class StreamingMessageAggregator {
     latestStreamingBashToolCallId?: string | null; // null = computed, none found
   } = {};
   private recencyTimestamp: number | null = null;
+  private lastResponseCompletedAt: number | null = null;
+
+  /** Oldest historySequence from the server's last replay window.
+   *  Used for reconnect cursors instead of the absolute minimum (which
+   *  includes user-loaded older pages via loadOlderHistory). */
+  private establishedOldestHistorySequence: number | null = null;
 
   // Delta history for token counting and TPS calculation
   private deltaHistory = new Map<string, DeltaRecordStorage>();
@@ -217,16 +302,21 @@ export class StreamingMessageAggregator {
   // Cached array for getLoadedSkills() to preserve reference identity for memoization
   private loadedSkillsCache: LoadedSkill[] = [];
 
+  // Runtime skill load errors (updated when agent_skill_read fails)
+  // Keyed by skill name; cleared when the skill is later loaded successfully
+  private skillLoadErrors = new Map<string, SkillLoadError>();
+  private skillLoadErrorsCache: SkillLoadError[] = [];
+
   // Last URL set via status_set - kept in memory to reuse when later calls omit url
   private lastStatusUrl: string | undefined = undefined;
 
-  // Whether to disable DOM message capping for this workspace.
+  // Whether to disable DOM message capping for this minion.
   // Controlled via the HistoryHiddenMessage “Load all” button.
   private showAllMessages = false;
-  // Workspace ID (used for status persistence)
-  private readonly workspaceId: string | undefined;
+  // Minion ID (used for status persistence)
+  private readonly minionId: string | undefined;
 
-  // Workspace init hook state (ephemeral, not persisted to history)
+  // Minion init hook state (ephemeral, not persisted to history)
   private initState: {
     status: "running" | "success" | "error";
     hookPath: string;
@@ -251,13 +341,17 @@ export class StreamingMessageAggregator {
   // Last observed stream-abort reason (used to gate auto-retry).
   private lastAbortReason: StreamAbortReasonSnapshot | null = null;
 
-  // Current runtime status (set during ensureReady for Lattice workspaces)
-  // Used to show "Starting Lattice workspace..." in StreamingBarrier
+  // Current runtime status (set during ensureReady for Lattice minions)
+  // Used to show "Starting Lattice minion..." in StreamingBarrier
   private runtimeStatus: RuntimeStatusEvent | null = null;
 
   // Pending compaction request metadata for the next stream (set when user message arrives).
-  // This is used for UI before we receive stream-start (e.g., show compaction model while "starting").
+  // Used to infer compaction state before stream-start arrives.
   private pendingCompactionRequest: CompactionRequestData | null = null;
+
+  // Model used for the pending send (set on user message) so the "starting" UI
+  // reflects one-shot/compaction overrides instead of stale localStorage values.
+  private pendingStreamModel: string | null = null;
 
   // Last completed stream timing stats (preserved after stream ends for display)
   // Unlike activeStreams, this persists until the next stream starts
@@ -292,34 +386,37 @@ export class StreamingMessageAggregator {
     }
   > = {};
 
-  // Workspace creation timestamp (used for recency calculation)
-  // REQUIRED: Backend guarantees every workspace has createdAt via config.ts
+  // Minion creation timestamp (used for recency calculation)
+  // REQUIRED: Backend guarantees every minion has createdAt via config.ts
   private readonly createdAt: string;
-  // Workspace unarchived timestamp (used for recency calculation to bump restored workspaces)
+  // Minion unarchived timestamp (used for recency calculation to bump restored minions)
   private unarchivedAt?: string;
 
-  // Optional callback for navigating to a workspace (set by parent component)
+  // Optional callback for navigating to a minion (set by parent component)
   // Used for notification click handling in browser mode
-  onNavigateToWorkspace?: (workspaceId: string) => void;
+  onNavigateToMinion?: (minionId: string) => void;
 
   // Optional callback when an assistant response completes (used for "notify on response" feature)
   // isFinal is true when no more active streams remain (assistant done with all work)
   // finalText is the text content after any tool calls (the final response to show in notification)
   // compaction is provided when this was a compaction stream (includes continue metadata)
+  // completedAt: non-null for all final streams. Drives read-marking in App.tsx.
+  // Only non-compaction completions also bump lastResponseCompletedAt (recency).
   onResponseComplete?: (
-    workspaceId: string,
+    minionId: string,
     messageId: string,
     isFinal: boolean,
     finalText: string,
-    compaction?: { hasContinueMessage: boolean }
+    compaction?: { hasContinueMessage: boolean; isIdle?: boolean },
+    completedAt?: number | null
   ) => void;
 
-  constructor(createdAt: string, workspaceId?: string, unarchivedAt?: string) {
+  constructor(createdAt: string, minionId?: string, unarchivedAt?: string) {
     this.createdAt = createdAt;
-    this.workspaceId = workspaceId;
+    this.minionId = minionId;
     this.unarchivedAt = unarchivedAt;
     // Load persisted agent status from localStorage
-    if (workspaceId) {
+    if (minionId) {
       const persistedStatus = this.loadPersistedAgentStatus();
       if (persistedStatus) {
         this.agentStatus = persistedStatus;
@@ -329,14 +426,14 @@ export class StreamingMessageAggregator {
     this.updateRecency();
   }
 
-  /** Update unarchivedAt timestamp (called when workspace is restored from archive) */
+  /** Update unarchivedAt timestamp (called when minion is restored from archive) */
   setUnarchivedAt(unarchivedAt: string | undefined): void {
     this.unarchivedAt = unarchivedAt;
     this.updateRecency();
   }
 
   /**
-   * Disable the displayed message cap for this workspace.
+   * Disable the displayed message cap for this minion.
    * Intended for user-triggered “Load all” UI.
    */
   setShowAllMessages(showAllMessages: boolean): void {
@@ -350,9 +447,9 @@ export class StreamingMessageAggregator {
 
   /** Load persisted agent status from localStorage */
   private loadPersistedAgentStatus(): AgentStatus | undefined {
-    if (!this.workspaceId) return undefined;
+    if (!this.minionId) return undefined;
     try {
-      const stored = localStorage.getItem(getStatusStateKey(this.workspaceId));
+      const stored = localStorage.getItem(getStatusStateKey(this.minionId));
       if (!stored) return undefined;
       const parsed = AgentStatusSchema.safeParse(JSON.parse(stored));
       return parsed.success ? parsed.data : undefined;
@@ -364,11 +461,11 @@ export class StreamingMessageAggregator {
 
   /** Persist agent status to localStorage */
   private savePersistedAgentStatus(status: AgentStatus): void {
-    if (!this.workspaceId) return;
+    if (!this.minionId) return;
     const parsed = AgentStatusSchema.safeParse(status);
     if (!parsed.success) return;
     try {
-      localStorage.setItem(getStatusStateKey(this.workspaceId), JSON.stringify(parsed.data));
+      localStorage.setItem(getStatusStateKey(this.minionId), JSON.stringify(parsed.data));
     } catch {
       // Ignore localStorage errors
     }
@@ -376,9 +473,9 @@ export class StreamingMessageAggregator {
 
   /** Remove persisted agent status from localStorage */
   private clearPersistedAgentStatus(): void {
-    if (!this.workspaceId) return;
+    if (!this.minionId) return;
     try {
-      localStorage.removeItem(getStatusStateKey(this.workspaceId));
+      localStorage.removeItem(getStatusStateKey(this.minionId));
     } catch {
       // Ignore localStorage errors
     }
@@ -407,6 +504,27 @@ export class StreamingMessageAggregator {
 
     context.lastServerTimestamp = serverTimestamp;
     context.clockOffsetMs = Date.now() - serverTimestamp;
+  }
+
+  /**
+   * Detect the replay→live transition for reconnect streams.
+   *
+   * During reconnect, `replayStream()` emits all catch-up events with `replay: true`.
+   * Once the catch-up phase is over, fresh live deltas arrive without the flag.
+   * This helper flips `isReplay` to false on the first non-replay event so that
+   * `streamPresentation.source` correctly transitions to "live" and smoothing
+   * resumes instead of staying bypassed.
+   *
+   * IMPORTANT: Only call from content handlers (handleStreamDelta, handleReasoningDelta).
+   * Tool events are not buffered by the reconnect relay and can arrive before replay
+   * text finishes flushing — calling this from tool handlers would prematurely end
+   * replay phase and reclassify catch-up content as live.
+   */
+  private syncReplayPhase(messageId: string, replay?: boolean): void {
+    const context = this.activeStreams.get(messageId);
+    if (context && context.isReplay && replay !== true) {
+      context.isReplay = false;
+    }
   }
 
   private translateServerTime(context: StreamingContext, serverTimestamp: number): number {
@@ -448,12 +566,16 @@ export class StreamingMessageAggregator {
    */
   private updateRecency(): void {
     const messages = this.getAllMessages();
-    this.recencyTimestamp = computeRecencyTimestamp(messages, this.createdAt, this.unarchivedAt);
+    const messageRecency = computeRecencyTimestamp(messages, this.createdAt, this.unarchivedAt);
+    const candidates = [messageRecency, this.lastResponseCompletedAt].filter(
+      (t): t is number => t !== null
+    );
+    this.recencyTimestamp = candidates.length > 0 ? Math.max(...candidates) : null;
   }
 
   /**
    * Get the current recency timestamp (O(1) accessor).
-   * Used for workspace sorting by last user interaction.
+   * Used for minion sorting by last user interaction.
    */
   getRecencyTimestamp(): number | null {
     return this.recencyTimestamp;
@@ -489,7 +611,7 @@ export class StreamingMessageAggregator {
   }
 
   /**
-   * Get the list of loaded skills for this workspace.
+   * Get the list of loaded skills for this minion.
    * Updated whenever agent_skill_read succeeds.
    * Persists after stream completion (like agentStatus).
    * Returns a stable array reference for memoization (only changes when skills change).
@@ -499,11 +621,20 @@ export class StreamingMessageAggregator {
   }
 
   /**
+   * Get runtime skill load errors (agent_skill_read failures).
+   * Errors are cleared for a skill when it later loads successfully.
+   * Returns a stable array reference for memoization.
+   */
+  getSkillLoadErrors(): SkillLoadError[] {
+    return this.skillLoadErrorsCache;
+  }
+
+  /**
    * Check if there's an executing ask_user_question tool awaiting user input.
    * Used to show "Awaiting your input" instead of "streaming..." in the UI.
    */
   hasAwaitingUserQuestion(): boolean {
-    // Only treat the workspace as "awaiting input" when the *latest* displayed
+    // Only treat the minion as "awaiting input" when the *latest* displayed
     // message is an executing ask_user_question tool.
     //
     // This avoids false positives from stale historical partials if the user
@@ -712,45 +843,100 @@ export class StreamingMessageAggregator {
    *
    * @param messages - Historical messages to load
    * @param hasActiveStream - Whether there's an active stream in buffered events (for reconnection scenario)
+   * @param opts.mode - "replace" clears existing state first, "append" merges into existing state
+   * @param opts.skipDerivedState - Skip replaying messages into derived state when appending older history
    */
-  loadHistoricalMessages(messages: LatticeMessage[], hasActiveStream = false): void {
-    // Clear existing state to prevent stale messages from persisting.
-    // This method replaces all messages, not merges them.
-    this.messages.clear();
-    this.displayedMessageCache.clear();
-    this.messageVersions.clear();
-    this.deltaHistory.clear();
-    this.activeStreamUsage.clear();
-    this.loadedSkills.clear();
-    this.loadedSkillsCache = [];
+  loadHistoricalMessages(
+    messages: LatticeMessage[],
+    hasActiveStream = false,
+    opts?: { mode?: "replace" | "append"; skipDerivedState?: boolean }
+  ): void {
+    const mode = opts?.mode ?? "replace";
 
-    // Add all messages to the map
+    if (mode === "replace") {
+      // Clear existing state to prevent stale messages from persisting.
+      this.messages.clear();
+      this.displayedMessageCache.clear();
+      this.messageVersions.clear();
+      this.deltaHistory.clear();
+      this.activeStreamUsage.clear();
+      this.loadedSkills.clear();
+      this.loadedSkillsCache = [];
+      this.skillLoadErrors.clear();
+      this.skillLoadErrorsCache = [];
+      this.lastResponseCompletedAt = null;
+
+      // Track the replay window's oldest sequence for reconnect cursors.
+      let minSeq: number | null = null;
+      for (const msg of messages) {
+        const seq = msg.metadata?.historySequence;
+        if (typeof seq === "number" && (minSeq === null || seq < minSeq)) {
+          minSeq = seq;
+        }
+      }
+      this.establishedOldestHistorySequence = minSeq;
+    }
+
+    const overwrittenMessageIds: string[] = [];
+    const appliedMessages: LatticeMessage[] = [];
+
+    // Add/overwrite messages in the map
     for (const message of messages) {
+      const existing = mode === "append" ? this.messages.get(message.id) : undefined;
+
+      if (existing) {
+        const existingParts = Array.isArray(existing.parts) ? existing.parts.length : 0;
+        const incomingParts = Array.isArray(message.parts) ? message.parts.length : 0;
+
+        // Since-replay can include a stale boundary row for an active stream message while
+        // richer in-memory parts already exist. Keep the richer message to avoid dropping
+        // in-flight tool/text parts that filtered replay deltas may not resend.
+        if (incomingParts < existingParts) {
+          continue;
+        }
+
+        overwrittenMessageIds.push(message.id);
+      }
+
       this.messages.set(message.id, message);
+      appliedMessages.push(message);
+    }
+
+    if (mode === "append") {
+      for (const messageId of overwrittenMessageIds) {
+        // Append replay can overwrite an existing message ID (e.g., partial -> finalized).
+        // Bump per-message version so displayed row caches are invalidated and rebuilt.
+        this.bumpMessageVersion(messageId);
+        this.displayedMessageCache.delete(messageId);
+      }
     }
 
     // Use "streaming" context if there's an active stream (reconnection), otherwise "historical"
     const context = hasActiveStream ? "streaming" : "historical";
 
-    // Sort messages in chronological order for processing
-    const chronologicalMessages = [...messages].sort(
+    // Sort applied messages in chronological order for processing
+    const chronologicalMessages = [...appliedMessages].sort(
       (a, b) => (a.metadata?.historySequence ?? 0) - (b.metadata?.historySequence ?? 0)
     );
 
-    // Replay historical messages in order to reconstruct derived state
-    for (const message of chronologicalMessages) {
-      if (message.role === "user") {
-        // Mirror live behavior: clear stream-scoped state on new user turn
-        // but keep persisted status for fallback on reload.
-        this.currentTodos = [];
-        this.agentStatus = undefined;
-        continue;
-      }
+    if (!opts?.skipDerivedState) {
+      // Replay historical messages in order to reconstruct derived state
+      for (const message of chronologicalMessages) {
+        this.maybeTrackLoadedSkillFromAgentSkillSnapshot(message.metadata?.agentSkillSnapshot);
 
-      if (message.role === "assistant") {
-        for (const part of message.parts) {
-          if (isDynamicToolPart(part) && part.state === "output-available") {
-            this.processToolResult(part.toolName, part.input, part.output, context);
+        if (message.role === "user") {
+          // Mirror live behavior: clear stream-scoped state on new user turn
+          // but keep persisted status for fallback on reload.
+          this.currentTodos = [];
+          this.agentStatus = undefined;
+          continue;
+        }
+
+        if (message.role === "assistant") {
+          for (const part of message.parts) {
+            if (isDynamicToolPart(part) && part.state === "output-available") {
+              this.processToolResult(part.toolName, part.input, part.output, context);
+            }
           }
         }
       }
@@ -768,6 +954,10 @@ export class StreamingMessageAggregator {
     this.invalidateCache();
   }
 
+  setEstablishedOldestHistorySequence(sequence: number | null): void {
+    this.establishedOldestHistorySequence = sequence;
+  }
+
   getAllMessages(): LatticeMessage[] {
     this.cache.allMessages ??= Array.from(this.messages.values()).sort(
       (a, b) => (a.metadata?.historySequence ?? 0) - (b.metadata?.historySequence ?? 0)
@@ -775,6 +965,83 @@ export class StreamingMessageAggregator {
     return this.cache.allMessages;
   }
 
+  /**
+   * Build a cursor for incremental onChat reconnection.
+   * Returns undefined when we cannot safely represent the current state,
+   * forcing a full replay.
+   */
+  getOnChatCursor(): OnChatCursor | undefined {
+    let maxHistorySequence = -1;
+    let maxHistoryMessageId: string | undefined;
+    let minHistorySequence = Number.POSITIVE_INFINITY;
+
+    for (const message of this.messages.values()) {
+      const historySequence = message.metadata?.historySequence;
+      if (historySequence === undefined) {
+        continue;
+      }
+
+      if (historySequence > maxHistorySequence) {
+        maxHistorySequence = historySequence;
+        maxHistoryMessageId = message.id;
+      }
+
+      if (historySequence < minHistorySequence) {
+        minHistorySequence = historySequence;
+      }
+    }
+
+    if (!maxHistoryMessageId || !Number.isFinite(minHistorySequence)) {
+      return undefined;
+    }
+
+    if (this.activeStreams.size > 1) {
+      // Defensive fallback: multiple active streams is anomalous, so force a full replay.
+      return undefined;
+    }
+
+    const allMessages = this.getAllMessages();
+    const establishedOldestHistorySequence = this.establishedOldestHistorySequence;
+    const fingerprintMessages =
+      establishedOldestHistorySequence != null
+        ? allMessages.filter(
+            (message) =>
+              (message.metadata?.historySequence ?? Number.POSITIVE_INFINITY) >=
+              establishedOldestHistorySequence
+          )
+        : allMessages;
+
+    // Scope fingerprint input to the established replay window. The server computes
+    // priorHistoryFingerprint from getHistoryFromLatestBoundary(skip=0), so client-
+    // paginated rows from older compaction epochs must be excluded to avoid false
+    // mismatches that force unnecessary full replay on reconnect.
+    const priorHistoryFingerprint = computePriorHistoryFingerprint(
+      fingerprintMessages,
+      maxHistorySequence
+    );
+    const oldestHistorySequence = establishedOldestHistorySequence ?? minHistorySequence;
+
+    const cursor: OnChatCursor = {
+      history: {
+        messageId: maxHistoryMessageId,
+        historySequence: maxHistorySequence,
+        oldestHistorySequence,
+        ...(priorHistoryFingerprint !== undefined ? { priorHistoryFingerprint } : {}),
+      },
+    };
+
+    if (this.activeStreams.size === 1) {
+      const activeStreamEntry = this.activeStreams.entries().next().value;
+      assert(activeStreamEntry, "activeStreams size reported 1 but no entry found");
+      const [messageId, context] = activeStreamEntry;
+      cursor.stream = {
+        messageId,
+        lastTimestamp: context.lastServerTimestamp,
+      };
+    }
+
+    return cursor;
+  }
   // Efficient methods to check message state without creating arrays
   getMessageCount(): number {
     return this.messages.size;
@@ -796,7 +1063,7 @@ export class StreamingMessageAggregator {
   }
 
   /**
-   * Get the current runtime status (for Lattice workspace starting UX).
+   * Get the current runtime status (for Lattice minion starting UX).
    * Returns null if no runtime status is active.
    */
   getRuntimeStatus(): RuntimeStatusEvent | null {
@@ -804,8 +1071,8 @@ export class StreamingMessageAggregator {
   }
 
   /**
-   * Handle runtime-status event (emitted during ensureReady for Lattice workspaces).
-   * Used to show "Starting Lattice workspace..." in StreamingBarrier.
+   * Handle runtime-status event (emitted during ensureReady for Lattice minions).
+   * Used to show "Starting Lattice minion..." in StreamingBarrier.
    */
   handleRuntimeStatus(status: RuntimeStatusEvent): void {
     // Clear status when ready/error or set new status
@@ -816,18 +1083,9 @@ export class StreamingMessageAggregator {
     }
   }
 
-  /**
-   * Get the model override for a pending compaction request (before stream-start).
-   *
-   * Returns null if there's no pending stream or the pending request is not a compaction.
-   *
-   * Note: This returns the *override* model from the /compact command. If the user didn't
-   * specify a model, compaction uses the workspace default model and we intentionally return null.
-   */
-
-  getPendingCompactionModel(): string | null {
+  getPendingStreamModel(): string | null {
     if (this.pendingStreamStartTime === null) return null;
-    return this.pendingCompactionRequest?.model ?? null;
+    return this.pendingStreamModel;
   }
 
   private getLatestCompactionRequest(): CompactionRequestData | null {
@@ -853,6 +1111,7 @@ export class StreamingMessageAggregator {
     this.pendingStreamStartTime = time;
     if (time === null) {
       this.pendingCompactionRequest = null;
+      this.pendingStreamModel = null;
     }
   }
 
@@ -984,8 +1243,7 @@ export class StreamingMessageAggregator {
 
     for (const [key, stats] of modelEntries) {
       // Parse composite key: "model" or "model:mode"
-      // Model names can contain colons (e.g., "provider:model-name")
-      // so we look for ":plan" or ":exec" suffix specifically
+      // Model names can contain colons so we look for ":plan" or ":exec" suffix specifically
       let mode: string | undefined;
       if (key.endsWith(":plan")) {
         mode = "plan";
@@ -1095,6 +1353,32 @@ export class StreamingMessageAggregator {
     return undefined;
   }
 
+  /**
+   * Returns the effective thinking level for the current or most recent stream.
+   * This reflects the actual level used after model policy clamping, not the
+   * user-configured level.
+   */
+  getCurrentThinkingLevel(): string | undefined {
+    // If there's an active stream, return its thinking level
+    for (const context of this.activeStreams.values()) {
+      return context.thinkingLevel;
+    }
+
+    // Only check the most recent assistant message to avoid returning
+    // stale values from older turns where settings may have differed.
+    // If it lacks thinkingLevel (e.g. error/abort), return undefined so
+    // callers fall back to localStorage.
+    const messages = this.getAllMessages();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i];
+      if (message.role === "assistant") {
+        return message.metadata?.thinkingLevel;
+      }
+    }
+
+    return undefined;
+  }
+
   clearActiveStreams(): void {
     const activeMessageIds = Array.from(this.activeStreams.keys());
     this.activeStreams.clear();
@@ -1117,6 +1401,8 @@ export class StreamingMessageAggregator {
     this.messageVersions.clear();
     this.interruptingMessageId = null;
     this.lastAbortReason = null;
+    this.lastResponseCompletedAt = null;
+    this.establishedOldestHistorySequence = null;
     this.invalidateCache();
   }
 
@@ -1168,15 +1454,49 @@ export class StreamingMessageAggregator {
       isComplete: false,
       isCompacting,
       hasCompactionContinue,
+      isReplay: data.replay === true,
       model: data.model,
+
       serverFirstTokenTime: null,
       toolExecutionMs: 0,
       pendingToolStarts: new Map(),
       mode: data.mode,
+      thinkingLevel: data.thinkingLevel,
     };
 
+    // For incremental replay: stream-start may be re-emitted to re-establish context.
+    // If we already have this message with accumulated parts, don't wipe its content.
+    const existingMessage = this.messages.get(data.messageId);
+    const existingContext = this.activeStreams.get(data.messageId);
+    if (data.replay && existingMessage && existingMessage.parts.length > 0) {
+      if (existingContext) {
+        // Preserve the highest observed server timestamp across reconnect boundaries.
+        // If replay emits only stream-start (no newer parts), regressing this value
+        // would cause the next since cursor to request already-seen stream events.
+        context.lastServerTimestamp = Math.max(
+          context.lastServerTimestamp,
+          existingContext.lastServerTimestamp
+        );
+        context.clockOffsetMs = Date.now() - context.lastServerTimestamp;
+
+        // Preserve in-flight timing context so reconnect doesn't reset active tool timing stats.
+        context.serverFirstTokenTime = existingContext.serverFirstTokenTime;
+        context.toolExecutionMs = existingContext.toolExecutionMs;
+        context.pendingToolStarts = new Map(existingContext.pendingToolStarts);
+      }
+
+      this.activeStreams.set(data.messageId, context);
+      if (existingMessage.metadata) {
+        existingMessage.metadata.model = data.model;
+        existingMessage.metadata.mode = data.mode;
+        existingMessage.metadata.thinkingLevel = data.thinkingLevel;
+      }
+      this.markMessageDirty(data.messageId);
+      return;
+    }
+
     // Use messageId as key - ensures only ONE stream per message
-    // If called twice (e.g., during replay), second call safely overwrites first
+    // If called twice, second call safely overwrites first
     this.activeStreams.set(data.messageId, context);
 
     // Create initial streaming message with empty parts (deltas will append)
@@ -1184,7 +1504,9 @@ export class StreamingMessageAggregator {
       historySequence: data.historySequence,
       timestamp: Date.now(),
       model: data.model,
+
       mode: data.mode,
+      thinkingLevel: data.thinkingLevel,
     });
 
     this.messages.set(data.messageId, streamingMessage);
@@ -1194,6 +1516,8 @@ export class StreamingMessageAggregator {
   handleStreamDelta(data: StreamDeltaEvent): void {
     const message = this.messages.get(data.messageId);
     if (!message) return;
+
+    this.syncReplayPhase(data.messageId, data.replay);
 
     const context = this.activeStreams.get(data.messageId);
     if (context) {
@@ -1270,12 +1594,30 @@ export class StreamingMessageAggregator {
       // Clean up stream-scoped state (active stream tracking, TODOs)
       this.cleanupStreamState(data.messageId);
 
+      const isFinal = this.activeStreams.size === 0;
+
+      // Completion timestamp for ALL final streams — the "stream ended" fact.
+      // Read-marking uses this to keep the active minion current.
+      const completedAt = isFinal ? Date.now() : null;
+
+      // Recency policy: only non-compaction finals inflate lastResponseCompletedAt.
+      // Compaction recency comes from the compacted summary's own timestamp.
+      if (completedAt !== null && !activeStream.isCompacting) {
+        this.lastResponseCompletedAt = completedAt;
+      }
+
       // Notify on normal stream completion (skip replay-only reconstruction)
       // isFinal = true when this was the last active stream (assistant done with all work)
-      if (this.workspaceId && this.onResponseComplete) {
-        const isFinal = this.activeStreams.size === 0;
+      if (this.minionId && this.onResponseComplete) {
         const finalText = this.extractFinalResponseText(message);
-        this.onResponseComplete(this.workspaceId, data.messageId, isFinal, finalText, compaction);
+        this.onResponseComplete(
+          this.minionId,
+          data.messageId,
+          isFinal,
+          finalText,
+          compaction,
+          completedAt
+        );
       }
     } else {
       // Reconnection case: user reconnected after stream completed
@@ -1462,6 +1804,60 @@ export class StreamingMessageAggregator {
     // Tool deltas are for display - args are in dynamic-tool part
   }
 
+  private trackLoadedSkill(skill: LoadedSkill): void {
+    const existing = this.loadedSkills.get(skill.name);
+    if (
+      existing?.name === skill.name &&
+      existing.description === skill.description &&
+      existing.scope === skill.scope
+    ) {
+      return;
+    }
+
+    this.loadedSkills.set(skill.name, skill);
+    // Preserve a stable array reference for getLoadedSkills(): only replace when it changes.
+    this.loadedSkillsCache = Array.from(this.loadedSkills.values());
+
+    // A successful load supersedes any previous error for this skill
+    if (this.skillLoadErrors.delete(skill.name)) {
+      this.skillLoadErrorsCache = Array.from(this.skillLoadErrors.values());
+    }
+  }
+
+  private trackSkillLoadError(name: string, error: string): void {
+    const existing = this.skillLoadErrors.get(name);
+    if (existing?.error === error) return;
+
+    this.skillLoadErrors.set(name, { name, error });
+    this.skillLoadErrorsCache = Array.from(this.skillLoadErrors.values());
+
+    // A failed load supersedes any earlier success (skill may have been
+    // edited/deleted since the previous successful read)
+    if (this.loadedSkills.delete(name)) {
+      this.loadedSkillsCache = Array.from(this.loadedSkills.values());
+    }
+  }
+
+  private maybeTrackLoadedSkillFromAgentSkillSnapshot(snapshot: unknown): void {
+    const parsed = AgentSkillSnapshotMetadataSchema.safeParse(snapshot);
+    if (!parsed.success) {
+      return;
+    }
+
+    const { skillName, scope } = parsed.data;
+
+    // Don't override an existing entry (e.g. from agent_skill_read) with a placeholder description.
+    if (this.loadedSkills.has(skillName)) {
+      return;
+    }
+
+    this.trackLoadedSkill({
+      name: skillName,
+      description: `(loaded via /${skillName})`,
+      scope,
+    });
+  }
+
   /**
    * Process a completed tool call's result to update derived state.
    * Called for both live tool-call-end events and historical tool parts.
@@ -1514,12 +1910,12 @@ export class StreamingMessageAggregator {
     if (toolName === "notify" && hasSuccessResult(output)) {
       const result = output as Extract<NotifyToolResult, { success: true }>;
       const uiOnlyNotify = getToolOutputUiOnly(output)?.notify;
-      const legacyNotify = output as { notifiedVia?: string; workspaceId?: string };
+      const legacyNotify = output as { notifiedVia?: string; minionId?: string };
       const notifiedVia = uiOnlyNotify?.notifiedVia ?? legacyNotify.notifiedVia;
-      const workspaceId = uiOnlyNotify?.workspaceId ?? legacyNotify.workspaceId;
+      const minionId = uiOnlyNotify?.minionId ?? legacyNotify.minionId;
 
       if (notifiedVia === "browser") {
-        this.sendBrowserNotification(result.title, result.message, workspaceId);
+        this.sendBrowserNotification(result.title, result.message, minionId);
       }
     }
 
@@ -1535,15 +1931,19 @@ export class StreamingMessageAggregator {
         };
       };
       const skill = result.skill;
-      const prevSize = this.loadedSkills.size;
-      this.loadedSkills.set(skill.directoryName, {
+      this.trackLoadedSkill({
         name: skill.frontmatter.name,
         description: skill.frontmatter.description,
         scope: skill.scope,
       });
-      // Update cache only when a new skill is added (not on duplicate)
-      if (this.loadedSkills.size !== prevSize) {
-        this.loadedSkillsCache = Array.from(this.loadedSkills.values());
+    }
+
+    // Track runtime skill load errors when agent_skill_read fails
+    if (toolName === "agent_skill_read" && hasFailureResult(output)) {
+      const args = input as { name?: string } | undefined;
+      const errorResult = output as { error?: string };
+      if (args?.name) {
+        this.trackSkillLoadError(args.name, errorResult.error ?? "Unknown error");
       }
     }
 
@@ -1554,18 +1954,18 @@ export class StreamingMessageAggregator {
   /**
    * Send a browser notification using the Web Notifications API
    * Only called when Electron notifications are unavailable.
-   * Clicking the notification navigates to the workspace.
+   * Clicking the notification navigates to the minion.
    */
-  private sendBrowserNotification(title: string, body?: string, workspaceId?: string): void {
+  private sendBrowserNotification(title: string, body?: string, minionId?: string): void {
     if (!("Notification" in window)) return;
 
     const showNotification = () => {
       const notification = new Notification(title, { body });
-      if (workspaceId) {
+      if (minionId) {
         notification.onclick = () => {
-          // Focus the window and navigate to the workspace
+          // Focus the window and navigate to the minion
           window.focus();
-          this.onNavigateToWorkspace?.(workspaceId);
+          this.onNavigateToMinion?.(minionId);
         };
       }
     };
@@ -1650,6 +2050,8 @@ export class StreamingMessageAggregator {
     const message = this.messages.get(data.messageId);
     if (!message) return;
 
+    this.syncReplayPhase(data.messageId, data.replay);
+
     const context = this.activeStreams.get(data.messageId);
     if (context) {
       this.updateStreamClock(context, data.timestamp);
@@ -1679,7 +2081,7 @@ export class StreamingMessageAggregator {
     this.invalidateCache();
   }
 
-  handleMessage(data: WorkspaceChatMessage): void {
+  handleMessage(data: MinionChatMessage): void {
     // Handle init hook events (ephemeral, not persisted to history)
     if (isInitStart(data)) {
       this.initState = {
@@ -1739,7 +2141,7 @@ export class StreamingMessageAggregator {
         this.initOutputThrottleTimer = null;
       }
       // Reset pending stream start time so the grace period starts fresh after init completes.
-      // This prevents false retry barriers for slow init (e.g., Lattice workspace provisioning).
+      // This prevents false retry barriers for slow init (e.g., Lattice minion provisioning).
       if (this.pendingStreamStartTime !== null) {
         this.setPendingStreamStartTime(Date.now());
       }
@@ -1778,8 +2180,21 @@ export class StreamingMessageAggregator {
         }
       }
 
+      // When a compaction boundary arrives during a live session, prune messages
+      // older than the incoming boundary sequence so the UI matches a fresh load
+      // (emitHistoricalEvents now reads from skip=0, the latest boundary only).
+      // This keeps only the current epoch visible in-session; older epochs remain
+      // available via Load More history pagination.
+      if (this.isCompactionBoundarySummaryMessage(incomingMessage)) {
+        this.pruneBeforeLatestBoundary(incomingMessage);
+      }
+
       // Now add the new message
       this.addMessage(incomingMessage);
+
+      this.maybeTrackLoadedSkillFromAgentSkillSnapshot(
+        incomingMessage.metadata?.agentSkillSnapshot
+      );
 
       // If this is a user message, clear derived state and record timestamp
       if (incomingMessage.role === "user") {
@@ -1791,11 +2206,11 @@ export class StreamingMessageAggregator {
         this.currentTodos = [];
 
         // Capture pending compaction metadata for pre-stream UI ("starting" phase).
-        const latticeMetadata = incomingMessage.metadata?.latticeMetadata as
-          | LatticeFrontendMetadata
-          | undefined;
+        const latticeMetadata = incomingMessage.metadata?.latticeMetadata as LatticeMessageMetadata | undefined;
         this.pendingCompactionRequest =
           latticeMetadata?.type === "compaction-request" ? latticeMetadata.parsed : null;
+
+        this.pendingStreamModel = latticeMetadata?.requestedModel ?? null;
 
         if (latticeMeta?.displayStatus) {
           // Background operation - show requested status (don't persist)
@@ -1812,7 +2227,86 @@ export class StreamingMessageAggregator {
     }
   }
 
-  private buildDisplayedMessagesForMessage(message: LatticeMessage): DisplayedMessage[] {
+  private isCompactionBoundarySummaryMessage(message: LatticeMessage): boolean {
+    const latticeMeta = message.metadata?.latticeMetadata;
+    return (
+      message.role === "assistant" &&
+      (message.metadata?.compactionBoundary === true || latticeMeta?.type === "compaction-summary")
+    );
+  }
+
+  /**
+   * Keep only the latest epoch visible during a live session.
+   *
+   * When a new boundary arrives, existing messages still represent older epochs.
+   * Prune every existing message with a lower sequence than the incoming boundary
+   * so once the incoming boundary is appended, the transcript matches fresh loads
+   * from getHistoryFromLatestBoundary(skip=0). Older epochs remain accessible via
+   * Load More.
+   */
+  private pruneBeforeLatestBoundary(incomingBoundary: LatticeMessage): void {
+    const incomingBoundarySequence = incomingBoundary.metadata?.historySequence;
+    // Self-healing guard: malformed boundary metadata should not crash live sessions.
+    if (incomingBoundarySequence === undefined) return;
+
+    // Live compaction advances the replay window floor to the incoming boundary.
+    // Keep reconnect cursors aligned with the server's latest-boundary replay window
+    // so incremental reconnects remain eligible after compaction.
+    if (
+      this.establishedOldestHistorySequence === null ||
+      incomingBoundarySequence > this.establishedOldestHistorySequence
+    ) {
+      this.establishedOldestHistorySequence = incomingBoundarySequence;
+    }
+
+    const toRemove: string[] = [];
+    for (const [id, msg] of this.messages.entries()) {
+      const seq = msg.metadata?.historySequence;
+      if (seq !== undefined && seq < incomingBoundarySequence) {
+        toRemove.push(id);
+      }
+    }
+
+    for (const id of toRemove) {
+      this.deleteMessage(id);
+    }
+
+    if (toRemove.length > 0) {
+      this.invalidateCache();
+    }
+  }
+
+  private createCompactionBoundaryRow(
+    message: LatticeMessage,
+    historySequence: number
+  ): Extract<DisplayedMessage, { type: "compaction-boundary" }> {
+    assert(
+      message.role === "assistant",
+      "compaction boundaries must belong to assistant summaries"
+    );
+
+    const rawCompactionEpoch = message.metadata?.compactionEpoch;
+    const compactionEpoch =
+      typeof rawCompactionEpoch === "number" &&
+      Number.isInteger(rawCompactionEpoch) &&
+      rawCompactionEpoch > 0
+        ? rawCompactionEpoch
+        : undefined;
+
+    // Self-healing read path: malformed persisted compactionEpoch should not crash transcript rendering.
+    return {
+      type: "compaction-boundary",
+      id: `${message.id}-compaction-boundary`,
+      historySequence,
+      position: "start",
+      compactionEpoch,
+    };
+  }
+
+  private buildDisplayedMessagesForMessage(
+    message: LatticeMessage,
+    agentSkillSnapshot?: { frontmatterYaml?: string; body?: string }
+  ): DisplayedMessage[] {
     const displayedMessages: DisplayedMessage[] = [];
     const baseTimestamp = message.metadata?.timestamp;
     const historySequence = message.metadata?.historySequence ?? 0;
@@ -1851,24 +2345,18 @@ export class StreamingMessageAggregator {
         }));
 
       // Extract slash command from latticeMetadata (present for /compact, /skill, etc.)
-      let rawCommand =
-        latticeMeta && "rawCommand" in latticeMeta ? latticeMeta.rawCommand : undefined;
+      let rawCommand = latticeMeta && "rawCommand" in latticeMeta ? latticeMeta.rawCommand : undefined;
 
       const agentSkill =
         latticeMeta?.type === "agent-skill"
-          ? { skillName: latticeMeta.skillName, scope: latticeMeta.scope }
+          ? {
+              skillName: latticeMeta.skillName,
+              scope: latticeMeta.scope,
+              snapshot: agentSkillSnapshot,
+            }
           : undefined;
 
-      // Extract followUpContent, supporting both new `followUpContent` and legacy `continueMessage` fields
-      const extractFollowUpContent = (): CompactionFollowUpRequest | undefined => {
-        if (latticeMeta?.type !== "compaction-request") return undefined;
-        const parsed = latticeMeta.parsed as {
-          followUpContent?: CompactionFollowUpRequest;
-          continueMessage?: CompactionFollowUpRequest;
-        };
-        return parsed.followUpContent ?? parsed.continueMessage;
-      };
-      const compactionFollowUp = extractFollowUpContent();
+      const compactionFollowUp = getCompactionFollowUpContent(latticeMeta);
 
       const compactionRequest =
         latticeMeta?.type === "compaction-request"
@@ -1923,6 +2411,7 @@ export class StreamingMessageAggregator {
       // Check if this message has an active stream (for inferring streaming status)
       // Direct Map.has() check - O(1) instead of O(n) iteration
       const hasActiveStream = this.activeStreams.has(message.id);
+      const streamContext = hasActiveStream ? this.activeStreams.get(message.id) : undefined;
 
       // isPartial from metadata (set by stream-abort event)
       const isPartial = message.metadata?.partial === true;
@@ -1945,6 +2434,11 @@ export class StreamingMessageAggregator {
         }
       }
 
+      const isCompactionBoundarySummary = this.isCompactionBoundarySummaryMessage(message);
+      if (isCompactionBoundarySummary) {
+        displayedMessages.push(this.createCompactionBoundaryRow(message, historySequence));
+      }
+
       mergedParts.forEach((part, partIndex) => {
         const isLastPart = partIndex === lastPartIndex;
         // Part is streaming if: active stream exists AND this is the last part
@@ -1963,6 +2457,9 @@ export class StreamingMessageAggregator {
             isPartial,
             isLastPartOfMessage: isLastPart,
             timestamp: part.timestamp ?? baseTimestamp,
+            streamPresentation: isStreaming
+              ? { source: streamContext?.isReplay ? "replay" : "live" }
+              : undefined,
           });
         } else if (part.type === "text" && part.text) {
           // Skip empty text parts
@@ -1980,16 +2477,22 @@ export class StreamingMessageAggregator {
             isCompacted: !!message.metadata?.compacted,
             isIdleCompacted: message.metadata?.compacted === "idle",
             model: message.metadata?.model,
+
             mode: message.metadata?.mode,
             agentId: message.metadata?.agentId ?? message.metadata?.mode,
             timestamp: part.timestamp ?? baseTimestamp,
+            streamPresentation: isStreaming
+              ? { source: streamContext?.isReplay ? "replay" : "live" }
+              : undefined,
           });
         } else if (isDynamicToolPart(part)) {
           // Determine status based on part state and result
-          let status: "pending" | "executing" | "completed" | "failed" | "interrupted";
+          let status: "pending" | "executing" | "completed" | "failed" | "interrupted" | "redacted";
           if (part.state === "output-available") {
             // Check if result indicates failure (for tools that return { success: boolean })
             status = hasFailureResult(part.output) ? "failed" : "completed";
+          } else if (part.state === "output-redacted") {
+            status = part.failed ? "failed" : "redacted";
           } else if (part.state === "input-available") {
             // Most unfinished tool calls in partial messages represent an interruption.
             // ask_user_question is different: it's intentionally waiting on user input,
@@ -2076,6 +2579,34 @@ export class StreamingMessageAggregator {
   }
 
   /**
+   * After filtering older tool/reasoning parts, recompute which part is the
+   * last visible block for each assistant message. This keeps meta rows and
+   * interrupted barriers accurate after truncation.
+   */
+  private normalizeLastPartFlags(messages: DisplayedMessage[]): DisplayedMessage[] {
+    const seenHistoryIds = new Set<string>();
+    let didChange = false;
+    const normalized = messages.slice();
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (!("isLastPartOfMessage" in msg) || typeof msg.historyId !== "string") {
+        continue;
+      }
+
+      const shouldBeLast = !seenHistoryIds.has(msg.historyId);
+      seenHistoryIds.add(msg.historyId);
+
+      if (msg.isLastPartOfMessage !== shouldBeLast) {
+        normalized[i] = { ...msg, isLastPartOfMessage: shouldBeLast };
+        didChange = true;
+      }
+    }
+
+    return didChange ? normalized : messages;
+  }
+
+  /**
    * Transform LatticeMessages into DisplayedMessages for UI consumption
    * This splits complex messages with multiple parts into separate UI blocks
    * while preserving temporal ordering through sequence numbers
@@ -2090,28 +2621,103 @@ export class StreamingMessageAggregator {
       const showSyntheticMessages =
         typeof window !== "undefined" && window.api?.debugLlmRequest === true;
 
-      for (const message of allMessages) {
-        const isSynthetic = message.metadata?.synthetic === true;
+      // Synthetic agent-skill snapshot messages are hidden from the transcript unless
+      // debugLlmRequest is enabled. We still want to surface their content in the UI by
+      // attaching the resolved snapshot (frontmatterYaml + body) to the *subsequent*
+      // /{skillName} invocation message.
+      const latestAgentSkillSnapshotByKey = new Map<
+        string,
+        { sha256?: string; frontmatterYaml?: string; body: string }
+      >();
 
-        // Synthetic messages are typically for model context only, but can be shown in debug mode.
-        if (isSynthetic && !showSyntheticMessages) {
+      for (const message of allMessages) {
+        const snapshotMeta = message.metadata?.agentSkillSnapshot;
+        if (snapshotMeta) {
+          const parsed = AgentSkillSnapshotMetadataSchema.safeParse(snapshotMeta);
+          if (parsed.success) {
+            const snapshotText = message.parts
+              .filter((p) => p.type === "text")
+              .map((p) => p.text)
+              .join("");
+            const body = extractAgentSkillSnapshotBody(snapshotText);
+            if (body !== null) {
+              const key = `${parsed.data.scope}:${parsed.data.skillName}`;
+              latestAgentSkillSnapshotByKey.set(key, {
+                sha256: parsed.data.sha256,
+                frontmatterYaml: parsed.data.frontmatterYaml,
+                body,
+              });
+            }
+          }
+        }
+
+        const isSynthetic = message.metadata?.synthetic === true;
+        const isUiVisibleSynthetic = message.metadata?.uiVisible === true;
+
+        // Synthetic messages are typically for model context only.
+        // Show them only in debug mode, or when explicitly marked as UI-visible.
+        if (isSynthetic && !showSyntheticMessages && !isUiVisibleSynthetic) {
           continue;
         }
 
+        const latticeMeta = message.metadata?.latticeMetadata;
+        const agentSkillSnapshotKey =
+          message.role === "user" && latticeMeta?.type === "agent-skill"
+            ? `${latticeMeta.scope}:${latticeMeta.skillName}`
+            : undefined;
+
+        const agentSkillSnapshot = agentSkillSnapshotKey
+          ? latestAgentSkillSnapshotByKey.get(agentSkillSnapshotKey)
+          : undefined;
+
+        const agentSkillSnapshotForDisplay = agentSkillSnapshot
+          ? { frontmatterYaml: agentSkillSnapshot.frontmatterYaml, body: agentSkillSnapshot.body }
+          : undefined;
+
+        const agentSkillSnapshotCacheKey = agentSkillSnapshot
+          ? `${agentSkillSnapshot.sha256 ?? ""}\n${agentSkillSnapshot.frontmatterYaml ?? ""}`
+          : undefined;
+
         const version = this.messageVersions.get(message.id) ?? 0;
         const cached = this.displayedMessageCache.get(message.id);
-        const messageDisplay =
-          cached?.version === version
-            ? cached.messages
-            : this.buildDisplayedMessagesForMessage(message);
+        const canReuse =
+          cached?.version === version &&
+          cached.agentSkillSnapshotCacheKey === agentSkillSnapshotCacheKey;
 
-        if (cached?.version !== version) {
-          this.displayedMessageCache.set(message.id, { version, messages: messageDisplay });
+        const messageDisplay = canReuse
+          ? cached.messages
+          : this.buildDisplayedMessagesForMessage(message, agentSkillSnapshotForDisplay);
+
+        if (!canReuse) {
+          this.displayedMessageCache.set(message.id, {
+            version,
+            agentSkillSnapshotCacheKey,
+            messages: messageDisplay,
+          });
         }
 
         if (messageDisplay.length > 0) {
           displayedMessages.push(...messageDisplay);
         }
+      }
+
+      let resultMessages = displayedMessages;
+
+      // Limit messages for DOM performance (unless explicitly disabled).
+      // Strategy: keep recent rows intact, preserve structural rows in older history,
+      // and materialize omission runs as explicit history-hidden marker rows.
+      // Full history is still maintained internally for token counting.
+      if (!this.showAllMessages && displayedMessages.length > MAX_DISPLAYED_MESSAGES) {
+        const truncationPlan = buildTranscriptTruncationPlan({
+          displayedMessages,
+          maxDisplayedMessages: MAX_DISPLAYED_MESSAGES,
+          alwaysKeepMessageTypes: ALWAYS_KEEP_MESSAGE_TYPES,
+        });
+
+        resultMessages =
+          truncationPlan.hiddenCount > 0
+            ? this.normalizeLastPartFlags(truncationPlan.rows)
+            : truncationPlan.rows;
       }
 
       // Add init state if present (ephemeral, appears at top)
@@ -2121,8 +2727,8 @@ export class StreamingMessageAggregator {
             ? this.initState.endTime - this.initState.startTime
             : null;
         const initMessage: DisplayedMessage = {
-          type: "workspace-init",
-          id: "workspace-init",
+          type: "minion-init",
+          id: "minion-init",
           historySequence: -1, // Appears before all history
           status: this.initState.status,
           hookPath: this.initState.hookPath,
@@ -2132,31 +2738,11 @@ export class StreamingMessageAggregator {
           durationMs,
           truncatedLines: this.initState.truncatedLines,
         };
-        displayedMessages.unshift(initMessage);
-      }
-
-      // Limit to last N messages for DOM performance (unless explicitly disabled)
-      // Full history is still maintained internally for token counting
-      if (!this.showAllMessages && displayedMessages.length > MAX_DISPLAYED_MESSAGES) {
-        const hiddenCount = displayedMessages.length - MAX_DISPLAYED_MESSAGES;
-        const slicedMessages = displayedMessages.slice(-MAX_DISPLAYED_MESSAGES);
-
-        // Add history-hidden indicator as the first message
-        const historyHiddenMessage: DisplayedMessage = {
-          type: "history-hidden",
-          id: "history-hidden",
-          hiddenCount,
-          historySequence: -1, // Place it before all messages
-        };
-
-        // Cache the sliced result to maintain stable references and avoid recomputation
-        const result = [historyHiddenMessage, ...slicedMessages];
-        this.cache.displayedMessages = result;
-        return result;
+        resultMessages = [initMessage, ...resultMessages];
       }
 
       // Return the full array
-      this.cache.displayedMessages = displayedMessages;
+      this.cache.displayedMessages = resultMessages;
     }
     return this.cache.displayedMessages;
   }

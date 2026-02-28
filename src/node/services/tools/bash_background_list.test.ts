@@ -5,10 +5,10 @@ import { LocalRuntime } from "@/node/runtime/LocalRuntime";
 import type { Runtime } from "@/node/runtime/Runtime";
 import type { BashBackgroundListResult } from "@/common/types/tools";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 import * as fs from "fs/promises";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -18,16 +18,14 @@ function createTestRuntime(): Runtime {
   return new LocalRuntime(process.cwd());
 }
 
-// Workspace IDs used in tests - need cleanup after each test
-const TEST_WORKSPACES = ["test-workspace", "workspace-a", "workspace-b"];
+// Minion IDs used in tests - need cleanup after each test
+const TEST_MINIONS = ["test-minion", "minion-a", "minion-b"];
 
 describe("bash_background_list tool", () => {
   afterEach(async () => {
     // Clean up output directories from /tmp/lattice-bashes/ to prevent test pollution
-    for (const ws of TEST_WORKSPACES) {
-      await fs
-        .rm(`/tmp/lattice-bashes/${ws}`, { recursive: true, force: true })
-        .catch(() => undefined);
+    for (const ws of TEST_MINIONS) {
+      await fs.rm(`/tmp/lattice-bashes/${ws}`, { recursive: true, force: true }).catch(() => undefined);
     }
   });
 
@@ -47,20 +45,20 @@ describe("bash_background_list tool", () => {
     tempDir[Symbol.dispose]();
   });
 
-  it("should return error when workspaceId not available", async () => {
+  it("should return error when minionId not available", async () => {
     const tempDir = new TestTempDir("test-bash-bg-list");
     const manager = new BackgroundProcessManager(tempDir.path);
     const config = createTestToolConfig(process.cwd());
     config.runtimeTempDir = tempDir.path;
     config.backgroundProcessManager = manager;
-    delete config.workspaceId; // Explicitly remove workspaceId
+    delete config.minionId; // Explicitly remove minionId
 
     const tool = createBashBackgroundListTool(config);
     const result = (await tool.execute!({}, mockToolCallOptions)) as BashBackgroundListResult;
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toContain("Workspace ID not available");
+      expect(result.error).toContain("Minion ID not available");
     }
 
     tempDir[Symbol.dispose]();
@@ -93,7 +91,7 @@ describe("bash_background_list tool", () => {
     config.backgroundProcessManager = manager;
 
     // Spawn a process
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 10", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 10", {
       cwd: process.cwd(),
       displayName: "test",
     });
@@ -117,7 +115,7 @@ describe("bash_background_list tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -130,7 +128,7 @@ describe("bash_background_list tool", () => {
     config.backgroundProcessManager = manager;
 
     // Spawn a process with display_name
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 10", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 10", {
       cwd: process.cwd(),
       displayName: "Dev Server",
     });
@@ -149,28 +147,28 @@ describe("bash_background_list tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
-  it("should only list processes for the current workspace", async () => {
+  it("should only list processes for the current minion", async () => {
     const tempDir = new TestTempDir("test-bash-bg-list");
     const manager = new BackgroundProcessManager(tempDir.path);
     const runtime = createTestRuntime();
 
     const config = createTestToolConfig(process.cwd(), {
-      workspaceId: "workspace-a",
+      minionId: "minion-a",
       sessionsDir: tempDir.path,
     });
     config.runtimeTempDir = tempDir.path;
     config.backgroundProcessManager = manager;
 
-    // Spawn processes in different workspaces
-    const spawnA = await manager.spawn(runtime, "workspace-a", "sleep 10", {
+    // Spawn processes in different minions
+    const spawnA = await manager.spawn(runtime, "minion-a", "sleep 10", {
       cwd: process.cwd(),
       displayName: "test-a",
     });
-    const spawnB = await manager.spawn(runtime, "workspace-b", "sleep 10", {
+    const spawnB = await manager.spawn(runtime, "minion-b", "sleep 10", {
       cwd: process.cwd(),
       displayName: "test-b",
     });
@@ -189,8 +187,8 @@ describe("bash_background_list tool", () => {
     }
 
     // Cleanup
-    await manager.cleanup("workspace-a");
-    await manager.cleanup("workspace-b");
+    await manager.cleanup("minion-a");
+    await manager.cleanup("minion-b");
     tempDir[Symbol.dispose]();
   });
 });

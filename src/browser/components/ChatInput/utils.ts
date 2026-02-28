@@ -4,7 +4,7 @@ import type { APIClient } from "@/browser/contexts/API";
 import type { AgentSkillDescriptor } from "@/common/types/agentSkill";
 import type { SendMessageError } from "@/common/types/errors";
 import type { ParsedRuntime } from "@/common/types/runtime";
-import { buildAgentSkillMetadata, type LatticeFrontendMetadata } from "@/common/types/message";
+import { buildAgentSkillMetadata, type LatticeMessageMetadata } from "@/common/types/message";
 import type { FilePart } from "@/common/orpc/types";
 import type { ChatAttachment } from "../ChatAttachments";
 import type { Review } from "@/common/types/review";
@@ -27,7 +27,7 @@ export function extractErrorMessage(error: SendMessageError | string): string {
 export type CreationRuntimeValidationError =
   | { mode: "docker"; kind: "missingImage" }
   | { mode: "ssh"; kind: "missingHost" }
-  | { mode: "ssh"; kind: "missingLatticeWorkspace" }
+  | { mode: "ssh"; kind: "missingLatticeMinion" }
   | { mode: "ssh"; kind: "missingLatticeTemplate" }
   | { mode: "ssh"; kind: "missingLatticePreset" };
 
@@ -38,7 +38,7 @@ export interface SkillInvocation {
 
 export type SkillResolutionTarget =
   | { kind: "project"; projectPath: string }
-  | { kind: "workspace"; workspaceId: string; disableWorkspaceAgents?: boolean };
+  | { kind: "minion"; minionId: string; disableMinionAgents?: boolean };
 
 // Unknown slash commands are used for agent-skill invocations (/{skillName} ...).
 type UnknownSlashCommand = Extract<ParsedCommand, { type: "unknown-command" }>;
@@ -50,7 +50,7 @@ function isUnknownSlashCommand(value: ParsedCommand): value is UnknownSlashComma
 export function buildSkillInvocationMetadata(
   rawCommand: string,
   descriptor: AgentSkillDescriptor
-): LatticeFrontendMetadata {
+): LatticeMessageMetadata {
   return buildAgentSkillMetadata({
     rawCommand,
     commandPrefix: `/${descriptor.name}`,
@@ -100,8 +100,8 @@ async function resolveSkillInvocation(options: {
               skillName: command,
             })
           : await options.api.agentSkills.get({
-              workspaceId: options.discovery.workspaceId,
-              disableWorkspaceAgents: options.discovery.disableWorkspaceAgents,
+              minionId: options.discovery.minionId,
+              disableMinionAgents: options.discovery.disableMinionAgents,
               skillName: command,
             });
       skill = {
@@ -156,10 +156,10 @@ export function validateCreationRuntime(
 
   if (runtime.mode === "ssh") {
     if (runtime.lattice) {
-      if (runtime.lattice.existingWorkspace) {
-        // Existing mode: workspace name is required
-        if (!(runtime.lattice.workspaceName ?? "").trim()) {
-          return { mode: "ssh", kind: "missingLatticeWorkspace" };
+      if (runtime.lattice.existingMinion) {
+        // Existing mode: minion name is required
+        if (!(runtime.lattice.minionName ?? "").trim()) {
+          return { mode: "ssh", kind: "missingLatticeMinion" };
         }
       } else {
         // New mode: template is required

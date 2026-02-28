@@ -16,7 +16,7 @@ interface CachedPostCompactionData {
   excludedItems: string[];
 }
 
-/** Load state from localStorage cache for a workspace */
+/** Load state from localStorage cache for a minion */
 function loadFromCache(wsId: string) {
   const cached = readPersistedState<CachedPostCompactionData | null>(
     getPostCompactionStateKey(wsId),
@@ -30,32 +30,32 @@ function loadFromCache(wsId: string) {
 }
 
 /**
- * Hook to get post-compaction context state for a workspace.
+ * Hook to get post-compaction context state for a minion.
  * Fetches lazily from the backend API and caches in localStorage.
- * This avoids the expensive runtime.stat calls during workspace.list().
+ * This avoids the expensive runtime.stat calls during minion.list().
  *
  * Always enabled: post-compaction context is a stable feature (not an experiment).
  */
-export function usePostCompactionState(workspaceId: string): PostCompactionState {
+export function usePostCompactionState(minionId: string): PostCompactionState {
   const { api } = useAPI();
-  const [state, setState] = useState(() => loadFromCache(workspaceId));
+  const [state, setState] = useState(() => loadFromCache(minionId));
 
-  // Track which workspaceId the current state belongs to.
-  // Reset synchronously during render when workspaceId changes (React-recommended pattern).
-  const prevWorkspaceIdRef = useRef(workspaceId);
-  if (prevWorkspaceIdRef.current !== workspaceId) {
-    prevWorkspaceIdRef.current = workspaceId;
-    setState(loadFromCache(workspaceId));
+  // Track which minionId the current state belongs to.
+  // Reset synchronously during render when minionId changes (React-recommended pattern).
+  const prevMinionIdRef = useRef(minionId);
+  if (prevMinionIdRef.current !== minionId) {
+    prevMinionIdRef.current = minionId;
+    setState(loadFromCache(minionId));
   }
 
-  // Fetch fresh data when workspaceId changes
+  // Fetch fresh data when minionId changes
   useEffect(() => {
     if (!api) return;
 
     let cancelled = false;
     const fetchState = async () => {
       try {
-        const result = await api.workspace.getPostCompactionState({ workspaceId });
+        const result = await api.minion.getPostCompactionState({ minionId });
         if (cancelled) return;
 
         // Update state
@@ -66,7 +66,7 @@ export function usePostCompactionState(workspaceId: string): PostCompactionState
         });
 
         // Cache for next time
-        updatePersistedState<CachedPostCompactionData>(getPostCompactionStateKey(workspaceId), {
+        updatePersistedState<CachedPostCompactionData>(getPostCompactionStateKey(minionId), {
           planPath: result.planPath,
           trackedFilePaths: result.trackedFilePaths,
           excludedItems: result.excludedItems,
@@ -81,14 +81,14 @@ export function usePostCompactionState(workspaceId: string): PostCompactionState
     return () => {
       cancelled = true;
     };
-  }, [api, workspaceId]);
+  }, [api, minionId]);
 
   const toggleExclusion = useCallback(
     async (itemId: string) => {
       if (!api) return;
       const isCurrentlyExcluded = state.excludedItems.has(itemId);
-      const result = await api.workspace.setPostCompactionExclusion({
-        workspaceId,
+      const result = await api.minion.setPostCompactionExclusion({
+        minionId,
         itemId,
         excluded: !isCurrentlyExcluded,
       });
@@ -104,7 +104,7 @@ export function usePostCompactionState(workspaceId: string): PostCompactionState
           const newState = { ...prev, excludedItems: newSet };
 
           // Update cache
-          updatePersistedState<CachedPostCompactionData>(getPostCompactionStateKey(workspaceId), {
+          updatePersistedState<CachedPostCompactionData>(getPostCompactionStateKey(minionId), {
             planPath: newState.planPath,
             trackedFilePaths: newState.trackedFilePaths,
             excludedItems: Array.from(newSet),
@@ -114,7 +114,7 @@ export function usePostCompactionState(workspaceId: string): PostCompactionState
         });
       }
     },
-    [api, workspaceId, state.excludedItems]
+    [api, minionId, state.excludedItems]
   );
 
   return { ...state, toggleExclusion };

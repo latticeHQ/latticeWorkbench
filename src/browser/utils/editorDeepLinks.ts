@@ -11,7 +11,7 @@ export type DeepLinkEditor = "vscode" | "cursor" | "zed";
 export interface DeepLinkOptions {
   editor: DeepLinkEditor;
   path: string;
-  sshHost?: string; // For SSH/remote workspaces
+  sshHost?: string; // For SSH/remote minions
   line?: number;
   column?: number;
 }
@@ -173,7 +173,7 @@ export function getDevcontainerDeepLink(options: {
   //
   // The JSON config contains:
   // - containerName: Docker container name with leading /
-  // - hostPath: Path on the host machine to the workspace
+  // - hostPath: Path on the host machine to the minion
   // - configFile: Optional devcontainer.json location
   // - localDocker: false (we're connecting to an existing container)
   const config: Record<string, unknown> = {

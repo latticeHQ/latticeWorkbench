@@ -30,8 +30,8 @@ export function clearTypeCaches(): void {
 
 /**
  * Pre-generate type definitions for the given tools.
- * Call during workspace initialization to avoid first-call latency.
- * Integration with workspace initialization is handled in Phase 6.
+ * Call during minion initialization to avoid first-call latency.
+ * Integration with minion initialization is handled in Phase 6.
  */
 export async function preGenerateLatticeTypes(tools: Record<string, Tool>): Promise<void> {
   const toolBridge = new ToolBridge(tools);
@@ -85,16 +85,16 @@ ${latticeTypes}
         .string()
         .min(1)
         .describe(
-          "JavaScript code to execute.lattice.* calls are synchronous—do not use await. Use 'return' for final result."
+          "JavaScript code to execute. lattice.* calls are synchronous—do not use await. Use 'return' for final result."
         ),
       timeout_secs: z
         .number()
         .int()
         .positive()
-        .optional()
+        .nullish()
         .describe(
           "Execution timeout in seconds (default: 300, max: 3600). " +
-            "Increase when spawning subagents that may take 5-15+ minutes."
+            "Increase when spawning sidekicks that may take 5-15+ minutes."
         ),
     }),
 
@@ -104,8 +104,9 @@ ${latticeTypes}
     ): Promise<PTCExecutionResult> => {
       const execStartTime = Date.now();
 
-      // Static analysis before execution - catch syntax errors, forbidden patterns, and type errors
-      const analysis = await analyzeCode(code, latticeTypes);
+      // Static analysis before execution - catch syntax errors and sandbox-forbidden patterns.
+      // TypeScript typing issues are intentionally non-blocking for one-off runtime scripts.
+      const analysis = await analyzeCode(code);
       if (!analysis.valid) {
         const errorMessages = analysis.errors.map((e) => {
           const location =

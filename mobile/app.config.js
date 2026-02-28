@@ -1,51 +1,37 @@
 // Dynamic Expo config.
 //
 // We intentionally keep iOS App Transport Security (ATS) strict for preview/production
-// builds, but allow plain HTTP in *dev* builds so the app can talk to a local Lattice
+// builds, but allow plain HTTP in *dev* builds so the app can talk to a local lattice
 // server (e.g. http://<lan-ip>:3000) without having to run TLS locally.
 //
 // EAS sets EAS_BUILD_PROFILE to the profile name (development|preview|production).
 
-/** @type {import("@expo/config-types").ExpoConfig} */
-const expoConfig = {
-  name: "Lattice",
-  slug: "lattice",
-  version: "0.0.1",
-  scheme: "lattice",
-  orientation: "portrait",
-  platforms: ["ios", "android"],
-  newArchEnabled: true,
-  jsEngine: "hermes",
-  experiments: {
-    typedRoutes: true,
-  },
-  extra: {
-    lattice: {},
-    router: {},
-    eas: {
-      projectId: "263dd3d7-ac12-491c-b530-73286b1f3b59",
-    },
-  },
-  plugins: ["expo-router", "expo-secure-store"],
-  ios: {
-    bundleIdentifier: "com.lattice.mobile",
-  },
-  owner: "latticeruntime",
-  android: {
-    package: "com.lattice.mobile",
-  },
-};
+const appJson = require("./app.json");
 
 /**
- * @param {import("@expo/config-types").ExpoConfig} config
+ * @param {unknown} value
+ * @returns {asserts value is { expo: import("@expo/config-types").ExpoConfig }}
  */
-function withDevAtsException(config) {
-  const ios = config.ios ?? {};
+function assertAppJson(value) {
+  if (!value || typeof value !== "object") {
+    throw new Error("Expected app.json to be an object");
+  }
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+  if (!("expo" in value)) {
+    throw new Error("Expected app.json to have an `expo` key");
+  }
+}
+
+/**
+ * @param {import("@expo/config-types").ExpoConfig} expoConfig
+ */
+function withDevAtsException(expoConfig) {
+  const ios = expoConfig.ios ?? {};
   const infoPlist = ios.infoPlist ?? {};
   const ats = infoPlist.NSAppTransportSecurity ?? {};
 
   return {
-    ...config,
+    ...expoConfig,
     ios: {
       ...ios,
       infoPlist: {
@@ -60,6 +46,11 @@ function withDevAtsException(config) {
 }
 
 module.exports = () => {
+  assertAppJson(appJson);
+
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+  const expoConfig = appJson.expo;
+
   const buildProfile = process.env.EAS_BUILD_PROFILE;
   const allowInsecureHttp = !buildProfile || buildProfile === "development";
 

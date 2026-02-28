@@ -1,10 +1,10 @@
 import type { Config } from "@/node/config";
 import type { RuntimeConfig } from "@/common/types/runtime";
-import type { WorkspaceForkResult } from "@/node/runtime/Runtime";
+import type { MinionForkResult } from "@/node/runtime/Runtime";
 
 export function resolveForkRuntimeConfigs(
   sourceRuntimeConfig: RuntimeConfig,
-  forkResult: WorkspaceForkResult
+  forkResult: MinionForkResult
 ): {
   forkedRuntimeConfig: RuntimeConfig;
   sourceRuntimeConfigUpdate?: RuntimeConfig;
@@ -16,27 +16,33 @@ export function resolveForkRuntimeConfigs(
 }
 
 /**
- * Apply runtime config updates returned by runtime.forkWorkspace().
+ * Apply runtime config updates returned by runtime.forkMinion().
  *
  * Runtimes may return updated runtimeConfig for:
- * - the new workspace (forkedRuntimeConfig)
- * - the source workspace (sourceRuntimeConfig)
+ * - the new minion (forkedRuntimeConfig)
+ * - the source minion (sourceRuntimeConfig)
  *
- * This helper centralizes the logic so WorkspaceService and TaskService stay consistent.
+ * This helper centralizes the logic so MinionService and TaskService stay consistent.
  */
+interface ApplyForkRuntimeUpdatesOptions {
+  persistSourceRuntimeConfigUpdate?: boolean;
+}
+
 export async function applyForkRuntimeUpdates(
   config: Config,
-  sourceWorkspaceId: string,
+  sourceMinionId: string,
   sourceRuntimeConfig: RuntimeConfig,
-  forkResult: WorkspaceForkResult
-): Promise<{ forkedRuntimeConfig: RuntimeConfig }> {
+  forkResult: MinionForkResult,
+  options: ApplyForkRuntimeUpdatesOptions = {}
+): Promise<{ forkedRuntimeConfig: RuntimeConfig; sourceRuntimeConfigUpdate?: RuntimeConfig }> {
   const resolved = resolveForkRuntimeConfigs(sourceRuntimeConfig, forkResult);
+  const persistSourceRuntimeConfigUpdate = options.persistSourceRuntimeConfigUpdate ?? true;
 
-  if (resolved.sourceRuntimeConfigUpdate) {
-    await config.updateWorkspaceMetadata(sourceWorkspaceId, {
+  if (persistSourceRuntimeConfigUpdate && resolved.sourceRuntimeConfigUpdate) {
+    await config.updateMinionMetadata(sourceMinionId, {
       runtimeConfig: resolved.sourceRuntimeConfigUpdate,
     });
   }
 
-  return { forkedRuntimeConfig: resolved.forkedRuntimeConfig };
+  return resolved;
 }

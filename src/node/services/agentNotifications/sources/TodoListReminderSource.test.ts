@@ -8,12 +8,12 @@ import { setTodosForSessionDir } from "@/node/services/tools/todo";
 import { TodoListReminderSource } from "./TodoListReminderSource";
 
 describe("TodoListReminderSource", () => {
-  const workspaceId = "ws-test";
-  let workspaceSessionDir: string;
+  const minionId = "ws-test";
+  let minionSessionDir: string;
 
   beforeEach(async () => {
-    workspaceSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-todos-"));
-    await setTodosForSessionDir(workspaceId, workspaceSessionDir, [
+    minionSessionDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-todos-"));
+    await setTodosForSessionDir(minionId, minionSessionDir, [
       { content: "Completed", status: "completed" },
       { content: "In progress", status: "in_progress" },
       { content: "Pending", status: "pending" },
@@ -21,11 +21,11 @@ describe("TodoListReminderSource", () => {
   });
 
   afterEach(async () => {
-    await fs.rm(workspaceSessionDir, { recursive: true, force: true });
+    await fs.rm(minionSessionDir, { recursive: true, force: true });
   });
 
   test("reminds after 5 tool calls, then every 10", async () => {
-    const source = new TodoListReminderSource({ workspaceSessionDir });
+    const source = new TodoListReminderSource({ minionSessionDir });
 
     for (let i = 0; i < 4; i += 1) {
       const notifications = await source.poll({ toolName: "bash", toolSucceeded: true, now: i });
@@ -52,7 +52,7 @@ describe("TodoListReminderSource", () => {
   });
 
   test("resets after successful todo_write", async () => {
-    const source = new TodoListReminderSource({ workspaceSessionDir });
+    const source = new TodoListReminderSource({ minionSessionDir });
 
     for (let i = 0; i < 4; i += 1) {
       await source.poll({ toolName: "bash", toolSucceeded: true, now: i });
@@ -77,7 +77,7 @@ describe("TodoListReminderSource", () => {
 
   test("suppresses reminder when todo list is empty", async () => {
     const emptyDir = await fs.mkdtemp(path.join(os.tmpdir(), "lattice-todos-empty-"));
-    const source = new TodoListReminderSource({ workspaceSessionDir: emptyDir });
+    const source = new TodoListReminderSource({ minionSessionDir: emptyDir });
 
     try {
       for (let i = 0; i < 5; i += 1) {
@@ -90,12 +90,12 @@ describe("TodoListReminderSource", () => {
   });
 
   test("suppresses reminder when all todos are completed", async () => {
-    await setTodosForSessionDir(workspaceId, workspaceSessionDir, [
+    await setTodosForSessionDir(minionId, minionSessionDir, [
       { content: "Done 1", status: "completed" },
       { content: "Done 2", status: "completed" },
     ]);
 
-    const source = new TodoListReminderSource({ workspaceSessionDir });
+    const source = new TodoListReminderSource({ minionSessionDir });
 
     for (let i = 0; i < 5; i += 1) {
       const notifications = await source.poll({ toolName: "bash", toolSucceeded: true, now: i });

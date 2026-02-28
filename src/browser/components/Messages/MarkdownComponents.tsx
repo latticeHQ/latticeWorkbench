@@ -7,7 +7,6 @@ import { highlightCode } from "@/browser/utils/highlighting/highlightWorkerClien
 import { extractShikiLines } from "@/browser/utils/highlighting/shiki-shared";
 import { useTheme } from "@/browser/contexts/ThemeContext";
 import { CopyButton } from "@/browser/components/ui/CopyButton";
-import { useFileOpener } from "@/browser/contexts/FileOpenerContext";
 
 interface CodeProps {
   node?: unknown;
@@ -57,7 +56,7 @@ function normalizeSuggestedShellCommand(code: string): string {
     lines.pop();
   }
 
-  let promptKind: "lattice" | "powershell" | "cmd" | null = null;
+  let promptKind: "unix" | "powershell" | "cmd" | null = null;
 
   return lines
     .map((line, idx) => {
@@ -70,9 +69,9 @@ function normalizeSuggestedShellCommand(code: string): string {
       //   PS C:\Users\mike> npm install
       //   C:\Users\mike> npm install
 
-      // Common Lattice shell prompt marker.
+      // Common Unix shell prompt marker.
       if (/^\s*\$\s+/.test(line)) {
-        promptKind = "lattice";
+        promptKind = "unix";
         return line.replace(/^\s*\$\s+/, "");
       }
 
@@ -93,7 +92,7 @@ function normalizeSuggestedShellCommand(code: string): string {
       //
       // But if the snippet starts with a `$ ` prompt marker, then `> ` on subsequent
       // lines is usually a continuation prompt (PS2) and should be stripped.
-      if (promptKind === "lattice" && idx > 0) {
+      if (promptKind === "unix" && idx > 0) {
         return line.replace(/^\s*>\s+/, "");
       }
 
@@ -223,139 +222,6 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ code, language, highlightLanguage
   );
 };
 
-/**
- * Common file extensions that indicate a path is a file (not a shell command or variable).
- */
-const FILE_EXTENSIONS = new Set([
-  "pdf",
-  "doc",
-  "docx",
-  "xls",
-  "xlsx",
-  "ppt",
-  "pptx",
-  "txt",
-  "md",
-  "json",
-  "yaml",
-  "yml",
-  "toml",
-  "xml",
-  "csv",
-  "ts",
-  "tsx",
-  "js",
-  "jsx",
-  "py",
-  "rb",
-  "go",
-  "rs",
-  "java",
-  "c",
-  "cpp",
-  "h",
-  "hpp",
-  "html",
-  "css",
-  "scss",
-  "less",
-  "svg",
-  "png",
-  "jpg",
-  "jpeg",
-  "gif",
-  "webp",
-  "ico",
-  "sh",
-  "bash",
-  "zsh",
-  "fish",
-  "env",
-  "gitignore",
-  "lock",
-  "log",
-]);
-
-/**
- * Detect if inline code text looks like a file path.
- * Matches patterns like: file.ext, path/to/file, ./relative, ../parent, /absolute
- */
-function looksLikeFilePath(text: string): boolean {
-  const trimmed = text.trim();
-  // Must not be empty or contain spaces (likely a command)
-  if (!trimmed || trimmed.includes(" ")) return false;
-  // Check if it has a recognized file extension
-  const lastDot = trimmed.lastIndexOf(".");
-  if (lastDot > 0) {
-    const ext = trimmed.slice(lastDot + 1).toLowerCase();
-    if (FILE_EXTENSIONS.has(ext)) return true;
-  }
-  // Check if it looks like an explicit path (has slashes and no spaces)
-  if (
-    (trimmed.includes("/") || trimmed.startsWith("./") || trimmed.startsWith("../")) &&
-    !trimmed.includes(" ")
-  ) {
-    // Must have at least one segment that looks like a filename
-    const segments = trimmed.split("/").filter(Boolean);
-    if (segments.length > 0) {
-      const lastSegment = segments[segments.length - 1];
-      // Last segment should contain a dot (file.ext) or be a reasonable filename
-      if (lastSegment.includes(".")) return true;
-    }
-  }
-  return false;
-}
-
-/**
- * Extract the relative path from inline code text.
- * Strips absolute path prefixes to get a workspace-relative path.
- */
-function extractRelativePath(text: string): string {
-  let path = text.trim();
-  // If it's an absolute path, try to extract the filename or relative portion
-  // The sidebar's handleOpenFile expects a relative path
-  if (path.startsWith("/")) {
-    // Just use the filename - the file viewer will handle it
-    const lastSlash = path.lastIndexOf("/");
-    if (lastSlash >= 0) {
-      return path.slice(lastSlash + 1);
-    }
-  }
-  return path;
-}
-
-/**
- * InlineCode component that detects file paths and makes them clickable.
- */
-const InlineCode: React.FC<CodeProps> = ({ className, children, node, ...props }) => {
-  const { openFile } = useFileOpener();
-  const childString =
-    typeof children === "string" ? children : Array.isArray(children) ? children.join("") : "";
-
-  if (looksLikeFilePath(childString)) {
-    const relativePath = extractRelativePath(childString);
-    return (
-      <code
-        className={`${className ?? ""} cursor-pointer hover:underline hover:text-accent transition-colors`}
-        onClick={(e) => {
-          e.stopPropagation();
-          openFile(relativePath);
-        }}
-        title={`Open ${relativePath}`}
-        {...props}
-      >
-        {children}
-      </code>
-    );
-  }
-
-  return (
-    <code className={className} {...props}>
-      {children}
-    </code>
-  );
-};
-
 // Custom components for markdown rendering
 export const markdownComponents = {
   // Pass through pre element - let code component handle the wrapping
@@ -368,7 +234,7 @@ export const markdownComponents = {
     </a>
   ),
 
-  // Custom details/summary for collapsible sections
+  // Custom details/summary for collapsible crews
   details: ({ children, open }: DetailsProps) => (
     <details
       open={open}
@@ -417,7 +283,11 @@ export const markdownComponents = {
       );
     }
 
-    // Inline code - detect file paths and make them clickable
-    return <InlineCode className={className} children={children} node={node} {...props} />;
+    // Inline code (filter out node prop to avoid [object Object])
+    return (
+      <code className={className} {...props}>
+        {children}
+      </code>
+    );
   },
 };

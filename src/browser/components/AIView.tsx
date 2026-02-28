@@ -3,33 +3,32 @@ import { AlertTriangle } from "lucide-react";
 import { cn } from "@/common/lib/utils";
 import type { RuntimeConfig } from "@/common/types/runtime";
 import { ThinkingProvider } from "@/browser/contexts/ThinkingContext";
-import { WorkspaceModeAISync } from "@/browser/components/WorkspaceModeAISync";
+import { MinionModeAISync } from "@/browser/components/MinionModeAISync";
 import { AgentProvider } from "@/browser/contexts/AgentContext";
-import { ProviderOptionsProvider } from "@/browser/contexts/ProviderOptionsContext";
 import { BackgroundBashProvider } from "@/browser/contexts/BackgroundBashContext";
-import { WorkspaceShell } from "./WorkspaceShell";
+import { MinionShell } from "./MinionShell";
 
 interface AIViewProps {
-  workspaceId: string;
+  minionId: string;
   projectPath: string;
   projectName: string;
-  workspaceName: string;
-  namedWorkspacePath: string; // User-friendly path for display and terminal
+  minionName: string;
+  namedMinionPath: string; // User-friendly path for display and terminal
   leftSidebarCollapsed: boolean;
   onToggleLeftSidebarCollapsed: () => void;
   runtimeConfig?: RuntimeConfig;
   className?: string;
-  /** If set, workspace is incompatible (from newer lattice version) and this error should be displayed */
+  /** If set, minion is incompatible (from newer lattice version) and this error should be displayed */
   incompatibleRuntime?: string;
-  /** If 'creating', workspace is still being set up (git operations in progress) */
-  status?: "creating";
+  /** True if minion is still being initialized (postCreateSetup or initMinion running) */
+  isInitializing?: boolean;
 }
 
 /**
- * Incompatible workspace error display.
- * Shown when a workspace was created with a newer version of lattice.
+ * Incompatible minion error display.
+ * Shown when a minion was created with a newer version of lattice.
  */
-const IncompatibleWorkspaceView: React.FC<{ message: string; className?: string }> = ({
+const IncompatibleMinionView: React.FC<{ message: string; className?: string }> = ({
   message,
   className,
 }) => (
@@ -39,11 +38,11 @@ const IncompatibleWorkspaceView: React.FC<{ message: string; className?: string 
         <AlertTriangle aria-hidden="true" className="text-warning h-10 w-10" />
       </div>
       <h2 className="mb-2 text-xl font-semibold text-[var(--color-text-primary)]">
-        Incompatible Workspace
+        Incompatible Minion
       </h2>
       <p className="mb-4 text-[var(--color-text-secondary)]">{message}</p>
       <p className="text-sm text-[var(--color-text-tertiary)]">
-        You can delete this workspace and create a new one, or upgrade lattice to use it.
+        You can delete this minion and create a new one, or upgrade lattice to use it.
       </p>
     </div>
   </div>
@@ -51,23 +50,21 @@ const IncompatibleWorkspaceView: React.FC<{ message: string; className?: string 
 
 // Wrapper component that provides the agent and thinking contexts
 export const AIView: React.FC<AIViewProps> = (props) => {
-  // Early return for incompatible workspaces - no hooks called in this path
+  // Early return for incompatible minions - no hooks called in this path
   if (props.incompatibleRuntime) {
     return (
-      <IncompatibleWorkspaceView message={props.incompatibleRuntime} className={props.className} />
+      <IncompatibleMinionView message={props.incompatibleRuntime} className={props.className} />
     );
   }
 
   return (
-    <AgentProvider workspaceId={props.workspaceId} projectPath={props.projectPath}>
-      <WorkspaceModeAISync workspaceId={props.workspaceId} />
-      <ProviderOptionsProvider>
-        <ThinkingProvider workspaceId={props.workspaceId}>
-          <BackgroundBashProvider workspaceId={props.workspaceId}>
-            <WorkspaceShell {...props} />
-          </BackgroundBashProvider>
-        </ThinkingProvider>
-      </ProviderOptionsProvider>
+    <AgentProvider minionId={props.minionId} projectPath={props.projectPath}>
+      <MinionModeAISync minionId={props.minionId} />
+      <ThinkingProvider minionId={props.minionId}>
+        <BackgroundBashProvider minionId={props.minionId}>
+          <MinionShell {...props} />
+        </BackgroundBashProvider>
+      </ThinkingProvider>
     </AgentProvider>
   );
 };

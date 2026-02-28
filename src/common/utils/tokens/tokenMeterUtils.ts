@@ -1,3 +1,8 @@
+import type { ProvidersConfigMap } from "@/common/orpc/types";
+import {
+  getModelContextWindowOverride,
+  resolveModelForMetadata,
+} from "@/common/utils/providers/modelEntries";
 import type { ChatUsageDisplay } from "./usageAggregator";
 import { getModelStats } from "./modelStats";
 import { supports1MContext } from "../ai/models";
@@ -5,11 +10,11 @@ import { supports1MContext } from "../ai/models";
 // NOTE: Provide theme-matching fallbacks so token meters render consistently
 // even if a host environment doesn't define the CSS variables (e.g., an embedded UI).
 export const TOKEN_COMPONENT_COLORS = {
-  cached: "var(--color-token-cached, hsl(0 0% 50%))",
-  cacheCreate: "var(--color-token-cache-create, hsl(35 55% 52%))",
-  input: "var(--color-token-input, hsl(24 70% 42%))",
-  output: "var(--color-token-output, hsl(30 90% 64%))",
-  thinking: "var(--color-thinking-mode, hsl(271 76% 53%))",
+  cached: "var(--color-token-cached, hsl(220 10% 50%))",
+  cacheCreate: "var(--color-token-cache-create, #2DD4BF)",
+  input: "var(--color-token-input, #FBBF24)",
+  output: "var(--color-token-output, #34D399)",
+  thinking: "var(--color-thinking-mode, hsl(230 65% 60%))",
 } as const;
 
 export interface TokenSegment {
@@ -59,12 +64,18 @@ export function calculateTokenMeterData(
   usage: ChatUsageDisplay | undefined,
   model: string,
   use1M: boolean,
-  verticalProportions = false
+  verticalProportions = false,
+  providersConfig: ProvidersConfigMap | null = null
 ): TokenMeterData {
   if (!usage) return { segments: [], totalTokens: 0, totalPercentage: 0 };
 
-  const modelStats = getModelStats(model);
-  const maxTokens = use1M && supports1MContext(model) ? 1_000_000 : modelStats?.max_input_tokens;
+  const metadataModel = resolveModelForMetadata(model, providersConfig);
+  const modelStats = getModelStats(metadataModel);
+  const customContextWindow = getModelContextWindowOverride(model, providersConfig);
+  const maxTokens =
+    use1M && supports1MContext(model)
+      ? 1_000_000
+      : (customContextWindow ?? modelStats?.max_input_tokens);
 
   // Total tokens used in the request.
   // For Anthropic prompt caching, cacheCreate tokens are reported separately but still

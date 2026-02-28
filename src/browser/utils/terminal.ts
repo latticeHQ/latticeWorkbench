@@ -3,7 +3,7 @@
  *
  * Consolidates common terminal operations used across:
  * - useOpenTerminal hook (new pop-out terminals)
- * - RightSidebar (integrated terminals, pop-out existing)
+ * - WorkbenchPanel (integrated terminals, pop-out existing)
  */
 
 import type { RouterClient } from "@orpc/server";
@@ -16,12 +16,16 @@ type APIClient = RouterClient<AppRouter>;
 export interface TerminalSessionCreateOptions {
   /** Optional command to run immediately after terminal creation */
   initialCommand?: string;
-  /** Employee slug for tab metadata (e.g. "claude-code") */
-  slug?: string;
-  /** Display label for the tab (e.g. "Claude Code") */
-  label?: string;
-  /** When true, spawn the initialCommand binary directly as the PTY process (no shell wrapper) */
-  directExec?: boolean;
+  /** Terminal profile ID (resolves command/args from registry + user overrides) */
+  profileId?: string;
+  /** Explicit profile command (overrides profileId resolution) */
+  profileCommand?: string;
+  /** Arguments for the profile command */
+  profileArgs?: string[];
+  /** Additional env vars from the profile */
+  profileEnv?: Record<string, string>;
+  /** Display name from profile — seeds terminal tab title for immediate display */
+  profileName?: string;
 }
 export const DEFAULT_TERMINAL_SIZE = { cols: 80, rows: 24 };
 
@@ -33,46 +37,47 @@ export const DEFAULT_TERMINAL_SIZE = { cols: 80, rows: 24 };
  * In Electron mode, the backend opens a BrowserWindow.
  *
  * @param api - The API client
- * @param workspaceId - Workspace ID
+ * @param minionId - Minion ID
  * @param sessionId - Terminal session ID (required)
  */
-export function openTerminalPopout(api: APIClient, workspaceId: string, sessionId: string): void {
+export function openTerminalPopout(api: APIClient, minionId: string, sessionId: string): void {
   const isBrowser = !window.api;
 
   if (isBrowser) {
     // In browser mode, we must open the window client-side
     // The backend cannot open a window on the user's client
-    const params = new URLSearchParams({ workspaceId, sessionId });
+    const params = new URLSearchParams({ minionId, sessionId });
     window.open(
       `/terminal.html?${params.toString()}`,
-      `terminal-${workspaceId}-${Date.now()}`,
+      `terminal-${minionId}-${Date.now()}`,
       "width=1000,height=600,popup=yes"
     );
   }
 
   // Open via backend (Electron pops up BrowserWindow, browser already opened above)
-  void api.terminal.openWindow({ workspaceId, sessionId });
+  void api.terminal.openWindow({ minionId, sessionId });
 }
 
 /**
  * Create a new terminal session with default size.
  *
  * @param api - The API client
- * @param workspaceId - Workspace ID
+ * @param minionId - Minion ID
  * @returns The created session with sessionId
  */
 export async function createTerminalSession(
   api: APIClient,
-  workspaceId: string,
+  minionId: string,
   options?: TerminalSessionCreateOptions
-): Promise<{ sessionId: string; workspaceId: string; cols: number; rows: number }> {
+): Promise<{ sessionId: string; minionId: string; cols: number; rows: number }> {
   return api.terminal.create({
-    workspaceId,
+    minionId,
     cols: DEFAULT_TERMINAL_SIZE.cols,
     rows: DEFAULT_TERMINAL_SIZE.rows,
     initialCommand: options?.initialCommand,
-    slug: options?.slug,
-    label: options?.label,
-    directExec: options?.directExec,
+    profileId: options?.profileId,
+    profileCommand: options?.profileCommand,
+    profileArgs: options?.profileArgs,
+    profileEnv: options?.profileEnv,
   });
 }

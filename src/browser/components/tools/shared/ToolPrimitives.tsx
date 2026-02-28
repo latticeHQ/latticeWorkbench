@@ -2,9 +2,11 @@ import React from "react";
 import { cn } from "@/common/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
+  ArrowRightLeft,
   Bell,
   BookOpen,
   FileText,
+  GitCommit,
   Globe,
   GraduationCap,
   Info,
@@ -87,6 +89,8 @@ const getStatusColor = (status: string) => {
       return "text-interrupted";
     case "backgrounded":
       return "text-backgrounded";
+    case "redacted":
+      return "text-foreground-secondary";
     default:
       return "text-foreground-secondary";
   }
@@ -213,9 +217,11 @@ export const TOOL_NAME_TO_ICON: Partial<Record<string, LucideIcon>> = {
   file_edit_replace_string: Pencil,
   file_edit_replace_lines: Pencil,
   todo_write: List,
+  switch_agent: ArrowRightLeft,
   web_fetch: Globe,
   web_search: Globe,
   notify: Bell,
+  task_apply_git_patch: GitCommit,
 };
 
 export const ToolIcon: React.FC<ToolIconProps> = ({ toolName, emoji, emojiSpin, className }) => {
@@ -324,7 +330,7 @@ export const OutputStatusBadge: React.FC<OutputStatusBadgeProps> = ({ hasOutput,
 );
 
 /**
- * Output display section for bash-like tools
+ * Output display crew for bash-like tools
  */
 interface OutputSectionProps {
   output?: string;

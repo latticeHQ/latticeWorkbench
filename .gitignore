@@ -2,7 +2,6 @@
 *.swp
 *.swo
 *~
-
 # Font files (copied from node_modules during build)
 public/fonts/
 
@@ -29,6 +28,7 @@ DerivedData
 ios/.xcode.env.local
 
 # Android/IntelliJ
+build/
 .idea
 .gradle
 local.properties
@@ -41,7 +41,6 @@ local.properties
 node_modules/
 npm-debug.log
 yarn-error.log
-pnpm-debug.log*
 
 # fastlane
 */fastlane/report.xml
@@ -67,16 +66,12 @@ pnpm-debug.log*
 
 # Bun
 bun.lockb
-
-# pnpm (not used — project uses bun)
-pnpm-lock.yaml
-
-# Build output - dist folder (regenerated on build)
-dist/
+dist
 
 # Electron build output
-release/
-out/
+release
+build/
+!build/entitlements.mac.plist
 
 # Documentation
 ai-sdk-docs/
@@ -84,12 +79,8 @@ docs/book/
 docs/mermaid-init.js
 docs/mermaid.min.js
 
-# Secrets and environment
+# Secrets
 .env
-.env.local
-.env.*.local
-*.pem
-*.key
 
 # Nix
 .envrc
@@ -98,29 +89,25 @@ docs/mermaid.min.js
 # Profiling
 **.cpuprofile
 profile.txt
-
-# Temporary markdown files
+src/version.ts
 OPENAI_FIX_SUMMARY.md
 docs/vercel/
 TESTING.md
 FEATURE_SUMMARY.md
 CODE_CHANGES.md
 README_COMPACT_HERE.md
-
-# Test artifacts
 artifacts/
 tests/e2e/tmp/
+
+# Test temporary directories
 src/test-temp-*/
 tests/**/test-temp-*/
+
 runs/
 
 # Python
 __pycache__
-*.pyc
-.venv/
-venv/
 
-# Misc
 tmpfork
 .lattice-agent-cli
 storybook-static/
@@ -135,41 +122,14 @@ test_hot_reload.sh
 
 # mdBook auto-generated assets
 docs/theme/pagetoc.css
+
+# Build-time generated files
+*.generated.ts
 docs/theme/pagetoc.js
-
-# Mobile
 mobile/.expo/
-
-# MCP config
 .lattice/mcp.jsonc
-
 # Terminal-Bench leaderboard cache
 benchmarks/terminal_bench/.leaderboard_cache/
+# Terminal-Bench job output
+jobs/
 
-# Lattice user data (not project config)
-.lattice/sessions/
-.lattice/plans/
-.lattice/projects/
-.lattice/secrets.json
-.lattice/extensionMetadata.json
-
-# Lattice dev home directory
-.lattice-dev/
-
-# Editor directories
-.vscode/
-!.vscode/extensions.json
-!.vscode/settings.json
-.idea/
-
-# Logs
-logs/
-*.log
-
-# Cache
-.cache/
-.parcel-cache/
-.turbo/
-
-# Preload script build output
-preload.js

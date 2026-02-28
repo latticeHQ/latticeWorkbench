@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { RuntimeMode } from "@/common/types/runtime";
+import type { RuntimeEnablementId, RuntimeMode } from "@/common/types/runtime";
 import {
   SSHIcon,
   WorktreeIcon,
@@ -14,9 +14,54 @@ export interface RuntimeIconProps {
   className?: string;
 }
 
+export interface RuntimeOptionFieldSpec {
+  readonly field: string;
+  readonly label: string;
+  readonly placeholder: string;
+  readonly summary: string;
+}
+
+export const RUNTIME_OPTION_FIELDS = {
+  ssh: {
+    field: "host",
+    label: "Host",
+    placeholder: "user@host",
+    summary: "Host (user@host)",
+  },
+  docker: {
+    field: "image",
+    label: "Image",
+    placeholder: "node:20",
+    summary: "Image name (e.g. node:20)",
+  },
+  devcontainer: {
+    field: "configPath",
+    label: "Config",
+    placeholder: ".devcontainer/devcontainer.json",
+    summary: "Config path (devcontainer.json)",
+  },
+} as const satisfies Partial<Record<RuntimeEnablementId, RuntimeOptionFieldSpec>>;
+
+export function getRuntimeOptionField(
+  runtimeId: RuntimeEnablementId
+): RuntimeOptionFieldSpec | null {
+  switch (runtimeId) {
+    case "ssh":
+      return RUNTIME_OPTION_FIELDS.ssh;
+    case "docker":
+      return RUNTIME_OPTION_FIELDS.docker;
+    case "devcontainer":
+      return RUNTIME_OPTION_FIELDS.devcontainer;
+    default:
+      return null;
+  }
+}
+
 export interface RuntimeUiSpec {
   label: string;
   description: string;
+  /** What user-provided options this runtime requires at creation time. */
+  options?: string;
   docsPath: string;
   Icon: ComponentType<RuntimeIconProps>;
   button: {
@@ -33,7 +78,8 @@ export interface RuntimeUiSpec {
   };
 }
 
-export type RuntimeBadgeType = RuntimeMode | "lattice";
+export type RuntimeChoice = RuntimeMode | "lattice";
+export type RuntimeBadgeType = RuntimeChoice;
 
 export const RUNTIME_UI = {
   local: {
@@ -85,6 +131,7 @@ export const RUNTIME_UI = {
   ssh: {
     label: "SSH",
     description: "Remote clone on SSH host",
+    options: RUNTIME_OPTION_FIELDS.ssh.summary,
     docsPath: "/runtime/ssh",
     Icon: SSHIcon,
     button: {
@@ -107,7 +154,8 @@ export const RUNTIME_UI = {
   },
   docker: {
     label: "Docker",
-    description: "Isolated container per workspace",
+    description: "Isolated container per minion",
+    options: RUNTIME_OPTION_FIELDS.docker.summary,
     docsPath: "/runtime/docker",
     Icon: DockerIcon,
     button: {
@@ -131,6 +179,7 @@ export const RUNTIME_UI = {
   devcontainer: {
     label: "Dev container",
     description: "Uses project's devcontainer.json configuration",
+    options: RUNTIME_OPTION_FIELDS.devcontainer.summary,
     docsPath: "/runtime/devcontainer",
     Icon: DevcontainerIcon,
     button: {
@@ -153,14 +202,28 @@ export const RUNTIME_UI = {
   },
 } satisfies Record<RuntimeMode, RuntimeUiSpec>;
 
+const LATTICE_RUNTIME_UI: RuntimeUiSpec = {
+  ...RUNTIME_UI.ssh,
+  label: "Lattice",
+  description: "Lattice minion via the Lattice CLI",
+  options: "Lattice minion template",
+  docsPath: "/runtime/lattice",
+  Icon: LatticeIcon,
+};
+
+export const RUNTIME_CHOICE_UI = {
+  ...RUNTIME_UI,
+  lattice: LATTICE_RUNTIME_UI,
+} satisfies Record<RuntimeChoice, RuntimeUiSpec>;
+
 export const RUNTIME_BADGE_UI = {
   ssh: {
     Icon: RUNTIME_UI.ssh.Icon,
     badge: RUNTIME_UI.ssh.badge,
   },
   lattice: {
-    Icon: LatticeIcon,
-    badge: RUNTIME_UI.ssh.badge,
+    Icon: LATTICE_RUNTIME_UI.Icon,
+    badge: LATTICE_RUNTIME_UI.badge,
   },
   worktree: {
     Icon: RUNTIME_UI.worktree.Icon,

@@ -67,7 +67,7 @@ ORDER BY time
 const SINGLE_LINE_CODE = `Here's a one-liner:
 
 \`\`\`bash
-npm install  lattice
+npm install lattice
 \`\`\`
 
 And another:
@@ -107,7 +107,7 @@ describe('getUser', () => {
 Text code blocks (regression: no phantom trailing blank line after highlighting):
 
 \`\`\`text
-https://github.com/example/project/pull/new/chat-autocomplete-b24r
+https://github.com/latticeHQ/latticeWorkbench/pull/new/chat-autocomplete-b24r
 \`\`\`
 
 Code blocks without language (regression: avoid extra vertical spacing):
@@ -115,6 +115,39 @@ Code blocks without language (regression: avoid extra vertical spacing):
 \`\`\`
 65d02772b 🤖 feat: Settings-driven model selector with visibility controls
 \`\`\``;
+
+const BLOCKQUOTE_CONTENT = `Here are blockquote examples:
+
+## Simple Blockquote
+
+> This is a simple blockquote. It should look clean and visually distinct from the surrounding text.
+
+## Multi-line Blockquote
+
+> This is a longer blockquote that spans multiple lines. It demonstrates how the styling
+> holds up with more content. The background and border should make it easy to distinguish
+> from normal paragraph text.
+
+## Blockquote with Inline Formatting
+
+> **Important:** You can use \`inline code\`, **bold**, and *italic* inside blockquotes.
+> They should all render correctly within the styled container.
+
+## Nested Blockquotes
+
+> Outer blockquote
+>
+> > Inner nested blockquote with additional context.
+>
+> Back to the outer level.
+
+## Blockquote after a Paragraph
+
+Here is some regular text before a blockquote.
+
+> And here is the blockquote that follows.
+
+And some text after.`;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORIES
@@ -126,7 +159,7 @@ export const Tables: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-tables",
+          minionId: "ws-tables",
           messages: [
             createUserMessage("msg-1", "Show me some table examples", {
               historySequence: 1,
@@ -149,7 +182,7 @@ export const SingleLineCodeBlocks: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-single-line",
+          minionId: "ws-single-line",
           messages: [
             createUserMessage("msg-1", "Show me single-line code", {
               historySequence: 1,
@@ -168,16 +201,13 @@ export const SingleLineCodeBlocks: AppStory = {
     await waitForChatMessagesLoaded(canvasElement);
 
     // Wait for code blocks to render with highlighting
-    const codeWrappers = await waitFor(
-      () => {
-        const candidates = Array.from(canvasElement.querySelectorAll(".code-block-wrapper"));
-        if (candidates.length < 2) {
-          throw new Error("Not all code blocks rendered yet");
-        }
-        return candidates as HTMLElement[];
-      },
-      { timeout: 5000 }
-    );
+    const codeWrappers = await waitFor(() => {
+      const candidates = Array.from(canvasElement.querySelectorAll(".code-block-wrapper"));
+      if (candidates.length < 2) {
+        throw new Error("Not all code blocks rendered yet");
+      }
+      return candidates as HTMLElement[];
+    });
 
     // Verify the first code block wrapper has only one line
     const lineNumbers = codeWrappers[0].querySelectorAll(".line-number");
@@ -202,7 +232,7 @@ export const SqlWithDoubleUnderscore: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-sql-underscore",
+          minionId: "ws-sql-underscore",
           messages: [
             createUserMessage("msg-1", "Show me the SQL query", {
               historySequence: 1,
@@ -225,7 +255,7 @@ export const CodeBlocks: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-code",
+          minionId: "ws-code",
           messages: [
             createUserMessage("msg-1", "Show me the code", {
               historySequence: 1,
@@ -273,33 +303,25 @@ export const CodeBlocks: AppStory = {
     // Wait 2 RAFs: one for the coalesced scroll to fire, one for layout to settle.
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-    const url = "https://github.com/example/project/pull/new/chat-autocomplete-b24r";
-    const container = await waitFor(
-      () => {
-        const found = Array.from(canvasElement.querySelectorAll(".code-block-container")).find(
-          (c) => c.textContent?.includes(url)
-        );
-        if (!found) throw new Error("URL code block not found");
-        return found;
-      },
-      { timeout: 5000 }
-    );
+    const url = "https://github.com/latticeHQ/latticeWorkbench/pull/new/chat-autocomplete-b24r";
+    const container = await waitFor(() => {
+      const found = Array.from(canvasElement.querySelectorAll(".code-block-container")).find((c) =>
+        c.textContent?.includes(url)
+      );
+      if (!found) throw new Error("URL code block not found");
+      return found;
+    });
 
     const noLangLine = "65d02772b 🤖 feat: Settings-driven model selector with visibility controls";
 
-    const codeEl = await waitFor(
-      () => {
-        const candidates = Array.from(
-          canvasElement.querySelectorAll(".markdown-content pre > code")
-        );
-        const found = candidates.find((el) => el.textContent?.includes(noLangLine));
-        if (!found) {
-          throw new Error("No-language code block not found");
-        }
-        return found;
-      },
-      { timeout: 5000 }
-    );
+    const codeEl = await waitFor(() => {
+      const candidates = Array.from(canvasElement.querySelectorAll(".markdown-content pre > code"));
+      const found = candidates.find((el) => el.textContent?.includes(noLangLine));
+      if (!found) {
+        throw new Error("No-language code block not found");
+      }
+      return found;
+    });
 
     const style = window.getComputedStyle(codeEl);
     await expect(style.marginTop).toBe("0px");
@@ -325,7 +347,7 @@ const reallyLongVariableName = someFunction(argumentOne, argumentTwo, argumentTh
 ## Short Code Block
 
 \`\`\`
-npm install  lattice
+npm install lattice
 \`\`\`
 
 ## Short TypeScript Block
@@ -343,7 +365,7 @@ const reallyLongVariableName = someFunction(argumentOne, argumentTwo, argumentTh
 ## Long List Items
 
 - This is a very long list item that contains a lot of text and should wrap properly within the message container without causing horizontal scrollbar on the entire chat window
-- Another item with a long URL: https://github.com/example/project/blob/main/src/browser/components/Messages/MessageWindow.tsx#L72-L76
+- Another item with a long URL: https://github.com/latticeHQ/latticeWorkbench/blob/main/src/browser/components/Messages/MessageWindow.tsx#L72-L76
 - \`inline code with a really long function name like thisIsAReallyLongFunctionNameThatShouldWrapOrScrollProperly()\`
 
 ## Long Paragraph
@@ -386,7 +408,7 @@ export const UserMessageListSpacing: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-user-list",
+          minionId: "ws-user-list",
           messages: [
             createUserMessage("msg-1", USER_LIST_CONTENT, {
               historySequence: 1,
@@ -404,14 +426,11 @@ export const UserMessageListSpacing: AppStory = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await waitForChatMessagesLoaded(canvasElement);
 
-    const orderedList = await waitFor(
-      () => {
-        const list = canvasElement.querySelector(".user-message-markdown ol");
-        if (!list) throw new Error("User list not found");
-        return list as HTMLOListElement;
-      },
-      { timeout: 5000 }
-    );
+    const orderedList = await waitFor(() => {
+      const list = canvasElement.querySelector(".user-message-markdown ol");
+      if (!list) throw new Error("User list not found");
+      return list as HTMLOListElement;
+    });
 
     const listStyle = window.getComputedStyle(orderedList);
     await expect(listStyle.marginTop).toBe("0px");
@@ -430,7 +449,7 @@ export const UserMessageCodeBlock: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-user-code",
+          minionId: "ws-user-code",
           messages: [
             createUserMessage("msg-1", USER_CODE_BLOCKS, {
               historySequence: 1,
@@ -453,7 +472,7 @@ export const LongLinesOverflow: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-long-lines",
+          minionId: "ws-long-lines",
           messages: [
             createUserMessage("msg-1", "Show me content with long lines", {
               historySequence: 1,
@@ -495,4 +514,27 @@ export const LongLinesOverflow: AppStory = {
     const hasHorizontalScroll = scrollContainer.scrollWidth > scrollContainer.clientWidth;
     await expect(hasHorizontalScroll).toBe(false);
   },
+};
+
+/** Blockquotes - styled with background tint, left border accent, and rounded corners */
+export const Blockquotes: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSimpleChatStory({
+          minionId: "ws-blockquotes",
+          messages: [
+            createUserMessage("msg-1", "Show me blockquote examples", {
+              historySequence: 1,
+              timestamp: STABLE_TIMESTAMP - 100000,
+            }),
+            createAssistantMessage("msg-2", BLOCKQUOTE_CONTENT, {
+              historySequence: 2,
+              timestamp: STABLE_TIMESTAMP - 90000,
+            }),
+          ],
+        })
+      }
+    />
+  ),
 };

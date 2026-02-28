@@ -16,7 +16,7 @@
 export type RefreshTrigger =
   | "manual" // User clicked refresh button
   | "scheduled" // Debounced tool completion
-  | "priority" // Priority debounced (active workspace)
+  | "priority" // Priority debounced (active minion)
   | "focus" // Window regained focus
   | "visibility" // Tab became visible
   | "unpaused" // Interaction ended, flushing pending
@@ -66,7 +66,7 @@ export interface RefreshControllerOptions {
    */
   isManualBlocked?: () => boolean;
 
-  /** Label for debug logging (e.g., workspace name). If set, enables debug logs. */
+  /** Label for debug logging (e.g., minion name). If set, enables debug logs. */
   debugLabel?: string;
 }
 
@@ -158,7 +158,7 @@ export class RefreshController {
   }
 
   /**
-   * Schedule with priority (shorter) rate limit. Used for active workspace.
+   * Schedule with priority (shorter) rate limit. Used for active minion.
    */
   schedulePriority(): void {
     this.scheduleWithDelay(this.priorityDebounceMs, "priority");

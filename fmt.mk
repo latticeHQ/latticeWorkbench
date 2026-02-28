@@ -3,10 +3,10 @@
 # This file contains all code formatting logic.
 # Included by the main Makefile.
 
-.PHONY: fmt fmt-check fmt-prettier fmt-prettier-check fmt-shell fmt-shell-check fmt-nix fmt-nix-check fmt-python fmt-python-check fmt-sync-docs fmt-sync-docs-check
+.PHONY: fmt fmt-check fmt-prettier fmt-prettier-check fmt-shell fmt-shell-check fmt-nix fmt-nix-check fmt-python fmt-python-check fmt-sync-skills fmt-sync-skills-check update-flake-hash flake-hash-check
 
 # Centralized patterns - single source of truth
-PRETTIER_PATTERNS := 'src/**/*.{ts,tsx,json}' 'mobile/**/*.{ts,tsx,json}' 'tests/**/*.ts' 'docs/**/*.mdx' 'package.json' 'tsconfig*.json' 'README.md'
+PRETTIER_PATTERNS := 'src/**/*.{ts,tsx,json}' 'mobile/**/*.{ts,tsx,json}' 'tests/**/*.ts' 'package.json' 'tsconfig*.json' 'README.md'
 SHELL_SCRIPTS := scripts
 PYTHON_DIRS := benchmarks
 
@@ -18,19 +18,19 @@ SHFMT := $(shell command -v shfmt 2>/dev/null)
 NIX := $(shell command -v nix 2>/dev/null)
 UVX := $(shell command -v uvx 2>/dev/null || (test -x $(HOME)/.local/bin/uvx && echo $(HOME)/.local/bin/uvx))
 
-fmt: fmt-prettier fmt-shell fmt-python fmt-nix fmt-sync-docs
+fmt: fmt-prettier fmt-shell fmt-python fmt-nix fmt-sync-skills
 	@echo "==> All formatting complete!"
 
-fmt-check: fmt-prettier-check fmt-shell-check fmt-python-check fmt-nix-check fmt-sync-docs-check
+fmt-check: fmt-prettier-check fmt-shell-check fmt-python-check fmt-nix-check fmt-sync-skills-check
 	@echo "==> All formatting checks passed!"
 
 fmt-prettier:
 	@echo "Formatting TypeScript/JSON/Markdown files..."
-	@$(PRETTIER) --log-level error --write $(PRETTIER_PATTERNS)
+	@$(PRETTIER) --cache --log-level error --write $(PRETTIER_PATTERNS)
 
 fmt-prettier-check:
 	@echo "Checking TypeScript/JSON/Markdown formatting..."
-	@$(PRETTIER) --log-level log --check $(PRETTIER_PATTERNS)
+	@$(PRETTIER) --cache --log-level log --check $(PRETTIER_PATTERNS)
 
 fmt-shell:
 ifeq ($(SHFMT),)
@@ -93,10 +93,26 @@ else
 	fi
 endif
 
-fmt-sync-docs:
-	@bun scripts/gen_docs.ts
-	@bun scripts/gen_builtin_skills.ts --sync-mux-docs-skill
+update-flake-hash: ## Update flake.nix offlineCache outputHash from nix build output
+ifeq ($(NIX),)
+	@echo "Nix not found; skipping flake hash update"
+else ifeq ($(wildcard flake.nix),)
+	@echo "flake.nix not found; skipping flake hash update"
+else
+	@./scripts/update_flake_hash.sh
+endif
 
-fmt-sync-docs-check:
-	@bun scripts/gen_docs.ts check
-	@bun scripts/gen_builtin_skills.ts check --sync-mux-docs-skill
+flake-hash-check: ## Verify flake.nix offlineCache outputHash is current
+ifeq ($(NIX),)
+	@echo "Nix not found; skipping flake hash check"
+else ifeq ($(wildcard flake.nix),)
+	@echo "flake.nix not found; skipping flake hash check"
+else
+	@./scripts/update_flake_hash.sh --check
+endif
+
+fmt-sync-skills:
+	@bun scripts/gen_builtin_skills.ts
+
+fmt-sync-skills-check:
+	@bun scripts/gen_builtin_skills.ts check

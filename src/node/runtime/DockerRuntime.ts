@@ -2,11 +2,11 @@
  * Docker runtime implementation that executes commands inside Docker containers.
  *
  * Features:
- * - Each workspace runs in its own container
- * - Container name derived from project+workspace name
+ * - Each minion runs in its own container
+ * - Container name derived from project+minion name
  * - Uses docker exec for command execution
  * - Hardcoded paths: srcBaseDir=/src, bgOutputDir=/tmp/lattice-bashes
- * - Managed lifecycle: container created/destroyed with workspace
+ * - Managed lifecycle: container created/destroyed with minion
  *
  * Extends RemoteRuntime for shared exec/file operations.
  */
@@ -18,12 +18,12 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import type {
   ExecOptions,
-  WorkspaceCreationParams,
-  WorkspaceCreationResult,
-  WorkspaceInitParams,
-  WorkspaceInitResult,
-  WorkspaceForkParams,
-  WorkspaceForkResult,
+  MinionCreationParams,
+  MinionCreationResult,
+  MinionInitParams,
+  MinionInitResult,
+  MinionForkParams,
+  MinionForkResult,
   InitLogger,
   EnsureReadyResult,
 } from "./Runtime";
@@ -246,10 +246,10 @@ export interface DockerRuntimeConfig {
   /** Docker image to use (e.g., node:20) */
   image: string;
   /**
-   * Container name for existing workspaces.
-   * When creating a new workspace, this is computed during createWorkspace().
-   * When recreating runtime for an existing workspace, this should be passed
-   * to allow exec operations without calling createWorkspace again.
+   * Container name for existing minions.
+   * When creating a new minion, this is computed during createMinion().
+   * When recreating runtime for an existing minion, this should be passed
+   * to allow exec operations without calling createMinion again.
    */
   containerName?: string;
   /** Forward SSH agent and mount ~/.gitconfig read-only into container */
@@ -268,18 +268,18 @@ function sanitizeContainerName(name: string): string {
 }
 
 /**
- * Generate container name from project path and workspace name.
- * Format: lattice-{projectName}-{workspaceName}-{hash}
+ * Generate container name from project path and minion name.
+ * Format: lattice-{projectName}-{minionName}-{hash}
  * Hash suffix prevents collisions (e.g., feature/foo vs feature-foo)
  */
-export function getContainerName(projectPath: string, workspaceName: string): string {
+export function getContainerName(projectPath: string, minionName: string): string {
   const projectName = getProjectName(projectPath);
   const hash = createHash("sha256")
-    .update(`${projectPath}:${workspaceName}`)
+    .update(`${projectPath}:${minionName}`)
     .digest("hex")
     .slice(0, 6);
   // Reserve 7 chars for "-{hash}", leaving 56 for base
-  const base = sanitizeContainerName(`lattice-${projectName}-${workspaceName}`).slice(0, 56);
+  const base = sanitizeContainerName(`lattice-${projectName}-${minionName}`).slice(0, 56);
   return `${base}-${hash}`;
 }
 
@@ -289,7 +289,7 @@ export function getContainerName(projectPath: string, workspaceName: string): st
  */
 export class DockerRuntime extends RemoteRuntime {
   private readonly config: DockerRuntimeConfig;
-  /** Container name - set during construction (for existing) or createWorkspace (for new) */
+  /** Container name - set during construction (for existing) or createMinion (for new) */
   private containerName?: string;
   /** Container user info - detected after container creation/start */
   private containerUid?: string;
@@ -299,7 +299,7 @@ export class DockerRuntime extends RemoteRuntime {
   constructor(config: DockerRuntimeConfig) {
     super();
     this.config = config;
-    // If container name is provided (existing workspace), store it
+    // If container name is provided (existing minion), store it
     if (config.containerName) {
       this.containerName = config.containerName;
     }
@@ -347,8 +347,8 @@ export class DockerRuntime extends RemoteRuntime {
     if (!this.containerName) {
       throw new RuntimeError(
         "Docker runtime not initialized with container name. " +
-          "For existing workspaces, pass containerName in config. " +
-          "For new workspaces, call createWorkspace first.",
+          "For existing minions, pass containerName in config. " +
+          "For new minions, call createMinion first.",
         "exec"
       );
     }
@@ -382,7 +382,7 @@ export class DockerRuntime extends RemoteRuntime {
   // ===== Runtime interface implementations =====
 
   resolvePath(filePath: string): Promise<string> {
-    // DockerRuntime uses a fixed workspace base (/src), but we still want reasonable shell-style
+    // DockerRuntime uses a fixed minion base (/src), but we still want reasonable shell-style
     // behavior for callers that pass "~" or "~/...".
     //
     // NOTE: Some base images (e.g., latticecom/*-base) run as a non-root user (like "lattice"), so
@@ -401,12 +401,12 @@ export class DockerRuntime extends RemoteRuntime {
     );
   }
 
-  getWorkspacePath(_projectPath: string, _workspaceName: string): string {
-    // For Docker, workspace path is always /src inside the container
+  getMinionPath(_projectPath: string, _minionName: string): string {
+    // For Docker, minion path is always /src inside the container
     return CONTAINER_SRC_DIR;
   }
 
-  async createWorkspace(params: WorkspaceCreationParams): Promise<WorkspaceCreationResult> {
+  async createMinion(params: MinionCreationParams): Promise<MinionCreationResult> {
     const { projectPath, branchName } = params;
 
     // Generate container name and check for collisions before persisting metadata
@@ -417,7 +417,7 @@ export class DockerRuntime extends RemoteRuntime {
     if (checkResult.exitCode === 0) {
       return {
         success: false,
-        error: `Workspace already exists: container ${containerName}`,
+        error: `Minion already exists: container ${containerName}`,
       };
     }
     // Distinguish "container doesn't exist" from actual Docker errors
@@ -429,32 +429,32 @@ export class DockerRuntime extends RemoteRuntime {
     }
 
     // Store container name - actual container creation happens in postCreateSetup
-    // so that image pull progress is visible in the init section
+    // so that image pull progress is visible in the init crew
     this.containerName = containerName;
 
     return {
       success: true,
-      workspacePath: CONTAINER_SRC_DIR,
+      minionPath: CONTAINER_SRC_DIR,
     };
   }
 
   /**
    * Post-create setup: provision container OR detect fork and setup credentials.
-   * Runs after lattice persists workspace metadata so build logs stream to UI in real-time.
+   * Runs after lattice persists minion metadata so build logs stream to UI in real-time.
    *
    * Handles ALL environment setup:
-   * - Fresh workspace: provisions container (create, sync, checkout, credentials)
+   * - Fresh minion: provisions container (create, sync, checkout, credentials)
    * - Fork: detects existing container, logs "from fork", sets up credentials
    * - Stale container: removes and re-provisions
    *
-   * After this completes, the container is ready for initWorkspace() to run the hook.
+   * After this completes, the container is ready for initMinion() to run the hook.
    */
-  async postCreateSetup(params: WorkspaceInitParams): Promise<void> {
+  async postCreateSetup(params: MinionInitParams): Promise<void> {
     const {
       projectPath,
       branchName,
       trunkBranch,
-      workspacePath,
+      minionPath,
       initLogger,
       abortSignal,
       env,
@@ -462,14 +462,14 @@ export class DockerRuntime extends RemoteRuntime {
     } = params;
 
     if (!this.containerName) {
-      throw new Error("Container not initialized. Call createWorkspace first.");
+      throw new Error("Container not initialized. Call createMinion first.");
     }
     const containerName = this.containerName;
 
     // Check if container already exists (e.g., from successful fork or aborted previous attempt)
     const containerCheck = await this.checkExistingContainer(
       containerName,
-      workspacePath,
+      minionPath,
       branchName
     );
     switch (containerCheck.action) {
@@ -494,7 +494,7 @@ export class DockerRuntime extends RemoteRuntime {
     await this.provisionContainer({
       containerName,
       projectPath,
-      workspacePath,
+      minionPath,
       branchName,
       trunkBranch,
       initLogger,
@@ -504,21 +504,21 @@ export class DockerRuntime extends RemoteRuntime {
   }
 
   /**
-   * Initialize workspace by running .lattice/init hook.
+   * Initialize minion by running .lattice/init hook.
    * Assumes postCreateSetup() has already been called to provision/prepare the container.
    *
    * This method ONLY runs the hook - all container provisioning and credential setup
    * is handled by postCreateSetup().
    */
-  async initWorkspace(params: WorkspaceInitParams): Promise<WorkspaceInitResult> {
-    const { projectPath, branchName, workspacePath, initLogger, abortSignal, env, skipInitHook } =
+  async initMinion(params: MinionInitParams): Promise<MinionInitResult> {
+    const { projectPath, branchName, minionPath, initLogger, abortSignal, env, skipInitHook } =
       params;
 
     try {
       if (!this.containerName) {
         return {
           success: false,
-          error: "Container not initialized. Call createWorkspace first.",
+          error: "Container not initialized. Call createMinion first.",
         };
       }
 
@@ -531,16 +531,10 @@ export class DockerRuntime extends RemoteRuntime {
       // Run .lattice/init hook if it exists
       const hookExists = await checkInitHookExists(projectPath);
       if (hookExists) {
+        initLogger.enterHookPhase?.();
         const latticeEnv = { ...env, ...getLatticeEnv(projectPath, "docker", branchName) };
-        const hookPath = `${workspacePath}/.lattice/init`;
-        await runInitHookOnRuntime(
-          this,
-          hookPath,
-          workspacePath,
-          latticeEnv,
-          initLogger,
-          abortSignal
-        );
+        const hookPath = `${minionPath}/.lattice/init`;
+        await runInitHookOnRuntime(this, hookPath, minionPath, latticeEnv, initLogger, abortSignal);
       } else {
         initLogger.logComplete(0);
       }
@@ -564,7 +558,7 @@ export class DockerRuntime extends RemoteRuntime {
    */
   private async checkExistingContainer(
     containerName: string,
-    workspacePath: string,
+    minionPath: string,
     branchName: string
   ): Promise<ContainerCheckResult> {
     const exists = await runDockerCommand(`docker inspect ${containerName}`, 10000);
@@ -580,7 +574,7 @@ export class DockerRuntime extends RemoteRuntime {
 
     // Container running - validate it has an initialized git repo
     const gitCheck = await runDockerCommand(
-      `docker exec ${containerName} test -d ${workspacePath}/.git`,
+      `docker exec ${containerName} test -d ${minionPath}/.git`,
       5000
     );
     if (gitCheck.exitCode !== 0) {
@@ -593,7 +587,7 @@ export class DockerRuntime extends RemoteRuntime {
     // Verify correct branch is checked out
     // (handles edge case: crash after clone but before checkout left container on wrong branch)
     const branchCheck = await runDockerCommand(
-      `docker exec ${containerName} git -C ${workspacePath} rev-parse --abbrev-ref HEAD`,
+      `docker exec ${containerName} git -C ${minionPath} rev-parse --abbrev-ref HEAD`,
       5000
     );
     if (branchCheck.exitCode !== 0 || branchCheck.stdout.trim() !== branchName) {
@@ -635,12 +629,12 @@ export class DockerRuntime extends RemoteRuntime {
   /**
    * Provision container: create, sync project, checkout branch.
    * Throws on error (does not call logComplete - caller handles that).
-   * Used by postCreateSetup() for streaming logs before initWorkspace().
+   * Used by postCreateSetup() for streaming logs before initMinion().
    */
   private async provisionContainer(params: {
     containerName: string;
     projectPath: string;
-    workspacePath: string;
+    minionPath: string;
     branchName: string;
     trunkBranch: string;
     initLogger: InitLogger;
@@ -650,7 +644,7 @@ export class DockerRuntime extends RemoteRuntime {
     const {
       containerName,
       projectPath,
-      workspacePath,
+      minionPath,
       branchName,
       trunkBranch,
       initLogger,
@@ -662,7 +656,7 @@ export class DockerRuntime extends RemoteRuntime {
     initLogger.logStep(`Creating container from ${this.config.image}...`);
 
     if (abortSignal?.aborted) {
-      throw new Error("Workspace creation aborted");
+      throw new Error("Minion creation aborted");
     }
 
     // Create and start container with streaming output for image pull progress
@@ -689,14 +683,14 @@ export class DockerRuntime extends RemoteRuntime {
     // Use --user root to create directories, then chown to container's default user
     // /var/lattice is used instead of ~/.lattice because /root has 700 permissions,
     // which makes it inaccessible to VS Code Dev Containers (non-root user)
-    initLogger.logStep("Preparing workspace directory...");
+    initLogger.logStep("Preparing minion directory...");
     const mkdirResult = await runDockerCommand(
       `docker exec --user root ${containerName} sh -c 'mkdir -p ${CONTAINER_SRC_DIR} /var/lattice/plans && chown ${this.containerUid}:${this.containerGid} ${CONTAINER_SRC_DIR} /var/lattice /var/lattice/plans'`,
       10000
     );
     if (mkdirResult.exitCode !== 0) {
       await runDockerCommand(`docker rm -f ${containerName}`, 10000);
-      throw new Error(`Failed to create workspace directory: ${mkdirResult.stderr}`);
+      throw new Error(`Failed to summon minion directory: ${mkdirResult.stderr}`);
     }
 
     initLogger.logStep("Container ready");
@@ -710,7 +704,7 @@ export class DockerRuntime extends RemoteRuntime {
       await this.syncProjectToContainer(
         projectPath,
         containerName,
-        workspacePath,
+        minionPath,
         initLogger,
         abortSignal
       );
@@ -725,7 +719,7 @@ export class DockerRuntime extends RemoteRuntime {
     const checkoutCmd = `git checkout ${shescape.quote(branchName)} 2>/dev/null || git checkout -b ${shescape.quote(branchName)} ${shescape.quote(trunkBranch)}`;
 
     const checkoutStream = await this.exec(checkoutCmd, {
-      cwd: workspacePath,
+      cwd: minionPath,
       timeout: 300,
       abortSignal,
     });
@@ -746,7 +740,7 @@ export class DockerRuntime extends RemoteRuntime {
   private async syncProjectToContainer(
     projectPath: string,
     containerName: string,
-    workspacePath: string,
+    minionPath: string,
     initLogger: InitLogger,
     abortSignal?: AbortSignal
   ): Promise<void> {
@@ -758,7 +752,7 @@ export class DockerRuntime extends RemoteRuntime {
 
     await syncProjectViaGitBundle({
       projectPath,
-      workspacePath,
+      minionPath,
       remoteTmpDir: "/tmp",
       remoteBundlePath,
       exec: (command, options) => this.exec(command, options),
@@ -805,7 +799,7 @@ export class DockerRuntime extends RemoteRuntime {
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
-  async renameWorkspace(
+  async renameMinion(
     _projectPath: string,
     _oldName: string,
     _newName: string,
@@ -821,13 +815,13 @@ export class DockerRuntime extends RemoteRuntime {
     return {
       success: false,
       error:
-        "Renaming Docker workspaces is not supported. Create a new workspace and delete the old one.",
+        "Renaming Docker minions is not supported. Create a new minion and delete the old one.",
     };
   }
 
-  async deleteWorkspace(
+  async deleteMinion(
     projectPath: string,
-    workspaceName: string,
+    minionName: string,
     force: boolean,
     abortSignal?: AbortSignal
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }> {
@@ -835,7 +829,7 @@ export class DockerRuntime extends RemoteRuntime {
       return { success: false, error: "Delete operation aborted" };
     }
 
-    const containerName = getContainerName(projectPath, workspaceName);
+    const containerName = getContainerName(projectPath, minionName);
     const deletedPath = CONTAINER_SRC_DIR;
 
     try {
@@ -885,7 +879,7 @@ export class DockerRuntime extends RemoteRuntime {
             await stopIfWeStartedIt();
             return {
               success: false,
-              error: "Workspace contains uncommitted changes. Use force flag to delete anyway.",
+              error: "Minion contains uncommitted changes. Use force flag to delete anyway.",
             };
           }
 
@@ -904,7 +898,7 @@ export class DockerRuntime extends RemoteRuntime {
               await stopIfWeStartedIt();
               return {
                 success: false,
-                error: `Workspace contains unpushed commits:\n\n${unpushedResult.stdout.trim()}`,
+                error: `Minion contains unpushed commits:\n\n${unpushedResult.stdout.trim()}`,
               };
             }
           }
@@ -923,15 +917,15 @@ export class DockerRuntime extends RemoteRuntime {
 
       return { success: true, deletedPath };
     } catch (error) {
-      return { success: false, error: `Failed to delete workspace: ${getErrorMessage(error)}` };
+      return { success: false, error: `Failed to delete minion: ${getErrorMessage(error)}` };
     }
   }
 
-  async forkWorkspace(params: WorkspaceForkParams): Promise<WorkspaceForkResult> {
-    const { projectPath, sourceWorkspaceName, newWorkspaceName, initLogger } = params;
+  async forkMinion(params: MinionForkParams): Promise<MinionForkResult> {
+    const { projectPath, sourceMinionName, newMinionName, initLogger } = params;
 
-    const srcContainerName = getContainerName(projectPath, sourceWorkspaceName);
-    const destContainerName = getContainerName(projectPath, newWorkspaceName);
+    const srcContainerName = getContainerName(projectPath, sourceMinionName);
+    const destContainerName = getContainerName(projectPath, newMinionName);
     const hostTempPath = path.join(os.tmpdir(), `lattice-fork-${Date.now()}.bundle`);
     const containerBundlePath = "/tmp/fork.bundle";
     let destContainerCreated = false;
@@ -943,12 +937,12 @@ export class DockerRuntime extends RemoteRuntime {
       if (srcCheck.exitCode !== 0) {
         return {
           success: false,
-          error: `Source workspace container not found: ${srcContainerName}`,
+          error: `Source minion container not found: ${srcContainerName}`,
         };
       }
 
       // 2. Get current branch from source
-      initLogger.logStep("Detecting source workspace branch...");
+      initLogger.logStep("Detecting source minion branch...");
       const branchResult = await runDockerCommand(
         `docker exec ${srcContainerName} git -C ${CONTAINER_SRC_DIR} branch --show-current`,
         30000
@@ -957,7 +951,7 @@ export class DockerRuntime extends RemoteRuntime {
       if (branchResult.exitCode !== 0 || sourceBranch.length === 0) {
         return {
           success: false,
-          error: "Failed to detect branch in source workspace (detached HEAD?)",
+          error: "Failed to detect branch in source minion (detached HEAD?)",
         };
       }
 
@@ -997,7 +991,7 @@ export class DockerRuntime extends RemoteRuntime {
         if (runResult.stderr.includes("already in use")) {
           return {
             success: false,
-            error: `Workspace already exists: container ${destContainerName}`,
+            error: `Minion already exists: container ${destContainerName}`,
           };
         }
         return { success: false, error: `Failed to create container: ${runResult.stderr}` };
@@ -1022,7 +1016,7 @@ export class DockerRuntime extends RemoteRuntime {
       if (mkdirResult.exitCode !== 0) {
         return {
           success: false,
-          error: `Failed to prepare workspace directory: ${mkdirResult.stderr}`,
+          error: `Failed to prepare minion directory: ${mkdirResult.stderr}`,
         };
       }
 
@@ -1107,10 +1101,10 @@ export class DockerRuntime extends RemoteRuntime {
       }
 
       // 9. Checkout destination branch
-      initLogger.logStep(`Checking out branch: ${newWorkspaceName}`);
+      initLogger.logStep(`Checking out branch: ${newMinionName}`);
       const checkoutCmd =
-        `git checkout ${shescape.quote(newWorkspaceName)} 2>/dev/null || ` +
-        `git checkout -b ${shescape.quote(newWorkspaceName)} ${shescape.quote(sourceBranch)}`;
+        `git checkout ${shescape.quote(newMinionName)} 2>/dev/null || ` +
+        `git checkout -b ${shescape.quote(newMinionName)} ${shescape.quote(sourceBranch)}`;
       const checkoutResult = await runDockerCommand(
         `docker exec ${destContainerName} bash -c ${shescape.quote(`cd ${CONTAINER_SRC_DIR} && ${checkoutCmd}`)}`,
         120000
@@ -1124,9 +1118,9 @@ export class DockerRuntime extends RemoteRuntime {
 
       initLogger.logStep("Fork completed successfully");
       forkSucceeded = true;
-      // Update containerName so subsequent initWorkspace() targets the forked container
+      // Update containerName so subsequent initMinion() targets the forked container
       this.containerName = destContainerName;
-      return { success: true, workspacePath: CONTAINER_SRC_DIR, sourceBranch };
+      return { success: true, minionPath: CONTAINER_SRC_DIR, sourceBranch };
     } catch (error) {
       return { success: false, error: getErrorMessage(error) };
     } finally {
@@ -1187,7 +1181,7 @@ export class DockerRuntime extends RemoteRuntime {
       };
     }
 
-    // Detect container user info if not already set (e.g., runtime recreated for existing workspace)
+    // Detect container user info if not already set (e.g., runtime recreated for existing minion)
     if (!this.containerHome) {
       const [uidResult, gidResult, homeResult] = await Promise.all([
         runDockerCommand(`docker exec ${this.containerName} id -u`, 5000),

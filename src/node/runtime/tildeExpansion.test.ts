@@ -10,8 +10,8 @@ describe("expandTilde", () => {
   });
 
   it("should expand ~/path to home directory + path", () => {
-    const result = expandTilde("~/workspace");
-    expect(result).toBe(path.join(os.homedir(), "workspace"));
+    const result = expandTilde("~/minion");
+    expect(result).toBe(path.join(os.homedir(), "minion"));
   });
 
   it("should leave absolute paths unchanged", () => {
@@ -27,7 +27,7 @@ describe("expandTilde", () => {
   });
 
   it("should handle nested paths correctly", () => {
-    const result = expandTilde("~/workspace/project/subdir");
-    expect(result).toBe(path.join(os.homedir(), "workspace/project/subdir"));
+    const result = expandTilde("~/minion/project/subdir");
+    expect(result).toBe(path.join(os.homedir(), "minion/project/subdir"));
   });
 });

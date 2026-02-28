@@ -6,7 +6,7 @@ describe("DebugLlmRequestSnapshot", () => {
   test("is JSON + structured-clone safe", () => {
     const snapshot: DebugLlmRequestSnapshot = {
       capturedAt: Date.now(),
-      workspaceId: "workspace-1",
+      minionId: "minion-1",
       messageId: "assistant-1",
       model: "anthropic:claude-3-5-sonnet",
       providerName: "anthropic",

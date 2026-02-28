@@ -4,17 +4,18 @@ import { tool } from "ai";
 
 import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools";
 import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import { FILE_EDIT_DIFF_OMITTED_MESSAGE } from "@/common/types/tools";
 import { generateDiff } from "./fileCommon";
+import { getErrorMessage } from "@/common/utils/errors";
 
-function getLatticeHomeFromWorkspaceSessionDir(config: ToolConfiguration): string {
-  if (!config.workspaceSessionDir) {
-    throw new Error("lattice_global_agents_write requires workspaceSessionDir");
+function getLatticeHomeFromMinionSessionDir(config: ToolConfiguration): string {
+  if (!config.minionSessionDir) {
+    throw new Error("lattice_global_agents_write requires minionSessionDir");
   }
 
-  // workspaceSessionDir = <latticeHome>/sessions/<workspaceId>
-  const sessionsDir = path.dirname(config.workspaceSessionDir);
+  // minionSessionDir = <latticeHome>/sessions/<minionId>
+  const sessionsDir = path.dirname(config.minionSessionDir);
   return path.dirname(sessionsDir);
 }
 
@@ -51,11 +52,11 @@ export const createLatticeGlobalAgentsWriteTool: ToolFactory = (config: ToolConf
       { abortSignal: _abortSignal }
     ): Promise<LatticeGlobalAgentsWriteToolOutput> => {
       try {
-        if (config.workspaceId !== LATTICE_HELP_CHAT_WORKSPACE_ID) {
+        if (config.minionId !== LATTICE_HELP_CHAT_MINION_ID) {
           return {
             success: false,
             error:
-              "lattice_global_agents_write is only available in the Chat with Lattice system workspace",
+              "lattice_global_agents_write is only available in the Chat with Lattice system minion",
           };
         }
 
@@ -66,7 +67,7 @@ export const createLatticeGlobalAgentsWriteTool: ToolFactory = (config: ToolConf
           };
         }
 
-        const latticeHome = getLatticeHomeFromWorkspaceSessionDir(config);
+        const latticeHome = getLatticeHomeFromMinionSessionDir(config);
         await fsPromises.mkdir(latticeHome, { recursive: true });
 
         // Canonicalize latticeHome before constructing the file path.
@@ -113,7 +114,7 @@ export const createLatticeGlobalAgentsWriteTool: ToolFactory = (config: ToolConf
           },
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return {
           success: false,
           error: `Failed to write global AGENTS.md: ${message}`,

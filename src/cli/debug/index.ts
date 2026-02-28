@@ -1,14 +1,14 @@
 #!/usr/bin/env bun
 
 import { parseArgs } from "util";
-import { listWorkspacesCommand } from "./list-workspaces";
+import { listMinionsCommand } from "./list-minions";
 import { costsCommand } from "./costs";
 import { sendMessageCommand } from "./send-message";
 
 const { positionals, values } = parseArgs({
   args: process.argv.slice(2),
   options: {
-    workspace: { type: "string", short: "w" },
+    minion: { type: "string", short: "w" },
     drop: { type: "string", short: "d" },
     limit: { type: "string", short: "l" },
     all: { type: "boolean", short: "a" },
@@ -21,37 +21,37 @@ const { positionals, values } = parseArgs({
 const command = positionals[0];
 
 switch (command) {
-  case "list-workspaces":
-    listWorkspacesCommand();
+  case "list-minions":
+    listMinionsCommand();
     break;
   case "costs": {
-    const workspaceId = positionals[1];
-    if (!workspaceId) {
-      console.error("Error: workspace ID required");
-      console.log("Usage: bun debug costs <workspace-id>");
+    const minionId = positionals[1];
+    if (!minionId) {
+      console.error("Error: minion ID required");
+      console.log("Usage: bun debug costs <minion-id>");
       process.exit(1);
     }
     console.profile("costs");
-    await costsCommand(workspaceId);
+    await costsCommand(minionId);
     console.profileEnd("costs");
     break;
   }
   case "send-message": {
-    const workspaceId = positionals[1];
-    if (!workspaceId) {
-      console.error("Error: workspace ID required");
+    const minionId = positionals[1];
+    if (!minionId) {
+      console.error("Error: minion ID required");
       console.log(
-        "Usage: bun debug send-message <workspace-id> [--edit <message-id>] [--message <text>]"
+        "Usage: bun debug send-message <minion-id> [--edit <message-id>] [--message <text>]"
       );
       process.exit(1);
     }
-    sendMessageCommand(workspaceId, values.edit, values.message);
+    sendMessageCommand(minionId, values.edit, values.message);
     break;
   }
   default:
     console.log("Usage:");
-    console.log("  bun debug list-workspaces");
-    console.log("  bun debug costs <workspace-id>");
-    console.log("  bun debug send-message <workspace-id> [--edit <message-id>] [--message <text>]");
+    console.log("  bun debug list-minions");
+    console.log("  bun debug costs <minion-id>");
+    console.log("  bun debug send-message <minion-id> [--edit <message-id>] [--message <text>]");
     process.exit(1);
 }

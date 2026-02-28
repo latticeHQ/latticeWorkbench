@@ -1,7 +1,7 @@
 {
-  "name": "Lattice",
+  "name": "Lattice Workbench",
   "short_name": "Lattice",
-  "description": "Runtime enforcement and identity infrastructure for autonomous AI agents",
+  "description": "Parallel agentic development with Electron + React",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1e1e1e",
@@ -9,7 +9,13 @@
   "orientation": "any",
   "icons": [
     {
-      "src": "/icon.png",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

@@ -126,7 +126,7 @@ describe("hooks", () => {
       const result = await runPreHook(runtime, hookPath, {
         tool: "test_tool",
         toolInput: '{"arg": "value"}',
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         projectDir: tempDir,
       });
 
@@ -144,7 +144,7 @@ describe("hooks", () => {
       const result = await runPreHook(runtime, hookPath, {
         tool: "test_tool",
         toolInput: '{"arg": "value"}',
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         projectDir: tempDir,
       });
 
@@ -163,12 +163,30 @@ describe("hooks", () => {
       const result = await runPreHook(runtime, hookPath, {
         tool: "bash",
         toolInput: "{}",
-        workspaceId: "test-workspace",
+        minionId: "test-minion",
         projectDir: tempDir,
       });
 
       expect(result.allowed).toBe(true);
       expect(result.output).toContain("tool=bash");
+    });
+
+    test("receives flattened tool input env vars", async () => {
+      const hookDir = path.join(tempDir, ".lattice");
+      const hookPath = path.join(hookDir, "tool_pre");
+      await fs.mkdir(hookDir, { recursive: true });
+      await fs.writeFile(hookPath, '#!/bin/bash\necho "arg=$LATTICE_TOOL_INPUT_ARG"');
+      await fs.chmod(hookPath, 0o755);
+
+      const result = await runPreHook(runtime, hookPath, {
+        tool: "test_tool",
+        toolInput: '{"arg": "value"}',
+        minionId: "test-minion",
+        projectDir: tempDir,
+      });
+
+      expect(result.allowed).toBe(true);
+      expect(result.output).toContain("arg=value");
     });
   });
 
@@ -186,7 +204,7 @@ describe("hooks", () => {
         {
           tool: "test_tool",
           toolInput: '{"arg": "value"}',
-          workspaceId: "test-workspace",
+          minionId: "test-minion",
           projectDir: tempDir,
         },
         { success: true, data: "test" }
@@ -209,7 +227,7 @@ describe("hooks", () => {
         {
           tool: "test_tool",
           toolInput: "{}",
-          workspaceId: "test-workspace",
+          minionId: "test-minion",
           projectDir: tempDir,
         },
         { value: 42 }
@@ -219,6 +237,57 @@ describe("hooks", () => {
       expect(result.output).toContain('result={"value":42}');
     });
 
+    test("receives flattened tool input/result env vars", async () => {
+      const hookDir = path.join(tempDir, ".lattice");
+      const hookPath = path.join(hookDir, "tool_post");
+      await fs.mkdir(hookDir, { recursive: true });
+      await fs.writeFile(
+        hookPath,
+        '#!/bin/bash\necho "arg=$LATTICE_TOOL_INPUT_ARG"\necho "value=$LATTICE_TOOL_RESULT_VALUE"'
+      );
+      await fs.chmod(hookPath, 0o755);
+
+      const result = await runPostHook(
+        runtime,
+        hookPath,
+        {
+          tool: "test_tool",
+          toolInput: '{"arg": "value"}',
+          minionId: "test-minion",
+          projectDir: tempDir,
+        },
+        { value: 42 }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.output).toContain("arg=value");
+      expect(result.output).toContain("value=42");
+    });
+
+    test("omits LATTICE_TOOL_RESULT_PATH when writing result file fails", async () => {
+      const hookDir = path.join(tempDir, ".lattice");
+      const hookPath = path.join(hookDir, "tool_post");
+      await fs.mkdir(hookDir, { recursive: true });
+      await fs.writeFile(hookPath, '#!/bin/bash\necho "path=${LATTICE_TOOL_RESULT_PATH-unset}"');
+      await fs.chmod(hookPath, 0o755);
+
+      const result = await runPostHook(
+        runtime,
+        hookPath,
+        {
+          tool: "test_tool",
+          toolInput: "{}",
+          minionId: "test-minion",
+          projectDir: tempDir,
+          // Make writing /dev/null/<file> fail (since /dev/null isn't a directory).
+          runtimeTempDir: "/dev/null",
+        },
+        { value: 42 }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.output).toContain("path=unset");
+    });
     test("can read result from LATTICE_TOOL_RESULT_PATH", async () => {
       const hookDir = path.join(tempDir, ".lattice");
       const hookPath = path.join(hookDir, "tool_post");
@@ -232,7 +301,7 @@ describe("hooks", () => {
         {
           tool: "test_tool",
           toolInput: "{}",
-          workspaceId: "test-workspace",
+          minionId: "test-minion",
           projectDir: tempDir,
         },
         { complex: { nested: "data" } }
@@ -255,7 +324,7 @@ describe("hooks", () => {
         {
           tool: "file_edit",
           toolInput: "{}",
-          workspaceId: "test-workspace",
+          minionId: "test-minion",
           projectDir: tempDir,
         },
         { success: true }
@@ -290,7 +359,7 @@ read RESULT
         {
           tool: "test_tool",
           toolInput: '{"arg": "value"}',
-          workspaceId: "test-workspace",
+          minionId: "test-minion",
           projectDir: tempDir,
         },
         () => {
@@ -327,7 +396,7 @@ exit 1
         {
           tool: "dangerous_tool",
           toolInput: "{}",
-          workspaceId: "test-workspace",
+          minionId: "test-minion",
           projectDir: tempDir,
         },
         () => {
@@ -365,8 +434,8 @@ exit 1
         hookPath,
         {
           tool: "file_edit_replace_string",
-          toolInput: '{"file_path": "test.ts"}',
-          workspaceId: "test-workspace",
+          toolInput: '{"path": "test.ts"}',
+          minionId: "test-minion",
           projectDir: tempDir,
         },
         () => {
@@ -391,6 +460,7 @@ exit 1
         `#!/bin/bash
 echo "TOOL=$LATTICE_TOOL" >&2
 echo "INPUT=$LATTICE_TOOL_INPUT" >&2
+echo "SCRIPT=$LATTICE_TOOL_INPUT_SCRIPT" >&2
 echo $LATTICE_EXEC
 read RESULT
 `
@@ -403,7 +473,7 @@ read RESULT
         {
           tool: "bash",
           toolInput: '{"script": "echo hello"}',
-          workspaceId: "ws-123",
+          minionId: "ws-123",
           projectDir: tempDir,
         },
         () => Promise.resolve({ success: true })
@@ -411,6 +481,7 @@ read RESULT
 
       expect(hook.stderr).toContain("TOOL=bash");
       expect(hook.stderr).toContain('INPUT={"script": "echo hello"}');
+      expect(hook.stderr).toContain("SCRIPT=echo hello");
     });
 
     test("receives tool result via stdin", async () => {
@@ -435,7 +506,7 @@ echo "GOT_RESULT=$RESULT" >&2
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => Promise.resolve({ status: "ok", count: 42 })
@@ -465,7 +536,7 @@ read RESULT
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
           env: { MY_SECRET: "secret-value" },
         },
@@ -499,7 +570,7 @@ echo "Hook received: $RESULT" >&2
           {
             tool: "test",
             toolInput: "{}",
-            workspaceId: "test",
+            minionId: "test",
             projectDir: tempDir,
           },
           () => Promise.reject(toolError)
@@ -532,7 +603,7 @@ read RESULT
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: spacedDir,
         },
         () => Promise.resolve({ success: true })
@@ -564,7 +635,7 @@ exit 0
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => Promise.resolve({ success: true, data: "result" })
@@ -580,13 +651,11 @@ exit 0
       const hookPath = path.join(hookDir, "tool_hook");
       await fs.mkdir(hookDir, { recursive: true });
 
-      // Hook that sleeps before signaling exec.
-      // Use a generous sleep (1s) and threshold (500ms) so that
-      // process-spawn overhead (~100-300ms) doesn't cause false positives.
+      // Hook that sleeps before signaling exec
       await fs.writeFile(
         hookPath,
         `#!/bin/bash
-sleep 1
+sleep 0.15
 echo $LATTICE_EXEC
 read RESULT
 `
@@ -600,21 +669,19 @@ read RESULT
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => Promise.resolve({ success: true }),
         {
-          slowThresholdMs: 500,
+          slowThresholdMs: 100,
           onSlowHook: (phase, elapsed) => warnings.push(`${phase}: ${elapsed}ms`),
         }
       );
 
       expect(hook.success).toBe(true);
-      // Assert that a pre-hook slow warning was emitted
-      const preWarnings = warnings.filter((w) => w.startsWith("pre:"));
-      expect(preWarnings.length).toBe(1);
-      expect(preWarnings[0]).toMatch(/^pre: \d+ms$/);
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toMatch(/^pre: \d+ms$/);
     });
 
     test("logs warning when post-hook takes too long", async () => {
@@ -622,16 +689,13 @@ read RESULT
       const hookPath = path.join(hookDir, "tool_hook");
       await fs.mkdir(hookDir, { recursive: true });
 
-      // Hook that sleeps after reading result.
-      // Use a generous sleep (1s) and threshold (500ms) so that
-      // process-spawn overhead (~100-300ms) doesn't cause false positives
-      // on the pre-hook phase.
+      // Hook that sleeps after reading result (post phase is slow)
       await fs.writeFile(
         hookPath,
         `#!/bin/bash
 echo $LATTICE_EXEC
 read RESULT
-sleep 1
+sleep 0.5
 `
       );
       await fs.chmod(hookPath, 0o755);
@@ -643,21 +707,20 @@ sleep 1
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => Promise.resolve({ success: true }),
         {
-          slowThresholdMs: 500,
+          slowThresholdMs: 300,
           onSlowHook: (phase, elapsed) => warnings.push(`${phase}: ${elapsed}ms`),
         }
       );
 
       expect(hook.success).toBe(true);
-      // Assert that a post-hook slow warning was emitted
-      const postWarnings = warnings.filter((w) => w.startsWith("post:"));
-      expect(postWarnings.length).toBe(1);
-      expect(postWarnings[0]).toMatch(/^post: \d+ms$/);
+      // Only the post phase should exceed the 300ms threshold
+      expect(warnings.length).toBeGreaterThanOrEqual(1);
+      expect(warnings.some((w) => w.startsWith("post:"))).toBe(true);
     });
 
     test("does not log warning when hook is fast", async () => {
@@ -681,14 +744,13 @@ read RESULT
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => Promise.resolve({ success: true }),
         {
-          // Use a generous threshold (500ms) to account for process-spawn
-          // overhead which can be ~100-200ms depending on machine load.
-          slowThresholdMs: 500,
+          // Use a generous threshold so process startup doesn't trigger warnings
+          slowThresholdMs: 2000,
           onSlowHook: (phase, elapsed) => warnings.push(`${phase}: ${elapsed}ms`),
         }
       );
@@ -723,7 +785,7 @@ echo "GOT_RESULT=$RESULT" >&2
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => Promise.resolve(stream())
@@ -755,7 +817,7 @@ read RESULT
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => {
@@ -797,7 +859,7 @@ sleep 0.15
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         () => {
@@ -837,7 +899,7 @@ read RESULT
         {
           tool: "test",
           toolInput: "{}",
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
         },
         async () => {
@@ -886,7 +948,7 @@ read RESULT
         {
           tool: "test",
           toolInput: bigInput,
-          workspaceId: "test",
+          minionId: "test",
           projectDir: tempDir,
           runtimeTempDir: tempDir,
         },

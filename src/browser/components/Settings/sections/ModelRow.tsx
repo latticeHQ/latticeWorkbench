@@ -1,9 +1,11 @@
-import React from "react";
 import { Check, Eye, Info, Pencil, Star, Trash2, X } from "lucide-react";
 import { createEditKeyHandler } from "@/browser/utils/ui/keybinds";
-import { cn } from "@/common/lib/utils";
+import { SearchableModelSelect } from "@/browser/components/Settings/components/SearchableModelSelect";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/browser/components/ui/tooltip";
-import { ProviderWithIcon } from "@/browser/components/ProviderIcon";
+import { Button } from "@/browser/components/ui/button";
+import { ProviderIcon, ProviderWithIcon } from "@/browser/components/ProviderIcon";
+import { formatModelDisplayName } from "@/common/utils/ai/modelDisplay";
+import { cn } from "@/common/lib/utils";
 import { getModelStats, type ModelStats } from "@/common/utils/tokens/modelStats";
 
 /** Format tokens as human-readable string (e.g. 200000 -> "200k") */
@@ -32,7 +34,7 @@ function ModelTooltipContent(props: {
   stats: ModelStats | null;
 }) {
   return (
-    <div className="max-w-xs space-y-2 text-[11px]">
+    <div className="max-w-xs space-y-2 text-xs">
       <div className="text-foreground font-mono">{props.fullId}</div>
 
       {props.aliases && props.aliases.length > 0 && (
@@ -102,6 +104,55 @@ function ModelTooltipContent(props: {
   );
 }
 
+/**
+ * Inline toggle that slides between the model's base context window and 1M.
+ * Renders as a compact pill: clicking toggles the state, with the active
+ * end highlighted in accent.
+ */
+function ContextWindowSlider(props: {
+  baseTokens: number;
+  enabled: boolean;
+  onToggle: () => void;
+}) {
+  const baseLabel = formatTokenCount(props.baseTokens);
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            props.onToggle();
+          }}
+          className="border-border-medium bg-background-tertiary flex items-center gap-px rounded-full border px-0.5 py-px"
+          aria-label={props.enabled ? "Disable 1M context (beta)" : "Enable 1M context (beta)"}
+        >
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0.5 text-[10px] leading-none font-medium transition-colors",
+              !props.enabled ? "bg-background-secondary text-foreground" : "text-muted"
+            )}
+          >
+            {baseLabel}
+          </span>
+          <span
+            className={cn(
+              "rounded-full px-1.5 py-0.5 font-mono text-[10px] leading-none font-bold transition-colors",
+              props.enabled ? "bg-accent/20 text-accent" : "text-muted"
+            )}
+          >
+            1M
+          </span>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        {props.enabled ? "1M context enabled (beta)" : "Enable 1M context (beta)"}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export interface ModelRowProps {
   provider: string;
   modelId: string;
@@ -110,67 +161,120 @@ export interface ModelRowProps {
   isCustom: boolean;
   isDefault: boolean;
   isEditing: boolean;
-  editValue?: string;
+  editModelValue?: string;
+  editContextValue?: string;
+  editMappedToModel?: string;
+  editAutofocus?: "model" | "context";
+  customContextWindowTokens?: number | null;
+  mappedToModel?: string | null;
+  allModels?: string[];
   editError?: string | null;
   saving?: boolean;
   hasActiveEdit?: boolean;
+  /** Whether 1M context is enabled for this model */
+  is1MContextEnabled?: boolean;
   /** Whether this model is hidden from the selector */
   isHiddenFromSelector?: boolean;
   onSetDefault: () => void;
   onStartEdit?: () => void;
+  onStartContextEdit?: () => void;
   onSaveEdit?: () => void;
   onCancelEdit?: () => void;
-  onEditChange?: (value: string) => void;
+  onEditModelChange?: (value: string) => void;
+  onEditContextChange?: (value: string) => void;
+  onEditMappedToModelChange?: (value: string) => void;
   onRemove?: () => void;
+  /** Toggle 1M context for this model (only shown when defined, i.e. model supports it) */
+  onToggle1MContext?: () => void;
   /** Toggle visibility in model selector */
   onToggleVisibility?: () => void;
 }
 
 export function ModelRow(props: ModelRowProps) {
-  const stats = getModelStats(props.fullId);
+  const stats = getModelStats(props.mappedToModel ?? props.fullId);
+
+  const contextBaseTokens = props.customContextWindowTokens ?? stats?.max_input_tokens ?? null;
+  const mappedProvider = props.mappedToModel ? props.mappedToModel.split(":")[0] || null : null;
+  // Use slice after the first colon to preserve any additional colons in the model ID
+  // (e.g. "ollama:gpt-oss:20b" → "gpt-oss:20b", not "gpt-oss").
+  const mappedModelId = props.mappedToModel
+    ? props.mappedToModel.slice(props.mappedToModel.indexOf(":") + 1) || props.mappedToModel
+    : null;
+  const mappedModelDisplayName = mappedModelId ? formatModelDisplayName(mappedModelId) : null;
 
   // Editing mode - render as a full-width row
   if (props.isEditing) {
     return (
       <tr className="border-border-medium border-b">
-        <td colSpan={4} className="px-3 py-1.5">
-          <div className="flex items-center gap-2">
-            <ProviderWithIcon
-              provider={props.provider}
-              displayName
-              className="text-muted w-16 shrink-0 overflow-hidden text-[11px] md:w-20"
-            />
-            <input
-              type="text"
-              value={props.editValue ?? props.modelId}
-              onChange={(e) => props.onEditChange?.(e.target.value)}
-              onKeyDown={createEditKeyHandler({
-                onSave: () => props.onSaveEdit?.(),
-                onCancel: () => props.onCancelEdit?.(),
-              })}
-              className="bg-modal-bg border-border-medium focus:border-accent min-w-0 flex-1 rounded border px-2 py-0.5 font-mono text-[11px] focus:outline-none"
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={props.onSaveEdit}
-              disabled={props.saving}
-              className="p-0.5 text-green-500 hover:text-green-400"
-              title="Save (Enter)"
-            >
-              <Check className="h-3 w-3" />
-            </button>
-            <button
-              type="button"
-              onClick={props.onCancelEdit}
-              disabled={props.saving}
-              className="text-muted hover:text-foreground p-0.5"
-              title="Cancel (Esc)"
-            >
-              <X className="h-3 w-3" />
-            </button>
+        <td colSpan={4} className="px-2 py-1.5 md:px-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <ProviderWithIcon
+                provider={props.provider}
+                displayName
+                className="text-muted w-16 shrink-0 overflow-hidden text-xs md:w-20"
+              />
+              <input
+                type="text"
+                value={props.editModelValue ?? props.modelId}
+                onChange={(e) => props.onEditModelChange?.(e.target.value)}
+                onKeyDown={createEditKeyHandler({
+                  onSave: () => props.onSaveEdit?.(),
+                  onCancel: () => props.onCancelEdit?.(),
+                })}
+                className="bg-modal-bg border-border-medium focus:border-accent min-w-0 flex-1 rounded border px-2 py-0.5 font-mono text-xs focus:outline-none"
+                autoFocus={props.editAutofocus !== "context"}
+              />
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={props.editContextValue ?? ""}
+                onChange={(e) => props.onEditContextChange?.(e.target.value)}
+                onKeyDown={createEditKeyHandler({
+                  onSave: () => props.onSaveEdit?.(),
+                  onCancel: () => props.onCancelEdit?.(),
+                })}
+                className="bg-modal-bg border-border-medium focus:border-accent w-28 shrink-0 rounded border px-2 py-0.5 text-right font-mono text-xs focus:outline-none"
+                placeholder="context"
+                autoFocus={props.editAutofocus === "context"}
+              />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={props.onSaveEdit}
+                disabled={props.saving}
+                className="text-accent hover:text-accent-dark h-6 w-6"
+                title="Save changes (Enter)"
+              >
+                <Check className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={props.onCancelEdit}
+                disabled={props.saving}
+                className="text-muted hover:text-foreground h-6 w-6"
+                title="Cancel (Escape)"
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            {props.isCustom && props.allModels && (
+              <div className="mt-1.5 flex items-center gap-2">
+                <span className="text-muted w-16 shrink-0 text-xs md:w-20">Treat as</span>
+                <SearchableModelSelect
+                  value={props.editMappedToModel ?? ""}
+                  onChange={(value) => props.onEditMappedToModelChange?.(value)}
+                  models={props.allModels}
+                  placeholder="Select model..."
+                  emptyOption={{ value: "", label: "None (use own metadata)" }}
+                  compact
+                />
+              </div>
+            )}
           </div>
-          {props.editError && <div className="text-error mt-1 text-[11px]">{props.editError}</div>}
+          {props.editError && <div className="text-error mt-1 text-xs">{props.editError}</div>}
         </td>
       </tr>
     );
@@ -179,41 +283,86 @@ export function ModelRow(props: ModelRowProps) {
   return (
     <tr
       className={cn(
-        "border-border-medium hover:bg-background-secondary/30 group border-b transition-colors",
+        "border-border-medium hover:bg-background-secondary/50 group border-b transition-colors",
         props.isHiddenFromSelector && "opacity-50"
       )}
     >
       {/* Provider */}
-      <td className="w-20 py-1.5 pl-3 pr-2 md:w-24">
+      <td className="w-20 py-1.5 pr-2 pl-2 md:w-24 md:pl-3">
         <ProviderWithIcon
           provider={props.provider}
           displayName
-          className="text-muted overflow-hidden text-[11px]"
+          className="text-muted overflow-hidden text-xs"
         />
       </td>
 
       {/* Model ID + Aliases */}
       <td className="min-w-0 py-1.5 pr-2">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="text-foreground min-w-0 truncate font-mono text-[11px]">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-foreground min-w-0 truncate font-mono text-xs">
             {props.modelId}
           </span>
+          {mappedModelDisplayName && (
+            <span className="text-muted ml-1 flex shrink-0 items-center gap-1 text-[10px]">
+              →
+              {mappedProvider && (
+                <ProviderIcon provider={mappedProvider} className="text-muted h-3 w-3" />
+              )}
+              {mappedModelDisplayName}
+            </span>
+          )}
           {props.aliases && props.aliases.length > 0 && (
-            <span className="text-muted shrink-0 text-[10px]">({props.aliases[0]})</span>
+            <span className="text-muted-light shrink-0 text-xs">({props.aliases[0]})</span>
           )}
         </div>
       </td>
 
-      {/* Context Window */}
-      <td className="w-14 py-1.5 pr-2 text-right md:w-16">
-        <span className="text-muted text-[11px]">
-          {stats ? formatTokenCount(stats.max_input_tokens) : "—"}
-        </span>
+      {/* Context Window — inline slider for models that support 1M context */}
+      <td className="w-16 py-1.5 pr-2 md:w-20">
+        {props.onToggle1MContext && contextBaseTokens ? (
+          <ContextWindowSlider
+            baseTokens={contextBaseTokens}
+            enabled={props.is1MContextEnabled ?? false}
+            onToggle={props.onToggle1MContext}
+          />
+        ) : !stats && props.onStartContextEdit ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onStartContextEdit?.();
+            }}
+            disabled={Boolean(props.saving) || Boolean(props.hasActiveEdit)}
+            className="text-muted hover:text-foreground ml-auto block text-right text-xs disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Edit context window"
+          >
+            {contextBaseTokens ? formatTokenCount(contextBaseTokens) : "—"}
+          </button>
+        ) : contextBaseTokens ? (
+          <span className="text-muted block text-right text-xs">
+            {formatTokenCount(contextBaseTokens)}
+          </span>
+        ) : props.onStartContextEdit ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onStartContextEdit?.();
+            }}
+            disabled={Boolean(props.saving) || Boolean(props.hasActiveEdit)}
+            className="text-muted hover:text-foreground ml-auto block text-right text-xs disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label="Edit context window"
+          >
+            —
+          </button>
+        ) : (
+          <span className="text-muted block text-right text-xs">—</span>
+        )}
       </td>
 
       {/* Actions */}
-      <td className="w-24 py-1.5 pr-3 md:w-28">
-        <div className="flex items-center justify-end gap-px">
+      <td className="w-28 py-1.5 pr-2 md:w-32 md:pr-3">
+        <div className="flex items-center justify-end gap-0.5">
           {/* Info tooltip */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -222,14 +371,14 @@ export function ModelRow(props: ModelRowProps) {
                 className="text-muted hover:text-foreground p-0.5 transition-colors"
                 aria-label="Model details"
               >
-                <Info className="h-3 w-3" />
+                <Info className="h-3.5 w-3.5" />
               </button>
             </TooltipTrigger>
             <TooltipContent side="top" align="end" className="p-3">
               <ModelTooltipContent fullId={props.fullId} aliases={props.aliases} stats={stats} />
             </TooltipContent>
           </Tooltip>
-          {/* Visibility toggle */}
+          {/* Visibility toggle button */}
           {props.onToggleVisibility && (
             <button
               type="button"
@@ -246,14 +395,17 @@ export function ModelRow(props: ModelRowProps) {
               }
             >
               <Eye
-                className={cn("h-3 w-3", props.isHiddenFromSelector ? "opacity-30" : "opacity-70")}
+                className={cn(
+                  "h-3.5 w-3.5",
+                  props.isHiddenFromSelector ? "opacity-30" : "opacity-70"
+                )}
               />
               {props.isHiddenFromSelector && (
-                <span className="bg-muted-light absolute inset-0 m-auto h-px w-3.5 rotate-45" />
+                <span className="bg-muted-light absolute inset-0 m-auto h-px w-4 rotate-45" />
               )}
             </button>
           )}
-          {/* Favorite/default */}
+          {/* Favorite/default button */}
           <button
             type="button"
             onClick={(e) => {
@@ -269,9 +421,9 @@ export function ModelRow(props: ModelRowProps) {
             disabled={props.isDefault}
             aria-label={props.isDefault ? "Current default model" : "Set as default model"}
           >
-            <Star className={cn("h-3 w-3", props.isDefault && "fill-current")} />
+            <Star className={cn("h-3.5 w-3.5", props.isDefault && "fill-current")} />
           </button>
-          {/* Edit/delete for custom models */}
+          {/* Edit/delete buttons only for custom models */}
           {props.isCustom && (
             <>
               <button
@@ -284,7 +436,7 @@ export function ModelRow(props: ModelRowProps) {
                 className="text-muted hover:text-foreground p-0.5 transition-colors"
                 aria-label="Edit model"
               >
-                <Pencil className="h-3 w-3" />
+                <Pencil className="h-3.5 w-3.5" />
               </button>
               <button
                 type="button"
@@ -296,7 +448,7 @@ export function ModelRow(props: ModelRowProps) {
                 className="text-muted hover:text-error p-0.5 transition-colors"
                 aria-label="Remove model"
               >
-                <Trash2 className="h-3 w-3" />
+                <Trash2 className="h-3.5 w-3.5" />
               </button>
             </>
           )}

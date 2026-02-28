@@ -16,16 +16,23 @@ const KEYBIND_LABELS: Record<keyof typeof KEYBINDS, string> = {
   INTERRUPT_STREAM_NORMAL: "Interrupt stream",
   FOCUS_INPUT_I: "Focus input (i)",
   FOCUS_INPUT_A: "Focus input (a)",
-  NEW_WORKSPACE: "New workspace",
-  ARCHIVE_WORKSPACE: "Archive workspace",
+  NEW_MINION: "Summon minion",
+  EDIT_MINION_TITLE: "Edit minion title",
+  GENERATE_MINION_TITLE: "Generate new title",
+  ARCHIVE_MINION: "Bench minion",
   JUMP_TO_BOTTOM: "Jump to bottom",
-  NEXT_WORKSPACE: "Next workspace",
-  PREV_WORKSPACE: "Previous workspace",
+  LOAD_OLDER_MESSAGES: "Load older messages",
+  NEXT_MINION: "Next minion",
+  PREV_MINION: "Previous minion",
   TOGGLE_SIDEBAR: "Toggle sidebar",
   CYCLE_MODEL: "Cycle model",
   OPEN_TERMINAL: "New terminal",
   OPEN_IN_EDITOR: "Open in editor",
+  SHARE_TRANSCRIPT: "Share transcript",
+  CONFIGURE_MCP: "Configure MCP servers",
   OPEN_COMMAND_PALETTE: "Command palette",
+  OPEN_COMMAND_PALETTE_ACTIONS: "Command palette (alternate)",
+  OPEN_LATTICE_CHAT: "Open Chat with Lattice",
   TOGGLE_THINKING: "Toggle thinking",
   FOCUS_CHAT: "Focus chat input",
   CLOSE_TAB: "Close tab",
@@ -47,10 +54,29 @@ const KEYBIND_LABELS: Record<keyof typeof KEYBINDS, string> = {
   MARK_FILE_READ: "Mark file read",
   TOGGLE_HUNK_COLLAPSE: "Toggle hunk collapse",
   OPEN_SETTINGS: "Open settings",
+  OPEN_ANALYTICS: "Open analytics",
   TOGGLE_VOICE_INPUT: "Toggle voice input",
   NAVIGATE_BACK: "Navigate back",
   NAVIGATE_FORWARD: "Navigate forward",
   TOGGLE_NOTIFICATIONS: "Toggle notifications",
+  // Modal-only keybinds; intentionally omitted from KEYBIND_GROUPS.
+  CONFIRM_DIALOG_YES: "Confirm dialog action",
+  CONFIRM_DIALOG_NO: "Cancel dialog action",
+  TOGGLE_REVIEW_IMMERSIVE: "Toggle immersive review",
+  REVIEW_NEXT_FILE: "Next file (immersive)",
+  REVIEW_PREV_FILE: "Previous file (immersive)",
+  REVIEW_NEXT_HUNK: "Next hunk (immersive)",
+  REVIEW_PREV_HUNK: "Previous hunk (immersive)",
+  REVIEW_CURSOR_DOWN: "Line cursor down (immersive)",
+  REVIEW_CURSOR_UP: "Line cursor up (immersive)",
+  REVIEW_CURSOR_JUMP_DOWN: "Jump 10 lines down (immersive)",
+  REVIEW_CURSOR_JUMP_UP: "Jump 10 lines up (immersive)",
+  REVIEW_QUICK_LIKE: "Quick like (immersive)",
+  REVIEW_QUICK_DISLIKE: "Quick dislike (immersive)",
+  REVIEW_COMMENT: "Add comment (immersive)",
+  REVIEW_FOCUS_NOTES: "Focus notes sidebar (immersive)",
+  // Easter egg keybind; intentionally omitted from KEYBIND_GROUPS.
+  TOGGLE_POWER_MODE: "",
 };
 
 /** Groups for organizing keybinds in the UI */
@@ -61,11 +87,15 @@ const KEYBIND_GROUPS: Array<{ label: string; keys: Array<keyof typeof KEYBINDS> 
       "TOGGLE_AGENT",
       "CYCLE_AGENT",
       "OPEN_COMMAND_PALETTE",
+      "OPEN_LATTICE_CHAT",
       "OPEN_SETTINGS",
+      "OPEN_ANALYTICS",
       "TOGGLE_SIDEBAR",
       "CYCLE_MODEL",
       "TOGGLE_THINKING",
       "TOGGLE_NOTIFICATIONS",
+      "SHARE_TRANSCRIPT",
+      "CONFIGURE_MCP",
     ],
   },
   {
@@ -89,13 +119,16 @@ const KEYBIND_GROUPS: Array<{ label: string; keys: Array<keyof typeof KEYBINDS> 
   {
     label: "Navigation",
     keys: [
-      "NEW_WORKSPACE",
-      "ARCHIVE_WORKSPACE",
-      "NEXT_WORKSPACE",
-      "PREV_WORKSPACE",
+      "NEW_MINION",
+      "EDIT_MINION_TITLE",
+      "GENERATE_MINION_TITLE",
+      "ARCHIVE_MINION",
+      "NEXT_MINION",
+      "PREV_MINION",
       "NAVIGATE_BACK",
       "NAVIGATE_FORWARD",
       "JUMP_TO_BOTTOM",
+      "LOAD_OLDER_MESSAGES",
     ],
   },
   {
@@ -127,10 +160,31 @@ const KEYBIND_GROUPS: Array<{ label: string; keys: Array<keyof typeof KEYBINDS> 
     ],
   },
   {
+    label: "Immersive Review",
+    keys: [
+      "TOGGLE_REVIEW_IMMERSIVE",
+      "REVIEW_NEXT_FILE",
+      "REVIEW_PREV_FILE",
+      "REVIEW_NEXT_HUNK",
+      "REVIEW_PREV_HUNK",
+      "REVIEW_QUICK_LIKE",
+      "REVIEW_QUICK_DISLIKE",
+      "REVIEW_COMMENT",
+      "REVIEW_FOCUS_NOTES",
+    ],
+  },
+  {
     label: "External",
     keys: ["OPEN_TERMINAL", "OPEN_IN_EDITOR"],
   },
 ];
+
+// Some actions have multiple equivalent shortcuts; render alternates on the same row.
+const KEYBIND_DISPLAY_ALTERNATES: Partial<
+  Record<keyof typeof KEYBINDS, Array<keyof typeof KEYBINDS>>
+> = {
+  OPEN_COMMAND_PALETTE: ["OPEN_COMMAND_PALETTE_ACTIONS"],
+};
 
 export function KeybindsSection() {
   return (
@@ -146,7 +200,9 @@ export function KeybindsSection() {
               >
                 <span className="text-muted">{KEYBIND_LABELS[key]}</span>
                 <kbd className="bg-background-secondary text-foreground border-border-medium rounded border px-2 py-0.5 font-mono text-xs">
-                  {formatKeybind(KEYBINDS[key])}
+                  {[key, ...(KEYBIND_DISPLAY_ALTERNATES[key] ?? [])]
+                    .map((keybindId) => formatKeybind(KEYBINDS[keybindId]))
+                    .join(" / ")}
                 </kbd>
               </div>
             ))}

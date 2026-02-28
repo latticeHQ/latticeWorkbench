@@ -3,7 +3,7 @@ import * as os from "os";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { LocalRuntime } from "./LocalRuntime";
-import type { InitLogger } from "./Runtime";
+import type { InitLogger, RuntimeStatusEvent } from "./Runtime";
 
 // Minimal mock logger - matches pattern in initHook.test.ts
 function createMockLogger(): InitLogger & { steps: string[] } {
@@ -36,27 +36,42 @@ describe("LocalRuntime", () => {
     await fs.rm(testDir, { recursive: true, force: true });
   });
 
-  describe("constructor and getWorkspacePath", () => {
+  describe("constructor and getMinionPath", () => {
     it("stores projectPath and returns it regardless of arguments", () => {
       const runtime = new LocalRuntime("/home/user/my-project");
       // Both arguments are ignored - always returns the project path
-      expect(runtime.getWorkspacePath("/other/path", "some-branch")).toBe("/home/user/my-project");
-      expect(runtime.getWorkspacePath("", "")).toBe("/home/user/my-project");
+      expect(runtime.getMinionPath("/other/path", "some-branch")).toBe("/home/user/my-project");
+      expect(runtime.getMinionPath("", "")).toBe("/home/user/my-project");
     });
 
     it("does not expand tilde (unlike WorktreeRuntime)", () => {
       // LocalRuntime stores the path as-is; callers must pass expanded paths
       const runtime = new LocalRuntime("~/my-project");
-      expect(runtime.getWorkspacePath("", "")).toBe("~/my-project");
+      expect(runtime.getMinionPath("", "")).toBe("~/my-project");
     });
   });
 
-  describe("createWorkspace", () => {
+  describe("ensureReady", () => {
+    it("allows non-git project directories to be ready", async () => {
+      const runtime = new LocalRuntime(testDir);
+      const events: RuntimeStatusEvent[] = [];
+
+      const result = await runtime.ensureReady({
+        statusSink: (event) => events.push(event),
+      });
+
+      expect(result).toEqual({ ready: true });
+      expect(events[0]).toMatchObject({ phase: "checking", runtimeType: "local" });
+      expect(events[events.length - 1]).toMatchObject({ phase: "ready", runtimeType: "local" });
+    });
+  });
+
+  describe("createMinion", () => {
     it("succeeds when directory exists", async () => {
       const runtime = new LocalRuntime(testDir);
       const logger = createMockLogger();
 
-      const result = await runtime.createWorkspace({
+      const result = await runtime.createMinion({
         projectPath: testDir,
         branchName: "main",
         trunkBranch: "main",
@@ -65,7 +80,7 @@ describe("LocalRuntime", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.workspacePath).toBe(testDir);
+      expect(result.minionPath).toBe(testDir);
       expect(logger.steps.length).toBeGreaterThan(0);
       expect(logger.steps.some((s) => s.includes("project directory"))).toBe(true);
     });
@@ -75,7 +90,7 @@ describe("LocalRuntime", () => {
       const runtime = new LocalRuntime(nonExistentPath);
       const logger = createMockLogger();
 
-      const result = await runtime.createWorkspace({
+      const result = await runtime.createMinion({
         projectPath: nonExistentPath,
         branchName: "main",
         trunkBranch: "main",
@@ -88,7 +103,7 @@ describe("LocalRuntime", () => {
     });
   });
 
-  describe("initWorkspace", () => {
+  describe("initMinion", () => {
     it("runs init hook by default, but skips when skipInitHook=true", async () => {
       const runtime = new LocalRuntime(testDir);
 
@@ -104,11 +119,11 @@ describe("LocalRuntime", () => {
 
       {
         const logger = createMockLogger();
-        const result = await runtime.initWorkspace({
+        const result = await runtime.initMinion({
           projectPath: testDir,
           branchName: "main",
           trunkBranch: "main",
-          workspacePath: testDir,
+          minionPath: testDir,
           initLogger: logger,
         });
         expect(result.success).toBe(true);
@@ -125,11 +140,11 @@ describe("LocalRuntime", () => {
 
       {
         const logger = createMockLogger();
-        const result = await runtime.initWorkspace({
+        const result = await runtime.initMinion({
           projectPath: testDir,
           branchName: "main",
           trunkBranch: "main",
-          workspacePath: testDir,
+          minionPath: testDir,
           initLogger: logger,
           skipInitHook: true,
         });
@@ -145,7 +160,7 @@ describe("LocalRuntime", () => {
     });
   });
 
-  describe("deleteWorkspace", () => {
+  describe("deleteMinion", () => {
     it("returns success without deleting anything", async () => {
       const runtime = new LocalRuntime(testDir);
 
@@ -153,7 +168,7 @@ describe("LocalRuntime", () => {
       const testFile = path.join(testDir, "delete-test.txt");
       await fs.writeFile(testFile, "should not be deleted");
 
-      const result = await runtime.deleteWorkspace(testDir, "main", false);
+      const result = await runtime.deleteMinion(testDir, "main", false);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -174,7 +189,7 @@ describe("LocalRuntime", () => {
     it("returns success even with force=true (still no-op)", async () => {
       const runtime = new LocalRuntime(testDir);
 
-      const result = await runtime.deleteWorkspace(testDir, "main", true);
+      const result = await runtime.deleteMinion(testDir, "main", true);
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -189,11 +204,11 @@ describe("LocalRuntime", () => {
     });
   });
 
-  describe("renameWorkspace", () => {
+  describe("renameMinion", () => {
     it("is a no-op that returns success with same path", async () => {
       const runtime = new LocalRuntime(testDir);
 
-      const result = await runtime.renameWorkspace(testDir, "old", "new");
+      const result = await runtime.renameMinion(testDir, "old", "new");
 
       expect(result.success).toBe(true);
       if (result.success) {
@@ -203,20 +218,20 @@ describe("LocalRuntime", () => {
     });
   });
 
-  describe("forkWorkspace", () => {
+  describe("forkMinion", () => {
     it("succeeds and returns project path (no worktree isolation)", async () => {
       const runtime = new LocalRuntime(testDir);
       const logger = createMockLogger();
 
-      const result = await runtime.forkWorkspace({
+      const result = await runtime.forkMinion({
         projectPath: testDir,
-        sourceWorkspaceName: "main",
-        newWorkspaceName: "feature",
+        sourceMinionName: "main",
+        newMinionName: "feature",
         initLogger: logger,
       });
 
       expect(result.success).toBe(true);
-      expect(result.workspacePath).toBe(testDir);
+      expect(result.minionPath).toBe(testDir);
       // sourceBranch is undefined for LocalRuntime (no git operations)
       expect(result.sourceBranch).toBeUndefined();
       // Should have logged steps
@@ -229,10 +244,10 @@ describe("LocalRuntime", () => {
       const runtime = new LocalRuntime(nonExistentPath);
       const logger = createMockLogger();
 
-      const result = await runtime.forkWorkspace({
+      const result = await runtime.forkMinion({
         projectPath: nonExistentPath,
-        sourceWorkspaceName: "main",
-        newWorkspaceName: "feature",
+        sourceMinionName: "main",
+        newMinionName: "feature",
         initLogger: logger,
       });
 

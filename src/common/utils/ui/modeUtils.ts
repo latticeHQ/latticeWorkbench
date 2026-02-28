@@ -24,6 +24,7 @@ ${exactPlanPathRule}
 
 Keep the plan crisp and focused on actionable recommendations:
 - Put historical context, alternatives considered, or lengthy rationale into collapsible \`<details>/<summary>\` blocks so the core plan stays scannable.
+- When listing implementation details, include **reasonably sized** code snippets (fenced code blocks) for key changes—enough to remove ambiguity, but avoid whole-file dumps. Use ellipses (...) to omit unrelated context.
 - **Aggressively prune completed or irrelevant content.** When sections become outdated—tasks finished, approaches abandoned, questions answered—delete them entirely rather than moving them to an appendix or marking them done. The plan should reflect current state, not accumulate history.
 - Each revision should leave the plan shorter or unchanged in scope, never longer unless the actual work grew.
 
@@ -60,5 +61,5 @@ If the user suggests that you should make edits to other files, ask them to swit
 export function getPlanFileHint(planFilePath: string, planExists: boolean): string | null {
   if (!planExists) return null;
 
-  return `A plan file exists at: ${planFilePath}. If the plan is already included in the chat history (e.g., after “Replace all chat history with this plan”), do NOT re-read the plan file. Otherwise, if you are continuing previous work—especially after any compaction/context reset (when earlier messages are replaced by a summary)—you MUST read it before proceeding and use it as the source of truth for what remains. If it is unrelated to the current request, ignore it.`;
+  return `A plan file exists at: ${planFilePath}. If the plan is already included in the chat history (e.g., after “Replace all chat history with this plan” or a <plan> block from an agent transition), do NOT re-read the plan file. Otherwise, if you are continuing previous work—especially after any compaction/context reset (when earlier messages are replaced by a summary)—read it before proceeding and use it as the source of truth for what remains. If it is unrelated to the current request, ignore it.`;
 }

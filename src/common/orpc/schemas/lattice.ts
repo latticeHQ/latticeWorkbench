@@ -1,27 +1,27 @@
 import { z } from "zod";
 
-// Lattice workspace config - attached to SSH runtime when using Lattice
-export const LatticeWorkspaceConfigSchema = z.object({
+// Lattice minion config - attached to SSH runtime when using Lattice
+export const LatticeMinionConfigSchema = z.object({
   /**
-   * Lattice workspace name.
-   * - For new workspaces: omit or undefined (backend derives from lattice branch name)
-   * - For existing workspaces: required (the selected Lattice workspace name)
-   * - After creation: populated with the actual Lattice workspace name for reference
+   * Lattice minion name.
+   * - For new minions: omit or undefined (backend derives from lattice branch name)
+   * - For existing minions: required (the selected Lattice minion name)
+   * - After creation: populated with the actual Lattice minion name for reference
    */
-  workspaceName: z.string().optional().meta({ description: "Lattice workspace name" }),
-  template: z.string().optional().meta({ description: "Template used to create workspace" }),
+  minionName: z.string().optional().meta({ description: "Lattice minion name" }),
+  template: z.string().optional().meta({ description: "Template used to create minion" }),
   templateOrg: z.string().optional().meta({
     description: "Template organization (for disambiguation when templates have same name)",
   }),
   preset: z.string().optional().meta({ description: "Preset used during creation" }),
 
-  /** True if connected to pre-existing Lattice workspace (vs lattice creating one). */
-  existingWorkspace: z.boolean().optional().meta({
-    description: "True if connected to pre-existing Lattice workspace",
+  /** True if connected to pre-existing Lattice minion (vs lattice creating one). */
+  existingMinion: z.boolean().optional().meta({
+    description: "True if connected to pre-existing Lattice minion",
   }),
 });
 
-export type LatticeWorkspaceConfig = z.infer<typeof LatticeWorkspaceConfigSchema>;
+export type LatticeMinionConfig = z.infer<typeof LatticeMinionConfigSchema>;
 
 // Lattice CLI unavailable reason - "missing" or error with message
 export const LatticeUnavailableReasonSchema = z.union([
@@ -32,6 +32,7 @@ export const LatticeUnavailableReasonSchema = z.union([
 export type LatticeUnavailableReason = z.infer<typeof LatticeUnavailableReasonSchema>;
 
 // Lattice CLI availability info - discriminated union by state
+// Only checks CLI presence and version — auth state is separate (LatticeWhoami).
 export const LatticeInfoSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("available"), version: z.string() }),
   z.object({ state: z.literal("outdated"), version: z.string(), minVersion: z.string() }),
@@ -39,6 +40,21 @@ export const LatticeInfoSchema = z.discriminatedUnion("state", [
 ]);
 
 export type LatticeInfo = z.infer<typeof LatticeInfoSchema>;
+
+// Lattice whoami - authentication identity check (separate from CLI availability)
+export const LatticeWhoamiSchema = z.discriminatedUnion("state", [
+  z.object({
+    state: z.literal("authenticated"),
+    username: z.string(),
+    deploymentUrl: z.string(),
+  }),
+  z.object({
+    state: z.literal("unauthenticated"),
+    reason: z.string(),
+  }),
+]);
+
+export type LatticeWhoami = z.infer<typeof LatticeWhoamiSchema>;
 
 // Lattice template
 export const LatticeTemplateSchema = z.object({
@@ -59,8 +75,8 @@ export const LatticePresetSchema = z.object({
 
 export type LatticePreset = z.infer<typeof LatticePresetSchema>;
 
-// Lattice workspace status
-export const LatticeWorkspaceStatusSchema = z.enum([
+// Lattice minion status
+export const LatticeMinionStatusSchema = z.enum([
   "running",
   "stopped",
   "starting",
@@ -73,32 +89,49 @@ export const LatticeWorkspaceStatusSchema = z.enum([
   "deleted",
 ]);
 
-export type LatticeWorkspaceStatus = z.infer<typeof LatticeWorkspaceStatusSchema>;
+export type LatticeMinionStatus = z.infer<typeof LatticeMinionStatusSchema>;
 
-// Lattice workspace
-export const LatticeWorkspaceSchema = z.object({
+// Lattice minion
+export const LatticeMinionSchema = z.object({
   name: z.string(),
   templateName: z.string(),
   templateDisplayName: z.string(),
-  status: LatticeWorkspaceStatusSchema,
+  status: LatticeMinionStatusSchema,
 });
 
-export type LatticeWorkspace = z.infer<typeof LatticeWorkspaceSchema>;
+export type LatticeMinion = z.infer<typeof LatticeMinionSchema>;
 
-// Lattice whoami - authentication identity check
-export const LatticeWhoamiSchema = z.discriminatedUnion("state", [
-  z.object({
-    state: z.literal("authenticated"),
-    username: z.string(),
-    deploymentUrl: z.string(),
-  }),
-  z.object({
-    state: z.literal("unauthenticated"),
-    reason: z.string(),
-  }),
+// Lattice minion list result (lets UI distinguish errors from empty list)
+export const LatticeListMinionsResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), minions: z.array(LatticeMinionSchema) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 
-export type LatticeWhoami = z.infer<typeof LatticeWhoamiSchema>;
+export type LatticeListMinionsResult = z.infer<typeof LatticeListMinionsResultSchema>;
+
+// Lattice template list result (lets UI distinguish errors from empty list)
+export const LatticeListTemplatesResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), templates: z.array(LatticeTemplateSchema) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+
+export type LatticeListTemplatesResult = z.infer<typeof LatticeListTemplatesResultSchema>;
+
+// Lattice preset list result (lets UI distinguish errors from empty list)
+export const LatticeListPresetsResultSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), presets: z.array(LatticePresetSchema) }),
+  z.object({ ok: z.literal(false), error: z.string() }),
+]);
+
+export type LatticeListPresetsResult = z.infer<typeof LatticeListPresetsResultSchema>;
+
+// Lattice login result
+export const LatticeLoginResultSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+});
+
+export type LatticeLoginResult = z.infer<typeof LatticeLoginResultSchema>;
 
 // API schemas for lattice namespace
 export const lattice = {
@@ -108,18 +141,18 @@ export const lattice = {
   },
   listTemplates: {
     input: z.void(),
-    output: z.array(LatticeTemplateSchema),
+    output: LatticeListTemplatesResultSchema,
   },
   listPresets: {
     input: z.object({
       template: z.string(),
       org: z.string().optional().meta({ description: "Organization name for disambiguation" }),
     }),
-    output: z.array(LatticePresetSchema),
+    output: LatticeListPresetsResultSchema,
   },
-  listWorkspaces: {
+  listMinions: {
     input: z.void(),
-    output: z.array(LatticeWorkspaceSchema),
+    output: LatticeListMinionsResultSchema,
   },
   whoami: {
     input: z
@@ -134,9 +167,6 @@ export const lattice = {
       url: z.string().meta({ description: "Lattice deployment URL (e.g., https://orbitalclusters.com)" }),
       sessionToken: z.string().meta({ description: "Session token from browser login" }),
     }),
-    output: z.object({
-      success: z.boolean(),
-      message: z.string(),
-    }),
+    output: LatticeLoginResultSchema,
   },
 };

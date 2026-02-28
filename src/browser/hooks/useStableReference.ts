@@ -104,13 +104,13 @@ export function compareArrays<V>(
  * const unreadStatus = useStableReference(
  *   () => {
  *     const map = new Map<string, boolean>();
- *     for (const [id, state] of workspaceStates) {
+ *     for (const [id, state] of minionStates) {
  *       map.set(id, calculateUnread(state));
  *     }
  *     return map;
  *   },
  *   compareMaps,
- *   [workspaceStates]
+ *   [minionStates]
  * );
  * ```
  *

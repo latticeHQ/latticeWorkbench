@@ -17,7 +17,7 @@
  */
 
 import type { LatticeMessage, LatticeMetadata } from "@/common/types/message";
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 import {
   isStreamStart,
   isStreamDelta,
@@ -57,7 +57,7 @@ export interface ChatEventProcessor {
   /**
    * Process a single chat event and update internal state.
    */
-  handleEvent(event: WorkspaceChatMessage): void;
+  handleEvent(event: MinionChatMessage): void;
 
   /**
    * Get all accumulated messages, ordered by historySequence.
@@ -116,7 +116,7 @@ export function createChatEventProcessor(): ChatEventProcessor {
   const messages = new Map<string, LatticeMessage>();
   let initState: InitState | null = null;
 
-  const handleEvent = (event: WorkspaceChatMessage): void => {
+  const handleEvent = (event: MinionChatMessage): void => {
     // Handle init lifecycle events
     if (isInitStart(event)) {
       initState = {

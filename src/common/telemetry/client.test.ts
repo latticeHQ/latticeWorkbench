@@ -11,10 +11,10 @@ describe("Telemetry client", () => {
     // In test environment, ORPC is not available, but trackEvent should not throw
     expect(() => {
       trackEvent({
-        event: "workspace_switched",
+        event: "minion_switched",
         properties: {
-          fromWorkspaceId: "test-from",
-          toWorkspaceId: "test-to",
+          fromMinionId: "test-from",
+          toMinionId: "test-to",
         },
       });
     }).not.toThrow();

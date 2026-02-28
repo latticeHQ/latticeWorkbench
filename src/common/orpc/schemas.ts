@@ -8,24 +8,25 @@ export { ResultSchema } from "./schemas/result";
 export {
   RuntimeConfigSchema,
   RuntimeModeSchema,
+  RuntimeEnablementIdSchema,
   RuntimeAvailabilitySchema,
   RuntimeAvailabilityStatusSchema,
   DevcontainerConfigInfoSchema,
 } from "./schemas/runtime";
 
-// Headquarter schemas
-export { ProjectConfigSchema, SectionConfigSchema, WorkspaceConfigSchema } from "./schemas/project";
+// Project schemas
+export { ProjectConfigSchema, CrewConfigSchema, MinionConfigSchema } from "./schemas/project";
 
-// Workspace schemas
-export { WorkspaceAISettingsSchema } from "./schemas/workspaceAiSettings";
+// Minion schemas
+export { MinionAISettingsSchema } from "./schemas/minionAiSettings";
 export {
-  FrontendWorkspaceMetadataSchema,
+  FrontendMinionMetadataSchema,
   GitStatusSchema,
-  WorkspaceActivitySnapshotSchema,
-  WorkspaceMetadataSchema,
-} from "./schemas/workspace";
+  MinionActivitySnapshotSchema,
+  MinionMetadataSchema,
+} from "./schemas/minion";
 
-// Workspace stats schemas
+// Minion stats schemas
 export {
   ActiveStreamStatsSchema,
   CompletedStreamStatsSchema,
@@ -33,8 +34,30 @@ export {
   SessionTimingFileSchema,
   SessionTimingStatsSchema,
   TimingAnomalySchema,
-  WorkspaceStatsSnapshotSchema,
-} from "./schemas/workspaceStats";
+  MinionStatsSnapshotSchema,
+} from "./schemas/minionStats";
+
+// Analytics schemas
+export {
+  AgentCostRowSchema,
+  EventRowSchema,
+  HistogramBucketSchema,
+  SpendByModelRowSchema,
+  SpendByProjectRowSchema,
+  SpendOverTimeRowSchema,
+  SummaryRowSchema,
+  TimingPercentilesRowSchema,
+} from "./schemas/analytics";
+export type {
+  AgentCostRow,
+  EventRow,
+  HistogramBucket,
+  SpendByModelRow,
+  SpendByProjectRow,
+  SpendOverTimeRow,
+  SummaryRow,
+  TimingPercentilesRow,
+} from "./schemas/analytics";
 
 // Chat stats schemas
 export {
@@ -49,17 +72,11 @@ export {
 export {
   AgentSkillDescriptorSchema,
   AgentSkillFrontmatterSchema,
+  AgentSkillIssueSchema,
   AgentSkillPackageSchema,
   AgentSkillScopeSchema,
   SkillNameSchema,
 } from "./schemas/agentSkill";
-
-// Plugin Pack schemas
-export {
-  PluginPackDescriptorSchema,
-  PluginPackMcpServerSchema,
-  PluginPackNameSchema,
-} from "./schemas/pluginPack";
 
 // Error schemas
 // Agent Definition schemas
@@ -71,7 +88,11 @@ export {
   AgentIdSchema,
 } from "./schemas/agentDefinition";
 
-export { SendMessageErrorSchema, StreamErrorTypeSchema } from "./schemas/errors";
+export {
+  SendMessageErrorSchema,
+  StreamErrorTypeSchema,
+  NameGenerationErrorSchema,
+} from "./schemas/errors";
 
 // Tool schemas
 export { BashToolResultSchema, FileTreeNodeSchema } from "./schemas/tools";
@@ -79,6 +100,15 @@ export { BashToolResultSchema, FileTreeNodeSchema } from "./schemas/tools";
 // Secrets schemas
 export { SecretSchema } from "./schemas/secrets";
 
+// Policy schemas
+export {
+  PolicyFileSchema,
+  PolicySourceSchema,
+  PolicyStatusSchema,
+  EffectivePolicySchema,
+  PolicyGetResponseSchema,
+  PolicyRuntimeIdSchema,
+} from "./schemas/policy";
 // Provider options schemas
 export { LatticeProviderOptionsSchema } from "./schemas/providerOptions";
 
@@ -98,10 +128,10 @@ export {
   LayoutPresetSchema,
   LayoutPresetsConfigSchema,
   LayoutSlotSchema,
-  RightSidebarLayoutPresetNodeSchema,
-  RightSidebarLayoutPresetStateSchema,
-  RightSidebarPresetTabSchema,
-  RightSidebarWidthPresetSchema,
+  WorkbenchPanelLayoutPresetNodeSchema,
+  WorkbenchPanelLayoutPresetStateSchema,
+  WorkbenchPanelPresetTabSchema,
+  WorkbenchPanelWidthPresetSchema,
 } from "./schemas/uiLayouts";
 // Terminal schemas
 export {
@@ -110,11 +140,62 @@ export {
   TerminalSessionSchema,
 } from "./schemas/terminal";
 
+// Kanban schemas
+export {
+  KanbanArchivedBufferOutputSchema,
+  KanbanCardSchema,
+  KanbanColumnIdSchema,
+  KanbanGetArchivedBufferInputSchema,
+  KanbanListInputSchema,
+  KanbanMoveCardInputSchema,
+  KanbanSubscribeInputSchema,
+} from "./schemas/kanban";
+
+// Inbox schemas
+export {
+  InboxAdapterStatusSchema,
+  InboxChannelIdSchema,
+  InboxChannelTokenStatusSchema,
+  InboxConnectAdapterInputSchema,
+  InboxConnectionStatusSchema,
+  InboxConversationSchema,
+  InboxConversationStatusSchema,
+  InboxConversationSummarySchema,
+  InboxDisconnectAdapterInputSchema,
+  InboxGetConversationInputSchema,
+  InboxListInputSchema,
+  InboxMessageSchema,
+  InboxReplyRouteSchema,
+  InboxSendReplyInputSchema,
+  InboxSetChannelTokenInputSchema,
+  InboxSubscribeInputSchema,
+  InboxUpdateStatusInputSchema,
+} from "./schemas/inbox";
+
+// Scheduler schemas
+export {
+  ScheduleConfigSchema,
+  ScheduledJobRunSchema,
+  ScheduledJobSchema,
+  ScheduledJobStateSchema,
+  ScheduledJobWithStateSchema,
+} from "./schemas/scheduler";
+
+// Sync schemas
+export {
+  SyncCategoriesSchema,
+  SyncConfigSchema,
+  SyncStatusSchema,
+  SyncSaveConfigInputSchema,
+  SyncSuccessOutputSchema,
+} from "./schemas/sync";
+
 // Message schemas
 export {
   BranchListResultSchema,
   DynamicToolPartAvailableSchema,
   DynamicToolPartPendingSchema,
+  DynamicToolPartRedactedSchema,
   DynamicToolPartSchema,
   FilePartSchema,
   LatticeFilePartSchema,
@@ -127,6 +208,11 @@ export type { FilePart, LatticeFilePart } from "./schemas/message";
 
 // Stream event schemas
 export {
+  AutoCompactionCompletedEventSchema,
+  AutoCompactionTriggeredEventSchema,
+  AutoRetryAbandonedEventSchema,
+  AutoRetryScheduledEventSchema,
+  AutoRetryStartingEventSchema,
   CaughtUpMessageSchema,
   ChatLatticeMessageSchema,
   CompletedMessagePartSchema,
@@ -149,23 +235,25 @@ export {
   ToolCallEndEventSchema,
   ToolCallStartEventSchema,
   BashOutputEventSchema,
+  TaskCreatedEventSchema,
   UpdateStatusSchema,
   UsageDeltaEventSchema,
-  WorkspaceChatMessageSchema,
-  WorkspaceInitEventSchema,
+  MinionChatMessageSchema,
+  MinionInitEventSchema,
 } from "./schemas/stream";
 
 // API router schemas
 export {
   ApiServerStatusSchema,
   AWSCredentialStatusSchema,
+  analytics,
   lattice,
   LatticeInfoSchema,
   LatticePresetSchema,
   LatticeTemplateSchema,
-  LatticeWorkspaceConfigSchema,
-  LatticeWorkspaceSchema,
-  LatticeWorkspaceStatusSchema,
+  LatticeMinionConfigSchema,
+  LatticeMinionSchema,
+  LatticeMinionStatusSchema,
   config,
   uiLayouts,
   debug,
@@ -174,22 +262,23 @@ export {
   menu,
   agentSkills,
   agents,
-  pluginPacks,
   nameGeneration,
   projects,
+  mcpOauth,
+  mcp,
+  secrets,
   ProviderConfigInfoSchema,
+  ProviderModelEntrySchema,
+  copilotOauth,
+  latticeGovernorOauth,
+  codexOauth,
+  anthropicOauth,
+  policy,
   providers,
   ProvidersConfigMapSchema,
-  AgentHealthStatusSchema,
-  CliAgentDetectionResultSchema,
-  CliAgentInstallResultSchema,
-  InstallStreamEventSchema,
-  AgentSessionSchema,
-  AgentRunResultSchema,
-  CliAgentPreferencesSchema,
-  AllAgentPreferencesSchema,
-  cliAgents,
   server,
+  ServerAuthSessionSchema,
+  serverAuth,
   splashScreens,
   tasks,
   experiments,
@@ -199,23 +288,18 @@ export {
   signing,
   type SigningCapabilities,
   type SignatureEnvelope,
+  ssh,
   terminal,
+  terminalProfiles,
+  inference,
+  inbox,
+  kanban,
+  scheduler,
+  sync,
   tokenizer,
   update,
-  inference,
-  inferenceSetup,
   voice,
-  livekit,
   window,
-  workspace,
-  channels,
-  ChannelConfigSchema,
-  ChannelMessageSchema,
-  ChannelListItemSchema,
-  ChannelTypeSchema,
-  ChannelStatusSchema,
-  ChannelSessionScopeSchema,
-  ChannelSessionEntrySchema,
-  ChannelPeerKindSchema,
+  minion,
 } from "./schemas/api";
-export type { WorkspaceSendMessageOutput } from "./schemas/api";
+export type { MinionSendMessageOutput } from "./schemas/api";

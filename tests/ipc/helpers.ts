@@ -42,12 +42,27 @@ import { ValidationError } from "@orpc/server";
 
 // Test constants - centralized for consistency across all tests
 export const INIT_HOOK_WAIT_MS = 1500; // Wait for async init hook completion (local runtime)
-export const SSH_INIT_WAIT_MS = 7000; // SSH init includes sync + checkout + hook, takes longer
+export const SSH_INIT_WAIT_MS = 15000; // SSH init includes bundle sync + base repo setup + worktree add + hook
 export const HAIKU_MODEL = "anthropic:claude-haiku-4-5"; // Fast model for tests
 export const GPT_5_MINI_MODEL = "openai:gpt-5-mini"; // Fastest model for performance-critical tests
 export const TEST_TIMEOUT_LOCAL_MS = 25000; // Recommended timeout for local runtime tests
-export const TEST_TIMEOUT_SSH_MS = 60000; // Recommended timeout for SSH runtime tests
+export const TEST_TIMEOUT_SSH_MS = 120000; // Recommended timeout for SSH runtime tests (init + operations can take 60-90s under concurrent load)
 export const STREAM_TIMEOUT_LOCAL_MS = 15000; // Stream timeout for local runtime
+
+/**
+ * Get the appropriate test runner for a runtime type.
+ *
+ * SSH tests run serially because they share a single Docker container.
+ * Multiple concurrent SSH workspace inits overload the container, causing
+ * timeouts. Local tests run concurrently for faster CI.
+ *
+ * Usage:
+ *   const runTest = getTestRunner(type);
+ *   runTest("test name", async () => { ... }, timeout);
+ */
+export function getTestRunner(runtimeType: "local" | "ssh"): typeof test {
+  return runtimeType === "ssh" ? test : test.concurrent;
+}
 
 export type OrpcSource =
   | TestEnvironment
@@ -115,7 +130,9 @@ export async function sendMessage(
   // options is now required by the oRPC schema; build with defaults if not provided
   const resolvedOptions: SendMessageOptions & { fileParts?: FilePart[] } = {
     model: options?.model ?? WORKSPACE_DEFAULTS.model,
-    agentId: options?.agentId ?? WORKSPACE_DEFAULTS.agentId,
+    // Keep integration helper sends deterministic: default to exec so tests exercise
+    // provider/model behavior directly instead of Auto routing.
+    agentId: options?.agentId ?? "exec",
     ...options,
   };
 

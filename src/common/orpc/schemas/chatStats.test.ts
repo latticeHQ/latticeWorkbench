@@ -29,7 +29,7 @@ describe("SessionUsageFileSchema conformance", () => {
         },
         timestamp: 123,
       },
-      rolledUpFrom: { "child-workspace": true },
+      rolledUpFrom: { "child-minion": true },
       tokenStatsCache: {
         version: 1,
         computedAt: 123,

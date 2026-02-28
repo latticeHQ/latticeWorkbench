@@ -40,16 +40,13 @@ async function expandAllBashTools(canvasElement: HTMLElement) {
   }
 
   // Wait for at least one expand icon to appear in the message window
-  await waitFor(
-    () => {
-      const allSpans = messageWindow.querySelectorAll("span");
-      const expandIcons = Array.from(allSpans).filter((span) => span.textContent?.trim() === "▶");
-      if (expandIcons.length === 0) {
-        throw new Error("No expand icons found");
-      }
-    },
-    { timeout: 5000 }
-  );
+  await waitFor(() => {
+    const allSpans = messageWindow.querySelectorAll("span");
+    const expandIcons = Array.from(allSpans).filter((span) => span.textContent?.trim() === "▶");
+    if (expandIcons.length === 0) {
+      throw new Error("No expand icons found");
+    }
+  });
 
   const allSpans = messageWindow.querySelectorAll("span");
   const expandIcons = Array.from(allSpans).filter((span) => span.textContent?.trim() === "▶");
@@ -97,7 +94,7 @@ export const Foreground: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-bash",
+          minionId: "ws-bash",
           messages: [
             // Completed foreground bash with multi-line script
             createUserMessage("msg-1", "Check project status", {
@@ -174,7 +171,7 @@ export const OverflowNotice: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-bash-overflow",
+          minionId: "ws-bash-overflow",
           messages: [
             createUserMessage("msg-1", "Search the logs for failures", {
               historySequence: 1,
@@ -454,7 +451,7 @@ export const GroupedOutput: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-grouped-output",
+          minionId: "ws-grouped-output",
           messages: [
             // Background process started
             createUserMessage("msg-1", "Start a dev server and monitor it", {
@@ -535,7 +532,7 @@ export const FilterExclude: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-filter-exclude",
+          minionId: "ws-filter-exclude",
           messages: [
             // Background process started (CI checks)
             createUserMessage("msg-1", "Run CI checks and wait for completion", {

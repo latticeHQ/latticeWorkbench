@@ -3,13 +3,13 @@ import { createChatEventProcessor } from "./ChatEventProcessor";
 describe("ChatEventProcessor - Reasoning Delta", () => {
   it("should merge consecutive reasoning deltas into a single part", () => {
     const processor = createChatEventProcessor();
-    const workspaceId = "ws-1";
+    const minionId = "ws-1";
     const messageId = "msg-1";
 
     // Start stream
     processor.handleEvent({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model: "gpt-4",
       historySequence: 1,
@@ -19,7 +19,7 @@ describe("ChatEventProcessor - Reasoning Delta", () => {
     // Send reasoning deltas
     processor.handleEvent({
       type: "reasoning-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "Thinking",
       tokens: 1,
@@ -28,7 +28,7 @@ describe("ChatEventProcessor - Reasoning Delta", () => {
 
     processor.handleEvent({
       type: "reasoning-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: " about",
       tokens: 1,
@@ -37,7 +37,7 @@ describe("ChatEventProcessor - Reasoning Delta", () => {
 
     processor.handleEvent({
       type: "reasoning-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: " this...",
       tokens: 1,
@@ -60,13 +60,13 @@ describe("ChatEventProcessor - Reasoning Delta", () => {
 
   it("should separate reasoning parts if interrupted by other content (though unlikely in practice)", () => {
     const processor = createChatEventProcessor();
-    const workspaceId = "ws-1";
+    const minionId = "ws-1";
     const messageId = "msg-1";
 
     // Start stream
     processor.handleEvent({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model: "gpt-4",
       historySequence: 1,
@@ -76,7 +76,7 @@ describe("ChatEventProcessor - Reasoning Delta", () => {
     // Reasoning 1
     processor.handleEvent({
       type: "reasoning-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "Part 1",
       tokens: 1,
@@ -86,7 +86,7 @@ describe("ChatEventProcessor - Reasoning Delta", () => {
     // Text delta (interruption - although usually reasoning comes before text)
     processor.handleEvent({
       type: "stream-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "Some text",
       tokens: 2,
@@ -96,7 +96,7 @@ describe("ChatEventProcessor - Reasoning Delta", () => {
     // Reasoning 2
     processor.handleEvent({
       type: "reasoning-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "Part 2",
       tokens: 1,

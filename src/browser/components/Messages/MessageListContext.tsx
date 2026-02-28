@@ -2,9 +2,9 @@ import type { TerminalSessionCreateOptions } from "@/browser/utils/terminal";
 import React, { createContext, useContext } from "react";
 
 interface MessageListContextValue {
-  workspaceId: string;
+  minionId: string;
   latestMessageId: string | null;
-  /** Open an integrated terminal tab for this workspace (optionally running a command) */
+  /** Open an integrated terminal tab for this minion (optionally running a command) */
   openTerminal?: (options?: TerminalSessionCreateOptions) => void;
 }
 

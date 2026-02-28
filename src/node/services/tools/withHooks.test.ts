@@ -37,7 +37,7 @@ describe("withHooks", () => {
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = await wrappedTool.execute!({ input: "hello" }, {} as never);
@@ -65,7 +65,7 @@ read RESULT
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = await wrappedTool.execute!({ input: "world" }, {} as never);
@@ -95,7 +95,7 @@ exit 1
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = (await wrappedTool.execute!({ input: "test" }, {} as never)) as {
@@ -126,7 +126,7 @@ exit 1
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = (await wrappedTool.execute!({ input: "test" }, {} as never)) as {
@@ -158,7 +158,7 @@ exit 0
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = (await wrappedTool.execute!({ input: "test" }, {} as never)) as {
@@ -195,7 +195,7 @@ read RESULT
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
       env: { MY_API_KEY: "secret123" },
     });
 
@@ -226,7 +226,7 @@ exit 1
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = (await wrappedTool.execute!({ input: "test" }, {} as never)) as unknown as {
@@ -255,7 +255,7 @@ exit 0
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = (await wrappedTool.execute!({ input: "test" }, {} as never)) as {
@@ -284,7 +284,7 @@ exit 0
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     // Should succeed because tool_pre (exit 0) takes priority over tool_hook (exit 1)
@@ -313,7 +313,7 @@ exit 0
       runtime,
       cwd: tempDir,
       runtimeTempDir: tempDir,
-      workspaceId: "test-ws",
+      minionId: "test-ws",
     });
 
     const result = (await wrappedTool.execute!({ input: "test" }, {} as never)) as unknown as {

@@ -257,7 +257,7 @@ const ReviewItem: React.FC<ReviewItemProps> = ({
             />
           </div>
 
-          {/* Comment section */}
+          {/* Comment crew */}
           <div className="border-border-light border-t p-2">
             {isEditing ? (
               <div className="space-y-1.5">
@@ -321,11 +321,11 @@ const ReviewItem: React.FC<ReviewItemProps> = ({
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface ReviewsBannerInnerProps {
-  workspaceId: string;
+  minionId: string;
 }
 
-const ReviewsBannerInner: React.FC<ReviewsBannerInnerProps> = ({ workspaceId }) => {
-  const reviewsHook = useReviews(workspaceId);
+const ReviewsBannerInner: React.FC<ReviewsBannerInnerProps> = ({ minionId }) => {
+  const reviewsHook = useReviews(minionId);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showAllCompleted, setShowAllCompleted] = useState(false);
 
@@ -415,7 +415,7 @@ const ReviewsBannerInner: React.FC<ReviewsBannerInnerProps> = ({ workspaceId }) 
       {/* Expanded view - content aligned with chat */}
       {isExpanded && (
         <div className="border-border mx-auto max-h-80 max-w-4xl space-y-3 overflow-y-auto border-t py-2">
-          {/* Pending reviews section */}
+          {/* Pending reviews crew */}
           {pendingList.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -445,7 +445,7 @@ const ReviewsBannerInner: React.FC<ReviewsBannerInnerProps> = ({ workspaceId }) 
             </div>
           )}
 
-          {/* Completed reviews section */}
+          {/* Completed reviews crew */}
           {completedList.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -499,20 +499,20 @@ const ReviewsBannerInner: React.FC<ReviewsBannerInnerProps> = ({ workspaceId }) 
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface ReviewsBannerProps {
-  workspaceId: string;
+  minionId: string;
 }
 
 /**
  * Self-contained reviews banner.
- * Uses useReviews hook internally - only needs workspaceId.
+ * Uses useReviews hook internally - only needs minionId.
  * Shows only "pending" and "checked" reviews (not "attached" which are in ChatInput).
  */
-export const ReviewsBanner: React.FC<ReviewsBannerProps> = ({ workspaceId }) => {
-  const reviewsHook = useReviews(workspaceId);
+export const ReviewsBanner: React.FC<ReviewsBannerProps> = ({ minionId }) => {
+  const reviewsHook = useReviews(minionId);
 
   return (
     <BannerErrorBoundary onClear={reviewsHook.clearAll}>
-      <ReviewsBannerInner workspaceId={workspaceId} />
+      <ReviewsBannerInner minionId={minionId} />
     </BannerErrorBoundary>
   );
 };

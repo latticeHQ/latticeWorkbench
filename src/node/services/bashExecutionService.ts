@@ -66,7 +66,7 @@ export class DisposableProcess implements Disposable {
 /**
  * Centralized bash execution service.
  *
- * All workspace command execution goes through this service to:
+ * All minion command execution goes through this service to:
  * - Maintain consistent environment setup across all bash execution
  * - Provide single abstraction point for future host migration (containers, remote, etc.)
  * - Eliminate duplication between init hooks and bash tool
@@ -178,7 +178,7 @@ export class BashExecutionService {
         callbacks.onStderr(errBuf);
       }
 
-      // Convert signal to exit code using Lattice convention (128 + signal number)
+      // Convert signal to exit code using Unix convention (128 + signal number)
       // Common signals: SIGTERM=15 → 143, SIGKILL=9 → 137
       let exitCode = code ?? 0;
       if (code === null && signal) {

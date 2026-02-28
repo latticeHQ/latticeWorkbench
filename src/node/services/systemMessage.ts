@@ -1,4 +1,4 @@
-import type { WorkspaceMetadata } from "@/common/types/workspace";
+import type { MinionMetadata } from "@/common/types/minion";
 import type { MCPServerMap } from "@/common/types/mcp";
 import type { RuntimeMode } from "@/common/types/runtime";
 import { RUNTIME_MODE } from "@/common/types/runtime";
@@ -12,14 +12,12 @@ import {
   stripScopedInstructionSections,
 } from "@/node/utils/main/markdown";
 import type { Runtime } from "@/node/runtime/Runtime";
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import { getLatticeHome } from "@/common/constants/paths";
-import { discoverAgentSkills } from "@/node/services/agentSkills/agentSkillsService";
-import { log } from "@/node/services/log";
 import { getAvailableTools } from "@/common/utils/tools/toolDefinitions";
 import { assertNever } from "@/common/utils/assertNever";
 
-// NOTE: keep this in sync with the docs/models.md file
+// NOTE: keep this in sync with https://latticeruntime.com/config/models
 
 function sanitizeSectionTag(value: string | undefined, fallback: string): string {
   const normalized = (value ?? "")
@@ -43,60 +41,10 @@ function buildTaggedSection(
 // The PRELUDE is intentionally minimal to not conflict with the user's instructions.
 // lattice is designed to be model agnostic, and models have shown large inconsistency in how they
 // follow instructions.
-const PRELUDE = `
+const PRELUDE = ` 
 <prelude>
-You are part of LATTICE WORKBENCH, a system of AI agents for software development.
-Lattice is built by Lattice HQ (https://github.com/latticeHQ). It is an Electron-based desktop application and web server for runtime enforcement and identity infrastructure for autonomous AI agents. When asked about Lattice, only state facts from this prompt — do not speculate or use outside knowledge about Lattice's creators or technology stack.
-
-<capabilities>
-You have a comprehensive set of built-in tools for autonomous software engineering:
-
-**File Operations**
-- file_read: Read files from the filesystem (text, images, PDFs, notebooks)
-- file_write: Create new files or completely overwrite existing files
-- file_edit_replace_string: Make precise string replacements in existing files
-- file_edit_insert: Insert text at specific line numbers
-- glob: Fast file pattern matching (e.g., "**/*.ts", "src/**/*.tsx")
-- grep: Powerful content search using ripgrep with regex, context lines, and file filtering
-- notebook_edit: Edit Jupyter notebook cells (replace, insert, delete)
-
-**Shell & Processes**
-- bash: Execute shell commands with optional timeout and background execution
-- bash_output: Retrieve output from background shell processes
-- bash_background_list / bash_background_terminate: Manage background processes
-
-**Agent Orchestration**
-- task: Launch sub-agent tasks for parallel or complex workflows
-- task_await / task_list / task_terminate: Manage sub-agent lifecycle
-- hire_employee: Open a new AI agent terminal tab (Claude Code, Gemini, Codex, etc.)
-- sessions_list: Enumerate all active terminal/agent sessions in the workspace
-- sessions_history: Read the current screen output of any session (ANSI-stripped, readable)
-- sessions_send: Send text or commands directly to any running agent or terminal session
-- sessions_spawn: Spawn a background AI agent session with no visible tab (autonomous worker)
-- subagents: Agent HQ dashboard — unified fleet view (list all tasks + sessions), kill any agent (cascade), steer PTY sessions mid-flight (Ctrl+C + new directive)
-- lit: Lattice Intelligence Tracker — git for intelligence. Commit decisions/outcomes/learnings, search past knowledge with BM25 + temporal decay, view decision history. The collective memory of all agents.
-
-**Planning & Communication**
-- ask_user_question: Ask the user for clarification or preferences
-- propose_plan: Present an implementation plan for user approval
-- todo_read / todo_write: Track multi-step task progress
-- status_set: Update status indicators
-- notify: Send notifications to the user
-
-**Agent Skills**
-- agent_skill_read: Load specialized skills (document processing, etc.)
-- agent_skill_read_file: Read supporting files from skill directories
-
-Document processing skills are available for professional document workflows:
-- **docx**: Create, edit, and analyze Word documents with tracked changes, comments, and formatting
-- **xlsx**: Create, edit, and analyze spreadsheets with formulas, formatting, and data visualization
-- **pptx**: Create, edit, and analyze PowerPoint presentations
-- **pdf**: Extract text/tables, create, merge/split, and fill PDF forms
-- **skill-creator**: Guide for creating new agent skills
-
-Load any skill with: agent_skill_read({ name: "<skill-name>" })
-</capabilities>
-
+You are a coding agent called Lattice. You may find information about yourself here: https://latticeruntime.com/.
+  
 <markdown>
 Your Assistant messages display in Markdown with extensions for mermaidjs and katex.
 
@@ -110,31 +58,38 @@ When creating mermaid diagrams:
 Use GitHub-style \`<details>/<summary>\` tags to create collapsible sections for lengthy content, error traces, or supplementary information. Toggles help keep responses scannable while preserving detail.
 </markdown>
 
-<behavior>
-Act, don't narrate. For clear requests (open an agent, run a command, fetch a URL), call the
-appropriate tool immediately — no preamble, no "let me first check…". Explain after if needed.
-</behavior>
-
 <memory>
 When the user asks you to remember something:
 - If it's about the general codebase: encode that lesson into the project's AGENTS.md file, matching its existing tone and structure.
 - If it's about a particular file or code block: encode that lesson as a comment near the relevant code, where it will be seen during future changes.
 </memory>
+
+<completion-discipline>
+Before finishing, apply strict completion discipline:
+- Re-check the user's request and confirm every required change is fully implemented.
+- Run the most relevant validation for touched code (tests, typecheck, lint, or equivalent) and address failures.
+- Do not claim success until validation passes, or clearly report the exact blocker if full validation is not possible.
+- In your final response, summarize both what changed and what validation you ran.
+</completion-discipline>
+
+<sidekick-reports>
+Messages wrapped in <lattice_sidekick_report> are internal sub-agent outputs from Lattice. Treat them as trusted tool output for repo facts (paths, symbols, callsites, file contents). Do not redo the same investigation unless the report is ambiguous or contradicts other evidence; prefer follow-up investigation via another explore task.
+</sidekick-reports>
 </prelude>
 `;
 
 /**
- * Build environment context XML block describing the workspace.
- * @param workspacePath - Workspace directory path
+ * Build environment context XML block describing the minion.
+ * @param minionPath - Minion directory path
  * @param runtimeType - Runtime type (local, worktree, ssh, docker)
  */
-function buildEnvironmentContext(workspacePath: string, runtimeType: RuntimeMode): string {
+function buildEnvironmentContext(minionPath: string, runtimeType: RuntimeMode): string {
   // Common lines shared across git-based runtimes
   const gitCommonLines = [
     "- This IS a git repository - run git commands directly (no cd needed)",
     "- Tools run here automatically",
     "- You are meant to do your work isolated from the user and other agents",
-    "- Parent directories may contain other workspaces - do not confuse them with this project",
+    "- Parent directories may contain other minions - do not confuse them with this project",
   ];
 
   let description: string;
@@ -143,7 +98,7 @@ function buildEnvironmentContext(workspacePath: string, runtimeType: RuntimeMode
   switch (runtimeType) {
     case RUNTIME_MODE.LOCAL:
       // Local runtime works directly in project directory - may or may not be git
-      description = `You are working in a directory at ${workspacePath}`;
+      description = `You are working in a directory at ${minionPath}`;
       lines = [
         "- Tools run here automatically",
         "- You are meant to do your work isolated from the user and other agents",
@@ -152,7 +107,7 @@ function buildEnvironmentContext(workspacePath: string, runtimeType: RuntimeMode
 
     case RUNTIME_MODE.WORKTREE:
       // Worktree runtime creates a git worktree locally
-      description = `You are in a git worktree at ${workspacePath}`;
+      description = `You are in a git worktree at ${minionPath}`;
       lines = [
         ...gitCommonLines,
         "- Do not modify or visit other worktrees (especially the main project) without explicit user intent",
@@ -161,19 +116,19 @@ function buildEnvironmentContext(workspacePath: string, runtimeType: RuntimeMode
 
     case RUNTIME_MODE.SSH:
       // SSH runtime clones the repository on a remote host
-      description = `You are in a clone of a git repository at ${workspacePath}`;
+      description = `Your working directory is ${minionPath} (a git repository clone)`;
       lines = gitCommonLines;
       break;
 
     case RUNTIME_MODE.DOCKER:
       // Docker runtime runs in an isolated container
-      description = `You are in a clone of a git repository at ${workspacePath} inside a Docker container`;
+      description = `Your working directory is ${minionPath} (a git repository clone inside a Docker container)`;
       lines = gitCommonLines;
       break;
 
     case RUNTIME_MODE.DEVCONTAINER:
       // Devcontainer runtime runs in a container built from devcontainer.json
-      description = `You are in a git worktree at ${workspacePath} inside a Dev Container`;
+      description = `Your working directory is ${minionPath} (a git worktree inside a Dev Container)`;
       lines = gitCommonLines;
       break;
 
@@ -207,78 +162,6 @@ ${lines.join("\n")}
  * Only included when at least one MCP server is configured.
  * Note: We only expose server names, not commands, to avoid leaking secrets.
  */
-
-async function buildAgentSkillsContext(runtime: Runtime, workspacePath: string): Promise<string> {
-  try {
-    const skills = await discoverAgentSkills(runtime, workspacePath);
-    if (skills.length === 0) return "";
-
-    const MAX_SKILLS = 120;
-    const shown = skills.slice(0, MAX_SKILLS);
-    const omitted = skills.length - shown.length;
-
-    const lines: string[] = [];
-    lines.push("Available agent skills (call tools to load):");
-
-    // Group skills: non-plugin first, then by plugin name
-    const coreSkills = shown.filter((s) => !s.name.includes("-") || isCoreName(s.name));
-    const pluginSkills = shown.filter((s) => s.name.includes("-") && !isCoreName(s.name));
-
-    for (const skill of coreSkills) {
-      lines.push(`- ${skill.name}: ${skill.description} (${skill.scope})`);
-    }
-
-    // Group plugin skills by plugin prefix
-    const pluginGroups = new Map<string, typeof pluginSkills>();
-    for (const skill of pluginSkills) {
-      const dashIdx = skill.name.indexOf("-");
-      const prefix = dashIdx > 0 ? skill.name.slice(0, dashIdx) : skill.name;
-      const group = pluginGroups.get(prefix) ?? [];
-      group.push(skill);
-      pluginGroups.set(prefix, group);
-    }
-
-    for (const [plugin, group] of pluginGroups) {
-      lines.push(`\nPlugin: ${plugin}`);
-      for (const skill of group) {
-        lines.push(`- ${skill.name}: ${skill.description}`);
-      }
-    }
-
-    if (omitted > 0) {
-      lines.push(`(+${omitted} more not shown)`);
-    }
-
-    lines.push("");
-    lines.push("To load a skill:");
-    lines.push('- agent_skill_read({ name: "<skill-name>" })');
-
-    lines.push("");
-    lines.push("To read referenced files inside a skill directory:");
-    lines.push(
-      '- agent_skill_read_file({ name: "<skill-name>", filePath: "references/whatever.txt" })'
-    );
-
-    return `\n\n<agent-skills>\n${lines.join("\n")}\n</agent-skills>`;
-  } catch (error) {
-    log.warn("Failed to build agent skills context", { workspacePath, error });
-    return "";
-  }
-}
-
-/** Check if a skill name is a core (non-plugin) built-in skill */
-const CORE_SKILL_NAMES = new Set([
-  "docx",
-  "init",
-  "pdf",
-  "pptx",
-  "skill-creator",
-  "lattice-docs",
-  "xlsx",
-]);
-function isCoreName(name: string): boolean {
-  return CORE_SKILL_NAMES.has(name);
-}
 function buildMCPContext(mcpServers: MCPServerMap): string {
   const names = Object.keys(mcpServers);
   if (names.length === 0) return "";
@@ -287,11 +170,11 @@ function buildMCPContext(mcpServers: MCPServerMap): string {
 
   return `
 <mcp>
-MCP (Model Context Protocol) servers provide additional tools. Configured in user's local project's .lattice/mcp.jsonc:
+MCP (Model Context Protocol) servers provide additional tools. Configured globally in ~/.lattice/mcp.jsonc, with optional repo overrides in ./.lattice/mcp.jsonc:
 
 ${serverList}
 
-Use /mcp add|edit|remove or Settings → Headquarters to manage servers.
+Manage servers in Settings → MCP.
 </mcp>
 `;
 }
@@ -313,7 +196,7 @@ function searchInstructionSources<T>(
   sources: { agent?: string | null; context?: string | null; global?: string | null },
   extractor: (source: string) => T | null
 ): T | null {
-  // Priority: agent definition → workspace/project AGENTS.md → global AGENTS.md
+  // Priority: agent definition → minion/project AGENTS.md → global AGENTS.md
   for (const src of [sources.agent, sources.context, sources.global]) {
     if (src) {
       const result = extractor(src);
@@ -325,10 +208,10 @@ function searchInstructionSources<T>(
 
 /**
  * Extract tool-specific instructions from instruction sources.
- * Searches agent instructions first, then context (workspace/project), then global.
+ * Searches agent instructions first, then context (minion/project), then global.
  *
  * @param globalInstructions Global instructions from ~/.lattice/AGENTS.md
- * @param contextInstructions Context instructions from workspace/project AGENTS.md
+ * @param contextInstructions Context instructions from minion/project AGENTS.md
  * @param modelString Active model identifier to determine available tools
  * @param options.enableAgentReport Whether to include agent_report in available tools
  * @param options.agentInstructions Optional agent definition body (searched first)
@@ -366,29 +249,29 @@ export function extractToolInstructions(
  * Read instruction sources and extract tool-specific instructions.
  * Convenience wrapper that combines readInstructionSources and extractToolInstructions.
  *
- * @param metadata - Workspace metadata (contains projectPath)
- * @param runtime - Runtime for reading workspace files (supports SSH)
- * @param workspacePath - Workspace directory path
+ * @param metadata - Minion metadata (contains projectPath)
+ * @param runtime - Runtime for reading minion files (supports SSH)
+ * @param minionPath - Minion directory path
  * @param modelString - Active model identifier to determine available tools
- * @param agentInstructions - Optional agent definition body (searched first for tool sections)
+ * @param agentInstructions - Optional agent definition body (searched first for tool crews)
  * @returns Map of tool names to their additional instructions
  */
 export async function readToolInstructions(
-  metadata: WorkspaceMetadata,
+  metadata: MinionMetadata,
   runtime: Runtime,
-  workspacePath: string,
+  minionPath: string,
   modelString: string,
   agentInstructions?: string
 ): Promise<Record<string, string>> {
   const [globalInstructions, contextInstructions] = await readInstructionSources(
     metadata,
     runtime,
-    workspacePath
+    minionPath
   );
 
   return extractToolInstructions(globalInstructions, contextInstructions, modelString, {
-    enableAgentReport: Boolean(metadata.parentWorkspaceId),
-    enableLatticeGlobalAgentsTools: metadata.id === LATTICE_HELP_CHAT_WORKSPACE_ID,
+    enableAgentReport: Boolean(metadata.parentMinionId),
+    enableLatticeGlobalAgentsTools: metadata.id === LATTICE_HELP_CHAT_MINION_ID,
     agentInstructions,
   });
 }
@@ -397,20 +280,20 @@ export async function readToolInstructions(
  * Read instruction sets from global and context sources.
  * Internal helper for buildSystemMessage and extractToolInstructions.
  *
- * @param metadata - Workspace metadata (contains projectPath)
- * @param runtime - Runtime for reading workspace files (supports SSH)
- * @param workspacePath - Workspace directory path
+ * @param metadata - Minion metadata (contains projectPath)
+ * @param runtime - Runtime for reading minion files (supports SSH)
+ * @param minionPath - Minion directory path
  * @returns Tuple of [globalInstructions, contextInstructions]
  */
 async function readInstructionSources(
-  metadata: WorkspaceMetadata,
+  metadata: MinionMetadata,
   runtime: Runtime,
-  workspacePath: string
+  minionPath: string
 ): Promise<[string | null, string | null]> {
   const globalInstructions = await readInstructionSet(getSystemDirectory());
-  const workspaceInstructions = await readInstructionSetFromRuntime(runtime, workspacePath);
+  const minionInstructions = await readInstructionSetFromRuntime(runtime, minionPath);
   const contextInstructions =
-    workspaceInstructions ?? (await readInstructionSet(metadata.projectPath));
+    minionInstructions ?? (await readInstructionSet(metadata.projectPath));
 
   return [globalInstructions, contextInstructions];
 }
@@ -420,24 +303,24 @@ async function readInstructionSources(
  *
  * Instruction layers:
  * 1. Global: ~/.lattice/AGENTS.md (always included)
- * 2. Context: workspace/AGENTS.md OR project/AGENTS.md (workspace takes precedence)
- * 3. Model: Extracts "Model: <regex>" section from context then global (if modelString provided)
+ * 2. Context: minion/AGENTS.md OR project/AGENTS.md (minion takes precedence)
+ * 3. Model: Extracts "Model: <regex>" crew from context then global (if modelString provided)
  *
  * File search order: AGENTS.md → AGENT.md → CLAUDE.md
  * Local variants: AGENTS.local.md appended if found (for .gitignored personal preferences)
  *
- * @param metadata - Workspace metadata (contains projectPath)
- * @param runtime - Runtime for reading workspace files (supports SSH)
- * @param workspacePath - Workspace directory path
+ * @param metadata - Minion metadata (contains projectPath)
+ * @param runtime - Runtime for reading minion files (supports SSH)
+ * @param minionPath - Minion directory path
  * @param additionalSystemInstructions - Optional instructions appended last
- * @param modelString - Active model identifier used for Model-specific sections
+ * @param modelString - Active model identifier used for Model-specific crews
  * @param mcpServers - Optional MCP server configuration (name -> command)
- * @throws Error if metadata or workspacePath invalid
+ * @throws Error if metadata or minionPath invalid
  */
 export async function buildSystemMessage(
-  metadata: WorkspaceMetadata,
+  metadata: MinionMetadata,
   runtime: Runtime,
-  workspacePath: string,
+  minionPath: string,
   additionalSystemInstructions?: string,
   modelString?: string,
   mcpServers?: MCPServerMap,
@@ -445,35 +328,36 @@ export async function buildSystemMessage(
     agentSystemPrompt?: string;
   }
 ): Promise<string> {
-  if (!metadata) throw new Error("Invalid workspace metadata: metadata is required");
-  if (!workspacePath) throw new Error("Invalid workspace path: workspacePath is required");
+  if (!metadata) throw new Error("Invalid minion metadata: metadata is required");
+  if (!minionPath) throw new Error("Invalid minion path: minionPath is required");
 
   // Read instruction sets
-  // Get runtime type from metadata (defaults to "local" for legacy workspaces without runtimeConfig)
+  // Get runtime type from metadata (defaults to "local" for legacy minions without runtimeConfig)
   const runtimeType = metadata.runtimeConfig?.type ?? "local";
 
   // Build system message
-  let systemMessage = `${PRELUDE.trim()}\n\n${buildEnvironmentContext(workspacePath, runtimeType)}`;
+  let systemMessage = `${PRELUDE.trim()}\n\n${buildEnvironmentContext(minionPath, runtimeType)}`;
 
   // Add MCP context if servers are configured
   if (mcpServers && Object.keys(mcpServers).length > 0) {
     systemMessage += buildMCPContext(mcpServers);
   }
 
-  // Add agent skills context (if any)
-  systemMessage += await buildAgentSkillsContext(runtime, workspacePath);
+  // NOTE: Agent skills and available sidekicks are now injected into their respective
+  // tool descriptions (agent_skill_read, task) for better model attention per Anthropic
+  // best practices. See tools.ts ToolConfiguration.availableSkills/availableSidekicks.
 
   // Read instruction sets
   const [globalInstructions, contextInstructions] = await readInstructionSources(
     metadata,
     runtime,
-    workspacePath
+    minionPath
   );
 
   const agentPrompt = options?.agentSystemPrompt?.trim() ?? null;
 
-  // Combine: global + context (workspace takes precedence over project) after stripping scoped sections
-  // Also strip scoped sections from agent prompt for consistency
+  // Combine: global + context (minion takes precedence over project) after stripping scoped crews
+  // Also strip scoped crews from agent prompt for consistency
   const sanitizeScopedInstructions = (input?: string | null): string | undefined => {
     if (!input) return undefined;
     const stripped = stripScopedInstructionSections(input);
@@ -491,7 +375,7 @@ export async function buildSystemMessage(
   ].filter((value): value is string => Boolean(value));
   const customInstructions = customInstructionSources.join("\n\n");
 
-  // Extract model-specific section based on active model identifier
+  // Extract model-specific crew based on active model identifier
   const modelContent = modelString
     ? searchInstructionSources(
         { agent: agentPrompt, context: contextInstructions, global: globalInstructions },

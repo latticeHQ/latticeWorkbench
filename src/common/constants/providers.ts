@@ -1,58 +1,129 @@
 /**
- * Provider name constants — kept for backward compatibility with icon mapping,
- * display names, and type references. SDK factory infrastructure has been removed;
- * all model execution routes through CLI agents (see cliAgents.ts + cliAgentProvider.ts).
+ * Provider Definitions - Single source of truth for all provider metadata
+ *
+ * When adding a new provider:
+ * 1. Add entry to PROVIDER_DEFINITIONS below
+ * 2. Add SVG icon + import in src/browser/components/ProviderIcon.tsx
+ * 3. If provider needs custom logic, add handler in aiService.ts
+ *    (simple providers using standard pattern are handled automatically)
+ *
+ * Simple providers (requiresApiKey + standard factory pattern) need NO aiService.ts changes.
  */
 
-import { CLI_AGENT_DISPLAY_NAMES, CLI_AGENT_SLUGS, type CliAgentSlug } from "./cliAgents";
+interface ProviderDefinition {
+  /** Display name for UI (proper casing) */
+  displayName: string;
+  /** Dynamic import function for lazy loading */
+  import: () => Promise<unknown>;
+  /** Name of the factory function exported by the package */
+  factoryName: string;
+  /** Whether provider requires an API key (false for local services like Ollama) */
+  requiresApiKey: boolean;
+  /** Whether this provider uses stroke-based icon styling instead of fill */
+  strokeBasedIcon?: boolean;
+  /** Whether this provider uses a CLI subprocess instead of direct API calls */
+  isSubprocess?: boolean;
+}
+
+// Order determines display order in UI (Settings, model selectors, etc.)
+export const PROVIDER_DEFINITIONS = {
+  anthropic: {
+    displayName: "Anthropic",
+    import: () => import("@ai-sdk/anthropic"),
+    factoryName: "createAnthropic",
+    requiresApiKey: true,
+  },
+  openai: {
+    displayName: "OpenAI",
+    import: () => import("@ai-sdk/openai"),
+    factoryName: "createOpenAI",
+    requiresApiKey: true,
+  },
+  google: {
+    displayName: "Google",
+    import: () => import("@ai-sdk/google"),
+    factoryName: "createGoogleGenerativeAI",
+    requiresApiKey: true,
+  },
+  xai: {
+    displayName: "xAI",
+    import: () => import("@ai-sdk/xai"),
+    factoryName: "createXai",
+    requiresApiKey: true,
+  },
+  deepseek: {
+    displayName: "DeepSeek",
+    import: () => import("@ai-sdk/deepseek"),
+    factoryName: "createDeepSeek",
+    requiresApiKey: true,
+  },
+  openrouter: {
+    displayName: "OpenRouter",
+    import: () => import("@openrouter/ai-sdk-provider"),
+    factoryName: "createOpenRouter",
+    requiresApiKey: true,
+  },
+  "github-copilot": {
+    displayName: "GitHub Copilot",
+    import: () => import("@ai-sdk/openai-compatible"),
+    factoryName: "createOpenAICompatible",
+    requiresApiKey: true,
+  },
+  bedrock: {
+    displayName: "Bedrock",
+    import: () => import("@ai-sdk/amazon-bedrock"),
+    factoryName: "createAmazonBedrock",
+    requiresApiKey: false, // Uses AWS credential chain
+  },
+  ollama: {
+    displayName: "Ollama",
+    import: () => import("ollama-ai-provider-v2"),
+    factoryName: "createOllama",
+    requiresApiKey: false, // Local service
+  },
+  // Claude Code subprocess — uses the real `claude` CLI binary for Pro/Max subscription access.
+  // No API key needed; authentication is handled by the Claude Code CLI itself.
+  "claude-code": {
+    displayName: "Claude Code",
+    // import is unused for subprocess providers — model creation is handled directly
+    // in providerModelFactory.ts via createClaudeCodeModel(). We point at a no-op
+    // so PROVIDER_REGISTRY iteration doesn't break.
+    import: () => Promise.resolve({}),
+    factoryName: "",
+    requiresApiKey: false,
+    isSubprocess: true,
+  },
+} as const satisfies Record<string, ProviderDefinition>;
 
 /**
- * Legacy provider name type — now a union of CLI agent slugs plus
- * legacy string keys still referenced by ProviderIcon, display names, etc.
+ * Union type of all supported provider names
  */
-export type ProviderName =
-  | CliAgentSlug
-  | "anthropic"
-  | "openai"
-  | "google"
-  | "xai"
-  | "deepseek"
-  | "openrouter"
-  | "bedrock"
-  | "ollama"
-  | "github-copilot-direct"
-  | "lattice-inference";
+export type ProviderName = keyof typeof PROVIDER_DEFINITIONS;
 
 /**
  * Array of all supported provider names (for UI lists, iteration, etc.)
- * Now derived from CLI agent slugs.
  */
-export const SUPPORTED_PROVIDERS: string[] = [...CLI_AGENT_SLUGS];
+export const SUPPORTED_PROVIDERS = Object.keys(PROVIDER_DEFINITIONS) as ProviderName[];
 
 /**
- * Display names for providers (proper casing for UI).
- * Merges CLI agent display names with legacy provider names used by icons.
+ * Display names for providers (proper casing for UI)
+ * Derived from PROVIDER_DEFINITIONS - do not edit directly
  */
-export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  ...CLI_AGENT_DISPLAY_NAMES,
-  // Legacy display names for icons/UI that reference old provider keys
-  anthropic: "Anthropic",
-  openai: "OpenAI",
-  google: "Google",
-  xai: "xAI",
-  deepseek: "DeepSeek",
-  openrouter: "OpenRouter",
-  bedrock: "Bedrock",
-  ollama: "Ollama",
-  "github-copilot": "GitHub Copilot",
-  "github-copilot-direct": "GitHub Copilot (Direct)",
-  "lattice-inference": "Lattice Inference",
-};
+export const PROVIDER_DISPLAY_NAMES: Record<ProviderName, string> = Object.fromEntries(
+  Object.entries(PROVIDER_DEFINITIONS).map(([key, def]) => [key, def.displayName])
+) as Record<ProviderName, string>;
 
 /**
- * Type guard to check if a string is a valid provider/agent name.
- * In the agent-only architecture, checks against CLI agent slugs.
+ * Legacy registry for backward compatibility with aiService.ts
+ * Maps provider names to their import functions
  */
-export function isValidProvider(provider: string): boolean {
-  return CLI_AGENT_SLUGS.includes(provider as CliAgentSlug);
+export const PROVIDER_REGISTRY = Object.fromEntries(
+  Object.entries(PROVIDER_DEFINITIONS).map(([key, def]) => [key, def.import])
+) as { [K in ProviderName]: (typeof PROVIDER_DEFINITIONS)[K]["import"] };
+
+/**
+ * Type guard to check if a string is a valid provider name
+ */
+export function isValidProvider(provider: string): provider is ProviderName {
+  return provider in PROVIDER_REGISTRY;
 }

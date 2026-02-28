@@ -12,7 +12,7 @@ import { usePersistedState } from "./usePersistedState";
 import { getHunkFirstSeenKey } from "@/common/constants/storage";
 
 /**
- * Maximum number of first-seen records to keep per workspace (LRU eviction)
+ * Maximum number of first-seen records to keep per minion (LRU eviction)
  */
 const MAX_FIRST_SEEN_RECORDS = 2048;
 
@@ -54,12 +54,12 @@ export interface UseHunkFirstSeenReturn {
 }
 
 /**
- * Hook for tracking when hunks were first seen in a workspace.
+ * Hook for tracking when hunks were first seen in a minion.
  * Automatically records first-seen timestamps and provides lookup.
  */
-export function useHunkFirstSeen(workspaceId: string): UseHunkFirstSeenReturn {
+export function useHunkFirstSeen(minionId: string): UseHunkFirstSeenReturn {
   const [state, setState] = usePersistedState<HunkFirstSeenState>(
-    getHunkFirstSeenKey(workspaceId),
+    getHunkFirstSeenKey(minionId),
     { firstSeen: {} }
   );
 

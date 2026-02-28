@@ -3,9 +3,11 @@ import type { LanguageModelV2Usage } from "@ai-sdk/provider";
 import type { StreamErrorType } from "./errors";
 import type { ToolPolicy } from "@/common/utils/tools/toolPolicy";
 import type { FilePart, LatticeToolPartSchema } from "@/common/orpc/schemas";
+import type { SendMessageOptions } from "@/common/orpc/types";
 import type { z } from "zod";
 import type { AgentMode } from "./mode";
 import type { AgentSkillScope } from "./agentSkill";
+import type { ThinkingLevel } from "./thinking";
 import { type ReviewNoteData, formatReviewForModel } from "./review";
 
 /**
@@ -31,22 +33,87 @@ export interface UserMessageContent {
  * Does not include model/agentId since those come from sendMessageOptions.
  */
 export interface CompactionFollowUpInput extends UserMessageContent {
-  /** Frontend metadata to apply to the queued follow-up user message (e.g., preserve /skill display) */
-  latticeMetadata?: LatticeFrontendMetadata;
+  /** Message metadata to apply to the queued follow-up user message (e.g., preserve /skill display) */
+  latticeMetadata?: LatticeMessageMetadata;
+}
+
+/**
+ * SendMessageOptions fields that should be preserved across compaction.
+ * These affect how the follow-up message is processed (thinking level, system instructions, etc.)
+ * and should use the user's original settings, not compaction defaults.
+ */
+type PreservedSendOptions = Pick<
+  SendMessageOptions,
+  | "thinkingLevel"
+  | "additionalSystemInstructions"
+  | "providerOptions"
+  | "experiments"
+  | "disableMinionAgents"
+>;
+
+/**
+ * Extract the send options that should be preserved across compaction.
+ * Use this helper to avoid duplicating the field list when building CompactionFollowUpRequest.
+ */
+export function pickPreservedSendOptions(options: SendMessageOptions): PreservedSendOptions {
+  return {
+    thinkingLevel: options.thinkingLevel,
+    additionalSystemInstructions: options.additionalSystemInstructions,
+    providerOptions: options.providerOptions,
+    experiments: options.experiments,
+    disableMinionAgents: options.disableMinionAgents,
+  };
+}
+
+export type StartupRetrySendOptions = Pick<
+  SendMessageOptions,
+  | "model"
+  | "agentId"
+  | "thinkingLevel"
+  | "system1ThinkingLevel"
+  | "system1Model"
+  | "toolPolicy"
+  | "additionalSystemInstructions"
+  | "maxOutputTokens"
+  | "providerOptions"
+  | "experiments"
+  | "disableMinionAgents"
+>;
+
+/**
+ * Snapshot retry-relevant send options so startup recovery can resume interrupted
+ * turns with the same request configuration (model/provider options/system hints).
+ */
+export function pickStartupRetrySendOptions(options: SendMessageOptions): StartupRetrySendOptions {
+  return {
+    model: options.model,
+    agentId: options.agentId,
+    thinkingLevel: options.thinkingLevel,
+    system1ThinkingLevel: options.system1ThinkingLevel,
+    system1Model: options.system1Model,
+    toolPolicy: options.toolPolicy,
+    additionalSystemInstructions: options.additionalSystemInstructions,
+    maxOutputTokens: options.maxOutputTokens,
+    providerOptions: options.providerOptions,
+    experiments: options.experiments,
+    disableMinionAgents: options.disableMinionAgents,
+  };
 }
 
 /**
  * Content to send after compaction completes.
- * Extends CompactionFollowUpInput with model/agentId for the follow-up message.
+ * Extends CompactionFollowUpInput with model/agentId for the follow-up message,
+ * plus preserved send options so the follow-up uses the same settings as the
+ * original user message.
  *
  * These fields are required because compaction uses its own agentId ("compact")
  * and potentially a different model for summarization. The follow-up message
- * should use the user's original model and agentId, not the compaction settings.
+ * should use the user's original model, agentId, and send options.
  *
  * Call sites provide CompactionFollowUpInput; prepareCompactionMessage converts
- * it to CompactionFollowUpRequest by adding model/agentId from sendMessageOptions.
+ * it to CompactionFollowUpRequest by adding model/agentId/options from sendMessageOptions.
  */
-export interface CompactionFollowUpRequest extends CompactionFollowUpInput {
+export interface CompactionFollowUpRequest extends CompactionFollowUpInput, PreservedSendOptions {
   /** Model to use for the follow-up message (user's original model, not compaction model) */
   model: string;
   /** Agent ID for the follow-up message (user's original agentId, not "compact") */
@@ -67,8 +134,8 @@ export type ContinueMessage = UserMessageContent & {
   model?: string;
   /** Agent ID for the continue message (determines tool policy via agent definitions). Defaults to 'exec'. */
   agentId?: string;
-  /** Frontend metadata to apply to the queued follow-up user message (e.g., preserve /skill display) */
-  latticeMetadata?: LatticeFrontendMetadata;
+  /** Message metadata to apply to the queued follow-up user message (e.g., preserve /skill display) */
+  latticeMetadata?: LatticeMessageMetadata;
   /** Brand marker - not present at runtime, enforces factory usage at compile time */
   readonly [ContinueMessageBrand]: true;
 };
@@ -81,8 +148,8 @@ export interface BuildContinueMessageOptions {
   text?: string;
   fileParts?: FilePart[];
   reviews?: ReviewNoteDataForDisplay[];
-  /** Optional frontend metadata to carry through to the queued follow-up user message */
-  latticeMetadata?: LatticeFrontendMetadata;
+  /** Optional message metadata to carry through to the queued follow-up user message */
+  latticeMetadata?: LatticeMessageMetadata;
   model: string;
   agentId: string;
 }
@@ -137,9 +204,6 @@ export function isDefaultSourceContent(content?: Partial<UserMessageContent>): b
   return text === "Continue" && !hasFiles && !hasReviews;
 }
 
-/** @deprecated Use isDefaultSourceContent. Legacy alias for backward compatibility. */
-export const isDefaultContinueMessage = isDefaultSourceContent;
-
 /**
  * Rebuild a ContinueMessage from persisted data.
  * Use this when reading from storage/history where the data may have been
@@ -191,10 +255,10 @@ export interface CompactionRequestData {
  */
 export function prepareUserMessageForSend(
   content: UserMessageContent,
-  existingMetadata?: LatticeFrontendMetadata
+  existingMetadata?: LatticeMessageMetadata
 ): {
   finalText: string;
-  metadata: LatticeFrontendMetadata | undefined;
+  metadata: LatticeMessageMetadata | undefined;
 } {
   const { text, reviews } = content;
 
@@ -203,7 +267,7 @@ export function prepareUserMessageForSend(
   const finalText = reviewsText ? reviewsText + (text ? "\n\n" + text : "") : text;
 
   // Build metadata with reviews for display
-  let metadata: LatticeFrontendMetadata | undefined = existingMetadata;
+  let metadata: LatticeMessageMetadata | undefined = existingMetadata;
   if (reviews?.length) {
     metadata = metadata ? { ...metadata, reviews } : { type: "normal", reviews };
   }
@@ -220,7 +284,7 @@ export interface BuildAgentSkillMetadataOptions {
 
 export function buildAgentSkillMetadata(
   options: BuildAgentSkillMetadataOptions
-): LatticeFrontendMetadata {
+): LatticeMessageMetadata {
   return {
     type: "agent-skill",
     rawCommand: options.rawCommand,
@@ -231,11 +295,18 @@ export function buildAgentSkillMetadata(
 }
 
 /** Base fields common to all metadata types */
-interface LatticeFrontendMetadataBase {
+interface LatticeMessageMetadataBase {
   /** Structured review data for rich UI display (orthogonal to message type) */
   reviews?: ReviewNoteDataForDisplay[];
   /** Command prefix to highlight in UI (e.g., "/compact -m sonnet" or "/react-effects") */
   commandPrefix?: string;
+  /**
+   * Model used for the pending send (UI-only).
+   *
+   * We stash this so the "starting" label reflects the actual model for one-shot
+   * and compaction sends instead of whatever happens to be persisted in localStorage.
+   */
+  requestedModel?: string;
 }
 
 /** Status to display in sidebar during background operations */
@@ -244,16 +315,30 @@ export interface DisplayStatus {
   message: string;
 }
 
-export type LatticeFrontendMetadata = LatticeFrontendMetadataBase &
+export type LatticeMessageMetadata = LatticeMessageMetadataBase &
   (
     | {
         type: "compaction-request";
         rawCommand: string; // The original /compact command as typed by user (for display)
         parsed: CompactionRequestData;
-        /** Source of compaction request: user-initiated (undefined) or idle-compaction (auto) */
-        source?: "idle-compaction";
+        /**
+         * Source of compaction request:
+         * - undefined: user-initiated (/compact)
+         * - idle-compaction: backend idle compaction
+         * - auto-compaction: threshold-triggered compaction (on-send / mid-stream)
+         */
+        source?: "idle-compaction" | "auto-compaction";
         /** Transient status to display in sidebar during this operation */
         displayStatus?: DisplayStatus;
+      }
+    | {
+        type: "compaction-summary";
+        /**
+         * Follow-up content to dispatch after compaction completes.
+         * Stored on the summary so it survives crashes - the user message
+         * persisted by dispatch serves as proof of completion.
+         */
+        pendingFollowUp?: CompactionFollowUpRequest;
       }
     | {
         type: "agent-skill";
@@ -268,17 +353,52 @@ export type LatticeFrontendMetadata = LatticeFrontendMetadataBase &
       }
     | {
         type: "normal"; // Regular messages
+        /** Original user input for one-shot overrides (e.g., "/opus+high do something") — used as display content so the command prefix remains visible. */
+        rawCommand?: string;
       }
   );
+
+export function getCompactionFollowUpContent(
+  metadata?: LatticeMessageMetadata
+): CompactionRequestData["followUpContent"] | undefined {
+  // Keep follow-up extraction centralized so callers don't duplicate legacy handling.
+  if (!metadata || metadata.type !== "compaction-request") {
+    return undefined;
+  }
+
+  // Legacy compaction requests stored follow-up content in `continueMessage`.
+  const parsed = metadata.parsed as CompactionRequestData & {
+    continueMessage?: CompactionRequestData["followUpContent"];
+  };
+  return parsed.followUpContent ?? parsed.continueMessage;
+}
+
+/** Type for compaction-summary metadata variant */
+export type CompactionSummaryMetadata = Extract<LatticeMessageMetadata, { type: "compaction-summary" }>;
+
+/** Type guard for compaction-summary metadata */
+export function isCompactionSummaryMetadata(
+  metadata: LatticeMessageMetadata | undefined
+): metadata is CompactionSummaryMetadata {
+  return metadata?.type === "compaction-summary";
+}
 
 // Our custom metadata type
 export interface LatticeMetadata {
   historySequence?: number; // Assigned by backend for global message ordering (required when writing to history)
   duration?: number;
+  ttftMs?: number; // Time-to-first-token measured from stream start; omitted when unavailable
   /** @deprecated Legacy base mode derived from agent definition. */
   mode?: AgentMode;
   timestamp?: number;
   model?: string;
+  /** Effective thinking/reasoning level used for this response (after model policy clamping). */
+  thinkingLevel?: ThinkingLevel;
+  /**
+   * True when usage costs are included in a subscription (e.g., ChatGPT subscription routing).
+   * Token counts are still tracked, but the UI should display costs as $0.
+   */
+  costsIncluded?: boolean;
   // Total usage across all steps (for cost calculation)
   usage?: LanguageModelV2Usage;
   // Last step's usage only (for context window display - inputTokens = current context size)
@@ -290,15 +410,43 @@ export interface LatticeMetadata {
   systemMessageTokens?: number; // Token count for system message sent with this request (calculated by AIService)
   partial?: boolean; // Whether this message was interrupted and is incomplete
   synthetic?: boolean; // Whether this message was synthetically generated (e.g., [CONTINUE] sentinel)
+  /**
+   * UI hint: show in the chat UI even when synthetic.
+   *
+   * Synthetic messages are hidden by default because most are for model context only.
+   * Set this flag for synthetic notices that should be visible to users.
+   */
+  uiVisible?: boolean;
   error?: string; // Error message if stream failed
   errorType?: StreamErrorType; // Error type/category if stream failed
   // Compaction source: "user" (manual /compact), "idle" (auto-triggered), or legacy boolean `true`
   // Readers should use helper: isCompacted = compacted !== undefined && compacted !== false
   compacted?: "user" | "idle" | boolean;
+  /**
+   * Monotonic compaction epoch identifier.
+   *
+   * Legacy histories may omit this; compaction code backfills by counting historical compacted summaries.
+   */
+  compactionEpoch?: number;
+  /**
+   * Durable boundary marker for compaction summaries.
+   *
+   * This lets downstream logic identify compaction boundaries without mutating history.
+   */
+  compactionBoundary?: boolean;
   toolPolicy?: ToolPolicy; // Tool policy active when this message was sent (user messages only)
+  disableMinionAgents?: boolean; // Whether minion-local agent files were disabled for this user turn
+  /** Snapshot of send options used for this user turn (for startup retry recovery). */
+  retrySendOptions?: StartupRetrySendOptions;
   agentId?: string; // Agent id active when this message was sent (assistant messages only)
-  clatticeMetadata?: LatticeFrontendMetadata; // Frontend-defined metadata, backend treats as black-box
-  latticeMetadata?: LatticeFrontendMetadata; // Frontend-defined metadata, backend treats as black-box
+  clatticeMetadata?: LatticeMessageMetadata; // Command metadata persisted for legacy message formats
+  latticeMetadata?: LatticeMessageMetadata; // Command metadata used by both frontend and backend message flows
+  /**
+   * ACP-only correlation id propagated through stream events so prompt() can
+   * match terminal events to the originating ACP request in shared minions.
+   */
+  acpPromptId?: string;
+
   /**
    * @file mention snapshot token(s) this message provides content for.
    * When present, injectFileAtMentions() skips re-reading these tokens,
@@ -313,6 +461,11 @@ export interface LatticeMetadata {
     skillName: string;
     scope: AgentSkillScope;
     sha256: string;
+    /**
+     * YAML frontmatter for the resolved skill (no `---` delimiters).
+     * Optional for backwards compatibility with older histories.
+     */
+    frontmatterYaml?: string;
   };
 }
 
@@ -388,6 +541,14 @@ export type DisplayedMessage =
       agentSkill?: {
         skillName: string;
         scope: AgentSkillScope;
+        /**
+         * Optional snapshot content attached later by message aggregation (e.g. tooltips).
+         * Not persisted on the user message itself.
+         */
+        snapshot?: {
+          frontmatterYaml?: string;
+          body?: string;
+        };
       };
       /** Present when this message is a /compact command */
       compactionRequest?: {
@@ -414,6 +575,10 @@ export type DisplayedMessage =
       mode?: AgentMode;
       timestamp?: number;
       tokens?: number;
+      /** Presentation hint for smooth streaming — indicates if this is live or replayed content. */
+      streamPresentation?: {
+        source: "live" | "replay";
+      };
     }
   | {
       type: "tool";
@@ -423,7 +588,7 @@ export type DisplayedMessage =
       toolName: string;
       args: unknown;
       result?: unknown;
-      status: "pending" | "executing" | "completed" | "failed" | "interrupted";
+      status: "pending" | "executing" | "completed" | "failed" | "interrupted" | "redacted";
       isPartial: boolean; // Whether the parent message was interrupted
       historySequence: number; // Global ordering across all messages
       streamSequence?: number; // Local ordering within this assistant message
@@ -435,7 +600,8 @@ export type DisplayedMessage =
         toolName: string;
         input: unknown;
         output?: unknown;
-        state: "input-available" | "output-available";
+        state: "input-available" | "output-available" | "output-redacted";
+        failed?: boolean;
         timestamp?: number;
       }>;
     }
@@ -451,6 +617,10 @@ export type DisplayedMessage =
       isLastPartOfMessage?: boolean; // True if this is the last part of a multi-part message
       timestamp?: number;
       tokens?: number; // Reasoning tokens if available
+      /** Presentation hint for smooth streaming — indicates if this is live or replayed content. */
+      streamPresentation?: {
+        source: "live" | "replay";
+      };
     }
   | {
       type: "stream-error";
@@ -464,13 +634,25 @@ export type DisplayedMessage =
       errorCount?: number; // Number of consecutive identical errors merged into this message
     }
   | {
+      type: "compaction-boundary";
+      id: string; // Display ID for UI/React keys
+      historySequence: number; // Sequence of the compaction summary this boundary belongs to
+      position: "start" | "end";
+      compactionEpoch?: number;
+    }
+  | {
       type: "history-hidden";
       id: string; // Display ID for UI/React keys
       hiddenCount: number; // Number of messages hidden
       historySequence: number; // Global ordering across all messages
+      /** Breakdown of omitted message types (when truncating for performance). */
+      omittedMessageCounts?: {
+        tool: number;
+        reasoning: number;
+      };
     }
   | {
-      type: "workspace-init";
+      type: "minion-init";
       id: string; // Display ID for UI/React keys
       historySequence: number; // Position in message stream (-1 for ephemeral, non-persisted events)
       status: "running" | "success" | "error";

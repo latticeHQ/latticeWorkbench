@@ -106,12 +106,12 @@ describe("notify tool", () => {
     }
   });
 
-  it("should include workspaceId in result when provided in config", async () => {
-    const configWithWorkspace = {
+  it("should include minionId in result when provided in config", async () => {
+    const configWithMinion = {
       ...config,
-      workspaceId: "test-workspace-123",
+      minionId: "test-minion-123",
     };
-    const tool = createNotifyTool(configWithWorkspace);
+    const tool = createNotifyTool(configWithMinion);
     const execute = tool.execute as (args: {
       title: string;
       message?: string;
@@ -123,7 +123,7 @@ describe("notify tool", () => {
 
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.ui_only?.notify?.workspaceId).toBe("test-workspace-123");
+      expect(result.ui_only?.notify?.minionId).toBe("test-minion-123");
     }
   });
 });

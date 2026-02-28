@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/browser/comp
 import { Button } from "@/browser/components/ui/button";
 import { useCopyToClipboard } from "@/browser/hooks/useCopyToClipboard";
 import { copyToClipboard } from "@/browser/utils/clipboard";
+import { getErrorMessage } from "@/common/utils/errors";
 
 const JsonOutput: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div className="bg-code-bg text-text mt-3 w-full max-w-full min-w-0 overflow-x-auto rounded-sm">
@@ -14,13 +15,13 @@ const JsonOutput: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 );
 
 interface DebugLlmRequestModalProps {
-  workspaceId: string;
+  minionId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
 export const DebugLlmRequestModal: React.FC<DebugLlmRequestModalProps> = ({
-  workspaceId,
+  minionId,
   open,
   onOpenChange,
 }) => {
@@ -38,7 +39,7 @@ export const DebugLlmRequestModal: React.FC<DebugLlmRequestModalProps> = ({
     setError(null);
 
     try {
-      const result = await api.workspace.getLastLlmRequest({ workspaceId });
+      const result = await api.minion.getLastLlmRequest({ minionId });
       if (!result.success) {
         setError(result.error);
         setSnapshot(null);
@@ -47,12 +48,12 @@ export const DebugLlmRequestModal: React.FC<DebugLlmRequestModalProps> = ({
 
       setSnapshot(result.data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(getErrorMessage(err));
       setSnapshot(null);
     } finally {
       setLoading(false);
     }
-  }, [api, workspaceId]);
+  }, [api, minionId]);
 
   useEffect(() => {
     if (!open || !api) return;
@@ -65,7 +66,7 @@ export const DebugLlmRequestModal: React.FC<DebugLlmRequestModalProps> = ({
   const handleDownload = () => {
     if (!snapshot) return;
     const timestamp = new Date(snapshot.capturedAt).toISOString().replace(/[:.]/g, "-");
-    const fileName = `lattice-llm-request-${workspaceId}-${timestamp}.json`;
+    const fileName = `lattice-llm-request-${minionId}-${timestamp}.json`;
     const blob = new Blob([json], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -85,7 +86,7 @@ export const DebugLlmRequestModal: React.FC<DebugLlmRequestModalProps> = ({
             <div className="space-y-1">
               <DialogTitle>Last LLM request</DialogTitle>
               <div className="text-muted text-xs">
-                Captures the exact payload sent to the provider for this workspace.
+                Captures the exact payload sent to the provider for this minion.
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">

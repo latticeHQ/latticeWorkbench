@@ -5,7 +5,7 @@ import { Loader2, Wrench, CheckCircle2, AlertCircle } from "lucide-react";
 import { Shimmer } from "../ai-elements/shimmer";
 
 interface InitMessageProps {
-  message: Extract<DisplayedMessage, { type: "workspace-init" }>;
+  message: Extract<DisplayedMessage, { type: "minion-init" }>;
   className?: string;
 }
 

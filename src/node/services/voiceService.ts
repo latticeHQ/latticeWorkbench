@@ -1,76 +1,132 @@
-import type { Config } from "@/node/config";
 import type { Result } from "@/common/types/result";
+import { isProviderDisabledInConfig } from "@/common/utils/providers/isProviderDisabled";
+import { getErrorMessage } from "@/common/utils/errors";
+import type { Config } from "@/node/config";
+import type { PolicyService } from "@/node/services/policyService";
+const OPENAI_TRANSCRIPTION_URL = "https://api.openai.com/v1/audio/transcriptions";
+
+interface OpenAITranscriptionConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  baseURL?: string;
+  enabled?: unknown;
+}
 
 /**
- * Voice input service using OpenAI's Whisper API for transcription.
+ * Voice input service using OpenAI-compatible transcription APIs.
  */
 export class VoiceService {
-  constructor(private readonly config: Config) {}
+  constructor(
+    private readonly config: Config,
+    private readonly policyService?: PolicyService
+  ) {}
 
   /**
-   * Transcribe audio from base64-encoded data using OpenAI's Whisper API.
+   * Transcribe audio from base64-encoded data using OpenAI.
    * @param audioBase64 Base64-encoded audio data
    * @returns Transcribed text or error
    */
   async transcribe(audioBase64: string): Promise<Result<string, string>> {
     try {
-      // Get OpenAI API key from config
       const providersConfig = this.config.loadProvidersConfig() ?? {};
-      const openaiConfig = providersConfig.openai as { apiKey?: string } | undefined;
-      const apiKey = openaiConfig?.apiKey;
+      const openaiConfig = providersConfig.openai as OpenAITranscriptionConfig | undefined;
 
-      if (!apiKey) {
+      const openaiApiKey = openaiConfig?.apiKey;
+      const openaiAvailable =
+        !isProviderDisabledInConfig(openaiConfig ?? {}) &&
+        !!openaiApiKey &&
+        (this.policyService?.isProviderAllowed("openai") ?? true);
+
+      if (openaiAvailable) {
+        return await this.transcribeWithOpenAI(audioBase64, openaiApiKey, openaiConfig);
+      }
+
+      if (isProviderDisabledInConfig(openaiConfig ?? {})) {
         return {
           success: false,
-          error: "OpenAI API key not configured. Go to Settings → Providers to add your key.",
+          error:
+            "OpenAI provider is disabled. Enable it in Settings → Providers to use voice input.",
         };
       }
 
-      // Decode base64 to binary
-      const binaryString = atob(audioBase64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const audioBlob = new Blob([bytes], { type: "audio/webm" });
-
-      // Create form data for OpenAI API
-      const formData = new FormData();
-      formData.append("file", audioBlob, "audio.webm");
-      formData.append("model", "whisper-1");
-      formData.append("response_format", "text");
-
-      // Call OpenAI Whisper API
-      const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = `Transcription failed: ${response.status}`;
-        try {
-          const errorJson = JSON.parse(errorText) as { error?: { message?: string } };
-          if (errorJson.error?.message) {
-            errorMessage = errorJson.error.message;
-          }
-        } catch {
-          // Use raw error text if JSON parsing fails
-          if (errorText) {
-            errorMessage = errorText;
-          }
-        }
-        return { success: false, error: errorMessage };
-      }
-
-      const text = await response.text();
-      return { success: true, data: text };
+      return {
+        success: false,
+        error:
+          "Voice input requires an OpenAI API key. Configure in Settings → Providers.",
+      };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       return { success: false, error: `Transcription failed: ${message}` };
     }
   }
+
+  private async transcribeWithOpenAI(
+    audioBase64: string,
+    apiKey: string,
+    openaiConfig: OpenAITranscriptionConfig | undefined
+  ): Promise<Result<string, string>> {
+    const forcedBaseUrl = this.policyService?.getForcedBaseUrl("openai");
+    const response = await fetch(this.resolveOpenAITranscriptionUrl(openaiConfig, forcedBaseUrl), {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: this.createTranscriptionFormData(audioBase64),
+    });
+
+    if (!response.ok) {
+      return { success: false, error: await this.extractErrorMessage(response) };
+    }
+
+    const text = await response.text();
+    return { success: true, data: text };
+  }
+
+  private resolveOpenAITranscriptionUrl(
+    openaiConfig: OpenAITranscriptionConfig | undefined,
+    forcedBaseUrl?: string
+  ): string {
+    // Policy-forced base URL takes precedence over user config.
+    const baseURL = forcedBaseUrl ?? openaiConfig?.baseUrl ?? openaiConfig?.baseURL;
+    if (!baseURL) {
+      return OPENAI_TRANSCRIPTION_URL;
+    }
+
+    return `${baseURL.replace(/\/+$/, "")}/audio/transcriptions`;
+  }
+
+  private createTranscriptionFormData(audioBase64: string): FormData {
+    // Decode base64 to binary.
+    const binaryString = atob(audioBase64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const audioBlob = new Blob([bytes], { type: "audio/webm" });
+    const formData = new FormData();
+    formData.append("file", audioBlob, "audio.webm");
+    formData.append("model", "whisper-1");
+    formData.append("response_format", "text");
+    return formData;
+  }
+
+  private async extractErrorMessage(response: Response): Promise<string> {
+    const errorText = await response.text();
+    let errorMessage = `Transcription failed: ${response.status}`;
+
+    try {
+      const errorJson = JSON.parse(errorText) as { error?: { message?: string } };
+      if (errorJson.error?.message) {
+        errorMessage = errorJson.error.message;
+      }
+    } catch {
+      if (errorText) {
+        errorMessage = errorText;
+      }
+    }
+
+    return errorMessage;
+  }
+
 }

@@ -3,9 +3,10 @@ import { useEffect, useCallback, useRef } from "react";
 import { useRouter } from "./contexts/RouterContext";
 import { useNavigate } from "react-router-dom";
 import "./styles/globals.css";
-import { useWorkspaceContext, toWorkspaceSelection } from "./contexts/WorkspaceContext";
+import { useMinionContext, toMinionSelection } from "./contexts/MinionContext";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import { useProjectContext } from "./contexts/ProjectContext";
-import type { WorkspaceSelection } from "./components/ProjectSidebar";
+import type { MinionSelection } from "./components/ProjectSidebar";
 import { LeftSidebar } from "./components/LeftSidebar";
 import { ProjectCreateModal } from "./components/ProjectCreateModal";
 import { AIView } from "./components/AIView";
@@ -15,12 +16,13 @@ import {
   updatePersistedState,
   readPersistedState,
 } from "./hooks/usePersistedState";
+import { useResizableSidebar } from "./hooks/useResizableSidebar";
 import { matchesKeybind, KEYBINDS } from "./utils/ui/keybinds";
 import { handleLayoutSlotHotkeys } from "./utils/ui/layoutSlotHotkeys";
-import { buildSortedWorkspacesByProject } from "./utils/ui/workspaceFiltering";
-import { useResumeManager } from "./hooks/useResumeManager";
+import { buildSortedMinionsByProject } from "./utils/ui/minionFiltering";
+import { getVisibleMinionIds } from "./utils/ui/minionDomNav";
 import { useUnreadTracking } from "./hooks/useUnreadTracking";
-import { useWorkspaceStoreRaw, useWorkspaceRecency } from "./stores/WorkspaceStore";
+import { useMinionStoreRaw, useMinionRecency } from "./stores/MinionStore";
 
 import { useStableReference, compareMaps } from "./hooks/useStableReference";
 import { CommandRegistryProvider, useCommandRegistry } from "./contexts/CommandRegistryContext";
@@ -32,7 +34,7 @@ import { buildCoreSources, type BuildSourcesParams } from "./utils/commands/sour
 
 import { THINKING_LEVELS, type ThinkingLevel } from "@/common/types/thinking";
 import { CUSTOM_EVENTS } from "@/common/constants/events";
-import { isWorkspaceForkSwitchEvent } from "./utils/workspaceEvents";
+import { isMinionForkSwitchEvent } from "./utils/minionEvents";
 import {
   getAgentIdKey,
   getAgentsInitNudgeKey,
@@ -40,63 +42,88 @@ import {
   getNotifyOnResponseKey,
   getThinkingLevelByModelKey,
   getThinkingLevelKey,
-  getWorkspaceAISettingsByAgentKey,
+  getMinionAISettingsByAgentKey,
+  getMinionLastReadKey,
+  EXPANDED_PROJECTS_KEY,
+  LEFT_SIDEBAR_COLLAPSED_KEY,
+  LEFT_SIDEBAR_WIDTH_KEY,
 } from "@/common/constants/storage";
 import { getDefaultModel } from "@/browser/hooks/useModelsFromSettings";
 import type { BranchListResult } from "@/common/orpc/types";
 import { useTelemetry } from "./hooks/useTelemetry";
 import { getRuntimeTypeForTelemetry } from "@/common/telemetry";
-import { useStartWorkspaceCreation, getFirstProjectPath } from "./hooks/useStartWorkspaceCreation";
+import { useStartMinionCreation, getFirstProjectPath } from "./hooks/useStartMinionCreation";
 import { useAPI } from "@/browser/contexts/API";
+import {
+  clearPendingMinionAiSettings,
+  markPendingMinionAiSettings,
+} from "@/browser/utils/minionAiSettingsSync";
 import { AuthTokenModal } from "@/browser/components/AuthTokenModal";
 import { Button } from "./components/ui/button";
 import { ProjectPage } from "@/browser/components/ProjectPage";
 
 import { SettingsProvider, useSettings } from "./contexts/SettingsContext";
-import { SettingsModal } from "./components/Settings/SettingsModal";
+import { AboutDialogProvider } from "./contexts/AboutDialogContext";
+import { ConfirmDialogProvider, useConfirmDialog } from "./contexts/ConfirmDialogContext";
+import { AboutDialog } from "./components/About/AboutDialog";
+import { SettingsPage } from "@/browser/components/Settings/SettingsPage";
+import { AnalyticsDashboard } from "@/browser/components/analytics/AnalyticsDashboard";
+import { SshPromptDialog } from "./components/SshPromptDialog";
 import { SplashScreenProvider } from "./components/splashScreens/SplashScreenProvider";
 import { TutorialProvider } from "./contexts/TutorialContext";
+import { PowerModeProvider } from "./contexts/PowerModeContext";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { useFeatureFlags } from "./contexts/FeatureFlagsContext";
 import { UILayoutsProvider, useUILayouts } from "@/browser/contexts/UILayoutsContext";
 import { FeatureFlagsProvider } from "./contexts/FeatureFlagsContext";
 import { ExperimentsProvider } from "./contexts/ExperimentsContext";
-import { LiveKitProvider } from "./contexts/LiveKitContext";
-import { GlobalLiveKitOverlay } from "./components/GlobalLiveKitOverlay";
-import { getWorkspaceSidebarKey } from "./utils/workspace";
+import { ProviderOptionsProvider } from "./contexts/ProviderOptionsContext";
+import { getMinionSidebarKey } from "./utils/minion";
 import { WindowsToolchainBanner } from "./components/WindowsToolchainBanner";
 import { RosettaBanner } from "./components/RosettaBanner";
 import { isDesktopMode } from "./hooks/useDesktopTitlebar";
 import { cn } from "@/common/lib/utils";
+import { getErrorMessage } from "@/common/utils/errors";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
 
 function AppInner() {
-  // Get workspace state from context
+  // Get minion state from context
   const {
-    workspaceMetadata,
+    minionMetadata,
     loading,
-    setWorkspaceMetadata,
-    removeWorkspace,
-    renameWorkspace,
-    selectedWorkspace,
-    setSelectedWorkspace,
-    pendingNewWorkspaceProject,
-    pendingNewWorkspaceSectionId,
-    beginWorkspaceCreation,
-  } = useWorkspaceContext();
-  const { currentWorkspaceId } = useRouter();
+    setMinionMetadata,
+    removeMinion,
+    updateMinionTitle,
+    refreshMinionMetadata,
+    selectedMinion,
+    setSelectedMinion,
+    pendingNewMinionProject,
+    pendingNewMinionSectionId,
+    pendingNewMinionDraftId,
+    beginMinionCreation,
+  } = useMinionContext();
+  const {
+    currentMinionId,
+    currentSettingsSection,
+    isAnalyticsOpen,
+    navigateToAnalytics,
+    navigateFromAnalytics,
+  } = useRouter();
   const { theme, setTheme, toggleTheme } = useTheme();
   const { open: openSettings, isOpen: isSettingsOpen } = useSettings();
+  const { confirm: confirmDialog } = useConfirmDialog();
   const setThemePreference = useCallback(
     (nextTheme: ThemeMode) => {
       setTheme(nextTheme);
     },
     [setTheme]
   );
-  const { layoutPresets, applySlotToWorkspace, saveCurrentWorkspaceToSlot } = useUILayouts();
-  const { api, status, error, authenticate } = useAPI();
+  const { layoutPresets, applySlotToMinion, saveCurrentMinionToSlot } = useUILayouts();
+  const { api, status, error, authenticate, retry } = useAPI();
 
   const {
     projects,
+    refreshProjects,
     removeProject,
     openProjectCreateModal,
     isProjectCreateModalOpen,
@@ -106,26 +133,57 @@ function AppInner() {
 
   // Auto-collapse sidebar on mobile by default
   const isMobile = typeof window !== "undefined" && window.innerWidth <= 768;
-  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedState("sidebarCollapsed", isMobile, {
-    listener: true,
-  });
+  const [sidebarCollapsed, setSidebarCollapsed] = usePersistedState(
+    LEFT_SIDEBAR_COLLAPSED_KEY,
+    isMobile,
+    {
+      listener: true,
+    }
+  );
 
+  // Left sidebar is drag-resizable (mirrors WorkbenchPanel). Width is persisted globally;
+  // collapse remains a separate toggle and the drag handle is hidden in mobile-touch overlay mode.
+  const leftSidebar = useResizableSidebar({
+    enabled: true,
+    defaultWidth: 288,
+    minWidth: 200,
+    maxWidth: 600,
+    // Keep enough room for the main content so you can't drag-resize the left sidebar
+    // to a point where the chat pane becomes unusably narrow.
+    getMaxWidthPx: () => {
+      // Match LeftSidebar's mobile overlay gate. In that mode we don't want viewport-based clamping
+      // because the sidebar width is controlled by CSS and shouldn't rewrite the user's desktop
+      // width preference.
+      const isMobileTouch =
+        typeof window !== "undefined" &&
+        window.matchMedia("(max-width: 768px) and (pointer: coarse)").matches;
+      if (isMobileTouch) {
+        return Number.POSITIVE_INFINITY;
+      }
+
+      const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1200;
+      // ChatPane uses tailwind `min-w-96`.
+      return viewportWidth - 384;
+    },
+    storageKey: LEFT_SIDEBAR_WIDTH_KEY,
+    side: "left",
+  });
   // Sync sidebar collapse state to root element for CSS-based titlebar insets
   useEffect(() => {
     document.documentElement.dataset.leftSidebarCollapsed = String(sidebarCollapsed);
   }, [sidebarCollapsed]);
   const defaultProjectPath = getFirstProjectPath(projects);
   const creationProjectPath =
-    !selectedWorkspace && !currentWorkspaceId
-      ? (pendingNewWorkspaceProject ?? defaultProjectPath)
+    !selectedMinion && !currentMinionId
+      ? (pendingNewMinionProject ?? defaultProjectPath)
       : null;
 
   // History navigation (back/forward)
   const navigate = useNavigate();
 
-  const startWorkspaceCreation = useStartWorkspaceCreation({
+  const startMinionCreation = useStartMinionCreation({
     projects,
-    beginWorkspaceCreation,
+    beginMinionCreation,
   });
 
   // ProjectPage handles its own focus when mounted
@@ -137,46 +195,68 @@ function AppInner() {
   // Telemetry tracking
   const telemetry = useTelemetry();
 
-  // Get workspace store for command palette
-  const workspaceStore = useWorkspaceStoreRaw();
+  // Get minion store for command palette
+  const minionStore = useMinionStoreRaw();
 
   const { statsTabState } = useFeatureFlags();
   useEffect(() => {
-    workspaceStore.setStatsEnabled(Boolean(statsTabState?.enabled));
-  }, [workspaceStore, statsTabState?.enabled]);
+    minionStore.setStatsEnabled(Boolean(statsTabState?.enabled));
+  }, [minionStore, statsTabState?.enabled]);
 
-  // Track telemetry when workspace selection changes
-  const prevWorkspaceRef = useRef<WorkspaceSelection | null>(null);
-  // Ref for selectedWorkspace to access in callbacks without stale closures
-  const selectedWorkspaceRef = useRef(selectedWorkspace);
-  selectedWorkspaceRef.current = selectedWorkspace;
+  // Track telemetry when minion selection changes
+  const prevMinionRef = useRef<MinionSelection | null>(null);
+  // Ref for selectedMinion to access in callbacks without stale closures
+  const selectedMinionRef = useRef(selectedMinion);
+  selectedMinionRef.current = selectedMinion;
+  // Ref for route-level minion visibility to avoid stale closure in response callbacks
+  const currentMinionIdRef = useRef(currentMinionId);
+  currentMinionIdRef.current = currentMinionId;
   useEffect(() => {
-    const prev = prevWorkspaceRef.current;
-    if (prev && selectedWorkspace && prev.workspaceId !== selectedWorkspace.workspaceId) {
-      telemetry.workspaceSwitched(prev.workspaceId, selectedWorkspace.workspaceId);
+    const prev = prevMinionRef.current;
+    if (prev && selectedMinion && prev.minionId !== selectedMinion.minionId) {
+      telemetry.minionSwitched(prev.minionId, selectedMinion.minionId);
     }
-    prevWorkspaceRef.current = selectedWorkspace;
-  }, [selectedWorkspace, telemetry]);
+    prevMinionRef.current = selectedMinion;
+  }, [selectedMinion, telemetry]);
 
-  // Track last-read timestamps for unread indicators
-  useUnreadTracking(selectedWorkspace);
+  // Track last-read timestamps for unread indicators.
+  // Read-marking is gated on chat-route visibility (currentMinionId).
+  useUnreadTracking(selectedMinion, currentMinionId);
 
-  const workspaceMetadataRef = useRef(workspaceMetadata);
+  const minionMetadataRef = useRef(minionMetadata);
   useEffect(() => {
-    workspaceMetadataRef.current = workspaceMetadata;
-  }, [workspaceMetadata]);
+    minionMetadataRef.current = minionMetadata;
+  }, [minionMetadata]);
 
-  // Auto-resume interrupted streams on app startup and when failures occur
-  useResumeManager();
+  const handleOpenLatticeChat = useCallback(() => {
+    // User requested an F1 shortcut to jump straight into Chat with Lattice.
+    const metadata = minionMetadataRef.current.get(LATTICE_HELP_CHAT_MINION_ID);
+    setSelectedMinion(
+      metadata
+        ? toMinionSelection(metadata)
+        : {
+            minionId: LATTICE_HELP_CHAT_MINION_ID,
+            projectPath: "",
+            projectName: "Lattice",
+            namedMinionPath: "",
+          }
+    );
 
-  // Update window title based on selected workspace
+    if (!metadata) {
+      refreshMinionMetadata().catch((error) => {
+        console.error("Failed to refresh minion metadata", error);
+      });
+    }
+  }, [refreshMinionMetadata, setSelectedMinion]);
+
+  // Update window title based on selected minion
   // URL syncing is now handled by RouterContext
   useEffect(() => {
-    if (selectedWorkspace) {
-      // Update window title with workspace title (or name for legacy workspaces)
-      const metadata = workspaceMetadata.get(selectedWorkspace.workspaceId);
-      const workspaceTitle = metadata?.title ?? metadata?.name ?? selectedWorkspace.workspaceId;
-      const title = `${workspaceTitle} - ${selectedWorkspace.projectName} - lattice`;
+    if (selectedMinion) {
+      // Update window title with minion title (or name for legacy minions)
+      const metadata = minionMetadata.get(selectedMinion.minionId);
+      const minionTitle = metadata?.title ?? metadata?.name ?? selectedMinion.minionId;
+      const title = `${minionTitle} - ${selectedMinion.projectName} - lattice`;
       // Set document.title locally for browser mode, call backend for Electron
       document.title = title;
       void api?.window.setTitle({ title });
@@ -185,77 +265,77 @@ function AppInner() {
       document.title = "lattice";
       void api?.window.setTitle({ title: "lattice" });
     }
-  }, [selectedWorkspace, workspaceMetadata, api]);
+  }, [selectedMinion, minionMetadata, api]);
 
-  // Validate selected workspace exists and has all required fields
-  // Note: workspace validity is now primarily handled by RouterContext deriving
-  // selectedWorkspace from URL + metadata. This effect handles edge cases like
-  // stale localStorage or missing fields in legacy workspaces.
+  // Validate selected minion exists and has all required fields
+  // Note: minion validity is now primarily handled by RouterContext deriving
+  // selectedMinion from URL + metadata. This effect handles edge cases like
+  // stale localStorage or missing fields in legacy minions.
   useEffect(() => {
-    if (selectedWorkspace) {
-      const metadata = workspaceMetadata.get(selectedWorkspace.workspaceId);
+    if (selectedMinion) {
+      const metadata = minionMetadata.get(selectedMinion.minionId);
 
       if (!metadata) {
-        // Workspace was deleted - navigate home (clears selection)
+        // Minion was deleted - navigate home (clears selection)
         console.warn(
-          `Workspace ${selectedWorkspace.workspaceId} no longer exists, clearing selection`
+          `Minion ${selectedMinion.minionId} no longer exists, clearing selection`
         );
-        setSelectedWorkspace(null);
-      } else if (!selectedWorkspace.namedWorkspacePath && metadata.namedWorkspacePath) {
-        // Old localStorage entry missing namedWorkspacePath - update it once
-        console.log(`Updating workspace ${selectedWorkspace.workspaceId} with missing fields`);
-        setSelectedWorkspace(toWorkspaceSelection(metadata));
+        setSelectedMinion(null);
+      } else if (!selectedMinion.namedMinionPath && metadata.namedMinionPath) {
+        // Old localStorage entry missing namedMinionPath - update it once
+        console.log(`Updating minion ${selectedMinion.minionId} with missing fields`);
+        setSelectedMinion(toMinionSelection(metadata));
       }
     }
-  }, [selectedWorkspace, workspaceMetadata, setSelectedWorkspace]);
+  }, [selectedMinion, minionMetadata, setSelectedMinion]);
 
-  const openWorkspaceInTerminal = useOpenTerminal();
+  const openMinionInTerminal = useOpenTerminal();
 
   const handleRemoveProject = useCallback(
     async (path: string): Promise<{ success: boolean; error?: string }> => {
-      if (selectedWorkspace?.projectPath === path) {
-        setSelectedWorkspace(null);
+      if (selectedMinion?.projectPath === path) {
+        setSelectedMinion(null);
       }
       return removeProject(path);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [selectedWorkspace, setSelectedWorkspace]
+    [selectedMinion, setSelectedMinion]
   );
 
   // Memoize callbacks to prevent LeftSidebar/ProjectSidebar re-renders
 
-  // NEW: Get workspace recency from store
-  const workspaceRecency = useWorkspaceRecency();
+  // NEW: Get minion recency from store
+  const minionRecency = useMinionRecency();
 
-  // Build sorted workspaces map including pending workspaces
+  // Build sorted minions map including pending minions
   // Use stable reference to prevent sidebar re-renders when sort order hasn't changed
-  const sortedWorkspacesByProject = useStableReference(
-    () => buildSortedWorkspacesByProject(projects, workspaceMetadata, workspaceRecency),
+  const sortedMinionsByProject = useStableReference(
+    () => buildSortedMinionsByProject(projects, minionMetadata, minionRecency),
     (prev, next) =>
       compareMaps(prev, next, (a, b) => {
         if (a.length !== b.length) return false;
         return a.every((meta, i) => {
           const other = b[i];
           // Compare all fields that affect sidebar display.
-          // If you add a new display-relevant field to WorkspaceMetadata,
-          // add it to getWorkspaceSidebarKey() in src/browser/utils/workspace.ts
-          return other && getWorkspaceSidebarKey(meta) === getWorkspaceSidebarKey(other);
+          // If you add a new display-relevant field to MinionMetadata,
+          // add it to getMinionSidebarKey() in src/browser/utils/minion.ts
+          return other && getMinionSidebarKey(meta) === getMinionSidebarKey(other);
         });
       }),
-    [projects, workspaceMetadata, workspaceRecency]
+    [projects, minionMetadata, minionRecency]
   );
 
-  const handleNavigateWorkspace = useCallback(
-    (direction: "next" | "prev") => {
-      // Read actual rendered workspace order from DOM - impossible to drift from sidebar
-      // Use compound selector to target only row elements (not archive buttons or edit inputs)
-      const els = document.querySelectorAll("[data-workspace-id][data-workspace-path]");
-      const visibleIds = Array.from(els).map((el) => el.getAttribute("data-workspace-id")!);
+  // Pre-compute for the sidebar so it doesn't need MinionMetadataContext
+  const latticeChatProjectPath = minionMetadata.get(LATTICE_HELP_CHAT_MINION_ID)?.projectPath ?? null;
 
+  const handleNavigateMinion = useCallback(
+    (direction: "next" | "prev") => {
+      // Read actual rendered minion order from DOM — impossible to drift from sidebar.
+      const visibleIds = getVisibleMinionIds();
       if (visibleIds.length === 0) return;
 
-      const currentIndex = selectedWorkspace
-        ? visibleIds.indexOf(selectedWorkspace.workspaceId)
+      const currentIndex = selectedMinion
+        ? visibleIds.indexOf(selectedMinion.minionId)
         : -1;
 
       let targetIndex: number;
@@ -267,10 +347,10 @@ function AppInner() {
         targetIndex = currentIndex === 0 ? visibleIds.length - 1 : currentIndex - 1;
       }
 
-      const targetMeta = workspaceMetadata.get(visibleIds[targetIndex]);
-      if (targetMeta) setSelectedWorkspace(toWorkspaceSelection(targetMeta));
+      const targetMeta = minionMetadata.get(visibleIds[targetIndex]);
+      if (targetMeta) setSelectedMinion(toMinionSelection(targetMeta));
     },
-    [selectedWorkspace, workspaceMetadata, setSelectedWorkspace]
+    [selectedMinion, minionMetadata, setSelectedMinion]
   );
 
   // Register command sources with registry
@@ -282,28 +362,28 @@ function AppInner() {
   } = useCommandRegistry();
 
   /**
-   * Get model for a workspace, returning canonical format.
+   * Get model for a minion, returning canonical format.
    */
-  const getModelForWorkspace = useCallback((workspaceId: string): string => {
+  const getModelForMinion = useCallback((minionId: string): string => {
     const defaultModel = getDefaultModel();
-    const rawModel = readPersistedState<string>(getModelKey(workspaceId), defaultModel);
+    const rawModel = readPersistedState<string>(getModelKey(minionId), defaultModel);
     return rawModel || defaultModel;
   }, []);
 
-  const getThinkingLevelForWorkspace = useCallback(
-    (workspaceId: string): ThinkingLevel => {
-      if (!workspaceId) {
+  const getThinkingLevelForMinion = useCallback(
+    (minionId: string): ThinkingLevel => {
+      if (!minionId) {
         return "off";
       }
 
-      const scopedKey = getThinkingLevelKey(workspaceId);
+      const scopedKey = getThinkingLevelKey(minionId);
       const scoped = readPersistedState<ThinkingLevel | undefined>(scopedKey, undefined);
       if (scoped !== undefined) {
         return THINKING_LEVELS.includes(scoped) ? scoped : "off";
       }
 
-      // Migration: fall back to legacy per-model thinking and seed the workspace-scoped key.
-      const model = getModelForWorkspace(workspaceId);
+      // Migration: fall back to legacy per-model thinking and seed the minion-scoped key.
+      const model = getModelForMinion(minionId);
       const legacy = readPersistedState<ThinkingLevel | undefined>(
         getThinkingLevelByModelKey(model),
         undefined
@@ -315,35 +395,36 @@ function AppInner() {
 
       return "off";
     },
-    [getModelForWorkspace]
+    [getModelForMinion]
   );
 
   const setThinkingLevelFromPalette = useCallback(
-    (workspaceId: string, level: ThinkingLevel) => {
-      if (!workspaceId) {
+    (minionId: string, level: ThinkingLevel) => {
+      if (!minionId) {
         return;
       }
 
       const normalized = THINKING_LEVELS.includes(level) ? level : "off";
-      const model = getModelForWorkspace(workspaceId);
-      const key = getThinkingLevelKey(workspaceId);
+      const model = getModelForMinion(minionId);
+      const key = getThinkingLevelKey(minionId);
 
       // Use the utility function which handles localStorage and event dispatch
       // ThinkingProvider will pick this up via its listener
       updatePersistedState(key, normalized);
 
-      type WorkspaceAISettingsByAgentCache = Partial<
+      type MinionAISettingsByAgentCache = Partial<
         Record<string, { model: string; thinkingLevel: ThinkingLevel }>
       >;
 
       const normalizedAgentId =
-        readPersistedState<string>(getAgentIdKey(workspaceId), "exec").trim().toLowerCase() ||
-        "exec";
+        readPersistedState<string>(getAgentIdKey(minionId), MINION_DEFAULTS.agentId)
+          .trim()
+          .toLowerCase() || MINION_DEFAULTS.agentId;
 
-      updatePersistedState<WorkspaceAISettingsByAgentCache>(
-        getWorkspaceAISettingsByAgentKey(workspaceId),
+      updatePersistedState<MinionAISettingsByAgentCache>(
+        getMinionAISettingsByAgentKey(minionId),
         (prev) => {
-          const record: WorkspaceAISettingsByAgentCache =
+          const record: MinionAISettingsByAgentCache =
             prev && typeof prev === "object" ? prev : {};
           return {
             ...record,
@@ -353,15 +434,26 @@ function AppInner() {
         {}
       );
 
-      // Persist to backend so the palette change follows the workspace across devices.
+      // Persist to backend so the palette change follows the minion across devices.
       if (api) {
-        api.workspace
+        markPendingMinionAiSettings(minionId, normalizedAgentId, {
+          model,
+          thinkingLevel: normalized,
+        });
+
+        api.minion
           .updateAgentAISettings({
-            workspaceId,
+            minionId,
             agentId: normalizedAgentId,
             aiSettings: { model, thinkingLevel: normalized },
           })
+          .then((result) => {
+            if (!result.success) {
+              clearPendingMinionAiSettings(minionId, normalizedAgentId);
+            }
+          })
           .catch(() => {
+            clearPendingMinionAiSettings(minionId, normalizedAgentId);
             // Best-effort only.
           });
       }
@@ -370,21 +462,74 @@ function AppInner() {
       if (typeof window !== "undefined") {
         window.dispatchEvent(
           new CustomEvent(CUSTOM_EVENTS.THINKING_LEVEL_TOAST, {
-            detail: { workspaceId, level: normalized },
+            detail: { minionId, level: normalized },
           })
         );
       }
     },
-    [api, getModelForWorkspace]
+    [api, getModelForMinion]
   );
 
   const registerParamsRef = useRef<BuildSourcesParams | null>(null);
 
-  const openNewWorkspaceFromPalette = useCallback(
+  const openNewMinionFromPalette = useCallback(
     (projectPath: string) => {
-      startWorkspaceCreation(projectPath);
+      startMinionCreation(projectPath);
     },
-    [startWorkspaceCreation]
+    [startMinionCreation]
+  );
+
+  const archiveMergedMinionsInProjectFromPalette = useCallback(
+    async (projectPath: string): Promise<void> => {
+      const trimmedProjectPath = projectPath.trim();
+      if (!trimmedProjectPath) return;
+
+      if (!api) {
+        if (typeof window !== "undefined") {
+          window.alert("Cannot bench merged minions: API not connected");
+        }
+        return;
+      }
+
+      try {
+        const result = await api.minion.archiveMergedInProject({
+          projectPath: trimmedProjectPath,
+        });
+
+        if (!result.success) {
+          if (typeof window !== "undefined") {
+            window.alert(result.error);
+          }
+          return;
+        }
+
+        const errorCount = result.data.errors.length;
+        if (errorCount > 0) {
+          const archivedCount = result.data.archivedMinionIds.length;
+          const skippedCount = result.data.skippedMinionIds.length;
+
+          const MAX_ERRORS_TO_SHOW = 5;
+          const shownErrors = result.data.errors
+            .slice(0, MAX_ERRORS_TO_SHOW)
+            .map((e) => `- ${e.minionId}: ${e.error}`)
+            .join("\n");
+          const remainingCount = Math.max(0, errorCount - MAX_ERRORS_TO_SHOW);
+          const remainingSuffix = remainingCount > 0 ? `\n… and ${remainingCount} more.` : "";
+
+          if (typeof window !== "undefined") {
+            window.alert(
+              `Benched merged minions with some errors.\n\nArchived: ${archivedCount}\nSkipped: ${skippedCount}\nErrors: ${errorCount}\n\nErrors:\n${shownErrors}${remainingSuffix}`
+            );
+          }
+        }
+      } catch (error) {
+        const message = getErrorMessage(error);
+        if (typeof window !== "undefined") {
+          window.alert(message);
+        }
+      }
+    },
+    [api]
   );
 
   const getBranchesForProject = useCallback(
@@ -410,21 +555,21 @@ function AppInner() {
     [api]
   );
 
-  const selectWorkspaceFromPalette = useCallback(
-    (selection: WorkspaceSelection) => {
-      setSelectedWorkspace(selection);
+  const selectMinionFromPalette = useCallback(
+    (selection: MinionSelection) => {
+      setSelectedMinion(selection);
     },
-    [setSelectedWorkspace]
+    [setSelectedMinion]
   );
 
-  const removeWorkspaceFromPalette = useCallback(
-    async (workspaceId: string) => removeWorkspace(workspaceId),
-    [removeWorkspace]
+  const removeMinionFromPalette = useCallback(
+    async (minionId: string) => removeMinion(minionId),
+    [removeMinion]
   );
 
-  const renameWorkspaceFromPalette = useCallback(
-    async (workspaceId: string, newName: string) => renameWorkspace(workspaceId, newName),
-    [renameWorkspace]
+  const updateTitleFromPalette = useCallback(
+    async (minionId: string, newTitle: string) => updateMinionTitle(minionId, newTitle),
+    [updateMinionTitle]
   );
 
   const addProjectFromPalette = useCallback(() => {
@@ -442,32 +587,33 @@ function AppInner() {
     setSidebarCollapsed((prev) => !prev);
   }, [setSidebarCollapsed]);
 
-  const navigateWorkspaceFromPalette = useCallback(
+  const navigateMinionFromPalette = useCallback(
     (dir: "next" | "prev") => {
-      handleNavigateWorkspace(dir);
+      handleNavigateMinion(dir);
     },
-    [handleNavigateWorkspace]
+    [handleNavigateMinion]
   );
 
   registerParamsRef.current = {
     projects,
-    workspaceMetadata,
-    selectedWorkspace,
+    minionMetadata,
+    selectedMinion,
     theme,
-    getThinkingLevel: getThinkingLevelForWorkspace,
+    getThinkingLevel: getThinkingLevelForMinion,
     onSetThinkingLevel: setThinkingLevelFromPalette,
-    onStartWorkspaceCreation: openNewWorkspaceFromPalette,
+    onStartMinionCreation: openNewMinionFromPalette,
+    onArchiveMergedMinionsInProject: archiveMergedMinionsInProjectFromPalette,
     getBranchesForProject,
-    onSelectWorkspace: selectWorkspaceFromPalette,
-    onRemoveWorkspace: removeWorkspaceFromPalette,
-    onRenameWorkspace: renameWorkspaceFromPalette,
+    onSelectMinion: selectMinionFromPalette,
+    onRemoveMinion: removeMinionFromPalette,
+    onUpdateTitle: updateTitleFromPalette,
     onAddProject: addProjectFromPalette,
     onRemoveProject: removeProjectFromPalette,
     onToggleSidebar: toggleSidebarFromPalette,
-    onNavigateWorkspace: navigateWorkspaceFromPalette,
-    onOpenWorkspaceInTerminal: (workspaceId, runtimeConfig) => {
+    onNavigateMinion: navigateMinionFromPalette,
+    onOpenMinionInTerminal: (minionId, runtimeConfig) => {
       // Best-effort only. Palette actions should never throw.
-      void openWorkspaceInTerminal(workspaceId, runtimeConfig).catch(() => {
+      void openMinionInTerminal(minionId, runtimeConfig).catch(() => {
         // Errors are surfaced elsewhere (toasts/logs) and users can retry.
       });
     },
@@ -475,20 +621,21 @@ function AppInner() {
     onSetTheme: setThemePreference,
     onOpenSettings: openSettings,
     layoutPresets,
-    onApplyLayoutSlot: (workspaceId, slot) => {
-      void applySlotToWorkspace(workspaceId, slot).catch(() => {
+    onApplyLayoutSlot: (minionId, slot) => {
+      void applySlotToMinion(minionId, slot).catch(() => {
         // Best-effort only.
       });
     },
-    onCaptureLayoutSlot: async (workspaceId, slot, name) => {
+    onCaptureLayoutSlot: async (minionId, slot, name) => {
       try {
-        await saveCurrentWorkspaceToSlot(workspaceId, slot, name);
+        await saveCurrentMinionToSlot(minionId, slot, name);
       } catch {
         // Best-effort only.
       }
     },
-    onClearTimingStats: (workspaceId: string) => workspaceStore.clearTimingStats(workspaceId),
+    onClearTimingStats: (minionId: string) => minionStore.clearTimingStats(minionId),
     api,
+    confirmDialog,
   };
 
   useEffect(() => {
@@ -497,21 +644,21 @@ function AppInner() {
       if (!params) return [];
 
       // Compute streaming models here (only when command palette opens)
-      const allStates = workspaceStore.getAllStates();
-      const selectedWorkspaceState = params.selectedWorkspace
-        ? (allStates.get(params.selectedWorkspace.workspaceId) ?? null)
+      const allStates = minionStore.getAllStates();
+      const selectedMinionState = params.selectedMinion
+        ? (allStates.get(params.selectedMinion.minionId) ?? null)
         : null;
       const streamingModels = new Map<string, string>();
-      for (const [workspaceId, state] of allStates) {
+      for (const [minionId, state] of allStates) {
         if (state.canInterrupt && state.currentModel) {
-          streamingModels.set(workspaceId, state.currentModel);
+          streamingModels.set(minionId, state.currentModel);
         }
       }
 
       const factories = buildCoreSources({
         ...params,
         streamingModels,
-        selectedWorkspaceState,
+        selectedMinionState,
       });
       const actions: CommandAction[] = [];
       for (const factory of factories) {
@@ -520,30 +667,52 @@ function AppInner() {
       return actions;
     });
     return unregister;
-  }, [registerSource, workspaceStore]);
+  }, [registerSource, minionStore]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (matchesKeybind(e, KEYBINDS.NEXT_WORKSPACE)) {
+      if (e.defaultPrevented) {
+        return;
+      }
+
+      if (matchesKeybind(e, KEYBINDS.NEXT_MINION)) {
         e.preventDefault();
-        handleNavigateWorkspace("next");
-      } else if (matchesKeybind(e, KEYBINDS.PREV_WORKSPACE)) {
+        handleNavigateMinion("next");
+      } else if (matchesKeybind(e, KEYBINDS.PREV_MINION)) {
         e.preventDefault();
-        handleNavigateWorkspace("prev");
-      } else if (matchesKeybind(e, KEYBINDS.OPEN_COMMAND_PALETTE)) {
+        handleNavigateMinion("prev");
+      } else if (
+        matchesKeybind(e, KEYBINDS.OPEN_COMMAND_PALETTE) ||
+        matchesKeybind(e, KEYBINDS.OPEN_COMMAND_PALETTE_ACTIONS)
+      ) {
         e.preventDefault();
         if (isCommandPaletteOpen) {
           closeCommandPalette();
         } else {
-          openCommandPalette();
+          // Alternate palette shortcut opens in command mode (with ">") while the
+          // primary Ctrl/Cmd+Shift+P shortcut opens default minion-switch mode.
+          const initialQuery = matchesKeybind(e, KEYBINDS.OPEN_COMMAND_PALETTE_ACTIONS)
+            ? ">"
+            : undefined;
+          openCommandPalette(initialQuery);
         }
+      } else if (matchesKeybind(e, KEYBINDS.OPEN_LATTICE_CHAT)) {
+        e.preventDefault();
+        handleOpenLatticeChat();
       } else if (matchesKeybind(e, KEYBINDS.TOGGLE_SIDEBAR)) {
         e.preventDefault();
         setSidebarCollapsed((prev) => !prev);
       } else if (matchesKeybind(e, KEYBINDS.OPEN_SETTINGS)) {
         e.preventDefault();
         openSettings();
+      } else if (matchesKeybind(e, KEYBINDS.OPEN_ANALYTICS)) {
+        e.preventDefault();
+        if (isAnalyticsOpen) {
+          navigateFromAnalytics();
+        } else {
+          navigateToAnalytics();
+        }
       } else if (matchesKeybind(e, KEYBINDS.NAVIGATE_BACK)) {
         e.preventDefault();
         void navigate(-1);
@@ -556,13 +725,16 @@ function AppInner() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    handleNavigateWorkspace,
+    handleNavigateMinion,
+    handleOpenLatticeChat,
     setSidebarCollapsed,
     isCommandPaletteOpen,
     closeCommandPalette,
     openCommandPalette,
-    creationProjectPath,
     openSettings,
+    isAnalyticsOpen,
+    navigateToAnalytics,
+    navigateFromAnalytics,
     navigate,
   ]);
   // Mouse back/forward buttons (buttons 3 and 4)
@@ -585,9 +757,9 @@ function AppInner() {
       handleLayoutSlotHotkeys(e, {
         isCommandPaletteOpen,
         isSettingsOpen,
-        selectedWorkspaceId: selectedWorkspace?.workspaceId ?? null,
+        selectedMinionId: selectedMinion?.minionId ?? null,
         layoutPresets,
-        applySlotToWorkspace,
+        applySlotToMinion,
       });
     };
 
@@ -596,9 +768,9 @@ function AppInner() {
   }, [
     isCommandPaletteOpen,
     isSettingsOpen,
-    selectedWorkspace,
+    selectedMinion,
     layoutPresets,
-    applySlotToWorkspace,
+    applySlotToMinion,
   ]);
 
   // Subscribe to menu bar "Open Settings" (macOS Cmd+, from app menu)
@@ -623,90 +795,110 @@ function AppInner() {
     return () => abortController.abort();
   }, [api, openSettings]);
 
-  // Handle workspace fork switch event
+  // Handle minion fork switch event
   useEffect(() => {
     const handleForkSwitch = (e: Event) => {
-      if (!isWorkspaceForkSwitchEvent(e)) return;
+      if (!isMinionForkSwitchEvent(e)) return;
 
-      const workspaceInfo = e.detail;
+      const minionInfo = e.detail;
 
-      // Find the project in config
-      const project = projects.get(workspaceInfo.projectPath);
+      // Ensure the minion's project is present in the sidebar config.
+      //
+      // IMPORTANT: don't early-return here. In practice this event can fire before
+      // ProjectContext has finished loading (or before a refresh runs), and returning
+      // would make the forked minion appear "missing" until a later refresh.
+      const project = projects.get(minionInfo.projectPath);
       if (!project) {
-        console.error(`Headquarter not found for path: ${workspaceInfo.projectPath}`);
-        return;
+        console.warn(
+          `[Frontend] Project not found for forked minion path: ${minionInfo.projectPath} (will refresh)`
+        );
+        void refreshProjects();
       }
 
       // DEFENSIVE: Ensure createdAt exists
-      if (!workspaceInfo.createdAt) {
+      if (!minionInfo.createdAt) {
         console.warn(
-          `[Frontend] Workspace ${workspaceInfo.id} missing createdAt in fork switch - using default (2025-01-01)`
+          `[Frontend] Minion ${minionInfo.id} missing createdAt in fork switch - using default (2025-01-01)`
         );
-        workspaceInfo.createdAt = "2025-01-01T00:00:00.000Z";
+        minionInfo.createdAt = "2025-01-01T00:00:00.000Z";
       }
 
       // Update metadata Map immediately (don't wait for async metadata event)
-      // This ensures the title bar effect has the workspace name available
-      setWorkspaceMetadata((prev) => {
+      // This ensures the title bar effect has the minion name available
+      setMinionMetadata((prev) => {
         const updated = new Map(prev);
-        updated.set(workspaceInfo.id, workspaceInfo);
+        updated.set(minionInfo.id, minionInfo);
         return updated;
       });
 
-      // Switch to the new workspace
-      setSelectedWorkspace(toWorkspaceSelection(workspaceInfo));
+      // Switch to the new minion
+      setSelectedMinion(toMinionSelection(minionInfo));
     };
 
-    window.addEventListener(CUSTOM_EVENTS.WORKSPACE_FORK_SWITCH, handleForkSwitch as EventListener);
+    window.addEventListener(CUSTOM_EVENTS.MINION_FORK_SWITCH, handleForkSwitch as EventListener);
     return () =>
       window.removeEventListener(
-        CUSTOM_EVENTS.WORKSPACE_FORK_SWITCH,
+        CUSTOM_EVENTS.MINION_FORK_SWITCH,
         handleForkSwitch as EventListener
       );
-  }, [projects, setSelectedWorkspace, setWorkspaceMetadata]);
+  }, [projects, refreshProjects, setSelectedMinion, setMinionMetadata]);
 
   // Set up navigation callback for notification clicks
   useEffect(() => {
-    const navigateToWorkspace = (workspaceId: string) => {
-      const metadata = workspaceMetadataRef.current.get(workspaceId);
+    const navigateToMinion = (minionId: string) => {
+      const metadata = minionMetadataRef.current.get(minionId);
       if (metadata) {
-        setSelectedWorkspace(toWorkspaceSelection(metadata));
+        setSelectedMinion(toMinionSelection(metadata));
       }
     };
 
-    // Single source of truth: WorkspaceStore owns the navigation callback.
+    // Single source of truth: MinionStore owns the navigation callback.
     // Browser notifications and Electron notification clicks both route through this.
-    workspaceStore.setNavigateToWorkspace(navigateToWorkspace);
+    minionStore.setNavigateToMinion(navigateToMinion);
 
     // Callback for "notify on response" feature - fires when any assistant response completes.
     // Only notify when isFinal=true (assistant done with all work, no more active streams).
     // finalText is extracted by the aggregator (text after tool calls).
     // compaction is provided when this was a compaction stream (includes continue metadata).
     const handleResponseComplete = (
-      workspaceId: string,
+      minionId: string,
       _messageId: string,
       isFinal: boolean,
       finalText: string,
-      compaction?: { hasContinueMessage: boolean }
+      compaction?: { hasContinueMessage: boolean; isIdle?: boolean },
+      completedAt?: number | null
     ) => {
       // Only notify on final message (when assistant is done with all work)
       if (!isFinal) return;
+
+      // Only mark read when the user is actively viewing this minion's chat.
+      // Checking currentMinionIdRef ensures we don't advance lastRead when
+      // a non-chat route (e.g. /settings) is active — the minion remains
+      // "selected" but the chat content is not visible.
+      const isChatVisible = document.hasFocus() && currentMinionIdRef.current === minionId;
+      if (completedAt != null && isChatVisible) {
+        updatePersistedState(getMinionLastReadKey(minionId), completedAt);
+      }
+
+      // Skip notification for idle compaction (background maintenance, not user-initiated).
+      if (compaction?.isIdle) return;
 
       // Skip notification if compaction completed with a continue message.
       // We use the compaction metadata instead of queued state since the queue
       // can be drained before compaction finishes.
       if (compaction?.hasContinueMessage) return;
 
-      // Skip notification if workspace is focused (like Slack behavior)
-      const isWorkspaceFocused =
-        document.hasFocus() && selectedWorkspaceRef.current?.workspaceId === workspaceId;
-      if (isWorkspaceFocused) return;
+      // Skip notification if the selected minion is focused (Slack-like behavior).
+      // Notification suppression intentionally follows selection state, not chat-route visibility.
+      const isMinionFocused =
+        document.hasFocus() && selectedMinionRef.current?.minionId === minionId;
+      if (isMinionFocused) return;
 
-      // Check if notifications are enabled for this workspace
-      const notifyEnabled = readPersistedState(getNotifyOnResponseKey(workspaceId), false);
+      // Check if notifications are enabled for this minion
+      const notifyEnabled = readPersistedState(getNotifyOnResponseKey(minionId), false);
       if (!notifyEnabled) return;
 
-      const metadata = workspaceMetadataRef.current.get(workspaceId);
+      const metadata = minionMetadataRef.current.get(minionId);
       const title = metadata?.title ?? metadata?.name ?? "Response complete";
 
       // For compaction completions, use a specific message instead of the summary text
@@ -724,7 +916,7 @@ function AppInner() {
           const notification = new Notification(title, { body });
           notification.onclick = () => {
             window.focus();
-            navigateToWorkspace(workspaceId);
+            navigateToMinion(minionId);
           };
         };
 
@@ -740,33 +932,27 @@ function AppInner() {
       }
     };
 
-    workspaceStore.setOnResponseComplete(handleResponseComplete);
+    minionStore.setOnResponseComplete(handleResponseComplete);
 
     const unsubscribe = window.api?.onNotificationClicked?.((data) => {
-      workspaceStore.navigateToWorkspace(data.workspaceId);
+      minionStore.navigateToMinion(data.minionId);
     });
 
     return () => {
       unsubscribe?.();
     };
-  }, [setSelectedWorkspace, workspaceStore]);
-
-  const handleProviderConfig = useCallback(
-    async (provider: string, keyPath: string[], value: string) => {
-      if (!api) {
-        throw new Error("API not connected");
-      }
-      const result = await api.providers.setProviderConfig({ provider, keyPath, value });
-      if (!result.success) {
-        throw new Error(result.error);
-      }
-    },
-    [api]
-  );
+  }, [setSelectedMinion, minionStore]);
 
   // Show auth modal if authentication is required
   if (status === "auth_required") {
-    return <AuthTokenModal isOpen={true} onSubmit={authenticate} error={error} />;
+    return (
+      <AuthTokenModal
+        isOpen={true}
+        onSubmit={authenticate}
+        onSessionAuthenticated={retry}
+        error={error}
+      />
+    );
   }
 
   return (
@@ -778,47 +964,62 @@ function AppInner() {
         <LeftSidebar
           collapsed={sidebarCollapsed}
           onToggleCollapsed={handleToggleSidebar}
-          sortedWorkspacesByProject={sortedWorkspacesByProject}
-          workspaceRecency={workspaceRecency}
+          widthPx={leftSidebar.width}
+          isResizing={leftSidebar.isResizing}
+          onStartResize={leftSidebar.startResize}
+          sortedMinionsByProject={sortedMinionsByProject}
+          minionRecency={minionRecency}
+          latticeChatProjectPath={latticeChatProjectPath}
         />
         <div className="mobile-main-content flex min-w-0 flex-1 flex-col overflow-hidden">
           <WindowsToolchainBanner />
           <RosettaBanner />
           <div className="mobile-layout flex flex-1 overflow-hidden">
-            {selectedWorkspace ? (
+            {/* Route-driven settings and analytics render in the main pane so project/minion navigation stays visible. */}
+            {isAnalyticsOpen ? (
+              <AnalyticsDashboard
+                leftSidebarCollapsed={sidebarCollapsed}
+                onToggleLeftSidebarCollapsed={handleToggleSidebar}
+              />
+            ) : currentSettingsSection ? (
+              <SettingsPage
+                leftSidebarCollapsed={sidebarCollapsed}
+                onToggleLeftSidebarCollapsed={handleToggleSidebar}
+              />
+            ) : selectedMinion ? (
               (() => {
-                const currentMetadata = workspaceMetadata.get(selectedWorkspace.workspaceId);
-                // Guard: Don't render AIView if workspace metadata not found.
-                // This can happen when selectedWorkspace (from localStorage) refers to a
-                // deleted workspace, or during a race condition on reload before the
+                const currentMetadata = minionMetadata.get(selectedMinion.minionId);
+                // Guard: Don't render AIView if minion metadata not found.
+                // This can happen when selectedMinion (from localStorage) refers to a
+                // deleted minion, or during a race condition on reload before the
                 // validation effect clears the stale selection.
                 if (!currentMetadata) {
                   return null;
                 }
-                // Use metadata.name for workspace name (works for both worktree and local runtimes)
+                // Use metadata.name for minion name (works for both worktree and local runtimes)
                 // Fallback to path-based derivation for legacy compatibility
-                const workspaceName =
+                const minionName =
                   currentMetadata.name ??
-                  selectedWorkspace.namedWorkspacePath?.split("/").pop() ??
-                  selectedWorkspace.workspaceId;
+                  selectedMinion.namedMinionPath?.split("/").pop() ??
+                  selectedMinion.minionId;
                 // Use live metadata path (updates on rename) with fallback to initial path
-                const workspacePath =
-                  currentMetadata.namedWorkspacePath ?? selectedWorkspace.namedWorkspacePath ?? "";
+                const minionPath =
+                  currentMetadata.namedMinionPath ?? selectedMinion.namedMinionPath ?? "";
                 return (
                   <ErrorBoundary
-                    workspaceInfo={`${selectedWorkspace.projectName}/${workspaceName}`}
+                    minionInfo={`${selectedMinion.projectName}/${minionName}`}
                   >
                     <AIView
-                      workspaceId={selectedWorkspace.workspaceId}
-                      projectPath={selectedWorkspace.projectPath}
-                      projectName={selectedWorkspace.projectName}
+                      minionId={selectedMinion.minionId}
+                      projectPath={selectedMinion.projectPath}
+                      projectName={selectedMinion.projectName}
                       leftSidebarCollapsed={sidebarCollapsed}
                       onToggleLeftSidebarCollapsed={handleToggleSidebar}
-                      workspaceName={workspaceName}
-                      namedWorkspacePath={workspacePath}
+                      minionName={minionName}
+                      namedMinionPath={minionPath}
                       runtimeConfig={currentMetadata.runtimeConfig}
                       incompatibleRuntime={currentMetadata.incompatibleRuntime}
-                      status={currentMetadata.status}
+                      isInitializing={currentMetadata.isInitializing === true}
                     />
                   </ErrorBoundary>
                 );
@@ -827,44 +1028,46 @@ function AppInner() {
               (() => {
                 const projectPath = creationProjectPath;
                 const projectName =
-                  projectPath.split("/").pop() ?? projectPath.split("\\").pop() ?? "Headquarter";
+                  projectPath.split("/").pop() ?? projectPath.split("\\").pop() ?? "Project";
                 return (
                   <ProjectPage
                     projectPath={projectPath}
                     projectName={projectName}
                     leftSidebarCollapsed={sidebarCollapsed}
                     onToggleLeftSidebarCollapsed={handleToggleSidebar}
-                    pendingSectionId={pendingNewWorkspaceSectionId}
-                    onProviderConfig={handleProviderConfig}
-                    onWorkspaceCreated={(metadata) => {
-                      // IMPORTANT: Add workspace to store FIRST (synchronous) to ensure
+                    pendingSectionId={pendingNewMinionSectionId}
+                    pendingDraftId={pendingNewMinionDraftId}
+                    onMinionCreated={(metadata, options) => {
+                      // IMPORTANT: Add minion to store FIRST (synchronous) to ensure
                       // the store knows about it before React processes the state updates.
                       // This prevents race conditions where the UI tries to access the
-                      // workspace before the store has created its aggregator.
-                      workspaceStore.addWorkspace(metadata);
+                      // minion before the store has created its aggregator.
+                      minionStore.addMinion(metadata);
 
-                      // Add to workspace metadata map (triggers React state update)
-                      setWorkspaceMetadata((prev) => new Map(prev).set(metadata.id, metadata));
+                      // Add to minion metadata map (triggers React state update)
+                      setMinionMetadata((prev) => new Map(prev).set(metadata.id, metadata));
 
-                      // Only switch to new workspace if user hasn't selected another one
-                      // during the creation process (selectedWorkspace was null when creation started)
-                      setSelectedWorkspace((current) => {
-                        if (current !== null) {
-                          // User has already selected another workspace - don't override
-                          return current;
-                        }
-                        return toWorkspaceSelection(metadata);
-                      });
+                      if (options?.autoNavigate !== false) {
+                        // Only switch to new minion if user hasn't selected another one
+                        // during the creation process (selectedMinion was null when creation started)
+                        setSelectedMinion((current) => {
+                          if (current !== null) {
+                            // User has already selected another minion - don't override
+                            return current;
+                          }
+                          return toMinionSelection(metadata);
+                        });
+                      }
 
                       // Track telemetry
-                      telemetry.workspaceCreated(
+                      telemetry.minionCreated(
                         metadata.id,
                         getRuntimeTypeForTelemetry(metadata.runtimeConfig)
                       );
 
-                      // Note: No need to call clearPendingWorkspaceCreation() here.
-                      // Navigating to the workspace URL automatically clears the pending
-                      // state since pendingNewWorkspaceProject is derived from the URL.
+                      // Note: No need to call clearPendingMinionCreation() here.
+                      // Navigating to the minion URL automatically clears the pending
+                      // state since pendingNewMinionProject is derived from the URL.
                     }}
                   />
                 );
@@ -901,13 +1104,13 @@ function AppInner() {
                   }}
                 >
                   <h2 style={{ fontSize: "clamp(24px, 5vw, 36px)", letterSpacing: "-1px" }}>
-                    {currentWorkspaceId ? "Opening workspace…" : "Welcome to Lattice Workbench"}
+                    {currentMinionId ? "Summoning minion…" : "Welcome to Lattice"}
                   </h2>
                   <p>
-                    {currentWorkspaceId
+                    {currentMinionId
                       ? loading
-                        ? "Loading workspace metadata…"
-                        : "Workspace not found."
+                        ? "Loading minion metadata…"
+                        : "Minion not found."
                       : "Add a project from the sidebar to get started."}
                   </p>
                 </div>
@@ -915,24 +1118,24 @@ function AppInner() {
             )}
           </div>
         </div>
-        <CommandPalette
-          getSlashContext={() => ({
-            providerNames: [],
-            workspaceId: selectedWorkspace?.workspaceId,
-          })}
-        />
+        <CommandPalette getSlashContext={() => ({ minionId: selectedMinion?.minionId })} />
         <ProjectCreateModal
           isOpen={isProjectCreateModalOpen}
           onClose={closeProjectCreateModal}
           onSuccess={(normalizedPath, projectConfig) => {
             addProject(normalizedPath, projectConfig);
             updatePersistedState(getAgentsInitNudgeKey(normalizedPath), true);
-            beginWorkspaceCreation(normalizedPath);
+            // Auto-expand new project in sidebar
+            updatePersistedState<string[]>(
+              EXPANDED_PROJECTS_KEY,
+              (prev) => [...(Array.isArray(prev) ? prev : []), normalizedPath],
+              []
+            );
+            beginMinionCreation(normalizedPath);
           }}
         />
-        <SettingsModal />
-        {/* Global LiveKit floating overlay — visible on all pages */}
-        <GlobalLiveKitOverlay />
+        <AboutDialog />
+        <SshPromptDialog />
       </div>
     </>
   );
@@ -945,15 +1148,21 @@ function App() {
         <UILayoutsProvider>
           <TooltipProvider delayDuration={200}>
             <SettingsProvider>
-              <SplashScreenProvider>
-                <TutorialProvider>
-                  <CommandRegistryProvider>
-                    <LiveKitProvider>
-                      <AppInner />
-                    </LiveKitProvider>
-                  </CommandRegistryProvider>
-                </TutorialProvider>
-              </SplashScreenProvider>
+              <AboutDialogProvider>
+                <ProviderOptionsProvider>
+                  <SplashScreenProvider>
+                    <TutorialProvider>
+                      <CommandRegistryProvider>
+                        <PowerModeProvider>
+                          <ConfirmDialogProvider>
+                            <AppInner />
+                          </ConfirmDialogProvider>
+                        </PowerModeProvider>
+                      </CommandRegistryProvider>
+                    </TutorialProvider>
+                  </SplashScreenProvider>
+                </ProviderOptionsProvider>
+              </AboutDialogProvider>
             </SettingsProvider>
           </TooltipProvider>
         </UILayoutsProvider>

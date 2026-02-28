@@ -32,6 +32,7 @@ class LatticeAgent(BaseInstalledAgent):
         "tsconfig.main.json",
         "src",
         "dist",
+        "scripts/postinstall.sh",
     )
 
     _PROVIDER_ENV_KEYS: Sequence[str] = (
@@ -45,6 +46,12 @@ class LatticeAgent(BaseInstalledAgent):
         "AZURE_OPENAI_ENDPOINT",
         "AZURE_OPENAI_DEPLOYMENT",
         "AZURE_OPENAI_API_VERSION",
+        # Google provider uses either GOOGLE_GENERATIVE_AI_API_KEY or the legacy
+        # GOOGLE_API_KEY env var. Forward both (and base URL override) into the
+        # sandbox to avoid confusing "api_key_not_found" failures.
+        "GOOGLE_GENERATIVE_AI_API_KEY",
+        "GOOGLE_API_KEY",
+        "GOOGLE_BASE_URL",
     )
 
     _CONFIG_ENV_KEYS: Sequence[str] = (
@@ -54,21 +61,19 @@ class LatticeAgent(BaseInstalledAgent):
         "LATTICE_PROJECT_CANDIDATES",
         "LATTICE_MODEL",
         "LATTICE_TIMEOUT_MS",
-        "LATTICE_THINKING_LEVEL",
         "LATTICE_CONFIG_ROOT",
         "LATTICE_APP_ROOT",
         "LATTICE_WORKSPACE_ID",
-        "LATTICE_MODE",
-        "LATTICE_RUNTIME",
         "LATTICE_EXPERIMENTS",
+        # Generic pass-through for arbitrary lattice run CLI flags (e.g., --thinking
+        # high --use-1m --budget 5.00). Avoids per-flag plumbing.
+        "LATTICE_RUN_ARGS",
     )
 
     def __init__(
         self,
         logs_dir: Path,
         model_name: str = "anthropic:claude-sonnet-4-5",
-        mode: str | None = None,
-        thinking_level: str | None = None,
         experiments: str | None = None,
         timeout: int | str | None = None,
         **kwargs: Any,
@@ -93,8 +98,6 @@ class LatticeAgent(BaseInstalledAgent):
         self._runner_path = runner_path
         self._repo_root = repo_root
         self._archive_bytes: bytes | None = None
-        self._mode = mode.lower() if mode else None
-        self._thinking_level = thinking_level.lower() if thinking_level else None
         self._model_name = (model_name or "").strip()
         self._experiments = (experiments or "").strip() if experiments else None
         self._last_environment: BaseEnvironment | None = None
@@ -116,8 +119,6 @@ class LatticeAgent(BaseInstalledAgent):
         env.setdefault("LATTICE_CONFIG_ROOT", "/root/.lattice")
         env.setdefault("LATTICE_APP_ROOT", "/opt/lattice-app")
         env.setdefault("LATTICE_WORKSPACE_ID", "lattice-bench")
-        env.setdefault("LATTICE_THINKING_LEVEL", "high")
-        env.setdefault("LATTICE_MODE", "exec")
         env.setdefault("LATTICE_PROJECT_CANDIDATES", self._DEFAULT_PROJECT_CANDIDATES)
 
         model_value = self._model_name or env["LATTICE_MODEL"]
@@ -127,24 +128,17 @@ class LatticeAgent(BaseInstalledAgent):
         if "/" in model_value and ":" not in model_value:
             provider, model_name = model_value.split("/", 1)
             model_value = f"{provider}:{model_name}"
-        env["LATTICE_MODEL"] = model_value
 
-        thinking_value = self._thinking_level or env["LATTICE_THINKING_LEVEL"]
-        normalized_thinking = thinking_value.strip().lower()
-        if normalized_thinking not in {"off", "low", "medium", "high", "xhigh"}:
+        # Fail fast for Google models if credentials weren't forwarded into the
+        # sandbox env. Otherwise Harbor/lattice will fail later with a less actionable
+        # "api_key_not_found" error.
+        if model_value.startswith("google:") and not (
+            env.get("GOOGLE_GENERATIVE_AI_API_KEY") or env.get("GOOGLE_API_KEY")
+        ):
             raise ValueError(
-                "LATTICE_THINKING_LEVEL must be one of off, low, medium, high, xhigh"
+                "Google models require GOOGLE_GENERATIVE_AI_API_KEY (preferred) or GOOGLE_API_KEY"
             )
-        env["LATTICE_THINKING_LEVEL"] = normalized_thinking
-
-        mode_value = self._mode or env["LATTICE_MODE"]
-        normalized_mode = mode_value.strip().lower()
-        if normalized_mode in {"exec", "execute"}:
-            env["LATTICE_MODE"] = "exec"
-        elif normalized_mode == "plan":
-            env["LATTICE_MODE"] = "plan"
-        else:
-            raise ValueError("LATTICE_MODE must be one of plan, exec, or execute")
+        env["LATTICE_MODEL"] = model_value
 
         # These env vars are all set with defaults above, no need to validate
         for key in (
@@ -173,10 +167,37 @@ class LatticeAgent(BaseInstalledAgent):
     def _install_agent_template_path(self) -> Path:
         return Path(__file__).with_name("lattice_setup.sh.j2")
 
+    _PROVIDERS_FILE_ENV_KEY = "LATTICE_PROVIDERS_FILE"
     _TOKEN_FILE_PATH = "/tmp/lattice-tokens.json"
+
+    async def _stage_providers_config(
+        self, environment: BaseEnvironment, env: dict[str, str]
+    ) -> None:
+        """Upload host providers.jsonc into the sandbox when explicitly requested."""
+        providers_file_raw = os.environ.get(self._PROVIDERS_FILE_ENV_KEY)
+        if not providers_file_raw:
+            return
+
+        providers_path = Path(providers_file_raw).expanduser().resolve()
+        if not providers_path.is_file():
+            raise RuntimeError(
+                f"{self._PROVIDERS_FILE_ENV_KEY}={providers_path} is not a readable file"
+            )
+
+        lattice_config_root = (
+            env.get("LATTICE_CONFIG_ROOT") or "/root/.lattice"
+        ).strip() or "/root/.lattice"
+        target_path = f"{lattice_config_root.rstrip('/')}/providers.jsonc"
+
+        await environment.upload_file(
+            source_path=providers_path,
+            target_path=target_path,
+        )
 
     async def setup(self, environment: BaseEnvironment) -> None:
         """Override setup to stage payload first, then run install template."""
+        env = self._env
+
         # Create /installed-agent directory (normally done by super().setup(),
         # but we need it to exist before uploading files)
         await environment.exec(command="mkdir -p /installed-agent")
@@ -205,6 +226,10 @@ class LatticeAgent(BaseInstalledAgent):
         # Now run parent setup which executes lattice_setup.sh.j2 template
         # (extracts archive, installs bun/deps, chmod +x runner)
         await super().setup(environment)
+
+        # Optionally seed the sandbox with providers.jsonc from the host machine.
+        # This is required for OAuth-only configs where env var API keys are absent.
+        await self._stage_providers_config(environment, env)
 
         # Store environment reference for token extraction later
         self._last_environment = environment
@@ -257,12 +282,15 @@ class LatticeAgent(BaseInstalledAgent):
         self.populate_context_post_run(context)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
-        """Extract token usage from the token file written by lattice-run.sh."""
+        """Extract token usage and cost from the token file written by lattice-run.sh."""
         token_file = self.logs_dir / "lattice-tokens.json"
         if token_file.exists():
             try:
                 data = json.loads(token_file.read_text())
                 context.n_input_tokens = data.get("input", 0)
                 context.n_output_tokens = data.get("output", 0)
+                # cost_usd is computed by lattice CLI from model pricing
+                if data.get("cost_usd") is not None:
+                    context.cost_usd = data["cost_usd"]
             except Exception:
-                pass  # Token extraction is best-effort
+                pass  # Token/cost extraction is best-effort

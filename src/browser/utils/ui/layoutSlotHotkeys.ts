@@ -1,23 +1,29 @@
 import type { LayoutPresetsConfig, LayoutSlotNumber } from "@/common/types/uiLayouts";
 import { getEffectiveSlotKeybind, getPresetForSlot } from "@/browser/utils/uiLayouts";
-import { matchesKeybind, isTerminalFocused } from "@/browser/utils/ui/keybinds";
+import { matchesKeybind, isTerminalFocused, isDialogOpen } from "@/browser/utils/ui/keybinds";
 
 export function handleLayoutSlotHotkeys(
   e: KeyboardEvent,
   params: {
     isCommandPaletteOpen: boolean;
     isSettingsOpen: boolean;
-    selectedWorkspaceId: string | null;
+    selectedMinionId: string | null;
     layoutPresets: LayoutPresetsConfig;
-    applySlotToWorkspace: (workspaceId: string, slot: LayoutSlotNumber) => Promise<void>;
+    applySlotToMinion: (minionId: string, slot: LayoutSlotNumber) => Promise<void>;
   }
 ): boolean {
   if (params.isCommandPaletteOpen || params.isSettingsOpen) {
     return false;
   }
 
-  const workspaceId = params.selectedWorkspaceId;
-  if (!workspaceId) {
+  // Dialogs are modal — don't process layout hotkeys when one is open.
+  // This runs in capture phase, so bubble-phase stopPropagation from dialog onKeyDown can't block it.
+  if (isDialogOpen()) {
+    return false;
+  }
+
+  const minionId = params.selectedMinionId;
+  if (!minionId) {
     return false;
   }
 
@@ -43,7 +49,7 @@ export function handleLayoutSlotHotkeys(
     }
 
     e.preventDefault();
-    void params.applySlotToWorkspace(workspaceId, slot).catch(() => {
+    void params.applySlotToMinion(minionId, slot).catch(() => {
       // Best-effort only.
     });
     return true;
@@ -62,7 +68,7 @@ export function handleLayoutSlotHotkeys(
     }
 
     e.preventDefault();
-    void params.applySlotToWorkspace(workspaceId, slotConfig.slot).catch(() => {
+    void params.applySlotToMinion(minionId, slotConfig.slot).catch(() => {
       // Best-effort only.
     });
     return true;

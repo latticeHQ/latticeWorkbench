@@ -19,7 +19,7 @@ test("terminal tab opens without error", async ({ ui }) => {
   await ui.metaSidebar.expectTerminalFocused();
 });
 
-test("terminal tab handles workspace switching", async ({ ui, page }) => {
+test("terminal tab handles workspace switching", async ({ ui, page: _page }) => {
   await ui.projects.openFirstWorkspace();
 
   // Terminal is not a default tab - click "+" to add one
@@ -36,7 +36,7 @@ test("terminal tab handles workspace switching", async ({ ui, page }) => {
 });
 
 /**
- * Regression test for: https://github.com/example/project/pull/1586
+ * Regression test for: https://github.com/latticeHQ/latticeWorkbench/pull/1586
  *
  * The bug: attachCustomKeyEventHandler in TerminalView.tsx had inverted return values.
  * ghostty-web's API expects:

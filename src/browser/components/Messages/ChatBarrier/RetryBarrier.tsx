@@ -1,133 +1,237 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
-import { usePersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
-import type { RetryState } from "@/browser/hooks/useResumeManager";
-import { useWorkspaceState } from "@/browser/stores/WorkspaceStore";
-import {
-  disableAutoRetryPreference,
-  enableAutoRetryPreference,
-  useAutoRetryPreference,
-} from "@/browser/utils/messages/autoRetryPreference";
-import {
-  getInterruptionContext,
-  isNonRetryableSendError,
-} from "@/browser/utils/messages/retryEligibility";
-import { calculateBackoffDelay, createManualRetryState } from "@/browser/utils/messages/retryState";
+import { usePersistedState } from "@/browser/hooks/usePersistedState";
+import { useAPI } from "@/browser/contexts/API";
+import { useMinionState } from "@/browser/stores/MinionStore";
+import { getLastNonDecorativeMessage } from "@/common/utils/messages/retryEligibility";
 import { KEYBINDS, formatKeybind } from "@/browser/utils/ui/keybinds";
-import { CUSTOM_EVENTS, createCustomEvent } from "@/common/constants/events";
-import { getRetryStateKey, VIM_ENABLED_KEY } from "@/common/constants/storage";
+import { VIM_ENABLED_KEY } from "@/common/constants/storage";
 import { cn } from "@/common/lib/utils";
+import { getSendOptionsFromStorage } from "@/browser/utils/messages/sendOptions";
+import { applyCompactionOverrides } from "@/browser/utils/messages/compactionOptions";
 import { formatSendMessageError } from "@/common/utils/errors/formatSendError";
+import { getErrorMessage } from "@/common/utils/errors";
 
 interface RetryBarrierProps {
-  workspaceId: string;
+  minionId: string;
   className?: string;
 }
 
-const defaultRetryState: RetryState = {
-  attempt: 0,
-  retryStartTime: Date.now(),
-};
-
 export const RetryBarrier: React.FC<RetryBarrierProps> = (props) => {
-  // Get workspace state for computing effective autoRetry
-  const workspaceState = useWorkspaceState(props.workspaceId);
+  const { api } = useAPI();
+  const minionState = useMinionState(props.minionId);
+  const [countdown, setCountdown] = useState(0);
+  const [manualRetryError, setManualRetryError] = useState<string | null>(null);
+  const [isManualRetrying, setIsManualRetrying] = useState(false);
 
-  const [autoRetry] = useAutoRetryPreference(props.workspaceId);
-
-  // Read vim mode for displaying correct stop keybind
   const [vimEnabled] = usePersistedState<boolean>(VIM_ENABLED_KEY, false, { listener: true });
   const stopKeybind = formatKeybind(
     vimEnabled ? KEYBINDS.INTERRUPT_STREAM_VIM : KEYBINDS.INTERRUPT_STREAM_NORMAL
   );
 
-  // Use persisted state for retry tracking (survives workspace switches)
-  // Read retry state (managed by useResumeManager)
-  const [retryState] = usePersistedState<RetryState>(
-    getRetryStateKey(props.workspaceId),
-    defaultRetryState,
-    { listener: true }
+  const autoRetryStatus = minionState.autoRetryStatus;
+  const isAutoRetryScheduled = autoRetryStatus?.type === "auto-retry-scheduled";
+  const isAutoRetryActive =
+    autoRetryStatus?.type === "auto-retry-scheduled" ||
+    autoRetryStatus?.type === "auto-retry-starting";
+
+  const manualRetryRollbackMinionIdRef = useRef<string | null>(null);
+  const manualRetryRollbackPendingRef = useRef(false);
+  const manualRetryRollbackArmedRef = useRef(false);
+  const manualRetryRollbackBaselineMessageCountRef = useRef<number | null>(null);
+  const apiRef = useRef(api);
+
+  useEffect(() => {
+    apiRef.current = api;
+  }, [api]);
+
+  const rollbackManualRetryAutoRetryIfNeeded = useCallback(
+    async (options?: { suppressErrors?: boolean }): Promise<void> => {
+      if (!manualRetryRollbackPendingRef.current) {
+        return;
+      }
+
+      const rollbackMinionId = manualRetryRollbackMinionIdRef.current;
+      manualRetryRollbackPendingRef.current = false;
+      manualRetryRollbackArmedRef.current = false;
+      manualRetryRollbackBaselineMessageCountRef.current = null;
+      manualRetryRollbackMinionIdRef.current = null;
+
+      const activeApi = apiRef.current;
+      if (!activeApi || !rollbackMinionId) {
+        return;
+      }
+
+      const rollbackResult = await activeApi.minion.setAutoRetryEnabled?.({
+        minionId: rollbackMinionId,
+        enabled: false,
+        persist: false,
+      });
+      if (rollbackResult && !rollbackResult.success && !options?.suppressErrors) {
+        setManualRetryError(rollbackResult.error);
+      }
+    },
+    []
   );
 
-  const { attempt, retryStartTime, lastError } = retryState || defaultRetryState;
-
-  // Compute effective autoRetry state: user preference AND error is retryable
-  // This ensures UI shows "Retry" button (not "Retrying...") for non-retryable errors
-  const effectiveAutoRetry = useMemo(() => {
-    if (!autoRetry || !workspaceState) {
-      return false;
-    }
-
-    // Check if current state is eligible for auto-retry
-    const { isEligibleForAutoRetry: messagesEligible } = getInterruptionContext(
-      workspaceState.messages,
-      workspaceState.pendingStreamStartTime,
-      workspaceState.runtimeStatus,
-      workspaceState.lastAbortReason
-    );
-
-    // Also check RetryState for SendMessageErrors (from resumeStream failures)
-    // Note: isNonRetryableSendError already respects window.__LATTICE_FORCE_ALL_RETRYABLE
-    if (lastError && isNonRetryableSendError(lastError)) {
-      return false; // Non-retryable SendMessageError
-    }
-
-    return messagesEligible;
-  }, [autoRetry, workspaceState, lastError]);
-
-  // Local state for UI
-  const [countdown, setCountdown] = useState(0);
-
-  // Update countdown display (pure display logic, no side effects)
-  // useResumeManager handles the actual retry logic
   useEffect(() => {
-    if (!autoRetry) return;
+    if (!manualRetryRollbackPendingRef.current) {
+      return;
+    }
 
-    const interval = setInterval(() => {
-      const delay = calculateBackoffDelay(attempt);
-      const nextRetryTime = retryStartTime + delay;
-      const timeUntilRetry = Math.max(0, nextRetryTime - Date.now());
+    const rollbackMinionId = manualRetryRollbackMinionIdRef.current;
+    if (!rollbackMinionId || rollbackMinionId === props.minionId) {
+      return;
+    }
 
+    void rollbackManualRetryAutoRetryIfNeeded();
+  }, [props.minionId, rollbackManualRetryAutoRetryIfNeeded]);
+
+  useEffect(() => {
+    return () => {
+      if (!manualRetryRollbackPendingRef.current) {
+        return;
+      }
+
+      void rollbackManualRetryAutoRetryIfNeeded({ suppressErrors: true });
+    };
+  }, [rollbackManualRetryAutoRetryIfNeeded]);
+
+  useEffect(() => {
+    if (!manualRetryRollbackPendingRef.current) {
+      return;
+    }
+
+    const autoRetryActive =
+      autoRetryStatus?.type === "auto-retry-scheduled" ||
+      autoRetryStatus?.type === "auto-retry-starting";
+    const streamInFlight = minionState.isStreamStarting || minionState.canInterrupt;
+
+    // Mirror ask_user rollback semantics: keep temporary enablement while the resumed
+    // stream/retry attempt is in flight, then restore preference after terminal outcome.
+    if (autoRetryActive || streamInFlight) {
+      manualRetryRollbackArmedRef.current = true;
+      return;
+    }
+
+    const baselineMessageCount = manualRetryRollbackBaselineMessageCountRef.current;
+    const hasObservedPostRetryMessage =
+      baselineMessageCount !== null && minionState.messages.length > baselineMessageCount;
+    if (!manualRetryRollbackArmedRef.current && !hasObservedPostRetryMessage) {
+      return;
+    }
+
+    void rollbackManualRetryAutoRetryIfNeeded();
+  }, [
+    autoRetryStatus,
+    minionState.isStreamStarting,
+    minionState.canInterrupt,
+    minionState.messages.length,
+    rollbackManualRetryAutoRetryIfNeeded,
+  ]);
+
+  useEffect(() => {
+    if (!isAutoRetryScheduled) {
+      setCountdown(0);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const retryAt = autoRetryStatus.scheduledAt + autoRetryStatus.delayMs;
+      const timeUntilRetry = Math.max(0, retryAt - Date.now());
       setCountdown(Math.ceil(timeUntilRetry / 1000));
-    }, 100);
+    };
 
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 100);
     return () => clearInterval(interval);
-  }, [autoRetry, attempt, retryStartTime]);
+  }, [autoRetryStatus, isAutoRetryScheduled]);
 
-  // Manual retry handler (user-initiated, immediate)
-  // Emits event to useResumeManager instead of calling resumeStream directly
-  // This keeps all retry logic centralized in one place
-  const handleManualRetry = () => {
-    enableAutoRetryPreference(props.workspaceId); // Re-enable auto-retry for next failure
+  useEffect(() => {
+    if (isAutoRetryActive) {
+      setManualRetryError(null);
+    }
+  }, [isAutoRetryActive]);
+  const handleManualRetry = async () => {
+    if (!api) {
+      setManualRetryError("Not connected to server");
+      return;
+    }
 
-    // Create manual retry state: immediate retry BUT preserves attempt counter
-    // This prevents infinite retry loops without backoff if the retry fails
-    updatePersistedState(getRetryStateKey(props.workspaceId), createManualRetryState(attempt));
+    if (isManualRetrying) {
+      return;
+    }
 
-    // Emit event to useResumeManager - it will handle the actual resume
-    // Pass isManual flag to bypass eligibility checks (user explicitly wants to retry)
-    window.dispatchEvent(
-      createCustomEvent(CUSTOM_EVENTS.RESUME_CHECK_REQUESTED, {
-        workspaceId: props.workspaceId,
-        isManual: true,
-      })
-    );
+    setIsManualRetrying(true);
+    setManualRetryError(null);
+
+    try {
+      let options = getSendOptionsFromStorage(props.minionId);
+      const lastUserMessage = [...minionState.messages]
+        .reverse()
+        .find(
+          (message): message is Extract<typeof message, { type: "user" }> => message.type === "user"
+        );
+
+      if (lastUserMessage?.compactionRequest) {
+        options = applyCompactionOverrides(options, lastUserMessage.compactionRequest.parsed);
+      }
+
+      const enableResult = await api.minion.setAutoRetryEnabled?.({
+        minionId: props.minionId,
+        enabled: true,
+        persist: false,
+      });
+      if (enableResult && !enableResult.success) {
+        setManualRetryError(enableResult.error);
+        return;
+      }
+
+      if (enableResult?.success && enableResult.data.previousEnabled === false) {
+        // Manual retry temporarily enables auto-retry for this resumed attempt.
+        // Restore only when stream/retry outcome is terminal.
+        manualRetryRollbackMinionIdRef.current = props.minionId;
+        manualRetryRollbackPendingRef.current = true;
+        manualRetryRollbackArmedRef.current = false;
+        manualRetryRollbackBaselineMessageCountRef.current = minionState.messages.length;
+      }
+
+      const resumeResult = await api.minion.resumeStream({
+        minionId: props.minionId,
+        options,
+      });
+
+      if (!resumeResult.success) {
+        const formatted = formatSendMessageError(resumeResult.error);
+        const details = formatted.resolutionHint
+          ? `${formatted.message} ${formatted.resolutionHint}`
+          : formatted.message;
+        setManualRetryError(details);
+
+        // Keep preference consistent when resume fails before retry/stream events.
+        await rollbackManualRetryAutoRetryIfNeeded();
+        return;
+      }
+
+      if (
+        manualRetryRollbackPendingRef.current &&
+        !manualRetryRollbackArmedRef.current &&
+        resumeResult.data.started === false
+      ) {
+        await rollbackManualRetryAutoRetryIfNeeded();
+      }
+    } catch (error) {
+      setManualRetryError(getErrorMessage(error));
+      await rollbackManualRetryAutoRetryIfNeeded();
+    } finally {
+      setIsManualRetrying(false);
+    }
   };
 
-  // Stop auto-retry handler
   const handleStopAutoRetry = () => {
     setCountdown(0);
-    disableAutoRetryPreference(props.workspaceId);
-  };
-
-  // Format error message for display (centralized logic)
-  const getErrorMessage = (error: typeof lastError): string => {
-    if (!error) return "";
-    const formatted = formatSendMessageError(error);
-    // Combine message with command if available
-    return formatted.providerCommand
-      ? `${formatted.message} Configure with ${formatted.providerCommand}`
-      : formatted.message;
+    setManualRetryError(null);
+    void api?.minion.setAutoRetryEnabled?.({ minionId: props.minionId, enabled: false });
   };
 
   const barrierClassName = cn(
@@ -135,72 +239,73 @@ export const RetryBarrier: React.FC<RetryBarrierProps> = (props) => {
     props.className
   );
 
-  // Compact error summary for inline display
-  // Priority: RetryState.lastError (from failed resumeStream calls) → stream-error message
-  // The initial stream interruption error lives in workspace messages, not in RetryState
-  const errorSummary = useMemo(() => {
-    if (lastError) return getErrorMessage(lastError);
-
-    // Fall back to the last stream-error message in workspace state
-    if (workspaceState?.messages) {
-      const lastMsg = workspaceState.messages[workspaceState.messages.length - 1];
-      if (lastMsg?.type === "stream-error" && lastMsg.error) {
-        return lastMsg.error;
-      }
-    }
-    return null;
-  }, [lastError, workspaceState?.messages]);
+  const lastMessage = getLastNonDecorativeMessage(minionState.messages);
+  const lastStreamError = lastMessage?.type === "stream-error" ? lastMessage : null;
+  const interruptionReason = lastStreamError?.errorType === "rate_limit" ? "Rate limited" : null;
 
   let statusIcon: React.ReactNode = (
     <AlertTriangle aria-hidden="true" className="text-warning h-4 w-4 shrink-0" />
   );
-  let statusText: React.ReactNode = <>Stream interrupted</>;
-  let actionButton: React.ReactNode;
+  let statusText: React.ReactNode = <>{interruptionReason ?? "Stream interrupted"}</>;
+  let actionButton: React.ReactNode = (
+    <button
+      className="bg-warning font-primary text-background cursor-pointer rounded border-none px-4 py-2 text-xs font-semibold whitespace-nowrap transition-all duration-200 hover:-translate-y-px hover:brightness-120 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50"
+      disabled={isManualRetrying}
+      onClick={() => {
+        void handleManualRetry();
+      }}
+    >
+      Retry
+    </button>
+  );
 
-  if (effectiveAutoRetry) {
-    // Auto-retry mode: show countdown, error context, and stop button.
-    // useResumeManager handles the actual retry logic.
+  if (isAutoRetryActive) {
     statusIcon = (
       <RefreshCw aria-hidden="true" className="text-warning h-4 w-4 shrink-0 animate-spin" />
     );
 
-    const retryTiming =
-      countdown === 0
-        ? "Retrying..."
-        : <>Retrying in <span className="text-warning font-mono font-semibold">{countdown}s</span></>;
+    const reasonPrefix = interruptionReason ? <>{interruptionReason} — </> : null;
+    const retryAttempt = autoRetryStatus.attempt;
 
-    statusText = (
-      <div className="flex flex-col gap-0.5">
-        <span>{retryTiming} (attempt {attempt + 1})</span>
-        {errorSummary && (
-          <span className="text-foreground/70 text-[11px] font-normal">{errorSummary}</span>
-        )}
-      </div>
-    );
+    if (autoRetryStatus.type === "auto-retry-starting" || countdown === 0) {
+      statusText = (
+        <>
+          {reasonPrefix}
+          Retrying... (attempt {retryAttempt})
+        </>
+      );
+    } else {
+      statusText = (
+        <>
+          {reasonPrefix}
+          Retrying in <span className="text-warning font-mono font-semibold">
+            {countdown}s
+          </span>{" "}
+          (attempt {retryAttempt})
+        </>
+      );
+    }
 
     actionButton = (
       <button
         className="border-warning font-primary text-warning hover:bg-warning-overlay cursor-pointer rounded border bg-transparent px-4 py-2 text-xs font-semibold whitespace-nowrap transition-all duration-200 hover:-translate-y-px active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50"
         onClick={handleStopAutoRetry}
       >
-        Stop ({stopKeybind})
-      </button>
-    );
-  } else {
-    // Manual retry mode: show error as the primary status text
-    if (errorSummary) {
-      statusText = <>{errorSummary}</>;
-    }
-
-    actionButton = (
-      <button
-        className="bg-warning font-primary text-background cursor-pointer rounded border-none px-4 py-2 text-xs font-semibold whitespace-nowrap transition-all duration-200 hover:-translate-y-px hover:brightness-120 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50"
-        onClick={handleManualRetry}
-      >
-        Retry
+        Stop <span className="mobile-hide-shortcut-hints">({stopKeybind})</span>
       </button>
     );
   }
+
+  const details = manualRetryError ? (
+    <div className="font-primary text-foreground/80 pl-8 text-[12px]">
+      <span className="text-warning font-semibold">Retry failed:</span> {manualRetryError}
+    </div>
+  ) : autoRetryStatus?.type === "auto-retry-abandoned" ? (
+    <div className="font-primary text-foreground/80 pl-8 text-[12px]">
+      <span className="text-warning font-semibold">Auto-retry stopped:</span>{" "}
+      {autoRetryStatus.reason}
+    </div>
+  ) : null;
 
   return (
     <div className={barrierClassName}>
@@ -211,6 +316,7 @@ export const RetryBarrier: React.FC<RetryBarrierProps> = (props) => {
         </div>
         {actionButton}
       </div>
+      {details}
     </div>
   );
 };

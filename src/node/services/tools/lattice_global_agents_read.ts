@@ -4,15 +4,16 @@ import { tool } from "ai";
 
 import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools";
 import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
+import { getErrorMessage } from "@/common/utils/errors";
 
-function getLatticeHomeFromWorkspaceSessionDir(config: ToolConfiguration): string {
-  if (!config.workspaceSessionDir) {
-    throw new Error("lattice_global_agents_read requires workspaceSessionDir");
+function getLatticeHomeFromMinionSessionDir(config: ToolConfiguration): string {
+  if (!config.minionSessionDir) {
+    throw new Error("lattice_global_agents_read requires minionSessionDir");
   }
 
-  // workspaceSessionDir = <latticeHome>/sessions/<workspaceId>
-  const sessionsDir = path.dirname(config.workspaceSessionDir);
+  // minionSessionDir = <latticeHome>/sessions/<minionId>
+  const sessionsDir = path.dirname(config.minionSessionDir);
   return path.dirname(sessionsDir);
 }
 
@@ -39,15 +40,14 @@ export const createLatticeGlobalAgentsReadTool: ToolFactory = (config: ToolConfi
       { abortSignal: _abortSignal }
     ): Promise<LatticeGlobalAgentsReadToolOutput> => {
       try {
-        if (config.workspaceId !== LATTICE_HELP_CHAT_WORKSPACE_ID) {
+        if (config.minionId !== LATTICE_HELP_CHAT_MINION_ID) {
           return {
             success: false,
-            error:
-              "lattice_global_agents_read is only available in the Chat with Lattice system workspace",
+            error: "lattice_global_agents_read is only available in the Chat with Lattice system minion",
           };
         }
 
-        const latticeHome = getLatticeHomeFromWorkspaceSessionDir(config);
+        const latticeHome = getLatticeHomeFromMinionSessionDir(config);
         const agentsPath = path.join(latticeHome, "AGENTS.md");
 
         try {
@@ -69,7 +69,7 @@ export const createLatticeGlobalAgentsReadTool: ToolFactory = (config: ToolConfi
           throw error;
         }
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return {
           success: false,
           error: `Failed to read global AGENTS.md: ${message}`,

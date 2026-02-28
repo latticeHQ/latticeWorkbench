@@ -1,6 +1,7 @@
 import { tool } from "ai";
 
 import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools";
+import { readSidekickGitPatchArtifact } from "@/node/services/sidekickGitPatchArtifacts";
 import { TaskAwaitToolResultSchema, TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
 
 import { fromBashTaskId, toBashTaskId } from "./taskId";
@@ -9,8 +10,9 @@ import {
   dedupeStrings,
   parseToolResult,
   requireTaskService,
-  requireWorkspaceId,
+  requireMinionId,
 } from "./toolUtils";
+import { getErrorMessage } from "@/common/utils/errors";
 
 function coerceTimeoutMs(timeoutSecs: unknown): number | undefined {
   if (typeof timeoutSecs !== "number" || !Number.isFinite(timeoutSecs)) return undefined;
@@ -24,29 +26,31 @@ export const createTaskAwaitTool: ToolFactory = (config: ToolConfiguration) => {
     description: TOOL_DEFINITIONS.task_await.description,
     inputSchema: TOOL_DEFINITIONS.task_await.schema,
     execute: async (args, { abortSignal }): Promise<unknown> => {
-      const workspaceId = requireWorkspaceId(config, "task_await");
+      const minionId = requireMinionId(config, "task_await");
       const taskService = requireTaskService(config, "task_await");
 
       const timeoutMs = coerceTimeoutMs(args.timeout_secs);
-      const timeoutSecsForBash = args.timeout_secs;
+      // Preserve the documented 600s default when the model sends null
+      // (Zod .default() only replaces undefined, not null).
+      const timeoutSecsForBash = args.timeout_secs ?? 600;
 
       const requestedIds: string[] | null =
         args.task_ids && args.task_ids.length > 0 ? args.task_ids : null;
 
       let candidateTaskIds: string[] =
-        requestedIds ?? taskService.listActiveDescendantAgentTaskIds(workspaceId);
+        requestedIds ?? taskService.listActiveDescendantAgentTaskIds(minionId);
 
       if (!requestedIds && config.backgroundProcessManager) {
         const processes = await config.backgroundProcessManager.list();
-        const bashTaskIds = processes
-          .filter((proc) => {
-            if (proc.status !== "running") return false;
-            return (
-              proc.workspaceId === workspaceId ||
-              taskService.isDescendantAgentTask(workspaceId, proc.workspaceId)
-            );
-          })
-          .map((proc) => toBashTaskId(proc.id));
+        const bashTaskIds: string[] = [];
+        for (const proc of processes) {
+          if (proc.status !== "running") continue;
+          const inScope =
+            proc.minionId === minionId ||
+            (await taskService.isDescendantAgentTask(minionId, proc.minionId));
+          if (!inScope) continue;
+          bashTaskIds.push(toBashTaskId(proc.id));
+        }
 
         candidateTaskIds = [...candidateTaskIds, ...bashTaskIds];
       }
@@ -57,16 +61,32 @@ export const createTaskAwaitTool: ToolFactory = (config: ToolConfiguration) => {
       const bulkFilter = (
         taskService as unknown as {
           filterDescendantAgentTaskIds?: (
-            ancestorWorkspaceId: string,
+            ancestorMinionId: string,
             taskIds: string[]
-          ) => string[];
+          ) => Promise<string[]>;
         }
       ).filterDescendantAgentTaskIds;
-      const descendantAgentTaskIdSet = new Set(
+
+      // Read patch artifacts lazily (after waiting) to avoid stale results. Patch generation
+      // runs asynchronously (started in `finalizeAgentTaskReport` before waiters resolve), so
+      // the artifact may still be "pending" at read time — task_apply_git_patch does a fresh read.
+      const readGitFormatPatchArtifact = async (childTaskId: string) => {
+        if (!config.minionSessionDir) return null;
+        return await readSidekickGitPatchArtifact(config.minionSessionDir, childTaskId);
+      };
+
+      const descendantAgentTaskIds =
         typeof bulkFilter === "function"
-          ? bulkFilter.call(taskService, workspaceId, agentTaskIds)
-          : agentTaskIds.filter((taskId) => taskService.isDescendantAgentTask(workspaceId, taskId))
-      );
+          ? await bulkFilter.call(taskService, minionId, agentTaskIds)
+          : (
+              await Promise.all(
+                agentTaskIds.map(async (taskId) =>
+                  (await taskService.isDescendantAgentTask(minionId, taskId)) ? taskId : null
+                )
+              )
+            ).filter((taskId): taskId is string => typeof taskId === "string");
+
+      const descendantAgentTaskIdSet = new Set(descendantAgentTaskIds);
 
       const results = await Promise.all(
         uniqueTaskIds.map(async (taskId) => {
@@ -90,19 +110,19 @@ export const createTaskAwaitTool: ToolFactory = (config: ToolConfiguration) => {
             }
 
             const inScope =
-              proc.workspaceId === workspaceId ||
-              taskService.isDescendantAgentTask(workspaceId, proc.workspaceId);
+              proc.minionId === minionId ||
+              (await taskService.isDescendantAgentTask(minionId, proc.minionId));
             if (!inScope) {
               return { status: "invalid_scope" as const, taskId };
             }
 
             const outputResult = await config.backgroundProcessManager.getOutput(
               maybeProcessId,
-              args.filter,
-              args.filter_exclude,
+              args.filter ?? undefined,
+              args.filter_exclude ?? undefined,
               timeoutSecsForBash,
               abortSignal,
-              workspaceId,
+              minionId,
               "task_await"
             );
 
@@ -149,22 +169,25 @@ export const createTaskAwaitTool: ToolFactory = (config: ToolConfiguration) => {
               return { status, taskId };
             }
 
-            // Best-effort: the task might already have a cached report (even if its workspace was
+            // Best-effort: the task might already have a cached report (even if its minion was
             // cleaned up). Avoid blocking when it isn't available.
             try {
               const report = await taskService.waitForAgentReport(taskId, {
                 timeoutMs: 1,
                 abortSignal,
-                requestingWorkspaceId: workspaceId,
+                requestingMinionId: minionId,
               });
+
+              const gitFormatPatch = await readGitFormatPatchArtifact(taskId);
               return {
                 status: "completed" as const,
                 taskId,
                 reportMarkdown: report.reportMarkdown,
                 title: report.title,
+                ...(gitFormatPatch ? { artifacts: { gitFormatPatch } } : {}),
               };
             } catch (error: unknown) {
-              const message = error instanceof Error ? error.message : String(error);
+              const message = getErrorMessage(error);
               if (/not found/i.test(message)) {
                 return { status: "not_found" as const, taskId };
               }
@@ -176,20 +199,23 @@ export const createTaskAwaitTool: ToolFactory = (config: ToolConfiguration) => {
             const report = await taskService.waitForAgentReport(taskId, {
               timeoutMs,
               abortSignal,
-              requestingWorkspaceId: workspaceId,
+              requestingMinionId: minionId,
             });
+
+            const gitFormatPatch = await readGitFormatPatchArtifact(taskId);
             return {
               status: "completed" as const,
               taskId,
               reportMarkdown: report.reportMarkdown,
               title: report.title,
+              ...(gitFormatPatch ? { artifacts: { gitFormatPatch } } : {}),
             };
           } catch (error: unknown) {
             if (abortSignal?.aborted) {
               return { status: "error" as const, taskId, error: "Interrupted" };
             }
 
-            const message = error instanceof Error ? error.message : String(error);
+            const message = getErrorMessage(error);
             if (/not found/i.test(message)) {
               return { status: "not_found" as const, taskId };
             }

@@ -32,6 +32,11 @@ export interface ChatUsageDisplay {
 
   // True if any model in the sum had unknown pricing (costs are partial/incomplete)
   hasUnknownCosts?: boolean;
+
+  // True when costs were explicitly zeroed because the provider includes
+  // billing (providerMetadata.lattice.costsIncluded). These entries should not be
+  // repriced when model mappings change.
+  costsIncluded?: boolean;
 }
 
 /**
@@ -43,6 +48,11 @@ export function sumUsageHistory(usageHistory: ChatUsageDisplay[]): ChatUsageDisp
 
   // Track if any costs are undefined (model pricing unknown)
   let hasUndefinedCosts = false;
+  // Track if any entry has costs included (costs explicitly zeroed by the provider).
+  // If even one entry was costsIncluded, the aggregated bucket should not be
+  // repriced during mapping changes — we can't separate which tokens were
+  // provider-billed vs. which were priced from model metadata.
+  let anyCostsIncluded = false;
 
   const sum: ChatUsageDisplay = {
     input: { tokens: 0, cost_usd: 0 },
@@ -53,6 +63,7 @@ export function sumUsageHistory(usageHistory: ChatUsageDisplay[]): ChatUsageDisp
   };
 
   for (const usage of usageHistory) {
+    if (usage.costsIncluded) anyCostsIncluded = true;
     // Iterate over each component and sum tokens and costs
     const componentKeys: Array<"input" | "cached" | "cacheCreate" | "output" | "reasoning"> = [
       "input",
@@ -74,6 +85,12 @@ export function sumUsageHistory(usageHistory: ChatUsageDisplay[]): ChatUsageDisp
   // Flag if any costs were undefined (partial/incomplete total)
   if (hasUndefinedCosts) {
     sum.hasUnknownCosts = true;
+  }
+  // Preserve costsIncluded when any entry in the sum had provider-included billing.
+  // Mixed buckets (some costsIncluded, some not) cannot be safely repriced
+  // because we can't separate which tokens were provider-billed.
+  if (anyCostsIncluded) {
+    sum.costsIncluded = true;
   }
 
   return sum;

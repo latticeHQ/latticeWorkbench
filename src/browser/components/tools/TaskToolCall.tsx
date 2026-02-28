@@ -17,13 +17,18 @@ import {
   type ToolStatus,
 } from "./shared/toolUtils";
 import { MarkdownRenderer } from "../Messages/MarkdownRenderer";
+import { useOptionalMessageListContext } from "../Messages/MessageListContext";
+import { SidekickTranscriptDialog } from "./SidekickTranscriptDialog";
 import { cn } from "@/common/lib/utils";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import {
-  useOptionalWorkspaceContext,
-  toWorkspaceSelection,
-} from "@/browser/contexts/WorkspaceContext";
+  useOptionalMinionContext,
+  toMinionSelection,
+} from "@/browser/contexts/MinionContext";
+import { useTaskToolLiveTaskId } from "@/browser/stores/MinionStore";
 import { useCopyToClipboard } from "@/browser/hooks/useCopyToClipboard";
+import { useBackgroundProcesses } from "@/browser/stores/BackgroundBashStore";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type {
   TaskToolArgs,
   TaskToolResult,
@@ -34,6 +39,7 @@ import type {
   TaskTerminateToolArgs,
   TaskTerminateToolSuccessResult,
 } from "@/common/types/tools";
+import type { TaskReportLinking } from "@/browser/utils/messages/taskReportLinking";
 
 /**
  * Clean SVG icon for task tools - represents spawning/branching work
@@ -133,15 +139,15 @@ const AgentTypeBadge: React.FC<{
 };
 
 // Task ID display with open/copy affordance.
-// - If the task workspace exists locally, clicking opens it.
+// - If the task minion exists locally, clicking opens it.
 // - Otherwise, clicking copies the ID (so the user can search / share it).
 const TaskId: React.FC<{ id: string; className?: string }> = ({ id, className }) => {
-  const workspaceContext = useOptionalWorkspaceContext();
+  const minionContext = useOptionalMinionContext();
   const { copied, copyToClipboard } = useCopyToClipboard();
 
-  const workspace = workspaceContext?.workspaceMetadata.get(id);
+  const minion = minionContext?.minionMetadata.get(id);
 
-  const canOpenWorkspace = Boolean(workspace && workspaceContext);
+  const canOpenMinion = Boolean(minion && minionContext);
 
   return (
     <Tooltip>
@@ -153,8 +159,8 @@ const TaskId: React.FC<{ id: string; className?: string }> = ({ id, className })
             className
           )}
           onClick={() => {
-            if (workspace && workspaceContext) {
-              workspaceContext.setSelectedWorkspace(toWorkspaceSelection(workspace));
+            if (minion && minionContext) {
+              minionContext.setSelectedMinion(toMinionSelection(minion));
               return;
             }
 
@@ -165,39 +171,175 @@ const TaskId: React.FC<{ id: string; className?: string }> = ({ id, className })
         </button>
       </TooltipTrigger>
       <TooltipContent>
-        {canOpenWorkspace ? "Open workspace" : copied ? "Copied" : "Copy task ID"}
+        {canOpenMinion ? "Open minion" : copied ? "Copied" : "Copy task ID"}
       </TooltipContent>
     </Tooltip>
   );
 };
 
+interface TaskRowProps {
+  taskId: string;
+  status: string;
+  agentType?: string;
+  title?: string;
+  depth?: number;
+  className?: string;
+}
+
+const TaskRow: React.FC<TaskRowProps> = (props) => (
+  <div
+    className={cn("bg-code-bg flex flex-wrap items-center gap-2 rounded-sm p-2", props.className)}
+  >
+    <TaskId id={props.taskId} />
+    <TaskStatusBadge status={props.status} />
+    {props.agentType && <AgentTypeBadge type={props.agentType} />}
+    {props.title && (
+      <span className="text-foreground max-w-[200px] truncate text-[11px]">{props.title}</span>
+    )}
+    {typeof props.depth === "number" && props.depth > 0 && (
+      <span className="text-muted text-[10px]">depth: {props.depth}</span>
+    )}
+  </div>
+);
+
+const MAX_TASK_DEPTH_TRAVERSAL = 50;
+
+function computeMinionDepthFromRoot(
+  rootMinionId: string,
+  leafMinionId: string,
+  minionMetadata: ReadonlyMap<string, FrontendMinionMetadata>
+): number | undefined {
+  // Not a descendant task (or no nesting to measure).
+  if (rootMinionId === leafMinionId) {
+    return 0;
+  }
+
+  const visited = new Set<string>();
+  let depth = 0;
+  let currentId: string | undefined = leafMinionId;
+
+  // DEFENSIVE: Guard against cycles or corrupted metadata.
+  while (depth < MAX_TASK_DEPTH_TRAVERSAL) {
+    if (!currentId) {
+      return undefined;
+    }
+
+    if (visited.has(currentId)) {
+      return undefined;
+    }
+
+    visited.add(currentId);
+
+    const metadata = minionMetadata.get(currentId);
+    const parentId = metadata?.parentMinionId;
+
+    if (typeof parentId !== "string" || parentId.trim().length === 0) {
+      return undefined;
+    }
+
+    depth += 1;
+
+    if (parentId === rootMinionId) {
+      return depth;
+    }
+
+    currentId = parentId;
+  }
+
+  return undefined;
+}
+
+function toTaskStatusFromBackgroundProcessStatus(
+  status: "running" | "exited" | "killed" | "failed"
+): string {
+  switch (status) {
+    case "running":
+      return "running";
+    case "exited":
+      return "completed";
+    case "killed":
+      return "terminated";
+    case "failed":
+      return "error";
+    default:
+      return String(status);
+  }
+}
+
+function fromBashTaskId(taskId: string): string | null {
+  const prefix = "bash:";
+  if (!taskId.startsWith(prefix)) {
+    return null;
+  }
+
+  const processId = taskId.slice(prefix.length).trim();
+  return processId.length > 0 ? processId : null;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// TASK TOOL CALL (spawn sub-agent)
+// TASK TOOL CALL (spawn sidekick)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 interface TaskToolCallProps {
   args: TaskToolArgs;
   result?: TaskToolResult;
   status?: ToolStatus;
+  taskReportLinking?: TaskReportLinking;
+  minionId?: string;
+  toolCallId?: string;
 }
 
-export const TaskToolCall: React.FC<TaskToolCallProps> = ({ args, result, status = "pending" }) => {
+export const TaskToolCall: React.FC<TaskToolCallProps> = ({
+  minionId,
+  args,
+  result,
+  status = "pending",
+  taskReportLinking,
+  toolCallId,
+}) => {
   // Narrow result to error or success shape
   const errorResult = isToolErrorResult(result) ? result : null;
   const successResult = result && typeof result === "object" && "status" in result ? result : null;
 
+  const liveTaskId = useTaskToolLiveTaskId(minionId, toolCallId);
+
+  // Derive task state from the spawn response (or UI-only task-created event while executing)
+  const taskId = successResult?.taskId ?? liveTaskId ?? undefined;
+  const taskStatus = successResult?.status;
+
+  // Render-time linking: if a later task_await produced the final report, display it here.
+  // This keeps the report under the original spawn card without mutating history.
+  const linkedReport =
+    typeof taskId === "string" ? taskReportLinking?.reportByTaskId.get(taskId) : undefined;
+  const hasLinkedCompletion = Boolean(linkedReport);
+
+  const ownReportMarkdown =
+    successResult?.status === "completed" ? successResult.reportMarkdown : undefined;
+  const ownReportTitle = successResult?.status === "completed" ? successResult.title : undefined;
+
+  const reportMarkdown =
+    typeof ownReportMarkdown === "string" && ownReportMarkdown.trim().length > 0
+      ? ownReportMarkdown
+      : linkedReport?.reportMarkdown;
+  const reportTitle = ownReportTitle ?? linkedReport?.title;
+
+  const displayTaskStatus = hasLinkedCompletion ? "completed" : taskStatus;
+
   // Override status for background tasks: the aggregator sees success=true and marks "completed",
-  // but if the task is still queued/running, we should show "backgrounded" instead
-  const effectiveStatus: ToolStatus =
-    status === "completed" &&
-    successResult &&
-    (successResult.status === "queued" || successResult.status === "running")
+  // but if the task is still queued/running, we should show "backgrounded" instead.
+  // If we have a linked completion report, show the task as completed.
+  const effectiveStatus: ToolStatus = hasLinkedCompletion
+    ? "completed"
+    : status === "completed" &&
+        successResult &&
+        (successResult.status === "queued" || successResult.status === "running")
       ? "backgrounded"
       : status;
 
-  // Derive expansion: auto-expand for reports or errors, but respect user's explicit toggle
-  const hasReport = successResult?.status === "completed" && !!successResult.reportMarkdown;
-  const shouldAutoExpand = hasReport || !!errorResult;
+  // Derive expansion: keep task cards collapsed by default (reports can be long),
+  // but auto-expand on error. Always respect the user's explicit toggle.
+  const hasReport = typeof reportMarkdown === "string" && reportMarkdown.trim().length > 0;
+  const shouldAutoExpand = !!errorResult;
   const [userExpandedChoice, setUserExpandedChoice] = useState<boolean | null>(null);
   const expanded = userExpandedChoice ?? shouldAutoExpand;
   const toggleExpanded = () => setUserExpandedChoice(!expanded);
@@ -206,16 +348,11 @@ export const TaskToolCall: React.FC<TaskToolCallProps> = ({ args, result, status
 
   const title = args.title ?? "Task";
   const prompt = args.prompt ?? "";
-  const agentType = args.agentId ?? args.subagent_type ?? "unknown";
+  const agentType = args.agentId ?? args.sidekick_type ?? "unknown";
   const kindBadge = <AgentTypeBadge type={agentType} />;
 
-  // Derive task state from success result
-  const taskId = successResult?.taskId;
-  const taskStatus = successResult?.status;
-  const reportMarkdown =
-    successResult?.status === "completed" ? successResult.reportMarkdown : undefined;
-  const reportTitle = successResult?.status === "completed" ? successResult.title : undefined;
-
+  const canViewTranscript = displayTaskStatus === "completed" && typeof taskId === "string";
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
   // Show preview (first line or truncated)
   const preview = prompt.length > 60 ? prompt.slice(0, 60).trim() + "…" : prompt.split("\n")[0];
 
@@ -234,6 +371,15 @@ export const TaskToolCall: React.FC<TaskToolCallProps> = ({ args, result, status
         </StatusIndicator>
       </ToolHeader>
 
+      {canViewTranscript && taskId && (
+        <SidekickTranscriptDialog
+          open={transcriptOpen}
+          onOpenChange={setTranscriptOpen}
+          minionId={minionId}
+          taskId={taskId}
+        />
+      )}
+
       {expanded && (
         <ToolDetails>
           {/* Task info surface */}
@@ -243,7 +389,18 @@ export const TaskToolCall: React.FC<TaskToolCallProps> = ({ args, result, status
                 {reportTitle ?? title}
               </span>
               {taskId && <TaskId id={taskId} />}
-              {taskStatus && <TaskStatusBadge status={taskStatus} />}
+              {displayTaskStatus && <TaskStatusBadge status={displayTaskStatus} />}
+              {canViewTranscript && (
+                <button
+                  type="button"
+                  className="text-link text-[10px] font-medium underline-offset-2 hover:underline"
+                  onClick={() => {
+                    setTranscriptOpen(true);
+                  }}
+                >
+                  View transcript
+                </button>
+              )}
             </div>
 
             {/* Prompt / script */}
@@ -254,18 +411,20 @@ export const TaskToolCall: React.FC<TaskToolCallProps> = ({ args, result, status
               </div>
             </div>
 
-            {/* Report section */}
-            {reportMarkdown && (
+            {/* Report crew */}
+            {hasReport && reportMarkdown && (
               <div className="task-divider border-t pt-2">
                 <div className="text-muted mb-1 text-[10px] tracking-wide uppercase">Report</div>
-                <div className="text-[11px]">
+                <div
+                  className={cn("text-[11px]", hasLinkedCompletion && "bg-code-bg rounded-sm p-2")}
+                >
                   <MarkdownRenderer content={reportMarkdown} />
                 </div>
               </div>
             )}
 
             {/* Pending state */}
-            {effectiveStatus === "executing" && !reportMarkdown && (
+            {effectiveStatus === "executing" && !hasReport && (
               <div className="text-muted text-[11px] italic">
                 Task {isBackground ? "running in background" : "executing"}
                 <LoadingDots />
@@ -292,29 +451,90 @@ interface TaskAwaitToolCallProps {
   args: TaskAwaitToolArgs;
   result?: TaskAwaitToolSuccessResult;
   status?: ToolStatus;
+  taskReportLinking?: TaskReportLinking;
 }
 
 export const TaskAwaitToolCall: React.FC<TaskAwaitToolCallProps> = ({
   args,
   result,
   status = "pending",
+  taskReportLinking,
 }) => {
-  const hasResults = result?.results && result.results.length > 0;
-  const { expanded, toggleExpanded } = useToolExpansion(hasResults);
-
   const taskIds = args.task_ids;
   const timeoutSecs = args.timeout_secs;
   const results = result?.results ?? [];
 
+  const suppressReportInAwaitTaskIds = taskReportLinking?.suppressReportInAwaitTaskIds;
+
   const showConfigInfo =
-    taskIds !== undefined ||
-    timeoutSecs !== undefined ||
-    args.filter !== undefined ||
-    args.filter_exclude === true;
+    taskIds != null || timeoutSecs != null || args.filter != null || args.filter_exclude === true;
 
   // Summary for header
   const completedCount = results.filter((r) => r.status === "completed").length;
   const totalCount = results.length;
+  const failedCount = results.filter(
+    (r) => r.status === "error" || r.status === "invalid_scope" || r.status === "not_found"
+  ).length;
+
+  const minionContext = useOptionalMinionContext();
+  const minionMetadata = minionContext?.minionMetadata;
+  const messageListContext = useOptionalMessageListContext();
+  const minionId = messageListContext?.minionId;
+  const backgroundProcesses = useBackgroundProcesses(minionId);
+
+  const awaitedRows: TaskRowProps[] = [];
+  if (status === "executing" && results.length === 0 && Array.isArray(taskIds)) {
+    for (const taskId of taskIds) {
+      const processId = fromBashTaskId(taskId);
+      if (processId) {
+        const proc = backgroundProcesses.find((entry) => entry.id === processId);
+        awaitedRows.push({
+          taskId,
+          status: proc ? toTaskStatusFromBackgroundProcessStatus(proc.status) : "waiting",
+          title: proc?.displayName ?? proc?.id,
+          depth: 1,
+        });
+        continue;
+      }
+
+      const metadata = minionMetadata?.get(taskId);
+      if (!metadata) {
+        awaitedRows.push({ taskId, status: "waiting" });
+        continue;
+      }
+
+      const agentType = (metadata.agentId ?? metadata.agentType)?.trim();
+      const title = metadata.title?.trim().length ? metadata.title : metadata.name;
+
+      awaitedRows.push({
+        taskId,
+        status: metadata.taskStatus ?? "waiting",
+        agentType: agentType && agentType.length > 0 ? agentType : undefined,
+        title,
+        depth:
+          minionId && minionMetadata
+            ? computeMinionDepthFromRoot(minionId, taskId, minionMetadata)
+            : undefined,
+      });
+    }
+  }
+
+  function getMinionTitle(taskId: string): string | undefined {
+    const metadata = minionMetadata?.get(taskId);
+    const title = metadata?.title?.trim();
+    if (title && title.length > 0) return title;
+
+    const name = metadata?.name?.trim();
+    return name && name.length > 0 ? name : undefined;
+  }
+  // Keep task_await collapsed by default, but auto-expand when failures are present.
+  // This avoids hiding failures behind a "completed" badge in the header.
+  const shouldAutoExpand = failedCount > 0;
+  const [userExpandedChoice, setUserExpandedChoice] = useState<boolean | null>(null);
+  const expanded = userExpandedChoice ?? shouldAutoExpand;
+  const toggleExpanded = () => setUserExpandedChoice(!expanded);
+
+  const effectiveStatus: ToolStatus = status === "completed" && failedCount > 0 ? "failed" : status;
 
   return (
     <ToolContainer expanded={expanded}>
@@ -327,7 +547,10 @@ export const TaskAwaitToolCall: React.FC<TaskAwaitToolCallProps> = ({
             {completedCount}/{totalCount} completed
           </span>
         )}
-        <StatusIndicator status={status}>{getStatusDisplay(status)}</StatusIndicator>
+        {failedCount > 0 && <span className="text-danger text-[10px]">{failedCount} failed</span>}
+        <StatusIndicator status={effectiveStatus}>
+          {getStatusDisplay(effectiveStatus)}
+        </StatusIndicator>
       </ToolHeader>
 
       {expanded && (
@@ -336,9 +559,9 @@ export const TaskAwaitToolCall: React.FC<TaskAwaitToolCallProps> = ({
             {/* Config info */}
             {showConfigInfo && (
               <div className="task-divider text-muted mb-2 flex flex-wrap gap-2 border-b pb-2 text-[10px]">
-                {taskIds !== undefined && <span>Waiting for: {taskIds.length} task(s)</span>}
-                {timeoutSecs !== undefined && <span>Timeout: {timeoutSecs}s</span>}
-                {args.filter !== undefined && <span>Filter: {args.filter}</span>}
+                {taskIds != null && <span>Waiting for: {taskIds.length} task(s)</span>}
+                {timeoutSecs != null && <span>Timeout: {timeoutSecs}s</span>}
+                {args.filter != null && <span>Filter: {args.filter}</span>}
                 {args.filter_exclude === true && <span>Exclude: true</span>}
               </div>
             )}
@@ -346,14 +569,35 @@ export const TaskAwaitToolCall: React.FC<TaskAwaitToolCallProps> = ({
             {/* Results */}
             {results.length > 0 ? (
               <div className="space-y-3">
-                {results.map((r, idx) => (
-                  <TaskAwaitResult key={r.taskId ?? idx} result={r} />
-                ))}
+                {results.map((r, idx) => {
+                  const taskId = typeof r.taskId === "string" ? r.taskId : null;
+
+                  const spawnTitle = taskId
+                    ? taskReportLinking?.spawnTitleByTaskId.get(taskId)
+                    : undefined;
+                  const fallbackTitle =
+                    (spawnTitle && spawnTitle.trim().length > 0 ? spawnTitle.trim() : undefined) ??
+                    (taskId ? getMinionTitle(taskId) : undefined);
+
+                  return (
+                    <TaskAwaitResult
+                      key={taskId ?? idx}
+                      result={r}
+                      fallbackTitle={fallbackTitle}
+                      suppressReport={taskId ? suppressReportInAwaitTaskIds?.has(taskId) : false}
+                    />
+                  );
+                })}
               </div>
             ) : status === "executing" ? (
-              <div className="text-muted text-[11px] italic">
-                Waiting for tasks to complete
-                <LoadingDots />
+              <div className="space-y-2">
+                {awaitedRows.map((row) => (
+                  <TaskRow key={row.taskId} {...row} />
+                ))}
+                <div className="text-muted text-[11px] italic">
+                  Waiting for tasks to complete
+                  <LoadingDots />
+                </div>
               </div>
             ) : (
               <div className="text-muted text-[11px] italic">No tasks specified</div>
@@ -368,19 +612,59 @@ export const TaskAwaitToolCall: React.FC<TaskAwaitToolCallProps> = ({
 // Individual task_await result display
 const TaskAwaitResult: React.FC<{
   result: TaskAwaitToolSuccessResult["results"][number];
-}> = ({ result }) => {
+  fallbackTitle?: string;
+  suppressReport?: boolean;
+}> = ({ result, fallbackTitle, suppressReport }) => {
   const isCompleted = result.status === "completed";
   const reportMarkdown = isCompleted ? result.reportMarkdown : undefined;
-  const title = isCompleted ? result.title : undefined;
+
+  const rawReportTitle = isCompleted ? result.title : undefined;
+  const reportTitle =
+    typeof rawReportTitle === "string" && rawReportTitle.trim().length > 0
+      ? rawReportTitle.trim()
+      : undefined;
+
+  const title =
+    reportTitle ??
+    (fallbackTitle && fallbackTitle.trim().length > 0 ? fallbackTitle.trim() : undefined);
 
   const output = "output" in result ? result.output : undefined;
   const note = "note" in result ? result.note : undefined;
   const exitCode = "exitCode" in result ? result.exitCode : undefined;
+
+  const gitPatchArtifact =
+    result.status === "completed" ? result.artifacts?.gitFormatPatch : undefined;
+
+  const patchSummary = (() => {
+    if (!gitPatchArtifact) return null;
+
+    switch (gitPatchArtifact.status) {
+      case "pending":
+        return "Patch: pending";
+      case "skipped":
+        return "Patch: skipped (no commits)";
+      case "ready": {
+        const count = gitPatchArtifact.commitCount ?? 0;
+        const label = count === 1 ? "commit" : "commits";
+        return `Patch: ready (${count} ${label})`;
+      }
+      case "failed": {
+        const error = gitPatchArtifact.error?.trim();
+        const shortError =
+          error && error.length > 80 ? `${error.slice(0, 77)}…` : (error ?? undefined);
+        return shortError ? `Patch: failed (${shortError})` : "Patch: failed";
+      }
+      default:
+        return `Patch: ${String(gitPatchArtifact.status)}`;
+    }
+  })();
   const elapsedMs = "elapsed_ms" in result ? result.elapsed_ms : undefined;
+
+  const showDetails = suppressReport !== true;
 
   return (
     <div className="bg-code-bg rounded-sm p-2">
-      <div className="mb-1 flex flex-wrap items-center gap-2">
+      <div className={cn("flex flex-wrap items-center gap-2", showDetails && "mb-1")}>
         <TaskId id={result.taskId} />
         <TaskStatusBadge status={result.status} />
         {title && <span className="text-foreground text-[11px] font-medium">{title}</span>}
@@ -404,13 +688,15 @@ const TaskAwaitResult: React.FC<{
         )}
       </div>
 
-      {!isCompleted && output && output.length > 0 && (
+      {showDetails && patchSummary && <div className="text-muted text-[10px]">{patchSummary}</div>}
+
+      {showDetails && !isCompleted && output && output.length > 0 && (
         <div className="text-foreground bg-code-bg max-h-[140px] overflow-y-auto rounded-sm p-2 text-[11px] break-words whitespace-pre-wrap">
           {output}
         </div>
       )}
 
-      {reportMarkdown && (
+      {showDetails && reportMarkdown && (
         <div className="mt-2 text-[11px]">
           <MarkdownRenderer content={reportMarkdown} />
         </div>
@@ -439,8 +725,7 @@ export const TaskListToolCall: React.FC<TaskListToolCallProps> = ({
   status = "pending",
 }) => {
   const tasks = result?.tasks ?? [];
-  const hasTasks = tasks.length > 0;
-  const { expanded, toggleExpanded } = useToolExpansion(hasTasks);
+  const { expanded, toggleExpanded } = useToolExpansion(false);
 
   const statusFilter = args.statuses;
 
@@ -488,15 +773,13 @@ export const TaskListToolCall: React.FC<TaskListToolCallProps> = ({
 const TaskListItem: React.FC<{
   task: TaskListToolSuccessResult["tasks"][number];
 }> = ({ task }) => (
-  <div className="bg-code-bg flex flex-wrap items-center gap-2 rounded-sm p-2">
-    <TaskId id={task.taskId} />
-    <TaskStatusBadge status={task.status} />
-    {task.agentType && <AgentTypeBadge type={task.agentType} />}
-    {task.title && (
-      <span className="text-foreground max-w-[200px] truncate text-[11px]">{task.title}</span>
-    )}
-    {task.depth > 0 && <span className="text-muted text-[10px]">depth: {task.depth}</span>}
-  </div>
+  <TaskRow
+    taskId={task.taskId}
+    status={task.status}
+    agentType={task.agentType}
+    title={task.title}
+    depth={task.depth}
+  />
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════

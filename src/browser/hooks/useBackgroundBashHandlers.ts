@@ -19,7 +19,7 @@ const EMPTY_PROCESSES: BackgroundProcessInfo[] = [];
  */
 export function useBackgroundBashHandlers(
   api: APIClient | null,
-  workspaceId: string | null
+  minionId: string | null
 ): {
   /** List of background processes */
   processes: BackgroundProcessInfo[];
@@ -40,18 +40,18 @@ export function useBackgroundBashHandlers(
   const [foregroundToolCallIds, setForegroundToolCallIds] = useState<Set<string>>(EMPTY_SET);
   // Process IDs currently being terminated (for visual feedback)
   const [terminatingIds, setTerminatingIds] = useState<Set<string>>(EMPTY_SET);
-  const previousWorkspaceIdRef = useRef<string | null>(workspaceId);
+  const previousMinionIdRef = useRef<string | null>(minionId);
 
   useEffect(() => {
-    if (previousWorkspaceIdRef.current === workspaceId) {
+    if (previousMinionIdRef.current === minionId) {
       return;
     }
 
-    previousWorkspaceIdRef.current = workspaceId;
+    previousMinionIdRef.current = minionId;
     setProcesses(EMPTY_PROCESSES);
     setForegroundToolCallIds(EMPTY_SET);
     setTerminatingIds(EMPTY_SET);
-  }, [workspaceId]);
+  }, [minionId]);
 
   // Keep a ref for handleMessageSentBackground to avoid recreating on every change
   const foregroundIdsRef = useRef<Set<string>>(EMPTY_SET);
@@ -64,12 +64,12 @@ export function useBackgroundBashHandlers(
 
   const terminate = useCallback(
     async (processId: string): Promise<void> => {
-      if (!api || !workspaceId) {
-        throw new Error("API or workspace not available");
+      if (!api || !minionId) {
+        throw new Error("API or minion not available");
       }
 
-      const result = await api.workspace.backgroundBashes.terminate({
-        workspaceId,
+      const result = await api.minion.backgroundBashes.terminate({
+        minionId,
         processId,
       });
       if (!result.success) {
@@ -77,17 +77,17 @@ export function useBackgroundBashHandlers(
       }
       // State will update via subscription
     },
-    [api, workspaceId]
+    [api, minionId]
   );
 
   const sendToBackground = useCallback(
     async (toolCallId: string): Promise<void> => {
-      if (!api || !workspaceId) {
-        throw new Error("API or workspace not available");
+      if (!api || !minionId) {
+        throw new Error("API or minion not available");
       }
 
-      const result = await api.workspace.backgroundBashes.sendToBackground({
-        workspaceId,
+      const result = await api.minion.backgroundBashes.sendToBackground({
+        minionId,
         toolCallId,
       });
       if (!result.success) {
@@ -95,12 +95,12 @@ export function useBackgroundBashHandlers(
       }
       // State will update via subscription
     },
-    [api, workspaceId]
+    [api, minionId]
   );
 
   // Subscribe to background bash state changes
   useEffect(() => {
-    if (!api || !workspaceId) {
+    if (!api || !minionId) {
       setProcesses(EMPTY_PROCESSES);
       setForegroundToolCallIds(EMPTY_SET);
       setTerminatingIds(EMPTY_SET);
@@ -110,14 +110,28 @@ export function useBackgroundBashHandlers(
     const controller = new AbortController();
     const { signal } = controller;
 
+    // Some oRPC iterators don't eagerly close on abort alone.
+    // Ensure we `return()` them so backend subscriptions clean up EventEmitter listeners.
+    let iterator: AsyncIterator<{
+      processes: BackgroundProcessInfo[];
+      foregroundToolCallIds: string[];
+    }> | null = null;
+
     (async () => {
       try {
-        const iterator = await api.workspace.backgroundBashes.subscribe(
-          { workspaceId },
+        const subscribedIterator = await api.minion.backgroundBashes.subscribe(
+          { minionId },
           { signal }
         );
 
-        for await (const state of iterator) {
+        if (signal.aborted) {
+          void subscribedIterator.return?.();
+          return;
+        }
+
+        iterator = subscribedIterator;
+
+        for await (const state of subscribedIterator) {
           if (signal.aborted) break;
 
           setProcesses(state.processes);
@@ -150,8 +164,9 @@ export function useBackgroundBashHandlers(
 
     return () => {
       controller.abort();
+      void iterator?.return?.();
     };
-  }, [api, workspaceId]);
+  }, [api, minionId]);
 
   // Wrapped handlers with error handling
   // Use error.showError directly in deps to avoid recreating when error.error changes

@@ -29,7 +29,7 @@ describe("injectFileAtMentions", () => {
 
       const result = await injectFileAtMentions(messages, {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       // Injection should stay anchored to the *original* mention message.
@@ -66,7 +66,7 @@ describe("injectFileAtMentions", () => {
 
       const result = await injectFileAtMentions(messages, {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       const syntheticMessages = result.filter((m) => m.metadata?.synthetic === true);
@@ -97,7 +97,7 @@ describe("injectFileAtMentions", () => {
 
       const result = await injectFileAtMentions(messages, {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toHaveLength(2);
@@ -126,7 +126,7 @@ describe("injectFileAtMentions", () => {
 
       const result = await injectFileAtMentions(messages, {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toEqual(messages);
@@ -149,7 +149,7 @@ describe("injectFileAtMentions", () => {
 
       const result = await injectFileAtMentions(messages, {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toHaveLength(2);
@@ -173,7 +173,7 @@ describe("injectFileAtMentions", () => {
 
       const result = await injectFileAtMentions(messages, {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toEqual(messages);
@@ -211,7 +211,7 @@ describe("injectFileAtMentions", () => {
 
       const result = await injectFileAtMentions(messages, {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       // Should NOT inject a new synthetic message because the token was already materialized
@@ -246,7 +246,7 @@ describe("materializeFileAtMentions", () => {
 
       const result = await materializeFileAtMentions("Please check @src/foo.ts", {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toHaveLength(1);
@@ -277,7 +277,7 @@ describe("materializeFileAtMentions", () => {
 
       const result = await materializeFileAtMentions("Check @src/foo.ts#L2-3", {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toHaveLength(1);
@@ -300,7 +300,7 @@ describe("materializeFileAtMentions", () => {
 
       const result = await materializeFileAtMentions("No file mentions here", {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toHaveLength(0);
@@ -317,7 +317,7 @@ describe("materializeFileAtMentions", () => {
 
       const result = await materializeFileAtMentions("Check @src/nonexistent.ts", {
         runtime,
-        workspacePath: tmpDir,
+        minionPath: tmpDir,
       });
 
       expect(result).toHaveLength(0);

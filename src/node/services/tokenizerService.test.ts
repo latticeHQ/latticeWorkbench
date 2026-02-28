@@ -72,11 +72,11 @@ describe("TokenizerService", () => {
       );
       const nowSpy = spyOn(Date, "now").mockReturnValue(1234);
 
-      const result = await service.calculateStats("test-workspace", messages, "gpt-4");
+      const result = await service.calculateStats("test-minion", messages, "gpt-4");
       expect(result).toBe(mockResult);
-      expect(statsSpy).toHaveBeenCalledWith(messages, "gpt-4");
+      expect(statsSpy).toHaveBeenCalledWith(messages, "gpt-4", null);
       expect(persistSpy).toHaveBeenCalledWith(
-        "test-workspace",
+        "test-minion",
         expect.objectContaining({
           version: 1,
           computedAt: 1234,
@@ -139,8 +139,8 @@ describe("TokenizerService", () => {
         undefined
       );
 
-      const p1 = service.calculateStats("test-workspace", messagesV1, "gpt-4");
-      const p2 = service.calculateStats("test-workspace", messagesV2, "gpt-4");
+      const p1 = service.calculateStats("test-minion", messagesV1, "gpt-4");
+      const p2 = service.calculateStats("test-minion", messagesV2, "gpt-4");
 
       // Resolve second (newer) request first
       d2.resolve(statsV2);
@@ -153,7 +153,7 @@ describe("TokenizerService", () => {
       // Only the newer request should persist the cache.
       expect(persistSpy).toHaveBeenCalledTimes(1);
       expect(persistSpy).toHaveBeenCalledWith(
-        "test-workspace",
+        "test-minion",
         expect.objectContaining({
           history: { messageCount: messagesV2.length, maxHistorySequence: 3 },
         })
@@ -165,13 +165,13 @@ describe("TokenizerService", () => {
 
     test("throws on invalid messages", () => {
       // @ts-expect-error testing runtime validation
-      expect(service.calculateStats("test-workspace", null, "gpt-4")).rejects.toThrow(
+      expect(service.calculateStats("test-minion", null, "gpt-4")).rejects.toThrow(
         "requires an array"
       );
     });
 
-    test("throws on empty workspaceId", () => {
-      expect(service.calculateStats("", [], "gpt-4")).rejects.toThrow("requires workspaceId");
+    test("throws on empty minionId", () => {
+      expect(service.calculateStats("", [], "gpt-4")).rejects.toThrow("requires minionId");
     });
   });
 });

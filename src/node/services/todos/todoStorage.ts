@@ -6,10 +6,10 @@ import type { TodoItem } from "@/common/types/tools";
 const TODO_FILE_NAME = "todos.json";
 
 /**
- * Get path to todos.json file in the workspace's session directory.
+ * Get path to todos.json file in the minion's session directory.
  */
-export function getTodoFilePath(workspaceSessionDir: string): string {
-  return path.join(workspaceSessionDir, TODO_FILE_NAME);
+export function getTodoFilePath(minionSessionDir: string): string {
+  return path.join(minionSessionDir, TODO_FILE_NAME);
 }
 
 export function coerceTodoItems(value: unknown): TodoItem[] {
@@ -34,10 +34,10 @@ export function coerceTodoItems(value: unknown): TodoItem[] {
 }
 
 /**
- * Read todos from the workspace session directory.
+ * Read todos from the minion session directory.
  */
-export async function readTodosForSessionDir(workspaceSessionDir: string): Promise<TodoItem[]> {
-  const todoFile = getTodoFilePath(workspaceSessionDir);
+export async function readTodosForSessionDir(minionSessionDir: string): Promise<TodoItem[]> {
+  const todoFile = getTodoFilePath(minionSessionDir);
 
   try {
     const content = await fs.readFile(todoFile, "utf-8");

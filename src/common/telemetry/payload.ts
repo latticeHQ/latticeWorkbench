@@ -5,7 +5,7 @@
  * Users can inspect this file to understand exactly what telemetry data is collected.
  *
  * PRIVACY GUIDELINES:
- * - Randomly generated IDs (e.g., workspace IDs, session IDs) can be sent verbatim
+ * - Randomly generated IDs (e.g., minion IDs, session IDs) can be sent verbatim
  *   as they contain no user information and are not guessable.
  * - Display names, project names, file paths, or anything that could reveal the
  *   nature of the user's work MUST NOT be sent, even if hashed.
@@ -67,42 +67,42 @@ export interface FrontendPlatformInfo {
 }
 
 /**
- * Workspace events
+ * Minion events
  */
-export interface WorkspaceCreatedPayload {
-  /** Workspace ID (randomly generated, safe to send) */
-  workspaceId: string;
-  /** Runtime type for the workspace */
+export interface MinionCreatedPayload {
+  /** Minion ID (randomly generated, safe to send) */
+  minionId: string;
+  /** Runtime type for the minion */
   runtimeType: TelemetryRuntimeType;
   /** Frontend platform info */
   frontendPlatform: FrontendPlatformInfo;
 }
 
-export interface WorkspaceSwitchedPayload {
-  /** Previous workspace ID (randomly generated, safe to send) */
-  fromWorkspaceId: string;
-  /** New workspace ID (randomly generated, safe to send) */
-  toWorkspaceId: string;
+export interface MinionSwitchedPayload {
+  /** Previous minion ID (randomly generated, safe to send) */
+  fromMinionId: string;
+  /** New minion ID (randomly generated, safe to send) */
+  toMinionId: string;
 }
 
 /**
  * Thinking level for extended thinking feature
  */
-export type TelemetryThinkingLevel = "off" | "low" | "medium" | "high" | "xhigh";
+export type TelemetryThinkingLevel = "off" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /**
  * Chat/AI interaction events
  */
 export interface MessageSentPayload {
-  /** Workspace ID (randomly generated, safe to send) */
-  workspaceId: string;
+  /** Minion ID (randomly generated, safe to send) */
+  minionId: string;
   /** Full model identifier (e.g., 'anthropic/claude-3-5-sonnet-20241022') */
   model: string;
   /** Agent id (e.g., 'plan', 'exec', 'explore'). Optional for legacy clients. */
   agentId?: string;
   /** Message length rounded to nearest power of 2 (e.g., 128, 256, 512, 1024) */
   message_length_b2: number;
-  /** Runtime type for the workspace */
+  /** Runtime type for the minion */
   runtimeType: TelemetryRuntimeType;
   /** Frontend platform info */
   frontendPlatform: FrontendPlatformInfo;
@@ -116,16 +116,16 @@ export interface MessageSentPayload {
 export type TelemetryMCPTransportMode = "none" | "stdio_only" | "http_only" | "sse_only" | "mixed";
 
 export interface MCPContextInjectedPayload {
-  /** Workspace ID (randomly generated, safe to send) */
-  workspaceId: string;
+  /** Minion ID (randomly generated, safe to send) */
+  minionId: string;
   /** Full model identifier */
   model: string;
   /** Active agent definition id (e.g. "plan", "exec", "explore"). Optional for backwards compatibility. */
   agentId?: string;
-  /** Runtime type for the workspace */
+  /** Runtime type for the minion */
   runtimeType: TelemetryRuntimeType;
 
-  /** How many servers are enabled for this workspace message */
+  /** How many servers are enabled for this minion message */
   mcp_server_enabled_count: number;
   /** How many servers successfully started (client created + tools fetched) */
   mcp_server_started_count: number;
@@ -182,6 +182,34 @@ export interface MCPServerConfigChangedPayload {
   uses_secret_headers: boolean;
   /** Only set when action=set_tool_allowlist */
   tool_allowlist_size_b2?: number;
+}
+
+export type TelemetryMCPOAuthFlowErrorCategory =
+  | "timeout"
+  | "cancelled"
+  | "state_mismatch"
+  | "provider_error"
+  | "unknown";
+
+export interface MCPOAuthFlowStartedPayload {
+  transport: TelemetryMCPServerTransport;
+  has_scope_hint: boolean;
+  has_resource_metadata_hint: boolean;
+}
+
+export interface MCPOAuthFlowCompletedPayload {
+  transport: TelemetryMCPServerTransport;
+  duration_ms_b2: number;
+  has_scope_hint: boolean;
+  has_resource_metadata_hint: boolean;
+}
+
+export interface MCPOAuthFlowFailedPayload {
+  transport: TelemetryMCPServerTransport;
+  duration_ms_b2: number;
+  has_scope_hint: boolean;
+  has_resource_metadata_hint: boolean;
+  error_category: TelemetryMCPOAuthFlowErrorCategory;
 }
 /**
  * Stats tab event - tracks when users view timing stats.
@@ -292,9 +320,9 @@ export interface VoiceTranscriptionPayload {
  * Error tracking context types (explicit enum for transparency)
  */
 export type ErrorContext =
-  | "workspace-creation"
-  | "workspace-deletion"
-  | "workspace-switch"
+  | "minion-creation"
+  | "minion-deletion"
+  | "minion-switch"
   | "message-send"
   | "message-stream"
   | "project-add"
@@ -328,14 +356,23 @@ export interface ExperimentOverriddenPayload {
  * Union type of all telemetry event payloads
  * Frontend sends these; backend adds BaseTelemetryProperties before forwarding to PostHog
  */
+/**
+ * Telemetry disabled event — sent as a final event before shutting down PostHog.
+ * Empty properties; base properties (version, platform, etc.) are added by the backend.
+ */
+export type TelemetryDisabledPayload = Record<string, never>;
+
 export type TelemetryEventPayload =
   | { event: "app_started"; properties: AppStartedPayload }
-  | { event: "workspace_created"; properties: WorkspaceCreatedPayload }
-  | { event: "workspace_switched"; properties: WorkspaceSwitchedPayload }
+  | { event: "minion_created"; properties: MinionCreatedPayload }
+  | { event: "minion_switched"; properties: MinionSwitchedPayload }
   | { event: "message_sent"; properties: MessageSentPayload }
   | { event: "mcp_context_injected"; properties: MCPContextInjectedPayload }
   | { event: "mcp_server_tested"; properties: MCPServerTestedPayload }
   | { event: "mcp_server_config_changed"; properties: MCPServerConfigChangedPayload }
+  | { event: "mcp_oauth_flow_started"; properties: MCPOAuthFlowStartedPayload }
+  | { event: "mcp_oauth_flow_completed"; properties: MCPOAuthFlowCompletedPayload }
+  | { event: "mcp_oauth_flow_failed"; properties: MCPOAuthFlowFailedPayload }
   | { event: "stats_tab_opened"; properties: StatsTabOpenedPayload }
   | { event: "stream_timing_computed"; properties: StreamTimingComputedPayload }
   | { event: "stream_timing_invalid"; properties: StreamTimingInvalidPayload }
@@ -345,4 +382,5 @@ export type TelemetryEventPayload =
   | { event: "command_used"; properties: CommandUsedPayload }
   | { event: "voice_transcription"; properties: VoiceTranscriptionPayload }
   | { event: "error_occurred"; properties: ErrorOccurredPayload }
-  | { event: "experiment_overridden"; properties: ExperimentOverriddenPayload };
+  | { event: "experiment_overridden"; properties: ExperimentOverriddenPayload }
+  | { event: "telemetry_disabled"; properties: TelemetryDisabledPayload };

@@ -1,9 +1,9 @@
 /**
- * Debug command to test git status parsing against actual workspaces.
+ * Debug command to test git status parsing against actual minions.
  *
  * This reuses the EXACT same code path as production to ensure they stay in sync.
  *
- * Usage: bun debug git-status [workspace-id]
+ * Usage: bun debug git-status [minion-id]
  */
 
 import { readdirSync, statSync } from "fs";
@@ -12,11 +12,11 @@ import { execSync } from "child_process";
 
 // Import production code - script and parser stay in sync
 import { GIT_STATUS_SCRIPT, parseGitStatusScriptOutput } from "@/common/utils/git/gitStatus";
-import { getLatticeSourceDir } from "@/common/constants/paths";
+import { getLatticeSrcDir } from "@/common/constants/paths";
 
-function findWorkspaces(): Array<{ id: string; path: string }> {
-  const workspaces: Array<{ id: string; path: string }> = [];
-  const latticeSrcDir = getLatticeSourceDir();
+function findMinions(): Array<{ id: string; path: string }> {
+  const minions: Array<{ id: string; path: string }> = [];
+  const latticeSrcDir = getLatticeSrcDir();
 
   try {
     const projects = readdirSync(latticeSrcDir);
@@ -26,35 +26,35 @@ function findWorkspaces(): Array<{ id: string; path: string }> {
 
       const branches = readdirSync(projectPath);
       for (const branch of branches) {
-        const workspacePath = join(projectPath, branch);
-        if (statSync(workspacePath).isDirectory()) {
-          workspaces.push({
+        const minionPath = join(projectPath, branch);
+        if (statSync(minionPath).isDirectory()) {
+          minions.push({
             // NOTE: Using directory name as display ID for debug purposes only.
-            // This is NOT how workspace IDs are determined in production code.
-            // Production workspace IDs come from metadata.json in the session dir.
+            // This is NOT how minion IDs are determined in production code.
+            // Production minion IDs come from metadata.json in the session dir.
             id: branch,
-            path: workspacePath,
+            path: minionPath,
           });
         }
       }
     }
   } catch (err) {
-    console.error("Failed to find workspaces:", err);
+    console.error("Failed to find minions:", err);
   }
 
-  return workspaces;
+  return minions;
 }
 
-function testGitStatus(workspaceId: string, workspacePath: string) {
+function testGitStatus(minionId: string, minionPath: string) {
   console.log("\n" + "=".repeat(80));
-  console.log(`Workspace: ${workspaceId}`);
-  console.log(`Path: ${workspacePath}`);
+  console.log(`Minion: ${minionId}`);
+  console.log(`Path: ${minionPath}`);
   console.log("=".repeat(80));
 
   try {
     // Run the git status script
     const output = execSync(GIT_STATUS_SCRIPT, {
-      cwd: workspacePath,
+      cwd: minionPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -91,7 +91,7 @@ function testGitStatus(workspaceId: string, workspacePath: string) {
     console.log("\n--- VERIFICATION (git rev-list) ---");
     try {
       const revList = execSync(`git rev-list --left-right --count HEAD...origin/${primaryBranch}`, {
-        cwd: workspacePath,
+        cwd: minionPath,
         encoding: "utf-8",
       }).trim();
 
@@ -115,44 +115,44 @@ function testGitStatus(workspaceId: string, workspacePath: string) {
   }
 }
 
-export function gitStatusCommand(workspaceId?: string) {
-  const latticeSrcDir = getLatticeSourceDir();
+export function gitStatusCommand(minionId?: string) {
+  const latticeSrcDir = getLatticeSrcDir();
   console.log("🔍 Git Status Debug Tool");
-  console.log("Finding workspaces in:", latticeSrcDir);
+  console.log("Finding minions in:", latticeSrcDir);
   console.log();
 
-  const workspaces = findWorkspaces();
-  console.log(`Found ${workspaces.length} workspaces\n`);
+  const minions = findMinions();
+  console.log(`Found ${minions.length} minions\n`);
 
-  if (workspaces.length === 0) {
-    console.log("No workspaces found! Check that ~/.lattice/src/ contains workspace directories.");
+  if (minions.length === 0) {
+    console.log("No minions found! Check that ~/.lattice/src/ contains minion directories.");
     process.exit(1);
   }
 
-  if (workspaceId) {
-    // Test specific workspace
-    const workspace = workspaces.find((w) => w.id === workspaceId);
-    if (!workspace) {
-      console.error(`Workspace "${workspaceId}" not found`);
-      console.log("\nAvailable workspaces:");
-      workspaces.forEach((w) => console.log(`  - ${w.id}`));
+  if (minionId) {
+    // Test specific minion
+    const minion = minions.find((w) => w.id === minionId);
+    if (!minion) {
+      console.error(`Minion "${minionId}" not found`);
+      console.log("\nAvailable minions:");
+      minions.forEach((w) => console.log(`  - ${w.id}`));
       process.exit(1);
     }
-    testGitStatus(workspace.id, workspace.path);
+    testGitStatus(minion.id, minion.path);
   } else {
-    // Test first 3 workspaces
-    const toTest = workspaces.slice(0, 3);
+    // Test first 3 minions
+    const toTest = minions.slice(0, 3);
     console.log(
-      `Testing ${toTest.length} workspaces (use "bun debug git-status <id>" for specific workspace)...\n`
+      `Testing ${toTest.length} minions (use "bun debug git-status <id>" for specific minion)...\n`
     );
 
-    for (const workspace of toTest) {
-      testGitStatus(workspace.id, workspace.path);
+    for (const minion of toTest) {
+      testGitStatus(minion.id, minion.path);
     }
 
     console.log("\n" + "=".repeat(80));
-    console.log("Available workspaces:");
-    workspaces.forEach((w) => console.log(`  - ${w.id}`));
+    console.log("Available minions:");
+    minions.forEach((w) => console.log(`  - ${w.id}`));
   }
 
   console.log("\n" + "=".repeat(80));

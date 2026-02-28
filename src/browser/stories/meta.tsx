@@ -9,6 +9,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { FC } from "react";
 import { useRef } from "react";
 import { AppLoader } from "../components/AppLoader";
+import { SELECTED_MINION_KEY, UI_THEME_KEY } from "@/common/constants/storage";
 import type { APIClient } from "@/browser/contexts/API";
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -22,7 +23,10 @@ export const appMeta: Meta<typeof AppLoader> = {
     layout: "fullscreen",
     backgrounds: {
       default: "dark",
-      values: [{ name: "dark", value: "#1e1e1e" }],
+      values: [
+        { name: "dark", value: "#1e1e1e" },
+        { name: "light", value: "#f5f6f8" },
+      ],
     },
     chromatic: { delay: 500 },
   },
@@ -39,6 +43,15 @@ interface AppWithMocksProps {
 }
 
 /** Wrapper that runs setup once and passes the client to AppLoader */
+
+function resetStorybookPersistedStateForStory(): void {
+  // Storybook/Chromatic can preserve localStorage across story captures.
+  // Reset persisted state so each story starts from a known route + theme.
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem(SELECTED_MINION_KEY);
+    localStorage.setItem(UI_THEME_KEY, JSON.stringify("dark"));
+  }
+}
 function getStorybookStoryId(): string | null {
   if (typeof window === "undefined") {
     return null;
@@ -53,12 +66,17 @@ export const AppWithMocks: FC<AppWithMocksProps> = ({ setup }) => {
   const clientRef = useRef<APIClient | null>(null);
 
   const storyId = getStorybookStoryId();
-  if (lastStoryIdRef.current !== storyId) {
+  const shouldReset = clientRef.current === null || lastStoryIdRef.current !== storyId;
+  if (shouldReset) {
+    resetStorybookPersistedStateForStory();
     lastStoryIdRef.current = storyId;
-    clientRef.current = setup();
+    clientRef.current = null;
   }
 
   clientRef.current ??= setup();
 
-  return <AppLoader client={clientRef.current} />;
+  // Key by storyId to force full remount between stories.
+  // Without this, RouterProvider keeps its initial route and APIProvider
+  // doesn't re-initialize, causing flaky "loading page vs left screen" states.
+  return <AppLoader key={storyId} client={clientRef.current} />;
 };

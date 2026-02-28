@@ -1,5 +1,4 @@
-import type { Dispatch, ReactNode, SetStateAction } from "react";
-import React, {
+import {
   createContext,
   useCallback,
   useContext,
@@ -7,6 +6,9 @@ import React, {
   useMemo,
   useRef,
   useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
 } from "react";
 
 import { useAPI } from "@/browser/contexts/API";
@@ -16,11 +18,12 @@ import { matchesKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
 import {
   getAgentIdKey,
   getProjectScopeId,
-  getDisableWorkspaceAgentsKey,
+  getDisableMinionAgentsKey,
   GLOBAL_SCOPE_ID,
 } from "@/common/constants/storage";
 import type { AgentDefinitionDescriptor } from "@/common/types/agentDefinition";
 import { sortAgentsStable } from "@/browser/utils/agents";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
 
 export interface AgentContextValue {
   agentId: string;
@@ -35,25 +38,27 @@ export interface AgentContextValue {
   /** True while a refresh is in progress */
   refreshing: boolean;
   /**
-   * When true, agents are loaded from projectPath only (ignoring workspace worktree).
-   * Useful for unbricking when iterating on agent files in a workspace.
+   * When true, agents are loaded from projectPath only (ignoring minion worktree).
+   * Useful for unbricking when iterating on agent files in a minion.
    */
-  disableWorkspaceAgents: boolean;
-  setDisableWorkspaceAgents: Dispatch<SetStateAction<boolean>>;
+  disableMinionAgents: boolean;
+  setDisableMinionAgents: Dispatch<SetStateAction<boolean>>;
 }
 
 const AgentContext = createContext<AgentContextValue | undefined>(undefined);
 
 type AgentProviderProps =
   | { value: AgentContextValue; children: ReactNode }
-  | { workspaceId?: string; projectPath?: string; children: ReactNode };
+  | { minionId?: string; projectPath?: string; children: ReactNode };
 
-function getScopeId(workspaceId: string | undefined, projectPath: string | undefined): string {
-  return workspaceId ?? (projectPath ? getProjectScopeId(projectPath) : GLOBAL_SCOPE_ID);
+function getScopeId(minionId: string | undefined, projectPath: string | undefined): string {
+  return minionId ?? (projectPath ? getProjectScopeId(projectPath) : GLOBAL_SCOPE_ID);
 }
 
 function coerceAgentId(value: unknown): string {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim().toLowerCase() : "exec";
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim().toLowerCase()
+    : MINION_DEFAULTS.agentId;
 }
 
 export function AgentProvider(props: AgentProviderProps) {
@@ -65,20 +70,33 @@ export function AgentProvider(props: AgentProviderProps) {
 }
 
 function AgentProviderWithState(props: {
-  workspaceId?: string;
+  minionId?: string;
   projectPath?: string;
   children: ReactNode;
 }) {
   const { api } = useAPI();
 
-  const scopeId = getScopeId(props.workspaceId, props.projectPath);
+  const scopeId = getScopeId(props.minionId, props.projectPath);
+  const isProjectScope = !props.minionId && Boolean(props.projectPath);
 
-  const [agentId, setAgentIdRaw] = usePersistedState<string>(getAgentIdKey(scopeId), "exec", {
-    listener: true,
-  });
+  const [globalDefaultAgentId] = usePersistedState<string>(
+    getAgentIdKey(GLOBAL_SCOPE_ID),
+    MINION_DEFAULTS.agentId,
+    {
+      listener: true,
+    }
+  );
 
-  const [disableWorkspaceAgents, setDisableWorkspaceAgents] = usePersistedState<boolean>(
-    getDisableWorkspaceAgentsKey(scopeId),
+  const [scopedAgentId, setAgentIdRaw] = usePersistedState<string | null>(
+    getAgentIdKey(scopeId),
+    isProjectScope ? null : MINION_DEFAULTS.agentId,
+    {
+      listener: true,
+    }
+  );
+
+  const [disableMinionAgents, setDisableMinionAgents] = usePersistedState<boolean>(
+    getDisableMinionAgentsKey(scopeId),
     false,
     { listener: true }
   );
@@ -86,11 +104,14 @@ function AgentProviderWithState(props: {
   const setAgentId: Dispatch<SetStateAction<string>> = useCallback(
     (value) => {
       setAgentIdRaw((prev) => {
-        const next = typeof value === "function" ? value(prev) : value;
+        const previousAgentId = coerceAgentId(
+          isProjectScope ? (prev ?? globalDefaultAgentId) : prev
+        );
+        const next = typeof value === "function" ? value(previousAgentId) : value;
         return coerceAgentId(next);
       });
     },
-    [setAgentIdRaw]
+    [globalDefaultAgentId, isProjectScope, setAgentIdRaw]
   );
 
   const [agents, setAgents] = useState<AgentDefinitionDescriptor[]>([]);
@@ -110,23 +131,23 @@ function AgentProviderWithState(props: {
 
   const fetchParamsRef = useRef({
     projectPath: props.projectPath,
-    workspaceId: props.workspaceId,
-    disableWorkspaceAgents,
+    minionId: props.minionId,
+    disableMinionAgents,
   });
 
   const fetchAgents = useCallback(
     async (
       projectPath: string | undefined,
-      workspaceId: string | undefined,
-      workspaceAgentsDisabled: boolean
+      minionId: string | undefined,
+      minionAgentsDisabled: boolean
     ) => {
       fetchParamsRef.current = {
         projectPath,
-        workspaceId,
-        disableWorkspaceAgents: workspaceAgentsDisabled,
+        minionId,
+        disableMinionAgents: minionAgentsDisabled,
       };
 
-      if (!api || (!projectPath && !workspaceId)) {
+      if (!api || (!projectPath && !minionId)) {
         if (isMountedRef.current) {
           setAgents([]);
           setLoaded(true);
@@ -138,14 +159,14 @@ function AgentProviderWithState(props: {
       try {
         const result = await api.agents.list({
           projectPath,
-          workspaceId,
-          disableWorkspaceAgents: workspaceAgentsDisabled || undefined,
+          minionId,
+          disableMinionAgents: minionAgentsDisabled || undefined,
         });
         const current = fetchParamsRef.current;
         if (
           current.projectPath === projectPath &&
-          current.workspaceId === workspaceId &&
-          current.disableWorkspaceAgents === workspaceAgentsDisabled &&
+          current.minionId === minionId &&
+          current.disableMinionAgents === minionAgentsDisabled &&
           isMountedRef.current
         ) {
           setAgents(result);
@@ -156,8 +177,8 @@ function AgentProviderWithState(props: {
         const current = fetchParamsRef.current;
         if (
           current.projectPath === projectPath &&
-          current.workspaceId === workspaceId &&
-          current.disableWorkspaceAgents === workspaceAgentsDisabled &&
+          current.minionId === minionId &&
+          current.disableMinionAgents === minionAgentsDisabled &&
           isMountedRef.current
         ) {
           setAgents([]);
@@ -173,22 +194,22 @@ function AgentProviderWithState(props: {
     setAgents([]);
     setLoaded(false);
     setLoadFailed(false);
-    void fetchAgents(props.projectPath, props.workspaceId, disableWorkspaceAgents);
-  }, [fetchAgents, props.projectPath, props.workspaceId, disableWorkspaceAgents]);
+    void fetchAgents(props.projectPath, props.minionId, disableMinionAgents);
+  }, [fetchAgents, props.projectPath, props.minionId, disableMinionAgents]);
 
   const refresh = useCallback(async () => {
-    if (!props.projectPath && !props.workspaceId) return;
+    if (!props.projectPath && !props.minionId) return;
     if (!isMountedRef.current) return;
 
     setRefreshing(true);
     try {
-      await fetchAgents(props.projectPath, props.workspaceId, disableWorkspaceAgents);
+      await fetchAgents(props.projectPath, props.minionId, disableMinionAgents);
     } finally {
       if (isMountedRef.current) {
         setRefreshing(false);
       }
     }
-  }, [fetchAgents, props.projectPath, props.workspaceId, disableWorkspaceAgents]);
+  }, [fetchAgents, props.projectPath, props.minionId, disableMinionAgents]);
 
   const selectableAgents = useMemo(
     () => sortAgentsStable(agents.filter((a) => a.uiSelectable)),
@@ -198,13 +219,16 @@ function AgentProviderWithState(props: {
   const cycleToNextAgent = useCallback(() => {
     if (selectableAgents.length < 2) return;
 
-    const currentIndex = selectableAgents.findIndex((a) => a.id === coerceAgentId(agentId));
+    const activeAgentId = coerceAgentId(
+      isProjectScope ? (scopedAgentId ?? globalDefaultAgentId) : scopedAgentId
+    );
+    const currentIndex = selectableAgents.findIndex((a) => a.id === activeAgentId);
     const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % selectableAgents.length;
     const nextAgent = selectableAgents[nextIndex];
     if (nextAgent) {
       setAgentId(nextAgent.id);
     }
-  }, [agentId, selectableAgents, setAgentId]);
+  }, [globalDefaultAgentId, isProjectScope, scopedAgentId, selectableAgents, setAgentId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -225,7 +249,21 @@ function AgentProviderWithState(props: {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [cycleToNextAgent]);
 
-  const normalizedAgentId = coerceAgentId(agentId);
+  useEffect(() => {
+    const handleRefreshRequested = () => {
+      void refresh();
+    };
+
+    window.addEventListener(CUSTOM_EVENTS.AGENTS_REFRESH_REQUESTED, handleRefreshRequested);
+    return () =>
+      window.removeEventListener(CUSTOM_EVENTS.AGENTS_REFRESH_REQUESTED, handleRefreshRequested);
+  }, [refresh]);
+
+  // Project-scoped providers should inherit the global default agent until a
+  // project-scoped preference is explicitly set.
+  const normalizedAgentId = coerceAgentId(
+    isProjectScope ? (scopedAgentId ?? globalDefaultAgentId) : scopedAgentId
+  );
   const currentAgent = loaded ? agents.find((a) => a.id === normalizedAgentId) : undefined;
 
   const agentContextValue = useMemo(
@@ -238,8 +276,8 @@ function AgentProviderWithState(props: {
       loadFailed,
       refresh,
       refreshing,
-      disableWorkspaceAgents,
-      setDisableWorkspaceAgents,
+      disableMinionAgents,
+      setDisableMinionAgents,
     }),
     [
       normalizedAgentId,
@@ -250,8 +288,8 @@ function AgentProviderWithState(props: {
       loadFailed,
       refresh,
       refreshing,
-      disableWorkspaceAgents,
-      setDisableWorkspaceAgents,
+      disableMinionAgents,
+      setDisableMinionAgents,
     ]
   );
 

@@ -117,7 +117,7 @@ describe("getLatticeEnv", () => {
 
     expect(env.LATTICE_PROJECT_PATH).toBe("/path/to/project");
     expect(env.LATTICE_RUNTIME).toBe("worktree");
-    expect(env.LATTICE_WORKSPACE_NAME).toBe("feature-branch");
+    expect(env.LATTICE_MINION_NAME).toBe("feature-branch");
     expect(env.LATTICE_MODEL_STRING).toBeUndefined();
     expect(env.LATTICE_THINKING_LEVEL).toBeUndefined();
     expect(env.LATTICE_COSTS_USD).toBeUndefined();

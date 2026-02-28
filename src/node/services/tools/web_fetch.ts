@@ -12,13 +12,14 @@ import {
 } from "@/common/constants/toolLimits";
 import { execBuffered } from "@/node/utils/runtime/helpers";
 import {
-  parseLatticeMdUrl,
   downloadFromLatticeMd,
-  LATTICE_MD_BASE_URL,
-  LATTICE_MD_HOST,
+  getLatticeMdAllowedHosts,
+  isLatticeMdUrl,
+  parseLatticeMdUrl,
 } from "@/common/lib/latticeMd";
+import { getErrorMessage } from "@/common/utils/errors";
 
-const USER_AGENT = "DEV-OS/1.0 (web-fetch tool)";
+const USER_AGENT = "Lattice/1.0 (https://github.com/latticeHQ/latticeWorkbench; web-fetch tool)";
 
 /** Parse curl -i output into headers and body */
 function parseResponse(output: string): { headers: string; body: string; statusCode: string } {
@@ -78,9 +79,9 @@ function tryExtractContent(
   }
 }
 
-function isLatticeMdHost(url: string): boolean {
+function isAllowedLatticeMdHost(url: string): boolean {
   try {
-    return new URL(url).host === LATTICE_MD_HOST;
+    return getLatticeMdAllowedHosts().includes(new URL(url).host);
   } catch {
     return false;
   }
@@ -89,7 +90,7 @@ function isLatticeMdHost(url: string): boolean {
 /**
  * Web fetch tool factory for AI assistant
  * Creates a tool that fetches web pages and extracts readable content as markdown
- * Uses curl via Runtime to respect workspace network context
+ * Uses curl via Runtime to respect minion network context
  * @param config Required configuration including runtime
  */
 export const createWebFetchTool: ToolFactory = (config: ToolConfiguration) => {
@@ -98,15 +99,21 @@ export const createWebFetchTool: ToolFactory = (config: ToolConfiguration) => {
     inputSchema: TOOL_DEFINITIONS.web_fetch.schema,
     execute: async ({ url }, { abortSignal }): Promise<WebFetchToolResult> => {
       try {
-        // Handle openagent.md share links with client-side decryption
-        const latticeMdParsed = parseLatticeMdUrl(url);
-        if (latticeMdParsed) {
+        // Handle lattice.md share links with client-side decryption.
+        // Important: `parseLatticeMdUrl` does not validate the host, so we must guard with `isLatticeMdUrl`
+        // to avoid treating arbitrary URLs (including those with `#fragment`) as share links.
+        if (isLatticeMdUrl(url)) {
+          const latticeMdParsed = parseLatticeMdUrl(url);
+          if (!latticeMdParsed) {
+            return { success: false, error: "Invalid lattice.md URL format" };
+          }
+
+          const baseUrl = new URL(url).origin;
+
           try {
-            const result = await downloadFromLatticeMd(
-              latticeMdParsed.id,
-              latticeMdParsed.key,
-              abortSignal
-            );
+            const result = await downloadFromLatticeMd(latticeMdParsed.id, latticeMdParsed.key, abortSignal, {
+              baseUrl,
+            });
             let content = result.content;
             if (content.length > WEB_FETCH_MAX_OUTPUT_BYTES) {
               content = content.slice(0, WEB_FETCH_MAX_OUTPUT_BYTES) + "\n\n[Content truncated]";
@@ -115,19 +122,19 @@ export const createWebFetchTool: ToolFactory = (config: ToolConfiguration) => {
               success: true,
               title: result.fileInfo?.name ?? "Shared Message",
               content,
-              url: `${LATTICE_MD_BASE_URL}/${latticeMdParsed.id}#${latticeMdParsed.key}`,
+              url,
               length: content.length,
             };
           } catch (err) {
             return {
               success: false,
-              error: err instanceof Error ? err.message : "Failed to download from openagent.md",
+              error: err instanceof Error ? err.message : "Failed to download from lattice.md",
             };
           }
         }
 
-        if (isLatticeMdHost(url)) {
-          return { success: false, error: "Invalid openagent.md URL format" };
+        if (isAllowedLatticeMdHost(url)) {
+          return { success: false, error: "Invalid lattice.md URL format" };
         }
 
         // Build curl command with safe defaults
@@ -154,7 +161,7 @@ export const createWebFetchTool: ToolFactory = (config: ToolConfiguration) => {
           shellQuote(url),
         ].join(" ");
 
-        // Execute via Runtime (respects workspace network context)
+        // Execute via Runtime (respects minion network context)
         const result = await execBuffered(config.runtime, curlCommand, {
           cwd: config.cwd,
           abortSignal,
@@ -276,7 +283,7 @@ export const createWebFetchTool: ToolFactory = (config: ToolConfiguration) => {
           length: content.length,
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return {
           success: false,
           error: `web_fetch error: ${message}`,

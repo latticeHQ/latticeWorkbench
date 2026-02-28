@@ -1,6 +1,6 @@
 /**
  * Chat command execution utilities
- * Handles executing workspace operations from slash commands
+ * Handles executing minion operations from slash commands
  *
  * These utilities are shared between ChatInput command handlers and UI components
  * to ensure consistent behavior and avoid duplication.
@@ -8,23 +8,23 @@
 
 import type { RouterClient } from "@orpc/server";
 import type { AppRouter } from "@/node/orpc/router";
-import type { SendMessageOptions, FilePart } from "@/common/orpc/types";
+import type { FilePart, ProviderModelEntry, SendMessageOptions } from "@/common/orpc/types";
 import {
-  type LatticeFrontendMetadata,
+  type LatticeMessageMetadata,
   type CompactionRequestData,
   type CompactionFollowUpRequest,
   type CompactionFollowUpInput,
-  isDefaultSourceContent,
+  pickPreservedSendOptions,
 } from "@/common/types/message";
 import type { ReviewNoteData } from "@/common/types/review";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type { RuntimeConfig } from "@/common/types/runtime";
 import { RUNTIME_MODE, parseRuntimeModeAndHost } from "@/common/types/runtime";
 import { CUSTOM_EVENTS, createCustomEvent } from "@/common/constants/events";
-import { CLI_AGENT_SLUGS, type CliAgentSlug } from "@/common/constants/cliAgents";
+import { KNOWN_MODELS } from "@/common/constants/knownModels";
 import {
-  WORKSPACE_ONLY_COMMAND_KEYS,
-  WORKSPACE_ONLY_COMMAND_TYPES,
+  MINION_ONLY_COMMAND_KEYS,
+  MINION_ONLY_COMMAND_TYPES,
 } from "@/constants/slashCommands";
 import type { Toast } from "@/browser/components/ChatInputToast";
 import type { ParsedCommand } from "@/browser/utils/slashCommands/types";
@@ -33,88 +33,84 @@ import {
   getFollowUpContentText,
 } from "@/browser/utils/compaction/format";
 import { applyCompactionOverrides } from "@/browser/utils/messages/compactionOptions";
-import {
-  resolveCompactionModel,
-  isValidModelFormat,
-} from "@/browser/utils/messages/compactionModelPreference";
+import { resolveCompactionModel } from "@/browser/utils/messages/compactionModelPreference";
+import { normalizeModelInput } from "@/browser/utils/models/normalizeModelInput";
 import type { ChatAttachment } from "../components/ChatAttachments";
-import { dispatchWorkspaceSwitch } from "./workspaceEvents";
-import { getRuntimeKey, copyWorkspaceStorage } from "@/common/constants/storage";
-import {
-  DEFAULT_COMPACTION_WORD_TARGET,
-  WORDS_TO_TOKENS_RATIO,
-  buildCompactionPrompt,
-} from "@/common/constants/ui";
+import { dispatchMinionSwitch } from "./minionEvents";
+import { getRuntimeKey, copyMinionStorage } from "@/common/constants/storage";
+import { buildCompactionMessageText } from "@/common/utils/compaction/compactionPrompt";
+import { getProviderModelEntryId } from "@/common/utils/providers/modelEntries";
 import { openInEditor } from "@/browser/utils/openInEditor";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
 
 // ============================================================================
-// Workspace Creation
+// Minion Creation
 // ============================================================================
 
 import {
   createCommandToast,
   createInvalidCompactModelToast,
 } from "@/browser/components/ChatInputToasts";
-import { trackCommandUsed, trackProviderConfigured } from "@/common/telemetry";
-import { addEphemeralMessage } from "@/browser/stores/WorkspaceStore";
+import { trackCommandUsed } from "@/common/telemetry";
+import { addEphemeralMessage } from "@/browser/stores/MinionStore";
 
-const CLI_AGENT_SLUG_SET = new Set<string>(CLI_AGENT_SLUGS);
+const BUILT_IN_MODEL_SET = new Set<string>(Object.values(KNOWN_MODELS).map((model) => model.id));
 
 export interface ForkOptions {
   client: RouterClient<AppRouter>;
-  sourceWorkspaceId: string;
-  newName: string;
+  sourceMinionId: string;
+  newName?: string;
   startMessage?: string;
   sendMessageOptions?: SendMessageOptions;
 }
 
 export interface ForkResult {
   success: boolean;
-  workspaceInfo?: FrontendWorkspaceMetadata;
+  minionInfo?: FrontendMinionMetadata;
   error?: string;
 }
 
 /**
- * Fork a workspace and switch to it
+ * Fork a minion and switch to it
  * Handles copying storage, dispatching switch event, and optionally sending start message
  *
  * Caller is responsible for error handling, logging, and showing toasts
  */
-export async function forkWorkspace(options: ForkOptions): Promise<ForkResult> {
+export async function forkMinion(options: ForkOptions): Promise<ForkResult> {
   const { client } = options;
-  const result = await client.workspace.fork({
-    sourceWorkspaceId: options.sourceWorkspaceId,
+  const result = await client.minion.fork({
+    sourceMinionId: options.sourceMinionId,
     newName: options.newName,
   });
 
   if (!result.success) {
-    return { success: false, error: result.error ?? "Failed to fork workspace" };
+    return { success: false, error: result.error ?? "Failed to clone minion" };
   }
 
-  // Copy UI state to the new workspace
-  copyWorkspaceStorage(options.sourceWorkspaceId, result.metadata.id);
+  // Copy UI state to the new minion
+  copyMinionStorage(options.sourceMinionId, result.metadata.id);
 
-  // Get workspace info for switching
-  const workspaceInfo = await client.workspace.getInfo({ workspaceId: result.metadata.id });
-  if (!workspaceInfo) {
-    return { success: false, error: "Failed to get workspace info after fork" };
+  // Get minion info for switching
+  const minionInfo = await client.minion.getInfo({ minionId: result.metadata.id });
+  if (!minionInfo) {
+    return { success: false, error: "Failed to get minion info after clone" };
   }
 
-  // Dispatch event to switch workspace
-  dispatchWorkspaceSwitch(workspaceInfo);
+  // Dispatch event to switch minion
+  dispatchMinionSwitch(minionInfo);
 
-  // If there's a start message, defer until React finishes rendering and WorkspaceStore subscribes
+  // If there's a start message, defer until React finishes rendering and MinionStore subscribes
   // Using requestAnimationFrame ensures we wait for:
-  // 1. React to process the workspace switch and update state
-  // 2. Effects to run (workspaceStore.syncWorkspaces in App.tsx)
-  // 3. WorkspaceStore to subscribe to the new workspace's IPC channel
+  // 1. React to process the minion switch and update state
+  // 2. Effects to run (minionStore.syncMinions in App.tsx)
+  // 3. MinionStore to subscribe to the new minion's IPC channel
   const startMessage = options.startMessage;
   const sendMessageOptions = options.sendMessageOptions;
   if (startMessage && sendMessageOptions) {
     requestAnimationFrame(() => {
-      client.workspace
+      client.minion
         .sendMessage({
-          workspaceId: result.metadata.id,
+          minionId: result.metadata.id,
           message: startMessage,
           options: sendMessageOptions,
         })
@@ -124,25 +120,29 @@ export async function forkWorkspace(options: ForkOptions): Promise<ForkResult> {
     });
   }
 
-  return { success: true, workspaceInfo };
+  return { success: true, minionInfo };
 }
 
-export interface SlashCommandContext extends Omit<CommandHandlerContext, "workspaceId" | "api"> {
+export interface SlashCommandContext extends Omit<CommandHandlerContext, "minionId" | "api"> {
   api: RouterClient<AppRouter> | null;
-  workspaceId?: string;
-  variant: "workspace" | "creation";
+  minionId?: string;
+  variant: "minion" | "creation";
   projectPath?: string | null;
   openSettings?: (section?: string) => void;
 
   // Global Actions
-  onProviderConfig?: (provider: string, keyPath: string[], value: string) => Promise<void>;
-  onModelChange?: (model: string) => void;
   setPreferredModel: (model: string) => void;
   setVimEnabled: (cb: (prev: boolean) => boolean) => void;
 
-  // Workspace Actions
+  // Minion Actions
   onTruncateHistory?: (percentage?: number) => Promise<void>;
   resetInputHeight: () => void;
+  /** Callback to trigger message-sent side effects (auto-scroll, auto-background) */
+  onMessageSent?: () => void;
+  /** Callback to mark review IDs as checked after successful send */
+  onCheckReviews?: (reviewIds: string[]) => void;
+  /** Review IDs that are attached (for marking as checked on success) */
+  attachedReviewIds?: string[];
 }
 
 // ============================================================================
@@ -159,16 +159,7 @@ export async function processSlashCommand(
   context: SlashCommandContext
 ): Promise<CommandHandlerResult> {
   if (!parsed) return { clearInput: false, toastShown: false };
-  const {
-    api: client,
-    setInput,
-    setSendingState,
-    setToast,
-    variant,
-    setVimEnabled,
-    setPreferredModel,
-    onModelChange,
-  } = context;
+  const { api: client, setInput, setToast, variant, setVimEnabled, setPreferredModel } = context;
 
   const requireClient = (): RouterClient<AppRouter> | null => {
     if (client) return client;
@@ -181,48 +172,13 @@ export async function processSlashCommand(
   };
 
   // 1. Global Commands
-  if (parsed.type === "providers-set") {
-    if (context.onProviderConfig) {
-      setSendingState(true);
-      setInput(""); // Clear input immediately
-
-      try {
-        await context.onProviderConfig(parsed.provider, parsed.keyPath, parsed.value);
-        // Track successful provider configuration
-        trackCommandUsed("providers");
-        trackProviderConfigured(parsed.provider, parsed.keyPath[0] ?? "unknown");
-        setToast({
-          id: Date.now().toString(),
-          type: "success",
-          message: `Provider ${parsed.provider} updated`,
-        });
-      } catch (error) {
-        console.error("Failed to update provider config:", error);
-        setToast({
-          id: Date.now().toString(),
-          type: "error",
-          message: error instanceof Error ? error.message : "Failed to update provider",
-        });
-        return { clearInput: false, toastShown: true }; // Input restored by caller if clearInput is false?
-        // Actually caller restores if we return clearInput: false.
-        // But here we cleared it proactively?
-        // The caller (ChatInput) pattern is: if (!result.clearInput) setInput(original).
-        // So we should return clearInput: false on error.
-      } finally {
-        setSendingState(false);
-      }
-      return { clearInput: true, toastShown: true };
-    }
-    return { clearInput: false, toastShown: false };
-  }
-
   if (parsed.type === "model-set") {
     const modelString = parsed.modelString;
 
     const activeClient = client;
+    const normalized = normalizeModelInput(modelString);
 
-    // Validate provider:model format
-    if (!modelString.includes(":")) {
+    if (!normalized.model) {
       setToast({
         id: Date.now().toString(),
         type: "error",
@@ -231,56 +187,29 @@ export async function processSlashCommand(
       return { clearInput: false, toastShown: true };
     }
 
-    const separatorIndex = modelString.indexOf(":");
-    if (separatorIndex <= 0 || separatorIndex === modelString.length - 1) {
-      setToast({
-        id: Date.now().toString(),
-        type: "error",
-        message: `Invalid model format: expected "provider:model"`,
-      });
-      return { clearInput: false, toastShown: true };
-    }
-
-    const canonicalModel = modelString.trim();
-    const canonicalSeparatorIndex = canonicalModel.indexOf(":");
-    if (canonicalSeparatorIndex <= 0 || canonicalSeparatorIndex === canonicalModel.length - 1) {
-      setToast({
-        id: Date.now().toString(),
-        type: "error",
-        message: `Invalid model format: expected "provider:model"`,
-      });
-      return { clearInput: false, toastShown: true };
-    }
-
-    const provider = canonicalModel.slice(0, canonicalSeparatorIndex);
-    const modelId = canonicalModel.slice(canonicalSeparatorIndex + 1);
-
-    if (modelId.startsWith(":")) {
-      setToast({
-        id: Date.now().toString(),
-        type: "error",
-        message: `Invalid model format: expected "provider:model"`,
-      });
-      return { clearInput: false, toastShown: true };
-    }
+    const canonicalModel = normalized.model;
+    const separatorIndex = canonicalModel.indexOf(":");
+    const provider = canonicalModel.slice(0, separatorIndex);
+    const modelId = canonicalModel.slice(separatorIndex + 1);
 
     try {
-      // Validate provider is a known CLI agent slug
-      if (!CLI_AGENT_SLUG_SET.has(provider)) {
+      // Validate provider is supported
+      const { isValidProvider } = await import("@/common/constants/providers");
+      if (!isValidProvider(provider)) {
         setToast({
           id: Date.now().toString(),
           type: "error",
-          message: `Unknown agent "${provider}"`,
+          message: `Unknown provider "${provider}"`,
         });
         return { clearInput: false, toastShown: true };
       }
 
-      // Persist custom models for the agent
-      if (activeClient) {
+      // Align with settings behavior: only persist non-built-in models.
+      if (activeClient && !BUILT_IN_MODEL_SET.has(canonicalModel)) {
         try {
           const config = await activeClient.providers.getConfig();
-          const existingModels = config[provider]?.models ?? [];
-          if (!existingModels.includes(modelId)) {
+          const existingModels: ProviderModelEntry[] = config[provider]?.models ?? [];
+          if (!existingModels.some((entry) => getProviderModelEntryId(entry) === modelId)) {
             // Add model via the same API as settings
             await activeClient.providers.setModels({
               provider,
@@ -293,13 +222,12 @@ export async function processSlashCommand(
       }
 
       setInput("");
-      setPreferredModel(modelString);
-      onModelChange?.(modelString);
+      setPreferredModel(canonicalModel);
       trackCommandUsed("model");
       setToast({
         id: Date.now().toString(),
         type: "success",
-        message: `Model changed to ${modelString}`,
+        message: `Model changed to ${canonicalModel}`,
       });
       return { clearInput: true, toastShown: true };
     } catch (error) {
@@ -313,75 +241,24 @@ export async function processSlashCommand(
     }
   }
 
-  if (parsed.type === "mcp-open") {
-    setInput("");
-    context.openSettings?.("projects");
-    return { clearInput: true, toastShown: false };
+  // model-oneshot ("/<model-alias> ...") is handled directly in ChatInput.
+  // This keeps the command parsing centralized, but routes actual sending through the
+  // normal message-send flow (so side effects like review completion and last-read
+  // tracking can't drift).
+
+  if (parsed.type === "model-oneshot") {
+    setToast({
+      id: Date.now().toString(),
+      type: "error",
+      message: "Model one-shot is handled in the chat input.",
+    });
+    return { clearInput: false, toastShown: true };
   }
 
   if (parsed.type === "debug-llm-request") {
     setInput("");
     window.dispatchEvent(createCustomEvent(CUSTOM_EVENTS.OPEN_DEBUG_LLM_REQUEST));
     return { clearInput: true, toastShown: false };
-  }
-
-  if (parsed.type === "mcp-add" || parsed.type === "mcp-edit" || parsed.type === "mcp-remove") {
-    const activeClient = requireClient();
-    if (!activeClient) {
-      return { clearInput: false, toastShown: true };
-    }
-
-    if (!context.projectPath) {
-      setToast({
-        id: Date.now().toString(),
-        type: "error",
-        message: "Select a workspace to manage MCP servers",
-      });
-      return { clearInput: false, toastShown: true };
-    }
-
-    setSendingState(true);
-    setInput("");
-
-    try {
-      const projectPath = context.projectPath;
-      const result =
-        parsed.type === "mcp-add" || parsed.type === "mcp-edit"
-          ? await activeClient.projects.mcp.add({
-              projectPath,
-              name: parsed.name,
-              command: parsed.command,
-            })
-          : await activeClient.projects.mcp.remove({ projectPath, name: parsed.name });
-
-      if (!result.success) {
-        setToast({
-          id: Date.now().toString(),
-          type: "error",
-          message: result.error ?? "Failed to update MCP servers",
-        });
-        return { clearInput: false, toastShown: true };
-      }
-
-      const successMessage =
-        parsed.type === "mcp-add"
-          ? `Added MCP server ${parsed.name}`
-          : parsed.type === "mcp-edit"
-            ? `Updated MCP server ${parsed.name}`
-            : `Removed MCP server ${parsed.name}`;
-      setToast({ id: Date.now().toString(), type: "success", message: successMessage });
-      return { clearInput: true, toastShown: true };
-    } catch (error) {
-      console.error("Failed to update MCP servers", error);
-      setToast({
-        id: Date.now().toString(),
-        type: "error",
-        message: error instanceof Error ? error.message : "Failed to update MCP servers",
-      });
-      return { clearInput: false, toastShown: true };
-    } finally {
-      setSendingState(false);
-    }
   }
 
   if (parsed.type === "idle-compaction") {
@@ -440,52 +317,50 @@ export async function processSlashCommand(
     return { clearInput: true, toastShown: false };
   }
 
-  // 2. Workspace Commands
-  // Use command keys for help/invalid variants so creation mode doesn't surface workspace-only help text.
-  const workspaceOnlyKey = (() => {
+  // 2. Minion Commands
+  // Use command keys for help/invalid variants so creation mode doesn't surface minion-only help text.
+  const minionOnlyKey = (() => {
     switch (parsed.type) {
       case "command-missing-args":
       case "command-invalid-args":
       case "unknown-command":
         return parsed.command;
-      case "fork-help":
-        return "fork";
       default:
         return null;
     }
   })();
 
-  const isWorkspaceCommandType = WORKSPACE_ONLY_COMMAND_TYPES.has(parsed.type);
-  const isWorkspaceOnlyCommand =
-    isWorkspaceCommandType ||
-    (workspaceOnlyKey ? WORKSPACE_ONLY_COMMAND_KEYS.has(workspaceOnlyKey) : false);
+  const isMinionCommandType = MINION_ONLY_COMMAND_TYPES.has(parsed.type);
+  const isMinionOnlyCommand =
+    isMinionCommandType ||
+    (minionOnlyKey ? MINION_ONLY_COMMAND_KEYS.has(minionOnlyKey) : false);
 
-  if (isWorkspaceOnlyCommand && variant !== "workspace") {
+  if (isMinionOnlyCommand && variant !== "minion") {
     setToast({
       id: Date.now().toString(),
       type: "error",
-      message: "Command not available during workspace creation",
+      message: "Command not available during minion summoning",
     });
     return { clearInput: false, toastShown: true };
   }
 
-  if (isWorkspaceCommandType) {
-    // Dispatch workspace commands
+  if (isMinionCommandType) {
+    // Dispatch minion commands
     switch (parsed.type) {
       case "clear":
         return handleClearCommand(parsed, context);
       case "truncate":
         return handleTruncateCommand(parsed, context);
       case "compact":
-        // handleCompactCommand expects workspaceId in context
-        if (!context.workspaceId) throw new Error("Workspace ID required");
+        // handleCompactCommand expects minionId in context
+        if (!context.minionId) throw new Error("Minion ID required");
         if (!requireClient()) {
           return { clearInput: false, toastShown: true };
         }
         return handleCompactCommand(parsed, {
           ...context,
           api: client,
-          workspaceId: context.workspaceId,
+          minionId: context.minionId,
         } as CommandHandlerContext);
       case "fork":
         if (!requireClient()) {
@@ -496,34 +371,34 @@ export async function processSlashCommand(
           api: client,
         });
       case "new":
-        if (!context.workspaceId) throw new Error("Workspace ID required");
+        if (!context.minionId) throw new Error("Minion ID required");
         if (!requireClient()) {
           return { clearInput: false, toastShown: true };
         }
         return handleNewCommand(parsed, {
           ...context,
           api: client,
-          workspaceId: context.workspaceId,
+          minionId: context.minionId,
         } as CommandHandlerContext);
       case "plan-show":
-        if (!context.workspaceId) throw new Error("Workspace ID required");
+        if (!context.minionId) throw new Error("Minion ID required");
         if (!requireClient()) {
           return { clearInput: false, toastShown: true };
         }
         return handlePlanShowCommand({
           ...context,
           api: client,
-          workspaceId: context.workspaceId,
+          minionId: context.minionId,
         } as CommandHandlerContext);
       case "plan-open":
-        if (!context.workspaceId) throw new Error("Workspace ID required");
+        if (!context.minionId) throw new Error("Minion ID required");
         if (!requireClient()) {
           return { clearInput: false, toastShown: true };
         }
         return handlePlanOpenCommand({
           ...context,
           api: client,
-          workspaceId: context.workspaceId,
+          minionId: context.minionId,
         } as CommandHandlerContext);
     }
   }
@@ -611,7 +486,7 @@ async function handleForkCommand(
 ): Promise<CommandHandlerResult> {
   const {
     api: client,
-    workspaceId,
+    minionId,
     sendMessageOptions,
     setInput,
     setSendingState,
@@ -622,22 +497,21 @@ async function handleForkCommand(
   setSendingState(true);
 
   try {
-    // Note: workspaceId is required for fork, but SlashCommandContext allows undefined workspaceId.
-    // If we are here, variant === "workspace", so workspaceId should be defined.
-    if (!workspaceId) throw new Error("Workspace ID required for fork");
+    // Note: minionId is required for fork, but SlashCommandContext allows undefined minionId.
+    // If we are here, variant === "minion", so minionId should be defined.
+    if (!minionId) throw new Error("Minion ID required for fork");
 
     if (!client) throw new Error("Client required for fork");
-    const forkResult = await forkWorkspace({
+    const forkResult = await forkMinion({
       client,
-      sourceWorkspaceId: workspaceId,
-      newName: parsed.newName,
+      sourceMinionId: minionId,
       startMessage: parsed.startMessage,
       sendMessageOptions,
     });
 
     if (!forkResult.success) {
-      const errorMsg = forkResult.error ?? "Failed to fork workspace";
-      console.error("Failed to fork workspace:", errorMsg);
+      const errorMsg = forkResult.error ?? "Failed to clone minion";
+      console.error("Failed to clone minion:", errorMsg);
       setToast({
         id: Date.now().toString(),
         type: "error",
@@ -647,15 +521,17 @@ async function handleForkCommand(
       return { clearInput: false, toastShown: true };
     } else {
       trackCommandUsed("fork");
+      const displayName =
+        forkResult.minionInfo?.title ?? forkResult.minionInfo?.name ?? "new minion";
       setToast({
         id: Date.now().toString(),
         type: "success",
-        message: `Forked to workspace "${parsed.newName}"`,
+        message: `Forked to minion "${displayName}"`,
       });
       return { clearInput: true, toastShown: true };
     }
   } catch (error) {
-    const normalized = error instanceof Error ? error : new Error("Failed to fork workspace");
+    const normalized = error instanceof Error ? error : new Error("Failed to clone minion");
     console.error("Fork error:", normalized);
     setToast({
       id: Date.now().toString(),
@@ -683,7 +559,7 @@ async function handleForkCommand(
  */
 export function parseRuntimeString(
   runtime: string | undefined,
-  _workspaceName: string
+  _minionName: string
 ): RuntimeConfig | undefined {
   // Use shared parser from common/types/runtime
   const parsed = parseRuntimeModeAndHost(runtime);
@@ -743,31 +619,31 @@ export function parseRuntimeString(
   }
 }
 
-export interface CreateWorkspaceOptions {
+export interface CreateMinionOptions {
   client: RouterClient<AppRouter>;
   projectPath: string;
-  workspaceName: string;
+  minionName: string;
   trunkBranch?: string;
   runtime?: string;
   startMessage?: string;
   sendMessageOptions?: SendMessageOptions;
 }
 
-export interface CreateWorkspaceResult {
+export interface CreateMinionResult {
   success: boolean;
-  workspaceInfo?: FrontendWorkspaceMetadata;
+  minionInfo?: FrontendMinionMetadata;
   error?: string;
 }
 
 /**
- * Create a new workspace and switch to it
+ * Create a new minion and switch to it
  * Handles backend creation, dispatching switch event, and optionally sending start message
  *
- * Shared between /new command and NewWorkspaceModal
+ * Shared between /new command and NewMinionModal
  */
-export async function createNewWorkspace(
-  options: CreateWorkspaceOptions
-): Promise<CreateWorkspaceResult> {
+export async function createNewMinion(
+  options: CreateMinionOptions
+): Promise<CreateMinionResult> {
   // Get recommended trunk if not provided
   let effectiveTrunk = options.trunkBranch;
   if (!effectiveTrunk) {
@@ -788,37 +664,37 @@ export async function createNewWorkspace(
   }
 
   // Parse runtime config if provided
-  const runtimeConfig = parseRuntimeString(effectiveRuntime, options.workspaceName);
+  const runtimeConfig = parseRuntimeString(effectiveRuntime, options.minionName);
 
-  const result = await options.client.workspace.create({
+  const result = await options.client.minion.create({
     projectPath: options.projectPath,
-    branchName: options.workspaceName,
+    branchName: options.minionName,
     trunkBranch: effectiveTrunk,
     runtimeConfig,
   });
 
   if (!result.success) {
-    return { success: false, error: result.error ?? "Failed to create workspace" };
+    return { success: false, error: result.error ?? "Failed to summon minion" };
   }
 
-  // Get workspace info for switching
-  const workspaceInfo = await options.client.workspace.getInfo({ workspaceId: result.metadata.id });
-  if (!workspaceInfo) {
-    return { success: false, error: "Failed to get workspace info after creation" };
+  // Get minion info for switching
+  const minionInfo = await options.client.minion.getInfo({ minionId: result.metadata.id });
+  if (!minionInfo) {
+    return { success: false, error: "Failed to get minion info after creation" };
   }
 
-  // Dispatch event to switch workspace
-  dispatchWorkspaceSwitch(workspaceInfo);
+  // Dispatch event to switch minion
+  dispatchMinionSwitch(minionInfo);
 
-  // If there's a start message, defer until React finishes rendering and WorkspaceStore subscribes
+  // If there's a start message, defer until React finishes rendering and MinionStore subscribes
   const startMessage = options.startMessage;
   const sendMessageOptions = options.sendMessageOptions;
   const client = options.client;
   if (startMessage && sendMessageOptions) {
     requestAnimationFrame(() => {
-      client.workspace
+      client.minion
         .sendMessage({
-          workspaceId: result.metadata.id,
+          minionId: result.metadata.id,
           message: startMessage,
           options: sendMessageOptions,
         })
@@ -828,19 +704,19 @@ export async function createNewWorkspace(
     });
   }
 
-  return { success: true, workspaceInfo };
+  return { success: true, minionInfo };
 }
 
 /**
  * Format /new command string for display
  */
 export function formatNewCommand(
-  workspaceName: string,
+  minionName: string,
   trunkBranch?: string,
   runtime?: string,
   startMessage?: string
 ): string {
-  let cmd = `/new ${workspaceName}`;
+  let cmd = `/new ${minionName}`;
   if (trunkBranch) {
     cmd += ` -t ${trunkBranch}`;
   }
@@ -854,7 +730,7 @@ export function formatNewCommand(
 }
 
 // ============================================================================
-// Workspace Forking (Inline implementation)
+// Minion Forking (Inline implementation)
 // ============================================================================
 
 // ============================================================================
@@ -866,7 +742,7 @@ export { buildContinueMessage } from "@/common/types/message";
 
 export interface CompactionOptions {
   api?: RouterClient<AppRouter>;
-  workspaceId: string;
+  minionId: string;
   maxOutputTokens?: number;
   /**
    * Content to continue with after compaction.
@@ -892,16 +768,9 @@ export interface CompactionResult {
  */
 export function prepareCompactionMessage(options: CompactionOptions): {
   messageText: string;
-  metadata: LatticeFrontendMetadata;
+  metadata: LatticeMessageMetadata;
   sendOptions: SendMessageOptions;
 } {
-  const targetWords = options.maxOutputTokens
-    ? Math.round(options.maxOutputTokens / WORDS_TO_TOKENS_RATIO)
-    : DEFAULT_COMPACTION_WORD_TARGET;
-
-  // Build compaction message with optional continue context
-  let messageText = buildCompactionPrompt(targetWords);
-
   // followUpContent is the content that will be auto-sent after compaction.
   // For forced compaction (no explicit follow-up), we inject a short resume sentinel ("Continue").
   // Keep that sentinel out of the *compaction prompt* (summarization request), otherwise the model can
@@ -934,14 +803,17 @@ export function prepareCompactionMessage(options: CompactionOptions): {
     fc = {
       ...options.followUpContent,
       model: existingModel ?? options.sendMessageOptions.model,
-      agentId: existingAgentId ?? options.sendMessageOptions.agentId ?? "exec",
+      agentId: existingAgentId ?? options.sendMessageOptions.agentId ?? MINION_DEFAULTS.agentId,
+      ...pickPreservedSendOptions(options.sendMessageOptions),
     };
   }
-  const isDefaultResume = isDefaultSourceContent(fc);
 
-  if (fc && !isDefaultResume) {
-    messageText += `\n\nThe user wants to continue with: ${fc.text}`;
-  }
+  // Build compaction message with optional continue context.
+  // Shared helper is also used by backend-triggered idle compaction.
+  const messageText = buildCompactionMessageText({
+    maxOutputTokens: options.maxOutputTokens,
+    followUpContent: fc,
+  });
 
   // Handle model preference (sticky globally)
   const effectiveModel = resolveCompactionModel(options.model);
@@ -956,19 +828,21 @@ export function prepareCompactionMessage(options: CompactionOptions): {
     followUpContent: fc,
   };
 
-  const metadata: LatticeFrontendMetadata = {
+  // Apply compaction overrides
+  const sendOptions = applyCompactionOverrides(options.sendMessageOptions, compactData);
+
+  const metadata: LatticeMessageMetadata = {
     type: "compaction-request",
     rawCommand: fullRawCommand,
     commandPrefix: commandLine,
     parsed: compactData,
+    // requestedModel keeps the "starting" banner aligned with compaction overrides.
+    requestedModel: sendOptions.model,
     ...(options.source === "idle-compaction" && {
       source: options.source,
-      displayStatus: { emoji: "💤", message: "Compacting idle workspace..." },
+      displayStatus: { emoji: "💤", message: "Compacting idle minion..." },
     }),
   };
-
-  // Apply compaction overrides
-  const sendOptions = applyCompactionOverrides(options.sendMessageOptions, compactData);
 
   return { messageText, metadata, sendOptions };
 }
@@ -981,8 +855,8 @@ export async function executeCompaction(
 ): Promise<CompactionResult> {
   const { messageText, metadata, sendOptions } = prepareCompactionMessage(options);
 
-  const result = await options.api.workspace.sendMessage({
-    workspaceId: options.workspaceId,
+  const result = await options.api.minion.sendMessage({
+    minionId: options.minionId,
     message: messageText,
     options: {
       ...sendOptions,
@@ -1012,7 +886,7 @@ export async function executeCompaction(
 
 export interface CommandHandlerContext {
   api: RouterClient<AppRouter>;
-  workspaceId: string;
+  minionId: string;
   sendMessageOptions: SendMessageOptions;
   fileParts?: FilePart[];
   /** Reviews attached to the message (from code review panel) */
@@ -1042,32 +916,32 @@ export async function handleNewCommand(
 ): Promise<CommandHandlerResult> {
   const {
     api: client,
-    workspaceId,
+    minionId,
     sendMessageOptions,
     setInput,
     setSendingState,
     setToast,
   } = context;
 
-  // Open modal if no workspace name provided
-  if (!parsed.workspaceName) {
+  // Open modal if no minion name provided
+  if (!parsed.minionName) {
     setInput("");
 
-    // Get workspace info to extract projectPath for the modal
-    const workspaceInfo = await client.workspace.getInfo({ workspaceId });
-    if (!workspaceInfo) {
+    // Get minion info to extract projectPath for the modal
+    const minionInfo = await client.minion.getInfo({ minionId });
+    if (!minionInfo) {
       setToast({
         id: Date.now().toString(),
         type: "error",
         title: "Error",
-        message: "Failed to get workspace info",
+        message: "Failed to get minion info",
       });
       return { clearInput: false, toastShown: true };
     }
 
     // Dispatch event with start message, model, and optional preferences
-    const event = createCustomEvent(CUSTOM_EVENTS.START_WORKSPACE_CREATION, {
-      projectPath: workspaceInfo.projectPath,
+    const event = createCustomEvent(CUSTOM_EVENTS.START_MINION_CREATION, {
+      projectPath: minionInfo.projectPath,
       startMessage: parsed.startMessage ?? "",
       model: sendMessageOptions.model,
       trunkBranch: parsed.trunkBranch,
@@ -1081,16 +955,16 @@ export async function handleNewCommand(
   setSendingState(true);
 
   try {
-    // Get workspace info to extract projectPath
-    const workspaceInfo = await client.workspace.getInfo({ workspaceId });
-    if (!workspaceInfo) {
-      throw new Error("Failed to get workspace info");
+    // Get minion info to extract projectPath
+    const minionInfo = await client.minion.getInfo({ minionId });
+    if (!minionInfo) {
+      throw new Error("Failed to get minion info");
     }
 
-    const createResult = await createNewWorkspace({
+    const createResult = await createNewMinion({
       client,
-      projectPath: workspaceInfo.projectPath,
-      workspaceName: parsed.workspaceName,
+      projectPath: minionInfo.projectPath,
+      minionName: parsed.minionName,
       trunkBranch: parsed.trunkBranch,
       runtime: parsed.runtime,
       startMessage: parsed.startMessage,
@@ -1098,8 +972,8 @@ export async function handleNewCommand(
     });
 
     if (!createResult.success) {
-      const errorMsg = createResult.error ?? "Failed to create workspace";
-      console.error("Failed to create workspace:", errorMsg);
+      const errorMsg = createResult.error ?? "Failed to summon minion";
+      console.error("Failed to summon minion:", errorMsg);
       setToast({
         id: Date.now().toString(),
         type: "error",
@@ -1113,11 +987,11 @@ export async function handleNewCommand(
     setToast({
       id: Date.now().toString(),
       type: "success",
-      message: `Created workspace "${parsed.workspaceName}"`,
+      message: `Summoned minion "${parsed.minionName}"`,
     });
     return { clearInput: true, toastShown: true };
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : "Failed to create workspace";
+    const errorMsg = error instanceof Error ? error.message : "Failed to summon minion";
     console.error("Create error:", error);
     setToast({
       id: Date.now().toString(),
@@ -1140,7 +1014,7 @@ export async function handleCompactCommand(
 ): Promise<CommandHandlerResult> {
   const {
     api,
-    workspaceId,
+    minionId,
     sendMessageOptions,
     editMessageId,
     setInput,
@@ -1150,8 +1024,11 @@ export async function handleCompactCommand(
     onCancelEdit,
   } = context;
 
+  // normalizeModelInput handles null/empty — returns { model: null } for empty input
+  const normalizedModel = normalizeModelInput(parsed.model);
+
   // Validate model format early - fail fast before sending to backend
-  if (parsed.model && !isValidModelFormat(parsed.model)) {
+  if (parsed.model && !normalizedModel.model) {
     setToast(createInvalidCompactModelToast(parsed.model));
     return { clearInput: false, toastShown: true };
   }
@@ -1172,12 +1049,14 @@ export async function handleCompactCommand(
         }
       : undefined;
 
+    const resolvedModel = normalizedModel.model ?? undefined;
+
     const result = await executeCompaction({
       api,
-      workspaceId,
+      minionId,
       maxOutputTokens: parsed.maxOutputTokens,
       followUpContent,
-      model: parsed.model,
+      model: resolvedModel,
       sendMessageOptions,
       editMessageId,
     });
@@ -1228,16 +1107,16 @@ export async function handleCompactCommand(
 export async function handlePlanShowCommand(
   context: CommandHandlerContext
 ): Promise<CommandHandlerResult> {
-  const { api, workspaceId, setInput, setToast } = context;
+  const { api, minionId, setInput, setToast } = context;
 
   setInput("");
 
-  const result = await api.workspace.getPlanContent({ workspaceId });
+  const result = await api.minion.getPlanContent({ minionId });
   if (!result.success) {
     setToast({
       id: Date.now().toString(),
       type: "error",
-      message: "No plan found for this workspace",
+      message: "No plan found for this minion",
     });
     return { clearInput: true, toastShown: true };
   }
@@ -1254,7 +1133,7 @@ export async function handlePlanShowCommand(
       latticeMetadata: { type: "plan-display" as const, path: result.data.path },
     },
   };
-  addEphemeralMessage(workspaceId, planMessage);
+  addEphemeralMessage(minionId, planMessage);
 
   trackCommandUsed("plan");
   return { clearInput: true, toastShown: false };
@@ -1263,27 +1142,27 @@ export async function handlePlanShowCommand(
 export async function handlePlanOpenCommand(
   context: CommandHandlerContext
 ): Promise<CommandHandlerResult> {
-  const { api, workspaceId, setInput, setToast } = context;
+  const { api, minionId, setInput, setToast } = context;
 
   setInput("");
 
   // First get the plan path
-  const planResult = await api.workspace.getPlanContent({ workspaceId });
+  const planResult = await api.minion.getPlanContent({ minionId });
   if (!planResult.success) {
     setToast({
       id: Date.now().toString(),
       type: "error",
-      message: "No plan found for this workspace",
+      message: "No plan found for this minion",
     });
     return { clearInput: true, toastShown: true };
   }
 
-  const workspaceInfo = await api.workspace.getInfo({ workspaceId });
+  const minionInfo = await api.minion.getInfo({ minionId });
   const openResult = await openInEditor({
     api,
-    workspaceId,
+    minionId,
     targetPath: planResult.data.path,
-    runtimeConfig: workspaceInfo?.runtimeConfig,
+    runtimeConfig: minionInfo?.runtimeConfig,
     isFile: true,
   });
 
@@ -1310,5 +1189,5 @@ export async function handlePlanOpenCommand(
 // ============================================================================
 
 /**
- * Dispatch a custom event to switch workspaces
+ * Dispatch a custom event to switch minions
  */

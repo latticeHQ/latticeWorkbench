@@ -11,20 +11,14 @@
 import { Command } from "commander";
 import { tool } from "ai";
 import { z } from "zod";
-import * as os from "os";
 import * as path from "path";
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
-import { Config } from "@/node/config";
-import { DisposableTempDir } from "@/node/services/tempDir";
-import { HistoryService } from "@/node/services/historyService";
-import { PartialService } from "@/node/services/partialService";
-import { InitStateManager } from "@/node/services/initStateManager";
-import { AIService } from "@/node/services/aiService";
-import { AgentSession, type AgentSessionChatEvent } from "@/node/services/agentSession";
-import { BackgroundProcessManager } from "@/node/services/backgroundProcessManager";
-import { MCPConfigService } from "@/node/services/mcpConfigService";
-import { MCPServerManager } from "@/node/services/mcpServerManager";
+import { Config } from "../node/config";
+import { DisposableTempDir } from "../node/services/tempDir";
+import { AgentSession, type AgentSessionChatEvent } from "../node/services/agentSession";
+import { CodexOauthService } from "../node/services/codexOauthService";
+import { createCoreServices } from "../node/services/coreServices";
 import {
   isCaughtUpMessage,
   isReasoningDelta,
@@ -39,15 +33,15 @@ import {
   isToolCallStart,
   isUsageDelta,
   type SendMessageOptions,
-  type WorkspaceChatMessage,
-} from "@/common/orpc/types";
-import { createDisplayUsage } from "@/common/utils/tokens/displayUsage";
+  type MinionChatMessage,
+} from "../common/orpc/types";
+import { createDisplayUsage } from "../common/utils/tokens/displayUsage";
 import {
   getTotalCost,
   formatCostWithDollar,
   sumUsageHistory,
   type ChatUsageDisplay,
-} from "@/common/utils/tokens/usageAggregator";
+} from "../common/utils/tokens/usageAggregator";
 import {
   formatToolStart,
   formatToolEnd,
@@ -55,30 +49,35 @@ import {
   formatGenericToolEnd,
   isMultilineResultTool,
 } from "./toolFormatters";
-import { defaultModel, resolveModelAlias } from "@/common/utils/ai/models";
-// Agent-only architecture: no more API key bootstrap from environment
+import { defaultModel, resolveModelAlias } from "../common/utils/ai/models";
+import {
+  buildProvidersFromEnv,
+  hasAnyConfiguredProvider,
+} from "../node/utils/providerRequirements";
 
 import {
   DEFAULT_THINKING_LEVEL,
-  THINKING_LEVELS,
-  isThinkingLevel,
-  type ThinkingLevel,
-} from "@/common/types/thinking";
-import type { RuntimeConfig } from "@/common/types/runtime";
-import { parseRuntimeModeAndHost, RUNTIME_MODE } from "@/common/types/runtime";
-import assert from "@/common/utils/assert";
+  THINKING_DISPLAY_LABELS,
+  parseThinkingInput,
+  type ParsedThinkingInput,
+} from "../common/types/thinking";
+import { resolveThinkingInput } from "../common/utils/thinking/policy";
+import type { RuntimeConfig } from "../common/types/runtime";
+import { parseRuntimeModeAndHost, RUNTIME_MODE } from "../common/types/runtime";
+import assert from "../common/utils/assert";
 import type { LanguageModelV2Usage } from "@ai-sdk/provider";
-import { log, type LogLevel } from "@/node/services/log";
+import { log, type LogLevel } from "../node/services/log";
 import chalk from "chalk";
-import type { InitLogger, WorkspaceInitResult } from "@/node/runtime/Runtime";
-import { DockerRuntime } from "@/node/runtime/DockerRuntime";
-import { runFullInit } from "@/node/runtime/runtimeFactory";
-import { CliAgentDetectionService } from "@/node/services/cliAgentDetectionService";
+import type { InitLogger, MinionInitResult } from "../node/runtime/Runtime";
+import { DockerRuntime } from "../node/runtime/DockerRuntime";
+import { runFullInit } from "../node/runtime/runtimeFactory";
 import { execSync } from "child_process";
 import { getParseOptions } from "./argv";
-import { EXPERIMENT_IDS } from "@/common/constants/experiments";
+import { EXPERIMENT_IDS } from "../common/constants/experiments";
+import { getErrorMessage } from "@/common/utils/errors";
 
-const THINKING_LEVELS_LIST = THINKING_LEVELS.join(", ");
+// Display labels for CLI help (OFF, LOW, MED, HIGH, MAX)
+const THINKING_LABELS_LIST = Object.values(THINKING_DISPLAY_LABELS).join(", ");
 
 type CLIMode = "plan" | "exec";
 
@@ -109,14 +108,15 @@ function parseRuntimeConfig(value: string | undefined, srcBaseDir: string): Runt
   }
 }
 
-function parseThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
+function parseThinkingLevel(value: string | undefined): ParsedThinkingInput {
   if (!value) return DEFAULT_THINKING_LEVEL; // Default for lattice run
 
-  const normalized = value.trim().toLowerCase();
-  if (isThinkingLevel(normalized)) {
-    return normalized;
+  // Accepts named levels (off, low, med, high, max, xhigh) and numeric (0–N)
+  const level = parseThinkingInput(value);
+  if (level != null) {
+    return level;
   }
-  throw new Error(`Invalid thinking level "${value}". Expected: ${THINKING_LEVELS_LIST}`);
+  throw new Error(`Invalid thinking level "${value}". Expected: ${THINKING_LABELS_LIST}, or 0–N`);
 }
 
 function parseMode(value: string | undefined): CLIMode {
@@ -129,7 +129,7 @@ function parseMode(value: string | undefined): CLIMode {
   throw new Error(`Invalid mode "${value}". Expected: plan, exec`);
 }
 
-function generateWorkspaceId(): string {
+function generateMinionId(): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 8);
   return `run-${timestamp}-${random}`;
@@ -205,6 +205,7 @@ function buildExperimentsObject(experimentIds: string[]): SendMessageOptions["ex
     programmaticToolCalling: experimentIds.includes("programmatic-tool-calling"),
     programmaticToolCallingExclusive: experimentIds.includes("programmatic-tool-calling-exclusive"),
     system1: experimentIds.includes("system-1"),
+    execSidekickHardRestart: experimentIds.includes("exec-sidekick-hard-restart"),
   };
 }
 
@@ -245,8 +246,8 @@ program
   .option("--mode <mode>", "agent mode: plan or exec", "exec")
   .option(
     "-t, --thinking <level>",
-    `thinking level: ${THINKING_LEVELS_LIST}`,
-    DEFAULT_THINKING_LEVEL
+    `thinking level: ${THINKING_LABELS_LIST}`,
+    THINKING_DISPLAY_LABELS[DEFAULT_THINKING_LEVEL]
   )
   .option("-v, --verbose", "show info-level logs (default: errors only)")
   .option("--hide-costs", "hide cost summary at end of run")
@@ -254,9 +255,15 @@ program
   .option("--json", "output NDJSON for programmatic consumption")
   .option("-q, --quiet", "only output final result")
   .option("--mcp <server>", "MCP server as name=command (can be repeated)", collectMcpServers, [])
-  .option("--no-mcp-config", "ignore .lattice/mcp.jsonc, use only --mcp servers")
+  .option("--no-mcp-config", "ignore global + repo MCP config files (use only --mcp servers)")
   .option("-e, --experiment <id>", "enable experiment (can be repeated)", collectExperiments, [])
   .option("-b, --budget <usd>", "stop when session cost exceeds budget (USD)", parseFloat)
+  .option("--service-tier <tier>", "OpenAI service tier: auto, default, flex, priority", "auto")
+  .option("--use-1m", "enable 1M context window for supported Anthropic models")
+  .option(
+    "--keep-background-processes",
+    "do not terminate background processes on exit (for CI/bench)"
+  )
   .addHelpText(
     "after",
     `
@@ -290,9 +297,14 @@ interface CLIOptions {
   mcpConfig: boolean;
   experiment: string[];
   budget?: number;
+  serviceTier: "auto" | "default" | "flex" | "priority";
+  use1m?: boolean;
+  keepBackgroundProcesses?: boolean;
 }
 
 const opts = program.opts<CLIOptions>();
+const keepBackgroundProcesses =
+  opts.keepBackgroundProcesses === true || process.env.LATTICE_KEEP_BACKGROUND_PROCESSES === "1";
 const messageArg = program.args.join(" ");
 
 async function main(): Promise<number> {
@@ -327,9 +339,10 @@ async function main(): Promise<number> {
   const realConfig = new Config();
   const config = new Config(tempDir.path);
 
-  // Copy providers config from real config to ephemeral config (for custom model lists)
+  // Copy providers and secrets from real config to ephemeral config
   const existingProviders = realConfig.loadProvidersConfig();
-  if (existingProviders && Object.keys(existingProviders).length > 0) {
+  if (hasAnyConfiguredProvider(existingProviders)) {
+    // Write providers to temp config so services can find them
     const providersFile = path.join(config.rootDir, "providers.jsonc");
     fsSync.writeFileSync(providersFile, JSON.stringify(existingProviders, null, 2));
   }
@@ -341,13 +354,14 @@ async function main(): Promise<number> {
     fsSync.writeFileSync(secretsFile, JSON.stringify(existingSecrets, null, 2));
   }
 
-  const workspaceId = generateWorkspaceId();
+  const minionId = generateMinionId();
   const projectDir = path.resolve(opts.dir);
   await ensureDirectory(projectDir);
 
   const model: string = resolveModelAlias(opts.model);
   const runtimeConfig = parseRuntimeConfig(opts.runtime, config.srcDir);
-  const thinkingLevel = parseThinkingLevel(opts.thinking);
+  // Resolve thinking: numeric indices map to the model's allowed levels (0 = lowest)
+  const thinkingLevel = resolveThinkingInput(parseThinkingLevel(opts.thinking), model);
   const initialMode = parseMode(opts.mode);
   const emitJson = opts.json === true;
   const quiet = opts.quiet === true;
@@ -395,20 +409,48 @@ async function main(): Promise<number> {
   );
   log.info(`Mode: ${initialMode}`);
 
-  // Initialize services
-  const historyService = new HistoryService(config);
-  const partialService = new PartialService(config, historyService);
-  const initStateManager = new InitStateManager(config);
-  const backgroundProcessManager = new BackgroundProcessManager(
-    path.join(os.tmpdir(), "lattice-bashes")
-  );
-  const aiService = new AIService(
-    config,
+  // Bootstrap providers from env vars if no providers.jsonc exists
+  if (!hasAnyConfiguredProvider(existingProviders)) {
+    const providersFromEnv = buildProvidersFromEnv();
+    if (hasAnyConfiguredProvider(providersFromEnv)) {
+      config.saveProvidersConfig(providersFromEnv);
+    } else {
+      throw new Error(
+        "No provider credentials found. Configure providers.jsonc or set ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY."
+      );
+    }
+  }
+
+  // Initialize the core service graph (shared with ServiceContainer).
+  // CLI overrides: ephemeral extension metadata, persistent MCP config via
+  // realConfig, and CLI-specific MCPServerManager options for inline servers.
+  const inlineServers: Record<string, string> = {};
+  for (const entry of opts.mcp) {
+    inlineServers[entry.name] = entry.command;
+  }
+  const {
+    aiService,
     historyService,
-    partialService,
     initStateManager,
-    backgroundProcessManager
-  );
+    backgroundProcessManager,
+    mcpServerManager,
+    providerService,
+    minionService,
+  } = createCoreServices({
+    config,
+    extensionMetadataPath: path.join(tempDir.path, "extensionMetadata.json"),
+    mcpConfig: realConfig,
+    mcpServerManagerOptions: {
+      inlineServers,
+      ignoreConfigFile: !opts.mcpConfig,
+    },
+  });
+
+  // `lattice run` uses createCoreServices directly (without ServiceContainer), so wire
+  // Codex OAuth explicitly to ensure Codex-routed OpenAI requests can load/refresh
+  // OAuth tokens from providers.jsonc.
+  const codexOauthService = new CodexOauthService(config, providerService);
+  aiService.setCodexOauthService(codexOauthService);
 
   // CLI-only exit code control: allows agent to set the process exit code
   // Useful for CI workflows where the agent should block merge on failure
@@ -435,37 +477,26 @@ async function main(): Promise<number> {
   });
   aiService.setExtraTools({ set_exit_code: setExitCodeTool });
 
-  // Agent-only architecture: CLI agents handle their own credentials.
-  // No API key bootstrap needed.
-
-  // Initialize MCP support
-  const mcpConfigService = new MCPConfigService();
-  const inlineServers: Record<string, string> = {};
-  for (const entry of opts.mcp) {
-    inlineServers[entry.name] = entry.command;
-  }
-  const mcpServerManager = new MCPServerManager(mcpConfigService, {
-    inlineServers,
-    ignoreConfigFile: !opts.mcpConfig,
-  });
-  aiService.setMCPServerManager(mcpServerManager);
-
   const session = new AgentSession({
-    workspaceId,
+    minionId,
     config,
     historyService,
-    partialService,
     aiService,
     initStateManager,
     backgroundProcessManager,
+    keepBackgroundProcesses,
   });
+  // Register with MinionService so TaskService operations that target the parent
+  // minion (e.g. resumeStream after sidekick completion) reuse this session
+  // instead of creating a duplicate.
+  minionService.registerSession(minionId, session);
 
   // For Docker runtime, create and initialize the container first
-  let workspacePath = projectDir;
+  let minionPath = projectDir;
   if (runtimeConfig.type === "docker") {
     const runtime = new DockerRuntime(runtimeConfig);
     // Use a sanitized branch name (CLI runs are typically one-off, no real branch needed)
-    const branchName = `cli-${workspaceId.replace(/[^a-zA-Z0-9-]/g, "-")}`;
+    const branchName = `cli-${minionId.replace(/[^a-zA-Z0-9-]/g, "-")}`;
 
     // Detect trunk branch from repo
     let trunkBranch = "main";
@@ -480,7 +511,7 @@ async function main(): Promise<number> {
     }
 
     const initLogger = makeCliInitLogger(writeHumanLine);
-    const createResult = await runtime.createWorkspace({
+    const createResult = await runtime.createMinion({
       projectPath: projectDir,
       branchName,
       trunkBranch,
@@ -488,24 +519,22 @@ async function main(): Promise<number> {
       initLogger,
     });
     if (!createResult.success) {
-      console.error(`Failed to create Docker workspace: ${createResult.error ?? "unknown error"}`);
+      console.error(`Failed to create Docker minion: ${createResult.error ?? "unknown error"}`);
       process.exit(1);
     }
 
-    // Use runFullInit to ensure postCreateSetup runs before initWorkspace
-    // Also bootstrap locally-detected CLI agents on the Docker runtime
-    const cliAgentDetection = new CliAgentDetectionService();
-    let initResult: WorkspaceInitResult;
+    // Use runFullInit to ensure postCreateSetup runs before initMinion
+    let initResult: MinionInitResult;
     try {
       initResult = await runFullInit(runtime, {
         projectPath: projectDir,
         branchName,
         trunkBranch,
-        workspacePath: createResult.workspacePath!,
+        minionPath: createResult.minionPath!,
         initLogger,
-      }, cliAgentDetection);
+      });
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       initLogger.logStderr(`Initialization failed: ${errorMessage}`);
       initLogger.logComplete(-1);
       initResult = { success: false, error: errorMessage };
@@ -513,23 +542,28 @@ async function main(): Promise<number> {
     if (!initResult.success) {
       // Clean up orphaned container
       // eslint-disable-next-line @typescript-eslint/no-empty-function
-      await runtime.deleteWorkspace(projectDir, branchName, true).catch(() => {});
+      await runtime.deleteMinion(projectDir, branchName, true).catch(() => {});
       console.error(
-        `Failed to initialize Docker workspace: ${initResult.error ?? "unknown error"}`
+        `Failed to initialize Docker minion: ${initResult.error ?? "unknown error"}`
       );
       process.exit(1);
     }
 
-    // Docker workspacePath is /src; projectName stays as original
-    workspacePath = createResult.workspacePath!;
+    // Docker minionPath is /src; projectName stays as original
+    minionPath = createResult.minionPath!;
   }
 
-  // Initialize workspace metadata (ephemeral - stored in temp dir)
+  // Initialize minion metadata (ephemeral - stored in temp dir)
   await session.ensureMetadata({
-    workspacePath,
+    minionPath,
     projectName: path.basename(projectDir),
     runtimeConfig,
   });
+
+  // Note: taskService.initialize() is intentionally NOT called. It resumes tasks from a
+  // previous session, but lattice run uses an ephemeral Config (temp dir) with no prior state.
+  // Calling initialize() on a fresh config is a no-op, but skipping it makes the intent
+  // clear and avoids any risk of cross-minion side effects if config were ever shared.
 
   const experiments = buildExperimentsObject(opts.experiment);
 
@@ -538,11 +572,24 @@ async function main(): Promise<number> {
     thinkingLevel,
     agentId: cliMode,
     experiments,
-    // toolPolicy is computed by backend from agent definitions (resolveToolPolicyForAgent)
+    providerOptions: {
+      ...(opts.use1m && { anthropic: { use1MContext: true } }),
+      openai: { serviceTier: opts.serviceTier },
+    },
+    // Disable UI-only tools that have no effect in CLI mode:
+    // - status_set: backend no-op, status indicator only visible in desktop UI
+    // - todo_write/todo_read: TODO list only visible in desktop UI
+    // - notify: sends OS notifications via Electron, silently swallowed in CLI
+    toolPolicy: [
+      { regex_match: "status_set", action: "disable" as const },
+      { regex_match: "todo_write", action: "disable" as const },
+      { regex_match: "todo_read", action: "disable" as const },
+      { regex_match: "notify", action: "disable" as const },
+    ],
     // Plan agent instructions are handled by the backend (has access to plan file path)
   });
 
-  const liveEvents: WorkspaceChatMessage[] = [];
+  const liveEvents: MinionChatMessage[] = [];
   let readyForLive = false;
 
   /**
@@ -679,7 +726,7 @@ async function main(): Promise<number> {
     await waitForCompletion();
   };
 
-  const handleToolStart = (payload: WorkspaceChatMessage): boolean => {
+  const handleToolStart = (payload: MinionChatMessage): boolean => {
     if (!isToolCallStart(payload)) return false;
 
     // Cache args for use in end formatting
@@ -702,7 +749,7 @@ async function main(): Promise<number> {
     return true;
   };
 
-  const handleToolDelta = (payload: WorkspaceChatMessage): boolean => {
+  const handleToolDelta = (payload: MinionChatMessage): boolean => {
     if (!isToolCallDelta(payload)) return false;
     // Tool deltas (e.g., bash streaming output) - write inline
     // Preserve whitespace-only chunks (e.g., newlines) to avoid merging lines
@@ -712,7 +759,7 @@ async function main(): Promise<number> {
     return true;
   };
 
-  const handleToolEnd = (payload: WorkspaceChatMessage): boolean => {
+  const handleToolEnd = (payload: MinionChatMessage): boolean => {
     if (!isToolCallEnd(payload)) return false;
 
     // Retrieve cached args and clean up
@@ -744,12 +791,12 @@ async function main(): Promise<number> {
     if (!readyForLive) {
       if (isCaughtUpMessage(payload)) {
         readyForLive = true;
-        emitJsonLine({ type: "caught-up", workspaceId });
+        emitJsonLine({ type: "caught-up", minionId });
       }
       return;
     }
 
-    emitJsonLine({ type: "event", workspaceId, payload });
+    emitJsonLine({ type: "event", minionId, payload });
     liveEvents.push(payload);
 
     if (handleToolStart(payload) || handleToolDelta(payload) || handleToolEnd(payload)) {
@@ -875,6 +922,39 @@ async function main(): Promise<number> {
       return;
     }
 
+    // When a sidekick minion is cleaned up, its usage is rolled up into the parent
+    // and emitted as a session-usage-delta event. Add to usageHistory so budget checks
+    // and the final cost summary include sidekick costs.
+    if (payload.type === "session-usage-delta") {
+      for (const usage of Object.values(payload.byModelDelta)) {
+        usageHistory.push(usage);
+      }
+
+      // Enforce budget after rolling up sidekick costs (mirrors the stream-end budget check).
+      // sumUsageHistory sets hasUnknownCosts when any component has cost_usd===undefined,
+      // which catches models with unknown pricing regardless of how entries were merged.
+      if (budget !== undefined && !budgetExceeded) {
+        const totalUsage = sumUsageHistory(usageHistory);
+        const cost = getTotalCost(totalUsage);
+
+        if (totalUsage?.hasUnknownCosts) {
+          const errMsg = `Cannot enforce budget: sub-agent used a model with unknown pricing`;
+          emitJsonLine({ type: "budget-error", error: errMsg });
+          rejectStream(new Error(errMsg));
+          return;
+        }
+
+        if (cost !== undefined && cost > budget) {
+          budgetExceeded = true;
+          const msg = `Budget exceeded ($${cost.toFixed(2)} of $${budget.toFixed(2)}) - stopping`;
+          emitJsonLine({ type: "budget-exceeded", spent: cost, budget });
+          writeHumanLineClosed(`\n${chalk.yellow(msg)}`);
+          void session.interruptStream({ abandonPartial: false });
+        }
+      }
+      return;
+    }
+
     // Capture usage-delta events as fallback when stream-end lacks usage metadata
     // Also check budget limits if --budget is specified
     if (isUsageDelta(payload)) {
@@ -948,7 +1028,7 @@ async function main(): Promise<number> {
 
     // Output final result for --quiet mode
     if (quiet) {
-      let finalEvent: WorkspaceChatMessage | undefined;
+      let finalEvent: MinionChatMessage | undefined;
       for (let i = liveEvents.length - 1; i >= 0; i--) {
         if (isStreamEnd(liveEvents[i])) {
           finalEvent = liveEvents[i];
@@ -966,10 +1046,30 @@ async function main(): Promise<number> {
       }
     }
 
+    // Compute final usage/cost summary. usageHistory includes both parent stream usage
+    // (from stream-end events) and rolled-up sidekick costs (from session-usage-delta events).
+    const totalUsage = sumUsageHistory(usageHistory);
+    const totalCost = getTotalCost(totalUsage);
+
+    // Emit run-complete event in JSON mode with usage and cost
+    if (emitJson) {
+      emitJsonLine({
+        type: "run-complete",
+        usage: totalUsage
+          ? {
+              inputTokens: totalUsage.input.tokens,
+              outputTokens: totalUsage.output.tokens,
+              cachedTokens: totalUsage.cached.tokens,
+              cacheCreateTokens: totalUsage.cacheCreate.tokens,
+              reasoningTokens: totalUsage.reasoning.tokens,
+            }
+          : null,
+        cost_usd: totalCost ?? null,
+      });
+    }
+
     // Print cost summary at end of run (unless --hide-costs or --json)
     if (!hideCosts && !emitJson) {
-      const totalUsage = sumUsageHistory(usageHistory);
-      const totalCost = getTotalCost(totalUsage);
       // Skip if no cost data or if model pricing is unknown (would show misleading $0.00)
       if (totalCost !== undefined && !totalUsage?.hasUnknownCosts) {
         const costLine = `Cost: ${formatCostWithDollar(totalCost)}`;
@@ -981,6 +1081,10 @@ async function main(): Promise<number> {
     unsubscribe();
     session.dispose();
     mcpServerManager.dispose();
+    await codexOauthService.dispose();
+    if (!keepBackgroundProcesses) {
+      await backgroundProcessManager.terminateAll();
+    }
   }
 
   // Exit codes: 2 for budget exceeded, agent-specified exit code, or 0 for success
@@ -996,10 +1100,22 @@ const keepAliveInterval = setInterval(() => {
 main()
   .then((exitCode) => {
     clearInterval(keepAliveInterval);
-    process.exit(exitCode);
+    // Flush stdout before exiting — process.exit() kills immediately and may
+    // drop buffered writes (e.g. the run-complete JSON line piped to tee in benchmarks).
+    if (process.stdout.writableNeedDrain) {
+      const exit = () => process.exit(exitCode);
+      process.stdout.once("drain", exit);
+      // Safety: if the downstream consumer closes (broken pipe) or backpressure
+      // never resolves, exit anyway after 1s to avoid hanging.
+      process.stdout.once("error", exit);
+      process.stdout.once("close", exit);
+      setTimeout(exit, 1000).unref();
+    } else {
+      process.exit(exitCode);
+    }
   })
   .catch((error) => {
     clearInterval(keepAliveInterval);
-    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Error: ${getErrorMessage(error)}`);
     process.exit(1);
   });

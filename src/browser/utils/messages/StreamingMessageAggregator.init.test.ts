@@ -3,7 +3,7 @@ import { StreamingMessageAggregator } from "./StreamingMessageAggregator";
 import { INIT_HOOK_MAX_LINES } from "@/common/constants/toolLimits";
 
 interface InitDisplayedMessage {
-  type: "workspace-init";
+  type: "minion-init";
   status: "running" | "success" | "error";
   lines: Array<{ line: string; isError: boolean }>;
   exitCode: number | null;
@@ -26,7 +26,7 @@ describe("Init display after cleanup changes", () => {
 
     let messages = aggregator.getDisplayedMessages();
     expect(messages).toHaveLength(1);
-    expect(messages[0].type).toBe("workspace-init");
+    expect(messages[0].type).toBe("minion-init");
     expect((messages[0] as InitDisplayedMessage).status).toBe("running");
 
     // Simulate init output

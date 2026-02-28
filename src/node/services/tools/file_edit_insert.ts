@@ -13,6 +13,7 @@ import { convertNewlines, detectFileEol } from "./eol";
 import { fileExists } from "@/node/utils/runtime/fileExists";
 import { writeFileString } from "@/node/utils/runtime/helpers";
 import { RuntimeError } from "@/node/runtime/Runtime";
+import { getErrorMessage } from "@/common/utils/errors";
 
 const READ_AND_RETRY_NOTE = `${EDIT_FAILED_NOTE_PREFIX} ${NOTE_READ_FILE_RETRY}`;
 
@@ -28,10 +29,7 @@ interface InsertOperationFailure {
   note?: string;
 }
 
-interface InsertContentOptions {
-  before?: string;
-  after?: string;
-}
+type InsertContentOptions = Pick<FileEditInsertToolArgs, "insert_before" | "insert_after">;
 
 interface GuardResolutionSuccess {
   success: true;
@@ -46,27 +44,27 @@ function guardFailure(error: string): InsertOperationFailure {
   };
 }
 
-type GuardAnchors = Pick<InsertContentOptions, "before" | "after">;
+type GuardAnchors = Pick<InsertContentOptions, "insert_before" | "insert_after">;
 
 export const createFileEditInsertTool: ToolFactory = (config: ToolConfiguration) => {
   return tool({
     description: TOOL_DEFINITIONS.file_edit_insert.description,
     inputSchema: TOOL_DEFINITIONS.file_edit_insert.schema,
     execute: async (
-      { file_path, content, before, after }: FileEditInsertToolArgs,
+      { path, content, insert_before, insert_after }: FileEditInsertToolArgs,
       { abortSignal }
     ): Promise<FileEditInsertToolResult> => {
       try {
         const { correctedPath, warning: pathWarning } = validateAndCorrectPath(
-          file_path,
+          path,
           config.cwd,
           config.runtime
         );
-        file_path = correctedPath;
-        const resolvedPath = config.runtime.normalizePath(file_path, config.cwd);
+        path = correctedPath;
+        const resolvedPath = config.runtime.normalizePath(path, config.cwd);
 
         // Validate plan mode access restrictions
-        const planModeError = await validatePlanModeAccess(file_path, config);
+        const planModeError = await validatePlanModeAccess(path, config);
         if (planModeError) {
           return planModeError;
         }
@@ -114,23 +112,23 @@ export const createFileEditInsertTool: ToolFactory = (config: ToolConfiguration)
 
         return executeFileEditOperation({
           config,
-          filePath: file_path,
+          filePath: path,
           abortSignal,
           operation: (originalContent) =>
             insertContent(originalContent, content, {
-              before,
-              after,
+              insert_before,
+              insert_after,
             }),
         });
       } catch (error) {
         if (error && typeof error === "object" && "code" in error && error.code === "EACCES") {
           return {
             success: false,
-            error: `Permission denied: ${file_path}`,
+            error: `Permission denied: ${path}`,
           };
         }
 
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         return {
           success: false,
           error: `Failed to insert content: ${message}`,
@@ -145,20 +143,25 @@ function insertContent(
   contentToInsert: string,
   options: InsertContentOptions
 ): InsertOperationSuccess | InsertOperationFailure {
-  const { before, after } = options;
+  const { insert_before, insert_after } = options;
 
-  if (before !== undefined && after !== undefined) {
-    return guardFailure("Provide only one of before or after (not both).");
+  if (insert_before != null && insert_after != null) {
+    return guardFailure("Provide only one of insert_before or insert_after (not both).");
   }
 
-  if (before === undefined && after === undefined) {
-    return guardFailure("Provide either a before or after guard when editing existing files.");
+  if (insert_before == null && insert_after == null) {
+    return guardFailure(
+      "Provide either insert_before or insert_after guard when editing existing files."
+    );
   }
 
   const fileEol = detectFileEol(originalContent);
   const normalizedContentToInsert = convertNewlines(contentToInsert, fileEol);
 
-  return insertWithGuards(originalContent, normalizedContentToInsert, { before, after });
+  return insertWithGuards(originalContent, normalizedContentToInsert, {
+    insert_before,
+    insert_after,
+  });
 }
 
 function insertWithGuards(
@@ -186,7 +189,7 @@ function insertWithGuards(
 function findUniqueSubstringIndex(
   haystack: string,
   needle: string,
-  label: "before" | "after"
+  label: "insert_before" | "insert_after"
 ): GuardResolutionSuccess | InsertOperationFailure {
   const firstIndex = haystack.indexOf(needle);
   if (firstIndex === -1) {
@@ -205,55 +208,57 @@ function findUniqueSubstringIndex(
 
 function resolveGuardAnchor(
   originalContent: string,
-  { before, after }: GuardAnchors
+  { insert_before, insert_after }: GuardAnchors
 ): GuardResolutionSuccess | InsertOperationFailure {
   const fileEol = detectFileEol(originalContent);
 
-  if (before !== undefined) {
-    const exactBeforeIndexResult = findUniqueSubstringIndex(originalContent, before, "before");
-    if (exactBeforeIndexResult.success) {
-      return { success: true, index: exactBeforeIndexResult.index + before.length };
+  // insert_after: content goes after this anchor, so insertion point is at end of anchor
+  if (insert_after != null) {
+    const exactResult = findUniqueSubstringIndex(originalContent, insert_after, "insert_after");
+    if (exactResult.success) {
+      return { success: true, index: exactResult.index + insert_after.length };
     }
 
-    const normalizedBefore = convertNewlines(before, fileEol);
-    if (normalizedBefore !== before) {
-      const normalizedBeforeIndexResult = findUniqueSubstringIndex(
+    const normalized = convertNewlines(insert_after, fileEol);
+    if (normalized !== insert_after) {
+      const normalizedResult = findUniqueSubstringIndex(
         originalContent,
-        normalizedBefore,
-        "before"
+        normalized,
+        "insert_after"
       );
-      if (!normalizedBeforeIndexResult.success) {
-        return normalizedBeforeIndexResult;
+      if (!normalizedResult.success) {
+        return normalizedResult;
       }
       return {
         success: true,
-        index: normalizedBeforeIndexResult.index + normalizedBefore.length,
+        index: normalizedResult.index + normalized.length,
       };
     }
 
-    return exactBeforeIndexResult;
+    return exactResult;
   }
 
-  if (after !== undefined) {
-    const exactAfterIndexResult = findUniqueSubstringIndex(originalContent, after, "after");
-    if (exactAfterIndexResult.success) {
-      return { success: true, index: exactAfterIndexResult.index };
+  // insert_before: content goes before this anchor, so insertion point is at start of anchor
+  if (insert_before != null) {
+    const exactResult = findUniqueSubstringIndex(originalContent, insert_before, "insert_before");
+    if (exactResult.success) {
+      return { success: true, index: exactResult.index };
     }
 
-    const normalizedAfter = convertNewlines(after, fileEol);
-    if (normalizedAfter !== after) {
-      const normalizedAfterIndexResult = findUniqueSubstringIndex(
+    const normalized = convertNewlines(insert_before, fileEol);
+    if (normalized !== insert_before) {
+      const normalizedResult = findUniqueSubstringIndex(
         originalContent,
-        normalizedAfter,
-        "after"
+        normalized,
+        "insert_before"
       );
-      if (!normalizedAfterIndexResult.success) {
-        return normalizedAfterIndexResult;
+      if (!normalizedResult.success) {
+        return normalizedResult;
       }
-      return { success: true, index: normalizedAfterIndexResult.index };
+      return { success: true, index: normalizedResult.index };
     }
 
-    return exactAfterIndexResult;
+    return exactResult;
   }
 
   return guardFailure("Unable to determine insertion point from guards.");

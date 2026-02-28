@@ -1,7 +1,7 @@
 import * as path from "path";
 
 /**
- * Returns the on-disk projectPath for the built-in Chat with Lattice system workspace.
+ * Returns the on-disk projectPath for the built-in Chat with Lattice system minion.
  *
  * Note: This must be computed from the active lattice home dir (Config.rootDir) so
  * tests and dev installs (LATTICE_ROOT) behave consistently.

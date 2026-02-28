@@ -1,34 +1,50 @@
 /**
  * Service for interacting with the Lattice CLI.
- * Used to create/manage Lattice workspaces as SSH targets for Lattice workspaces.
+ * Used to create/manage Lattice minions as SSH targets for Lattice minions.
  */
 import { shescape } from "@/node/runtime/streamUtils";
 import { execAsync } from "@/node/utils/disposableExec";
 import { log } from "@/node/services/log";
 import { spawn, type ChildProcess } from "child_process";
+import type { Result } from "@/common/types/result";
+import { Ok, Err } from "@/common/types/result";
 import {
-  LatticeWorkspaceStatusSchema,
+  LatticeMinionStatusSchema,
   type LatticeInfo,
+  type LatticeListPresetsResult,
+  type LatticeListTemplatesResult,
+  type LatticeListMinionsResult,
+  type LatticeLoginResult,
   type LatticeTemplate,
   type LatticePreset,
-  type LatticeWorkspace,
-  type LatticeWorkspaceStatus,
+  type LatticeMinion,
+  type LatticeMinionStatus,
   type LatticeWhoami,
 } from "@/common/orpc/schemas/lattice";
+import { getErrorMessage } from "@/common/utils/errors";
 
 // Re-export types for consumers that import from this module
+
+export interface LatticeApiSession {
+  token: string;
+  dispose: () => Promise<void>;
+}
 export type {
   LatticeInfo,
+  LatticeListPresetsResult,
+  LatticeListTemplatesResult,
+  LatticeListMinionsResult,
+  LatticeLoginResult,
   LatticeTemplate,
   LatticePreset,
-  LatticeWorkspace,
-  LatticeWorkspaceStatus,
+  LatticeMinion,
+  LatticeMinionStatus,
   LatticeWhoami,
 };
 
-/** Discriminated union for workspace status check results */
-export type WorkspaceStatusResult =
-  | { kind: "ok"; status: LatticeWorkspaceStatus }
+/** Discriminated union for minion status check results */
+export type MinionStatusResult =
+  | { kind: "ok"; status: LatticeMinionStatus }
   | { kind: "not_found" }
   | { kind: "error"; error: string };
 
@@ -45,7 +61,7 @@ function serializeParameterDefault(value: unknown): string {
 }
 
 // Minimum supported Lattice CLI version
-const MIN_LATTICE_VERSION = "0.7.0";
+const MIN_LATTICE_VERSION = "0.11.0";
 
 /**
  * Normalize a version string for comparison.
@@ -275,12 +291,49 @@ function interpretLatticeResult(result: LatticeCommandResult): InterpretedLattic
   return { ok: true, stdout: result.stdout, stderr: result.stderr };
 }
 
+function sanitizeLatticeCliErrorForUi(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return "Unknown error";
+  }
+
+  const err = error as Partial<{ stderr: string; message: string }>;
+  const raw = (err.stderr?.trim() ? err.stderr : err.message) ?? "";
+
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (lines.length === 0) {
+    return "Unknown error";
+  }
+
+  // Lattice often prints a generic "Encountered an error running..." line followed by
+  // a more actionable "error: ..." line. Prefer the latter when present.
+  const preferred =
+    [...lines].reverse().find((line) => /^error:\s*/i.test(line)) ?? lines[lines.length - 1];
+
+  return (
+    preferred
+      .replace(/^error:\s*/i, "")
+      .slice(0, 200)
+      .trim() || "Unknown error"
+  );
+}
+
 export class LatticeService {
+  // Ephemeral API sessions scoped to minion provisioning.
+  // This keeps token reuse explicit without persisting anything to disk.
+  private provisioningSessions = new Map<string, LatticeApiSession>();
   private cachedInfo: LatticeInfo | null = null;
+  // Cache whoami results so later URL lookups can reuse the last CLI response.
   private cachedWhoami: LatticeWhoami | null = null;
+
+
 
   /**
    * Get Lattice CLI info. Caches result for the session.
+   * Only checks CLI presence and version — auth state is separate (getWhoamiInfo).
    * Returns discriminated union: available | outdated | unavailable.
    */
   async getLatticeInfo(): Promise<LatticeInfo> {
@@ -336,20 +389,279 @@ export class LatticeService {
         return { state: "unavailable", reason: "missing" };
       }
       // Other errors: include sanitized message (single line, capped length)
-      const sanitized = error.message.split("\n")[0].slice(0, 200).trim();
+      const sanitized = sanitizeLatticeCliErrorForUi(error);
       return {
         state: "unavailable",
-        reason: { kind: "error", message: sanitized || "Unknown error" },
+        reason: { kind: "error", message: sanitized },
       };
     }
     return { state: "unavailable", reason: { kind: "error", message: "Unknown error" } };
   }
 
   /**
+   * Create a short-lived Lattice API token for deployment endpoints.
+   */
+  private async createApiSession(tokenName: string): Promise<LatticeApiSession> {
+    using tokenProc = execAsync(
+      `lattice tokens create --lifetime 5m --name ${shescape.quote(tokenName)}`
+    );
+    const { stdout: token } = await tokenProc.result;
+    const trimmed = token.trim();
+
+    return {
+      token: trimmed,
+      dispose: async () => {
+        try {
+          using deleteProc = execAsync(`lattice tokens remove ${shescape.quote(tokenName)}`);
+          await deleteProc.result;
+        } catch {
+          // Best-effort cleanup; token will expire in 5 minutes anyway.
+          log.debug("Failed to delete temporary Lattice API token", { tokenName });
+        }
+      },
+    };
+  }
+
+  private async withApiSession<T>(
+    tokenName: string,
+    fn: (session: LatticeApiSession) => Promise<T>
+  ): Promise<T> {
+    const session = await this.createApiSession(tokenName);
+    try {
+      return await fn(session);
+    } finally {
+      await session.dispose();
+    }
+  }
+
+  async ensureProvisioningSession(minionName: string): Promise<LatticeApiSession> {
+    const existing = this.provisioningSessions.get(minionName);
+    if (existing) {
+      return existing;
+    }
+
+    const tokenName = `lattice-${minionName}-${Date.now().toString(36)}`;
+    const session = await this.createApiSession(tokenName);
+    this.provisioningSessions.set(minionName, session);
+    return session;
+  }
+
+  takeProvisioningSession(minionName: string): LatticeApiSession | undefined {
+    const session = this.provisioningSessions.get(minionName);
+    if (session) {
+      this.provisioningSessions.delete(minionName);
+    }
+    return session;
+  }
+
+  async disposeProvisioningSession(minionName: string): Promise<void> {
+    const session = this.provisioningSessions.get(minionName);
+    if (!session) {
+      return;
+    }
+    this.provisioningSessions.delete(minionName);
+    await session.dispose();
+  }
+
+  private normalizeHostnameSuffix(raw: string | undefined): string {
+    const cleaned = (raw ?? "").trim().replace(/^\./, "");
+    return cleaned || "lattice";
+  }
+
+  async fetchDeploymentSshConfig(session?: LatticeApiSession): Promise<{ hostnameSuffix: string }> {
+    const deploymentUrl = await this.getDeploymentUrl();
+    const tokenName = `lattice-ssh-config-${Date.now().toString(36)}`;
+
+    const run = async (api: LatticeApiSession) => {
+      const url = new URL("/api/v2/deployment/ssh", deploymentUrl);
+      const response = await fetch(url, {
+        headers: { "Lattice-Session-Token": api.token },
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to fetch SSH config: ${response.status}`);
+      }
+
+      const data = (await response.json()) as { hostname_suffix?: string };
+      return { hostnameSuffix: this.normalizeHostnameSuffix(data.hostname_suffix) };
+    };
+
+    return session ? run(session) : this.withApiSession(tokenName, run);
+  }
+  /**
    * Clear cached Lattice info. Used for testing.
    */
   clearCache(): void {
     this.cachedInfo = null;
+    this.cachedWhoami = null;
+  }
+
+  /**
+   * Get Lattice authentication identity via `lattice whoami`.
+   * Parses output like: "Lattice is running at http://..., You're authenticated as admin !"
+   * Returns authenticated state with username + URL, or unauthenticated with reason.
+   * Caches result for the session. Call clearWhoamiCache() to force re-check.
+   */
+  async getWhoamiInfo(): Promise<LatticeWhoami> {
+    if (this.cachedWhoami) {
+      return this.cachedWhoami;
+    }
+
+    try {
+      using proc = execAsync("lattice whoami");
+      const { stdout } = await proc.result;
+
+      // Parse URL from output: "Lattice is running at http://127.0.0.1:7080, You're authenticated..."
+      const urlMatch = stdout.match(/running at (https?:\/\/[^\s,]+)/i);
+      const deploymentUrl = urlMatch?.[1] ?? "";
+
+      // Parse username: "You're authenticated as <username> !"
+      const userMatch = stdout.match(/authenticated as (\S+)/i);
+      if (userMatch?.[1]) {
+        this.cachedWhoami = {
+          state: "authenticated",
+          username: userMatch[1].replace(/\s*!$/, ""),
+          deploymentUrl,
+        };
+      } else {
+        this.cachedWhoami = {
+          state: "unauthenticated",
+          reason: "Could not parse user identity from lattice whoami",
+        };
+      }
+
+      return this.cachedWhoami;
+    } catch (error) {
+      log.debug("Lattice whoami failed", { error });
+
+      // Classify the error
+      const errorMessage =
+        error instanceof Error
+          ? error.message.split("\n")[0].slice(0, 200).trim()
+          : "Unknown error";
+
+      const lowerError = errorMessage.toLowerCase();
+
+      const isNotInstalled =
+        error instanceof Error &&
+        ((error as NodeJS.ErrnoException).code === "ENOENT" ||
+          lowerError.includes("command not found") ||
+          lowerError.includes("enoent"));
+
+      if (isNotInstalled) {
+        // CLI not installed — don't block the app
+        this.cachedWhoami = {
+          state: "authenticated",
+          username: "local",
+          deploymentUrl: "",
+        };
+      } else {
+        // CLI installed but not authenticated — could be no deployment configured,
+        // wrong URL, or genuinely unauthenticated.
+        const isNoDeployment =
+          lowerError.includes("not a lattice instance") ||
+          lowerError.includes("unexpected non-json response") ||
+          lowerError.includes("is the url correct") ||
+          lowerError.includes("econnrefused") ||
+          lowerError.includes("missing build version header");
+
+        this.cachedWhoami = {
+          state: "unauthenticated",
+          reason: isNoDeployment
+            ? "No Lattice deployment configured. Enter your deployment URL to sign in."
+            : `Not authenticated: ${errorMessage}`,
+        };
+      }
+
+      return this.cachedWhoami;
+    }
+  }
+
+  /**
+   * Clear cached whoami info. Used when user re-authenticates.
+   */
+  clearWhoamiCache(): void {
+    this.cachedWhoami = null;
+  }
+
+  /**
+   * Authenticate with Lattice by piping a session token to `lattice login <url>`.
+   *
+   * Flow:
+   * 1. User logs into the Lattice deployment in their browser
+   * 2. Browser shows a session token
+   * 3. User copies the token and pastes it into our modal
+   * 4. We pipe the token to `lattice login <url>` via stdin
+   *
+   * Uses spawn with stdin pipe (not execAsync) because the CLI waits for
+   * interactive token input on stdin.
+   */
+  async login(url: string, sessionToken: string): Promise<LatticeLoginResult> {
+    if (!url.trim()) {
+      return { success: false, message: "Deployment URL is required" };
+    }
+    if (!sessionToken.trim()) {
+      return { success: false, message: "Session token is required" };
+    }
+
+    log.info("[Lattice] Authenticating with session token", { url });
+
+    return new Promise((resolve) => {
+      let resolved = false;
+      const resolveOnce = (result: LatticeLoginResult) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(result);
+      };
+
+      const child = spawn("lattice", ["login", url], {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout?.on("data", (chunk: Buffer) => {
+        stdout += String(chunk);
+      });
+      child.stderr?.on("data", (chunk: Buffer) => {
+        stderr += String(chunk);
+      });
+
+      // Write session token to stdin — the CLI is waiting for this after
+      // printing "Paste your token:" (or opening the browser)
+      child.stdin.write(sessionToken.trim() + "\n");
+      child.stdin.end();
+
+      child.on("close", (code) => {
+        // Clear cache so next whoami check reflects new auth state
+        this.clearWhoamiCache();
+        this.clearCache();
+
+        const output = (stdout + "\n" + stderr).trim();
+        log.info("[Lattice] Login completed", { url, exitCode: code, output: output.slice(0, 200) });
+
+        if (code === 0) {
+          resolveOnce({ success: true, message: output || "Login completed" });
+        } else {
+          resolveOnce({ success: false, message: output || `Login failed (exit ${code})` });
+        }
+      });
+
+      child.on("error", (err) => {
+        log.warn("[Lattice] Login spawn error", { url, error: err.message });
+        resolveOnce({ success: false, message: err.message });
+      });
+
+      // Timeout after 30s to avoid hanging forever
+      setTimeout(() => {
+        try {
+          child.kill();
+        } catch {
+          // ignore
+        }
+        resolveOnce({ success: false, message: "Login timed out after 30 seconds" });
+      }, 30_000);
+    });
   }
 
   /**
@@ -358,15 +670,15 @@ export class LatticeService {
    * Throws if Lattice CLI is not configured/logged in.
    */
   private async getDeploymentUrl(): Promise<string> {
-    using proc = execAsync("lattice whoami");
-    const { stdout } = await proc.result;
-
-    // Parse URL from output like: "Lattice is running at http://127.0.0.1:7080, You're authenticated..."
-    const urlMatch = stdout.match(/running at (https?:\/\/[^\s,]+)/i);
-    if (!urlMatch?.[1]) {
-      throw new Error(`Could not determine Lattice deployment URL from whoami output: ${stdout}`);
+    const whoami = await this.getWhoamiInfo();
+    if (whoami.state !== "authenticated" || !whoami.deploymentUrl) {
+      throw new Error(
+        whoami.state === "unauthenticated"
+          ? whoami.reason
+          : "Could not determine Lattice deployment URL"
+      );
     }
-    return urlMatch[1];
+    return whoami.deploymentUrl;
   }
 
   /**
@@ -416,7 +728,7 @@ export class LatticeService {
     _org?: string
   ): Promise<Set<string>> {
     // Presets are handled via API, not CLI. Return empty set as preset params
-    // are applied by the server during workspace creation when --preset is passed.
+    // are applied by the server during minion creation when --preset is passed.
     return new Set();
   }
 
@@ -451,12 +763,13 @@ export class LatticeService {
 
   /**
    * Fetch template rich parameters from Lattice API.
-   * Creates a short-lived token, fetches params, then cleans up the token.
+   * Uses an optional API session to avoid generating multiple tokens.
    */
   private async getTemplateRichParameters(
     deploymentUrl: string,
     versionId: string,
-    workspaceName: string
+    minionName: string,
+    session?: LatticeApiSession
   ): Promise<
     Array<{
       name: string;
@@ -466,14 +779,7 @@ export class LatticeService {
       required: boolean;
     }>
   > {
-    // Create short-lived token named after workspace (avoids keychain read issues)
-    const tokenName = `lattice-${workspaceName}`;
-    using tokenProc = execAsync(
-      `lattice tokens create --lifetime 5m --name ${shescape.quote(tokenName)}`
-    );
-    const { stdout: token } = await tokenProc.result;
-
-    try {
+    const run = async (api: LatticeApiSession) => {
       const url = new URL(
         `/api/v2/templateversions/${versionId}/rich-parameters`,
         deploymentUrl
@@ -481,7 +787,7 @@ export class LatticeService {
 
       const response = await fetch(url, {
         headers: {
-          "Lattice-Session-Token": token.trim(),
+          "Lattice-Session-Token": api.token,
         },
       });
 
@@ -493,16 +799,10 @@ export class LatticeService {
 
       const data: unknown = await response.json();
       return this.parseRichParameters(data);
-    } finally {
-      // Clean up the token by name
-      try {
-        using deleteProc = execAsync(`lattice tokens remove ${shescape.quote(tokenName)}`);
-        await deleteProc.result;
-      } catch {
-        // Best-effort cleanup; token will expire in 5 minutes anyway
-        log.debug("Failed to delete temporary token", { tokenName });
-      }
-    }
+    };
+
+    const tokenName = `lattice-${minionName}`;
+    return session ? run(session) : this.withApiSession(tokenName, run);
   }
 
   /**
@@ -520,7 +820,7 @@ export class LatticeService {
   }
 
   /**
-   * Compute extra --parameter flags needed for workspace creation.
+   * Compute extra --parameter flags needed for minion creation.
    * Filters to non-ephemeral params not covered by preset, using their defaults.
    * Values are passed through as-is (list(string) types expect JSON-encoded arrays).
    */
@@ -584,14 +884,14 @@ export class LatticeService {
   /**
    * List available Lattice templates.
    */
-  async listTemplates(): Promise<LatticeTemplate[]> {
+  async listTemplates(): Promise<LatticeListTemplatesResult> {
     try {
       using proc = execAsync("lattice templates list -o json");
       const { stdout } = await proc.result;
 
       // Handle empty output (no templates)
       if (!stdout.trim()) {
-        return [];
+        return { ok: true, templates: [] };
       }
 
       // CLI returns [{Template: {...}}, ...] wrapper structure
@@ -603,16 +903,19 @@ export class LatticeService {
         };
       }>;
 
-      return raw.map((entry) => ({
-        name: entry.Template.name,
-        displayName: entry.Template.display_name ?? entry.Template.name,
-        organizationName: entry.Template.organization_name ?? "default",
-      }));
+      return {
+        ok: true,
+        templates: raw.map((entry) => ({
+          name: entry.Template.name,
+          displayName: entry.Template.display_name ?? entry.Template.name,
+          organizationName: entry.Template.organization_name ?? "default",
+        })),
+      };
     } catch (error) {
-      // Common user state: Lattice CLI installed but not configured/logged in.
-      // Don't spam error logs for UI list calls.
-      log.debug("Failed to list Lattice templates", { error });
-      return [];
+      const message = sanitizeLatticeCliErrorForUi(error);
+      // Surface CLI failures so the UI doesn't show "No templates" incorrectly.
+      log.warn("Failed to list Lattice templates", { error });
+      return { ok: false, error: message || "Unknown error" };
     }
   }
 
@@ -625,7 +928,7 @@ export class LatticeService {
    * @param templateName - Template name
    * @param org - Organization name for disambiguation (optional)
    */
-  async listPresets(templateName: string, org?: string): Promise<LatticePreset[]> {
+  async listPresets(templateName: string, org?: string): Promise<LatticeListPresetsResult> {
     try {
       // Get deployment URL and template version ID
       const deploymentUrl = await this.getDeploymentUrl();
@@ -654,7 +957,7 @@ export class LatticeService {
         if (!response.ok) {
           // 404 means no presets for this template - that's okay
           if (response.status === 404) {
-            return [];
+            return { ok: true, presets: [] };
           }
           throw new Error(`Failed to fetch presets: ${response.status} ${response.statusText}`);
         }
@@ -666,12 +969,15 @@ export class LatticeService {
           default?: boolean;
         }>;
 
-        return data.map((preset) => ({
-          id: preset.id,
-          name: preset.name,
-          description: preset.description,
-          isDefault: preset.default ?? false,
-        }));
+        return {
+          ok: true,
+          presets: data.map((preset) => ({
+            id: preset.id,
+            name: preset.name,
+            description: preset.description,
+            isDefault: preset.default ?? false,
+          })),
+        };
       } finally {
         // Clean up the token
         try {
@@ -683,24 +989,22 @@ export class LatticeService {
         }
       }
     } catch (error) {
-      log.debug("Failed to list Lattice presets (may not exist for template)", {
-        templateName,
-        error,
-      });
-      return [];
+      const message = sanitizeLatticeCliErrorForUi(error);
+      log.warn("Failed to list Lattice presets", { templateName, error });
+      return { ok: false, error: message || "Unknown error" };
     }
   }
 
   /**
-   * Check if a Lattice workspace exists by name.
+   * Check if a Lattice minion exists by name.
    *
-   * Uses `lattice list --search name:<workspace>` so we don't have to fetch all workspaces.
+   * Uses `lattice list --search name:<minion>` so we don't have to fetch all minions.
    * Note: Lattice's `--search` is prefix-based server-side, so we must exact-match locally.
    */
-  async workspaceExists(workspaceName: string): Promise<boolean> {
+  async minionExists(minionName: string): Promise<boolean> {
     try {
       using proc = execAsync(
-        `lattice list --search ${shescape.quote(`name:${workspaceName}`)} -o json`
+        `lattice list --search ${shescape.quote(`name:${minionName}`)} -o json`
       );
       const { stdout } = await proc.result;
 
@@ -708,33 +1012,33 @@ export class LatticeService {
         return false;
       }
 
-      const workspaces = JSON.parse(stdout) as Array<{ name: string }>;
-      return workspaces.some((w) => w.name === workspaceName);
+      const minions = JSON.parse(stdout) as Array<{ name: string }>;
+      return minions.some((w) => w.name === minionName);
     } catch (error) {
       // Best-effort: if Lattice isn't configured/logged in, treat as "doesn't exist" so we
       // don't block creation (later steps will fail with a more actionable error).
-      log.debug("Failed to check if Lattice workspace exists", { workspaceName, error });
+      log.debug("Failed to check if Lattice minion exists", { minionName, error });
       return false;
     }
   }
 
   /**
-   * List Lattice workspaces (all statuses).
+   * List Lattice minions (all statuses).
    */
-  async listWorkspaces(): Promise<LatticeWorkspace[]> {
+  async listMinions(): Promise<LatticeListMinionsResult> {
     // Derive known statuses from schema to avoid duplication and prevent ORPC validation errors
-    const KNOWN_STATUSES = new Set<string>(LatticeWorkspaceStatusSchema.options);
+    const KNOWN_STATUSES = new Set<string>(LatticeMinionStatusSchema.options);
 
     try {
       using proc = execAsync("lattice list -o json");
       const { stdout } = await proc.result;
 
-      // Handle empty output (no workspaces)
+      // Handle empty output (no minions)
       if (!stdout.trim()) {
-        return [];
+        return { ok: true, minions: [] };
       }
 
-      const workspaces = JSON.parse(stdout) as Array<{
+      const minions = JSON.parse(stdout) as Array<{
         name: string;
         template_name: string;
         template_display_name: string;
@@ -744,19 +1048,23 @@ export class LatticeService {
       }>;
 
       // Filter to known statuses to avoid ORPC schema validation failures
-      return workspaces
-        .filter((w) => KNOWN_STATUSES.has(w.latest_build.status))
-        .map((w) => ({
-          name: w.name,
-          templateName: w.template_name,
-          templateDisplayName: w.template_display_name || w.template_name,
-          status: w.latest_build.status as LatticeWorkspaceStatus,
-        }));
+      return {
+        ok: true,
+        minions: minions
+          .filter((w) => KNOWN_STATUSES.has(w.latest_build.status))
+          .map((w) => ({
+            name: w.name,
+            templateName: w.template_name,
+            templateDisplayName: w.template_display_name || w.template_name,
+            status: w.latest_build.status as LatticeMinionStatus,
+          })),
+      };
     } catch (error) {
-      // Common user state: Lattice CLI installed but not configured/logged in.
-      // Don't spam error logs for UI list calls.
-      log.debug("Failed to list Lattice workspaces", { error });
-      return [];
+      const message = sanitizeLatticeCliErrorForUi(error);
+      // Users reported seeing "No minions found" even when the CLI failed,
+      // so surface an error state instead of silently returning an empty list.
+      log.warn("Failed to list Lattice minions", { error });
+      return { ok: false, error: message || "Unknown error" };
     }
   }
 
@@ -855,20 +1163,20 @@ export class LatticeService {
   }
 
   /**
-   * Get workspace status using control-plane query.
+   * Get minion status using control-plane query.
    *
    * Note: `lattice list --search 'name:X'` is prefix-based on the server,
-   * so we must exact-match the workspace name client-side.
+   * so we must exact-match the minion name client-side.
    */
-  async getWorkspaceStatus(
-    workspaceName: string,
+  async getMinionStatus(
+    minionName: string,
     options?: { timeoutMs?: number; signal?: AbortSignal }
-  ): Promise<WorkspaceStatusResult> {
+  ): Promise<MinionStatusResult> {
     const timeoutMs = options?.timeoutMs ?? 10_000;
 
     try {
       const result = await this.runLatticeCommand(
-        ["list", "--search", `name:${workspaceName}`, "-o", "json"],
+        ["list", "--search", `name:${minionName}`, "-o", "json"],
         { timeoutMs, signal: options?.signal }
       );
 
@@ -881,350 +1189,357 @@ export class LatticeService {
         return { kind: "not_found" };
       }
 
-      const workspaces = JSON.parse(interpreted.stdout) as Array<{
+      const minions = JSON.parse(interpreted.stdout) as Array<{
         name: string;
         latest_build: { status: string };
       }>;
 
       // Exact match required (search is prefix-based)
-      const match = workspaces.find((w) => w.name === workspaceName);
+      const match = minions.find((w) => w.name === minionName);
       if (!match) {
         return { kind: "not_found" };
       }
 
       // Validate status against known schema values
       const status = match.latest_build.status;
-      const parsed = LatticeWorkspaceStatusSchema.safeParse(status);
+      const parsed = LatticeMinionStatusSchema.safeParse(status);
       if (!parsed.success) {
-        log.warn("Unknown Lattice workspace status", { workspaceName, status });
+        log.warn("Unknown Lattice minion status", { minionName, status });
         return { kind: "error", error: `Unknown status: ${status}` };
       }
 
       return { kind: "ok", status: parsed.data };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      log.debug("Failed to get Lattice workspace status", { workspaceName, error: message });
+      const message = getErrorMessage(error);
+      log.debug("Failed to get Lattice minion status", { minionName, error: message });
       return { kind: "error", error: message };
     }
   }
 
   /**
-   * Wait for Lattice agent to be ready.
-   * Unlike Lattice CLI, Lattice CLI doesn't support `ssh agent -- command` syntax.
-   * Instead, we poll the agent status until it's "running" and healthy.
+   * Start a Lattice minion.
+   *
+   * Uses spawn + timeout so callers don't hang forever on a stuck CLI invocation.
    */
-  async *waitForStartupScripts(
-    workspaceName: string,
-    abortSignal?: AbortSignal
-  ): AsyncGenerator<string, void, unknown> {
-    log.debug("Waiting for Lattice agent to be ready", { workspaceName });
-    yield `Waiting for agent "${workspaceName}" to be ready...`;
+  async startMinion(
+    minionName: string,
+    options?: { timeoutMs?: number; signal?: AbortSignal }
+  ): Promise<Result<void>> {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
 
-    const maxAttempts = 60; // 5 minutes with 5s interval
-    const pollInterval = 5000;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (abortSignal?.aborted) {
-        throw new Error("Lattice agent wait aborted");
-      }
-
-      const status = await this.getWorkspaceStatus(workspaceName, {
-        timeoutMs: 10_000,
-        signal: abortSignal,
+    try {
+      const result = await this.runLatticeCommand(["start", minionName, "--yes"], {
+        timeoutMs,
+        signal: options?.signal,
       });
 
-      if (status.kind === "ok" && status.status === "running") {
-        yield `Agent "${workspaceName}" is running and ready.`;
-        return;
+      const interpreted = interpretLatticeResult(result);
+      if (!interpreted.ok) {
+        return Err(interpreted.error);
       }
 
-      if (status.kind === "not_found") {
-        throw new Error(`Agent "${workspaceName}" not found`);
-      }
-
-      if (status.kind === "ok") {
-        yield `Agent status: ${status.status} (waiting for "running"...)`;
-      }
-
-      // Wait before next poll
-      await new Promise((resolve) => setTimeout(resolve, pollInterval));
+      return Ok(undefined);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      return Err(message);
     }
-
-    throw new Error(`Timeout waiting for agent "${workspaceName}" to be ready`);
   }
 
   /**
-   * Create a new Lattice agent. Yields build log lines as they arrive.
+   * Stop a Lattice minion.
    *
-   * Uses `lattice create` with `-y` to bypass interactive prompts.
-   * Fetches template parameters via API and passes them with default values
-   * using `--parameter "name=value"` to avoid interactive parameter prompts.
-   *
-   * Note: Lattice CLI does not support a `--preset` flag. Presets are a UI/API
-   * feature - when creating via CLI, template defaults are used. The preset
-   * parameter is kept for API compatibility but logged as informational only.
-   *
-   * @param name Agent name
-   * @param template Template name
-   * @param preset Optional preset name (informational only - CLI doesn't support presets)
-   * @param abortSignal Optional signal to cancel agent creation
-   * @param org Optional organization name for disambiguation
+   * Uses spawn + timeout so callers don't hang forever on a stuck CLI invocation.
    */
-  async *createWorkspace(
+  async stopMinion(
+    minionName: string,
+    options?: { timeoutMs?: number; signal?: AbortSignal }
+  ): Promise<Result<void>> {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
+
+    try {
+      const result = await this.runLatticeCommand(["stop", minionName, "--yes"], {
+        timeoutMs,
+        signal: options?.signal,
+      });
+
+      const interpreted = interpretLatticeResult(result);
+      if (!interpreted.ok) {
+        return Err(interpreted.error);
+      }
+
+      return Ok(undefined);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      return Err(message);
+    }
+  }
+
+  /**
+   * Wait for Lattice minion startup scripts to complete.
+   * Runs `lattice ssh <minion> --wait=yes -- true` and streams output.
+   */
+  async *waitForStartupScripts(
+    minionName: string,
+    abortSignal?: AbortSignal
+  ): AsyncGenerator<string, void, unknown> {
+    log.debug("Waiting for Lattice startup scripts", { minionName });
+    yield* streamLatticeCommand(
+      ["ssh", minionName, "--wait=yes", "--", "true"],
+      "lattice ssh --wait failed",
+      abortSignal,
+      "Lattice startup script wait aborted"
+    );
+  }
+
+  /**
+   * Create a new Lattice minion. Yields build log lines as they arrive.
+   *
+   * Pre-fetches template parameters and passes defaults via --parameter flags
+   * to avoid interactive prompts during creation.
+   *
+   * @param name Minion name
+   * @param template Template name
+   * @param preset Optional preset name
+   * @param abortSignal Optional signal to cancel minion creation
+   * @param org Optional organization name for disambiguation
+   * @param session Optional API session to reuse across deployment endpoints
+   */
+  async *createMinion(
     name: string,
     template: string,
     preset?: string,
     abortSignal?: AbortSignal,
-    org?: string
+    org?: string,
+    session?: LatticeApiSession
   ): AsyncGenerator<string, void, unknown> {
-    // Log preset for debugging but note it's not used by CLI
-    if (preset) {
-      log.debug("Creating Lattice agent (preset ignored - CLI uses template defaults)", {
-        name,
-        template,
-        preset,
-        org,
-      });
-    } else {
-      log.debug("Creating Lattice agent", { name, template, org });
-    }
+    log.debug("Creating Lattice minion", { name, template, preset, org });
 
     if (abortSignal?.aborted) {
-      throw new Error("Lattice agent creation aborted");
+      throw new Error("Lattice minion creation aborted");
     }
 
-    // Fetch template parameters to pass with default values
-    // This avoids interactive prompts for required parameters
-    yield "Fetching template parameters...";
-    let parameterArgs: string[] = [];
-    try {
-      const deploymentUrl = await this.getDeploymentUrl();
-      const versionId = await this.getActiveTemplateVersionId(template, org);
-      const richParams = await this.getTemplateRichParameters(deploymentUrl, versionId, name);
+    // 1. Get deployment URL
+    const deploymentUrl = await this.getDeploymentUrl();
 
-      // Build --parameter flags for non-ephemeral parameters with default values
-      for (const param of richParams) {
-        if (param.ephemeral) continue; // Skip ephemeral params
-        // Use default value if available, otherwise skip (let CLI prompt if truly required)
-        if (param.defaultValue !== "") {
-          const encoded = this.encodeParameterValue(`${param.name}=${param.defaultValue}`);
-          parameterArgs.push("--parameter", encoded);
-        }
-      }
-      log.debug("Resolved template parameters", { count: parameterArgs.length / 2 });
-    } catch (error) {
-      // If we can't fetch parameters, try creating anyway - CLI will prompt if needed
-      log.warn("Failed to fetch template parameters, proceeding without", { error });
-      yield "Warning: Could not fetch template parameters, CLI may prompt for values";
-    }
+    // 2. Get active template version ID
+    const versionId = await this.getActiveTemplateVersionId(template, org);
 
-    // Build lattice create command with -y to bypass prompts
-    // Note: --preset flag does not exist in Lattice CLI - presets are API/UI only
-    const args = ["create", name, "-t", template, "-y", ...parameterArgs];
+    // 3. Get parameter names covered by preset (if any)
+    const coveredByPreset = preset
+      ? await this.getPresetParamNames(template, preset, org)
+      : new Set<string>();
+
+    // 4. Fetch all template parameters from API
+    const allParams = await this.getTemplateRichParameters(deploymentUrl, versionId, name, session);
+
+    // 5. Validate required params have values
+    this.validateRequiredParams(allParams, coveredByPreset);
+
+    // 6. Compute extra --parameter flags for non-ephemeral params not in preset
+    const extraParams = this.computeExtraParams(allParams, coveredByPreset);
+
+    log.debug("Computed extra params for lattice create", {
+      name,
+      template,
+      preset,
+      org,
+      extraParamCount: extraParams.length,
+      extraParamNames: extraParams.map((p) => p.name),
+    });
+
+    // 7. Build and run single lattice create command
+    const args = ["create", name, "-t", template, "--yes"];
     if (org) {
       args.push("--org", org);
+    }
+    if (preset) {
+      args.push("--preset", preset);
+    }
+    for (const p of extraParams) {
+      args.push("--parameter", p.encoded);
     }
 
     yield* streamLatticeCommand(
       args,
       "lattice create failed",
       abortSignal,
-      "Lattice agent creation aborted"
+      "Lattice minion creation aborted"
     );
   }
 
-  /**
-   * Delete a Lattice workspace.
-   *
-   * Safety: Only deletes workspaces with "lattice-" prefix to prevent accidentally
-   * deleting user workspaces that weren't created by  lattice.
-   */
-  async deleteWorkspace(name: string): Promise<void> {
-    if (!name.startsWith("lattice-")) {
-      log.warn("Refusing to delete Lattice workspace without lattice- prefix", { name });
-      return;
+  /** Promise-based sleep helper */
+  private sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return Promise.resolve();
     }
-    log.debug("Deleting Lattice workspace", { name });
-    using proc = execAsync(`lattice delete ${shescape.quote(name)} --yes`);
-    await proc.result;
-  }
-
-  /**
-   * Get Lattice authentication identity via `lattice whoami`.
-   * Parses output like: "Lattice is running at http://..., You're authenticated as admin !"
-   * Returns authenticated state with username + URL, or unauthenticated with reason.
-   * Caches result for the session. Call clearWhoamiCache() to force re-check.
-   */
-  async getWhoamiInfo(): Promise<LatticeWhoami> {
-    if (this.cachedWhoami) {
-      return this.cachedWhoami;
-    }
-
-    try {
-      using proc = execAsync("lattice whoami");
-      const { stdout } = await proc.result;
-
-      // Parse URL from output: "Lattice is running at http://127.0.0.1:7080, You're authenticated..."
-      const urlMatch = stdout.match(/running at (https?:\/\/[^\s,]+)/i);
-      const deploymentUrl = urlMatch?.[1] ?? "";
-
-      // Parse username: "You're authenticated as <username> !"
-      const userMatch = stdout.match(/authenticated as (\S+)/i);
-      if (userMatch?.[1]) {
-        this.cachedWhoami = {
-          state: "authenticated",
-          username: userMatch[1].replace(/\s*!$/, ""),
-          deploymentUrl,
-        };
-      } else {
-        this.cachedWhoami = {
-          state: "unauthenticated",
-          reason: "Could not parse user identity from lattice whoami",
-        };
-      }
-
-      return this.cachedWhoami;
-    } catch (error) {
-      log.debug("Lattice whoami failed", { error });
-
-      // Classify the error
-      const errorMessage =
-        error instanceof Error
-          ? error.message.split("\n")[0].slice(0, 200).trim()
-          : "Unknown error";
-
-      const lowerError = errorMessage.toLowerCase();
-
-      const isNotInstalled =
-        error instanceof Error &&
-        ((error as NodeJS.ErrnoException).code === "ENOENT" ||
-          lowerError.includes("command not found") ||
-          lowerError.includes("enoent"));
-
-      if (isNotInstalled) {
-        // CLI not installed — don't block the app
-        this.cachedWhoami = {
-          state: "authenticated",
-          username: "local",
-          deploymentUrl: "",
-        };
-      } else {
-        // CLI installed but not authenticated — could be no deployment configured,
-        // wrong URL, or genuinely unauthenticated. Show the auth modal so user
-        // can enter their deployment URL and login.
-        const isNoDeployment =
-          lowerError.includes("not a lattice instance") ||
-          lowerError.includes("unexpected non-json response") ||
-          lowerError.includes("is the url correct") ||
-          lowerError.includes("econnrefused") ||
-          lowerError.includes("missing build version header");
-
-        this.cachedWhoami = {
-          state: "unauthenticated",
-          reason: isNoDeployment
-            ? "No Lattice deployment configured. Enter your deployment URL to sign in."
-            : `Not authenticated: ${errorMessage}`,
-        };
-      }
-
-      return this.cachedWhoami;
-    }
-  }
-
-  /**
-   * Clear cached whoami info. Used when user re-authenticates.
-   */
-  clearWhoamiCache(): void {
-    this.cachedWhoami = null;
-  }
-
-  /**
-   * Authenticate with Lattice by piping a session token to `lattice login <url>`.
-   *
-   * Flow:
-   * 1. User logs into the Lattice deployment in their browser
-   * 2. Browser shows a session token
-   * 3. User copies the token and pastes it into our modal
-   * 4. We pipe the token to `lattice login <url>` via stdin
-   *
-   * Uses spawn with stdin pipe (not execAsync) because the CLI waits for
-   * interactive token input on stdin.
-   *
-   * @param url - The Lattice deployment URL (e.g., "https://orbitalclusters.com")
-   * @param sessionToken - The session token from browser login
-   */
-  async login(url: string, sessionToken: string): Promise<{ success: boolean; message: string }> {
-    if (!url.trim()) {
-      return { success: false, message: "Deployment URL is required" };
-    }
-    if (!sessionToken.trim()) {
-      return { success: false, message: "Session token is required" };
-    }
-
-    log.info("[Lattice] Authenticating with session token", { url });
 
     return new Promise((resolve) => {
-      let resolved = false;
-      const resolveOnce = (result: { success: boolean; message: string }) => {
-        if (resolved) return;
-        resolved = true;
-        resolve(result);
+      const timeout = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, ms);
+
+      const onAbort = () => {
+        clearTimeout(timeout);
+        signal?.removeEventListener("abort", onAbort);
+        resolve();
       };
 
-      const child = spawn("lattice", ["login", url], {
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      child.stdout?.on("data", (chunk) => {
-        stdout += String(chunk);
-      });
-      child.stderr?.on("data", (chunk) => {
-        stderr += String(chunk);
-      });
-
-      // Write session token to stdin — the CLI is waiting for this after
-      // printing "Paste your token:" (or opening the browser)
-      child.stdin.write(sessionToken.trim() + "\n");
-      child.stdin.end();
-
-      child.on("close", (code) => {
-        // Clear cache so next whoami check reflects new auth state
-        this.clearWhoamiCache();
-        this.clearCache();
-
-        const output = (stdout + "\n" + stderr).trim();
-        log.info("[Lattice] Login completed", { url, exitCode: code, output: output.slice(0, 200) });
-
-        if (code === 0) {
-          resolveOnce({ success: true, message: output || "Login completed" });
-        } else {
-          resolveOnce({ success: false, message: output || `Login failed (exit ${code})` });
-        }
-      });
-
-      child.on("error", (err) => {
-        log.warn("[Lattice] Login spawn error", { url, error: err.message });
-        resolveOnce({ success: false, message: err.message });
-      });
-
-      // Timeout after 30s to avoid hanging forever
-      setTimeout(() => {
-        try {
-          child.kill();
-        } catch {
-          // ignore
-        }
-        resolveOnce({ success: false, message: "Login timed out after 30 seconds" });
-      }, 30_000);
+      signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
   /**
-   * Ensure SSH config is set up for Lattice workspaces.
-   * Run before every Lattice workspace connection (idempotent).
+   * Delete a Lattice minion, retrying across transient build states.
+   *
+   * This is used for "cancel creation" because aborting the local `lattice create`
+   * process does not guarantee the control-plane build is canceled.
+   */
+  async deleteMinionEventually(
+    name: string,
+    options?: {
+      timeoutMs?: number;
+      signal?: AbortSignal;
+      /**
+       * If true, treat an initial "not found" as inconclusive and keep polling.
+       * This avoids races where `lattice create` finishes server-side after lattice aborts the CLI.
+       */
+      waitForExistence?: boolean;
+      /**
+       * When `waitForExistence` is true: if we only see "not found" for this many ms
+       * without ever observing the minion exist, treat it as success and return early.
+       * Defaults to `timeoutMs` (no separate short-circuit).
+       */
+      waitForExistenceTimeoutMs?: number;
+    }
+  ): Promise<Result<void>> {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
+    const startTime = Date.now();
+
+    // Safety: never delete Lattice minions lattice didn't create.
+    // Lattice-created minions always use the lattice- prefix.
+    if (!name.startsWith("lattice-")) {
+      log.warn("Refusing to delete Lattice minion without lattice- prefix", { name });
+      return Ok(undefined);
+    }
+
+    const isTimedOut = () => Date.now() - startTime > timeoutMs;
+    const remainingMs = () => Math.max(0, timeoutMs - (Date.now() - startTime));
+
+    const unstableStates = new Set<LatticeMinionStatus>([
+      "starting",
+      "pending",
+      "stopping",
+      "canceling",
+    ]);
+
+    let sawMinionExist = false;
+    let lastError: string | undefined;
+    let attempt = 0;
+
+    while (!isTimedOut()) {
+      if (options?.signal?.aborted) {
+        return Err("Delete operation aborted");
+      }
+
+      const statusResult = await this.getMinionStatus(name, {
+        timeoutMs: Math.min(remainingMs(), 10_000),
+        signal: options?.signal,
+      });
+
+      if (statusResult.kind === "ok") {
+        sawMinionExist = true;
+
+        if (statusResult.status === "deleted" || statusResult.status === "deleting") {
+          return Ok(undefined);
+        }
+
+        // If a build is transitioning (starting/stopping/etc), deletion may fail temporarily.
+        // We'll keep polling + retrying the delete command.
+        if (unstableStates.has(statusResult.status)) {
+          log.debug("Lattice minion in transitional state; will retry delete", {
+            name,
+            status: statusResult.status,
+          });
+        }
+      }
+
+      if (statusResult.kind === "not_found") {
+        if (options?.waitForExistence !== true) {
+          return Ok(undefined);
+        }
+
+        // For cancel-init, avoid treating an initial not_found as success: `lattice create` may still
+        // complete server-side after we abort the local CLI. Keep polling until we either observe
+        // the minion exist (and then disappear), or we hit the existence-wait window.
+        if (sawMinionExist) {
+          return Ok(undefined);
+        }
+
+        // Short-circuit: if we've never seen the minion and the shorter existence-wait
+        // window has elapsed, assume the server-side create never completed.
+        const existenceTimeout = options?.waitForExistenceTimeoutMs ?? timeoutMs;
+        if (Date.now() - startTime > existenceTimeout) {
+          return Ok(undefined);
+        }
+
+        attempt++;
+        const backoffMs = Math.min(2_000, 250 + attempt * 150);
+        await this.sleep(backoffMs, options?.signal);
+        continue;
+      }
+
+      if (statusResult.kind === "error") {
+        // If status checks fail (auth/network), still attempt delete best-effort.
+        lastError = statusResult.error;
+      }
+
+      const deleteAttempt = await this.runLatticeCommand(["delete", name, "--yes"], {
+        timeoutMs: Math.min(remainingMs(), 20_000),
+        signal: options?.signal,
+      });
+
+      const interpreted = interpretLatticeResult(deleteAttempt);
+      if (!interpreted.ok) {
+        lastError = interpreted.error;
+      } else {
+        // Successful delete is terminal; status polling is best-effort.
+        lastError = undefined;
+        return Ok(undefined);
+      }
+
+      attempt++;
+      const backoffMs = Math.min(2_000, 250 + attempt * 150);
+      await this.sleep(backoffMs, options?.signal);
+    }
+
+    if (options?.waitForExistence === true && !sawMinionExist && !lastError) {
+      return Ok(undefined);
+    }
+
+    return Err(lastError ?? "Timed out deleting Lattice minion");
+  }
+
+  /**
+   * Delete a Lattice minion.
+   *
+   * Safety: Only deletes minions with "lattice-" prefix to prevent accidentally
+   * deleting user minions that weren't created by lattice.
+   */
+  async deleteMinion(name: string): Promise<void> {
+    const result = await this.deleteMinionEventually(name, {
+      timeoutMs: 30_000,
+      waitForExistence: false,
+    });
+
+    if (!result.success) {
+      throw new Error(result.error);
+    }
+  }
+
+  /**
+   * Ensure SSH config is set up for Lattice minions.
+   * Run before every Lattice minion connection (idempotent).
    */
   async ensureSSHConfig(): Promise<void> {
     log.debug("Ensuring Lattice SSH config");

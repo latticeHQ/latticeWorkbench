@@ -1,9 +1,9 @@
-import { SessionFileManager } from "@/node/utils/sessionFile";
+import { SessionFileManager, type SessionFileWriteOptions } from "@/node/utils/sessionFile";
 import type { Config } from "@/node/config";
 import { log } from "@/node/services/log";
 
 /**
- * EventStore - Generic state management with persistence and replay for workspace events.
+ * EventStore - Generic state management with persistence and replay for minion events.
  *
  * This abstraction captures the common pattern between InitStateManager and StreamManager:
  * 1. In-memory Map for active state
@@ -11,8 +11,8 @@ import { log } from "@/node/services/log";
  * 3. Replay by serializing state into events and emitting them
  *
  * Type parameters:
- * - TState: The state object stored in memory/disk (e.g., InitStatus, WorkspaceStreamInfo)
- * - TEvent: The event type emitted (e.g., WorkspaceInitEvent)
+ * - TState: The state object stored in memory/disk (e.g., InitStatus, MinionStreamInfo)
+ * - TEvent: The event type emitted (e.g., MinionInitEvent)
  *
  * Design pattern:
  * - Composition over inheritance (doesn't extend EventEmitter directly)
@@ -22,15 +22,15 @@ import { log } from "@/node/services/log";
  * Example usage:
  *
  * class InitStateManager {
- *   private store = new EventStore<InitStatus, WorkspaceInitEvent>(
+ *   private store = new EventStore<InitStatus, MinionInitEvent>(
  *     config,
  *     "init-status.json",
  *     (state) => this.serializeInitEvents(state),
  *     (event) => this.emit(event.type, event)
  *   );
  *
- *   async replayInit(workspaceId: string) {
- *     await this.store.replay(workspaceId);
+ *   async replayInit(minionId: string) {
+ *     await this.store.replay(minionId);
  *   }
  * }
  */
@@ -64,51 +64,55 @@ export class EventStore<TState, TEvent> {
   }
 
   /**
-   * Get in-memory state for a workspace.
+   * Get in-memory state for a minion.
    * Returns undefined if no state exists.
    */
-  getState(workspaceId: string): TState | undefined {
-    return this.stateMap.get(workspaceId);
+  getState(minionId: string): TState | undefined {
+    return this.stateMap.get(minionId);
   }
 
   /**
-   * Set in-memory state for a workspace.
+   * Set in-memory state for a minion.
    */
-  setState(workspaceId: string, state: TState): void {
-    this.stateMap.set(workspaceId, state);
+  setState(minionId: string, state: TState): void {
+    this.stateMap.set(minionId, state);
   }
 
   /**
-   * Delete in-memory state for a workspace.
+   * Delete in-memory state for a minion.
    * Does NOT delete the persisted file (use deletePersisted for that).
    */
-  deleteState(workspaceId: string): void {
-    this.stateMap.delete(workspaceId);
+  deleteState(minionId: string): void {
+    this.stateMap.delete(minionId);
   }
 
   /**
-   * Check if in-memory state exists for a workspace.
+   * Check if in-memory state exists for a minion.
    */
-  hasState(workspaceId: string): boolean {
-    return this.stateMap.has(workspaceId);
+  hasState(minionId: string): boolean {
+    return this.stateMap.has(minionId);
   }
 
   /**
    * Read persisted state from disk.
    * Returns null if no file exists.
    */
-  async readPersisted(workspaceId: string): Promise<TState | null> {
-    return this.fileManager.read(workspaceId);
+  async readPersisted(minionId: string): Promise<TState | null> {
+    return this.fileManager.read(minionId);
   }
 
   /**
    * Write state to disk.
    * Logs errors but doesn't throw (fire-and-forget pattern).
    */
-  async persist(workspaceId: string, state: TState): Promise<void> {
-    const result = await this.fileManager.write(workspaceId, state);
+  async persist(
+    minionId: string,
+    state: TState,
+    options?: SessionFileWriteOptions
+  ): Promise<void> {
+    const result = await this.fileManager.write(minionId, state, options);
     if (!result.success) {
-      log.error(`[${this.storeName}] Failed to persist state for ${workspaceId}: ${result.error}`);
+      log.error(`[${this.storeName}] Failed to persist state for ${minionId}: ${result.error}`);
     }
   }
 
@@ -116,30 +120,30 @@ export class EventStore<TState, TEvent> {
    * Delete persisted state from disk.
    * Does NOT clear in-memory state (use deleteState for that).
    */
-  async deletePersisted(workspaceId: string): Promise<void> {
-    const result = await this.fileManager.delete(workspaceId);
+  async deletePersisted(minionId: string): Promise<void> {
+    const result = await this.fileManager.delete(minionId);
     if (!result.success) {
       log.error(
-        `[${this.storeName}] Failed to delete persisted state for ${workspaceId}: ${result.error}`
+        `[${this.storeName}] Failed to delete persisted state for ${minionId}: ${result.error}`
       );
     }
   }
 
   /**
-   * Replay events for a workspace.
+   * Replay events for a minion.
    * Checks in-memory state first, falls back to disk.
    * Emits events using the provided emitEvent function.
    *
-   * @param workspaceId - Workspace ID to replay events for
-   * @param context - Optional context to pass to serializeState (e.g., workspaceId)
+   * @param minionId - Minion ID to replay events for
+   * @param context - Optional context to pass to serializeState (e.g., minionId)
    */
-  async replay(workspaceId: string, context?: Record<string, unknown>): Promise<void> {
+  async replay(minionId: string, context?: Record<string, unknown>): Promise<void> {
     // Try in-memory state first (most recent)
-    let state: TState | undefined = this.stateMap.get(workspaceId);
+    let state: TState | undefined = this.stateMap.get(minionId);
 
     // Fall back to disk if not in memory
     if (!state) {
-      const diskState = await this.fileManager.read(workspaceId);
+      const diskState = await this.fileManager.read(minionId);
       if (!diskState) {
         return; // No state to replay
       }
@@ -157,10 +161,10 @@ export class EventStore<TState, TEvent> {
   }
 
   /**
-   * Get all workspace IDs with in-memory state.
+   * Get all minion IDs with in-memory state.
    * Useful for debugging or cleanup.
    */
-  getActiveWorkspaceIds(): string[] {
+  getActiveMinionIds(): string[] {
     return Array.from(this.stateMap.keys());
   }
 }
@@ -175,9 +179,9 @@ export class EventStore<TState, TEvent> {
  * 3. Lifecycle differences: Streams auto-cleanup on completion, init logs persist forever
  *
  * Future refactoring could extract:
- * - WorkspaceStreamInfo state management (workspaceStreams Map)
+ * - MinionStreamInfo state management (minionStreams Map)
  * - Replay logic (replayStream method at line 1244)
- * - Partial persistence (currently using PartialService)
+ * - Partial persistence (currently on HistoryService partial methods)
  *
  * Key differences to handle:
  * - StreamManager has complex throttling (partialWriteTimer, PARTIAL_WRITE_THROTTLE_MS)
@@ -186,7 +190,7 @@ export class EventStore<TState, TEvent> {
  * - Token tracking and usage statistics
  *
  * Pattern for adoption:
- * 1. Extract WorkspaceStreamInfo → MessagePart[] serialization into helper
+ * 1. Extract MinionStreamInfo → MessagePart[] serialization into helper
  * 2. Create EventStore instance for stream state (similar to InitStateManager)
  * 3. Replace manual replay loop (line 1270-1272) with store.replay()
  * 4. Keep existing throttling and persistence strategies (out of scope for EventStore)

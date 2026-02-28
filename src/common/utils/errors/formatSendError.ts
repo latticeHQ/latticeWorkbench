@@ -3,12 +3,15 @@
  * Used by both RetryBarrier and ChatInputToasts
  */
 
+import { PROVIDER_DISPLAY_NAMES, type ProviderName } from "@/common/constants/providers";
 import type { SendMessageError } from "@/common/types/errors";
-import { CLI_AGENT_DEFINITIONS } from "@/common/constants/cliAgents";
+
+const getProviderDisplayName = (provider: string): string =>
+  PROVIDER_DISPLAY_NAMES[provider as ProviderName] ?? provider;
 
 export interface FormattedError {
   message: string;
-  providerCommand?: string; // e.g., "/providers set anthropic apiKey YOUR_KEY"
+  resolutionHint?: string; // e.g., "Open Settings → Providers and add an API key"
 }
 
 /**
@@ -17,23 +20,34 @@ export interface FormattedError {
  */
 export function formatSendMessageError(error: SendMessageError): FormattedError {
   switch (error.type) {
-    case "api_key_not_found":
+    case "api_key_not_found": {
+      const displayName = getProviderDisplayName(error.provider);
       return {
-        message: `API key not found for ${error.provider}.`,
-        providerCommand: `/providers set ${error.provider} apiKey YOUR_API_KEY`,
+        message: `API key not found for ${displayName}.`,
+        resolutionHint: `Open Settings → Providers and add an API key for ${displayName}.`,
       };
+    }
+
+    case "oauth_not_connected": {
+      const displayName = getProviderDisplayName(error.provider);
+      return {
+        message: `OAuth not connected for ${displayName}.`,
+        resolutionHint: `Open Settings → Providers and connect your ${displayName} account.`,
+      };
+    }
+
+    case "provider_disabled": {
+      const displayName = getProviderDisplayName(error.provider);
+      return {
+        message: `Provider ${displayName} is disabled.`,
+        resolutionHint: `Open Settings → Providers and enable ${displayName}.`,
+      };
+    }
 
     case "provider_not_supported": {
-      // Check if this is a known CLI agent that's just not installed
-      const agentDef = CLI_AGENT_DEFINITIONS[error.provider as keyof typeof CLI_AGENT_DEFINITIONS];
-      if (agentDef) {
-        const installCmd = agentDef.binaryNames[0] ?? error.provider;
-        return {
-          message: `${agentDef.displayName} CLI is not installed or not detected. Install "${installCmd}" and ensure it's in your PATH.`,
-        };
-      }
+      const displayName = getProviderDisplayName(error.provider);
       return {
-        message: `Agent "${error.provider}" is not supported. Check the model string format (agent:model-id).`,
+        message: `Provider ${displayName} is not supported yet.`,
       };
     }
 
@@ -42,7 +56,7 @@ export function formatSendMessageError(error: SendMessageError): FormattedError 
         message: error.message,
       };
 
-    case "incompatible_workspace":
+    case "incompatible_minion":
       return {
         message: error.message,
       };
@@ -57,9 +71,16 @@ export function formatSendMessageError(error: SendMessageError): FormattedError 
         message: error.message,
       };
 
-    case "unknown":
+    case "policy_denied":
       return {
-        message: error.raw || "An unexpected error occurred",
+        message: error.message,
       };
+
+    case "unknown": {
+      const raw = typeof error.raw === "string" ? error.raw.trim() : "";
+      return {
+        message: raw || "An unexpected error occurred",
+      };
+    }
   }
 }

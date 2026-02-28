@@ -8,13 +8,13 @@ import { useAPI } from "@/browser/contexts/API";
  * Hook for managing Start Here button state and modal.
  * Returns a button config and modal state management.
  *
- * @param workspaceId - Current workspace ID (required for operation)
+ * @param minionId - Current minion ID (required for operation)
  * @param content - Content to use as the new conversation starting point
  * @param isCompacted - Whether the message is already compacted (disables button if true)
  * @param options - Optional behavior flags for this Start Here action
  */
 export function useStartHere(
-  workspaceId: string | undefined,
+  minionId: string | undefined,
   content: string,
   isCompacted = false,
   options?: { deletePlanFile?: boolean; sourceAgentId?: string }
@@ -25,7 +25,7 @@ export function useStartHere(
 
   // Opens the confirmation modal
   const openModal = () => {
-    if (!workspaceId || isCompacted) return;
+    if (!minionId || isCompacted) return;
     setIsModalOpen(true);
   };
 
@@ -36,7 +36,7 @@ export function useStartHere(
 
   // Executes the Start Here operation
   const executeStartHere = async () => {
-    if (!workspaceId || isStartingHere || isCompacted || !api) return;
+    if (!minionId || isStartingHere || isCompacted || !api) return;
 
     setIsStartingHere(true);
     try {
@@ -51,9 +51,12 @@ export function useStartHere(
         }
       );
 
-      const result = await api.workspace.replaceChatHistory({
-        workspaceId,
+      const result = await api.minion.replaceChatHistory({
+        minionId,
         summaryMessage,
+        // Start Here should create a durable boundary so older turns remain recoverable
+        // while request payloads begin at this point.
+        mode: "append-compaction-boundary",
         deletePlanFile: options?.deletePlanFile,
       });
 
@@ -78,7 +81,7 @@ export function useStartHere(
     openModal,
     isStartingHere,
     buttonLabel: `Start Here`,
-    disabled: !workspaceId || isStartingHere || isCompacted,
+    disabled: !minionId || isStartingHere || isCompacted,
     modal, // Pre-configured modal to render
   };
 }

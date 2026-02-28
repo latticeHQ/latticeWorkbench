@@ -8,7 +8,7 @@ import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
 import type { TodoItem } from "@/common/types/tools";
 import { MAX_TODOS } from "@/common/constants/toolLimits";
 import { getTodoFilePath, readTodosForSessionDir } from "@/node/services/todos/todoStorage";
-import { workspaceFileLocks } from "@/node/utils/concurrency/workspaceFileLocks";
+import { minionFileLocks } from "@/node/utils/concurrency/minionFileLocks";
 
 /**
  * Validate todo sequencing rules before persisting.
@@ -82,25 +82,25 @@ function validateTodos(todos: TodoItem[]): void {
 }
 
 /**
- * Write todos to the workspace session directory.
+ * Write todos to the minion session directory.
  */
 async function writeTodos(
-  workspaceId: string,
-  workspaceSessionDir: string,
+  minionId: string,
+  minionSessionDir: string,
   todos: TodoItem[]
 ): Promise<void> {
   validateTodos(todos);
 
-  await workspaceFileLocks.withLock(workspaceId, async () => {
-    const todoFile = getTodoFilePath(workspaceSessionDir);
+  await minionFileLocks.withLock(minionId, async () => {
+    const todoFile = getTodoFilePath(minionSessionDir);
     await fs.mkdir(path.dirname(todoFile), { recursive: true });
     await writeFileAtomic(todoFile, JSON.stringify(todos, null, 2));
   });
 }
 
-async function clearTodos(workspaceId: string, workspaceSessionDir: string): Promise<void> {
-  await workspaceFileLocks.withLock(workspaceId, async () => {
-    const todoFile = getTodoFilePath(workspaceSessionDir);
+async function clearTodos(minionId: string, minionSessionDir: string): Promise<void> {
+  await minionFileLocks.withLock(minionId, async () => {
+    const todoFile = getTodoFilePath(minionSessionDir);
     try {
       await fs.unlink(todoFile);
     } catch (error) {
@@ -121,9 +121,9 @@ export const createTodoWriteTool: ToolFactory = (config) => {
     description: TOOL_DEFINITIONS.todo_write.description,
     inputSchema: TOOL_DEFINITIONS.todo_write.schema,
     execute: async ({ todos }) => {
-      assert(config.workspaceId, "todo_write requires workspaceId");
-      assert(config.workspaceSessionDir, "todo_write requires workspaceSessionDir");
-      await writeTodos(config.workspaceId, config.workspaceSessionDir, todos);
+      assert(config.minionId, "todo_write requires minionId");
+      assert(config.minionSessionDir, "todo_write requires minionSessionDir");
+      await writeTodos(config.minionId, config.minionSessionDir, todos);
       return {
         success: true as const,
         count: todos.length,
@@ -141,8 +141,8 @@ export const createTodoReadTool: ToolFactory = (config) => {
     description: TOOL_DEFINITIONS.todo_read.description,
     inputSchema: TOOL_DEFINITIONS.todo_read.schema,
     execute: async () => {
-      assert(config.workspaceSessionDir, "todo_read requires workspaceSessionDir");
-      const todos = await readTodosForSessionDir(config.workspaceSessionDir);
+      assert(config.minionSessionDir, "todo_read requires minionSessionDir");
+      const todos = await readTodosForSessionDir(config.minionSessionDir);
       return {
         todos,
       };
@@ -151,29 +151,29 @@ export const createTodoReadTool: ToolFactory = (config) => {
 };
 
 /**
- * Set todos for a workspace session directory (useful for testing)
+ * Set todos for a minion session directory (useful for testing)
  */
 export async function setTodosForSessionDir(
-  workspaceId: string,
-  workspaceSessionDir: string,
+  minionId: string,
+  minionSessionDir: string,
   todos: TodoItem[]
 ): Promise<void> {
-  await writeTodos(workspaceId, workspaceSessionDir, todos);
+  await writeTodos(minionId, minionSessionDir, todos);
 }
 
 /**
- * Get todos for a workspace session directory (useful for testing)
+ * Get todos for a minion session directory (useful for testing)
  */
-export async function getTodosForSessionDir(workspaceSessionDir: string): Promise<TodoItem[]> {
-  return readTodosForSessionDir(workspaceSessionDir);
+export async function getTodosForSessionDir(minionSessionDir: string): Promise<TodoItem[]> {
+  return readTodosForSessionDir(minionSessionDir);
 }
 
 /**
- * Clear todos for a workspace session directory (useful for testing and cleanup)
+ * Clear todos for a minion session directory (useful for testing and cleanup)
  */
 export async function clearTodosForSessionDir(
-  workspaceId: string,
-  workspaceSessionDir: string
+  minionId: string,
+  minionSessionDir: string
 ): Promise<void> {
-  await clearTodos(workspaceId, workspaceSessionDir);
+  await clearTodos(minionId, minionSessionDir);
 }

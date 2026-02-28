@@ -9,6 +9,7 @@ import {
   EXPERIMENT_IDS,
   type ExperimentId,
 } from "@/common/constants/experiments";
+import { getErrorMessage } from "@/common/utils/errors";
 import { Switch } from "@/browser/components/ui/switch";
 import { Button } from "@/browser/components/ui/button";
 import { CopyButton } from "@/browser/components/ui/CopyButton";
@@ -22,7 +23,6 @@ import {
 import type { ApiServerStatus } from "@/common/orpc/types";
 import { Input } from "@/browser/components/ui/input";
 import { useAPI } from "@/browser/contexts/API";
-import { useFeatureFlags } from "@/browser/contexts/FeatureFlagsContext";
 import { useTelemetry } from "@/browser/hooks/useTelemetry";
 
 interface ExperimentRowProps {
@@ -65,14 +65,6 @@ function ExperimentRow(props: ExperimentRowProps) {
 
 type BindHostMode = "localhost" | "all" | "custom";
 type PortMode = "random" | "fixed";
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
-}
 
 function ConfigurableBindUrlControls() {
   const enabled = useExperimentValue(EXPERIMENT_IDS.CONFIGURABLE_BIND_URL);
@@ -246,18 +238,16 @@ function ConfigurableBindUrlControls() {
   return (
     <div className="bg-background-secondary space-y-4 px-4 py-3">
       <div className="text-warning text-xs">
-        Exposes lattice’s API server to your LAN/VPN. Devices on your local network can connect if
-        they have the auth token. Traffic is unencrypted HTTP; enable only on trusted networks
-        (Tailscale recommended).
+        Exposes lattice’s API server to your LAN/VPN. Devices on your local network can connect if they
+        have the auth token. Traffic is unencrypted HTTP; enable only on trusted networks (Tailscale
+        recommended).
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-4">
           <div>
             <div className="text-foreground text-sm">Bind host</div>
-            <div className="text-muted text-xs">
-              Where lattice listens for HTTP + WS connections
-            </div>
+            <div className="text-muted text-xs">Where lattice listens for HTTP + WS connections</div>
           </div>
           <Select value={hostMode} onValueChange={(value) => setHostMode(value as BindHostMode)}>
             <SelectTrigger className="border-border-medium bg-background-secondary hover:bg-hover h-9 w-64 cursor-pointer rounded-md border px-3 text-sm transition-colors">
@@ -457,33 +447,6 @@ function ConfigurableBindUrlControls() {
   );
 }
 
-function StatsTabRow() {
-  const { statsTabState, setStatsTabEnabled } = useFeatureFlags();
-
-  const handleToggle = useCallback(
-    (enabled: boolean) => {
-      setStatsTabEnabled(enabled).catch(() => {
-        // ignore
-      });
-    },
-    [setStatsTabEnabled]
-  );
-
-  return (
-    <div className="flex items-center justify-between py-3">
-      <div className="flex-1 pr-4">
-        <div className="text-foreground text-sm font-medium">Stats tab</div>
-        <div className="text-muted mt-0.5 text-xs">Show timing statistics in the right sidebar</div>
-      </div>
-      <Switch
-        checked={statsTabState?.enabled ?? false}
-        onCheckedChange={handleToggle}
-        aria-label="Toggle Stats tab"
-      />
-    </div>
-  );
-}
-
 export function ExperimentsSection() {
   const allExperiments = getExperimentList();
   const { api } = useAPI();
@@ -516,7 +479,6 @@ export function ExperimentsSection() {
         Experimental features that are still in development. Enable at your own risk.
       </p>
       <div className="divide-border-light divide-y">
-        <StatsTabRow />
         {experiments.map((exp) => (
           <React.Fragment key={exp.id}>
             <ExperimentRow

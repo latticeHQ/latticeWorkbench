@@ -57,10 +57,46 @@ describe("staticAnalysis", () => {
       expect(result.errors[0].message).toContain("await");
       expect(result.errors[0].message).toContain("not supported");
     });
+    test("await in class field inside async function gets clear error", async () => {
+      const result = await analyzeCode("async function f() { class C { x = await foo(); } }");
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].message).toContain("await");
+      expect(result.errors[0].message).toContain("not supported");
+    });
+
+    test("await in async function default param gets clear error", async () => {
+      // QuickJS gives "await in default expression" (not "expecting ';'"),
+      // so the rewrite doesn't apply — but the message is already clear.
+      const result = await analyzeCode("async function f(a = await foo()) {}");
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].message).toContain("await");
+    });
+
+    test("does not mislabel malformed template literal containing await text", async () => {
+      // Unescaped backticks break the template; `await` appears in string content, not code.
+      const result = await analyzeCode("const s = `x\n1. `file`\nawait x\n`;");
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].type).toBe("syntax");
+      expect(result.errors[0].message).not.toContain("`await` is not supported");
+    });
+
+    test("does not mislabel syntax error when await appears in a comment", async () => {
+      const result = await analyzeCode("const x = 1 +\n// await something\n");
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].type).toBe("syntax");
+      expect(result.errors[0].message).not.toContain("`await` is not supported");
+    });
+
+    test("does not mislabel syntax error when await appears in a string", async () => {
+      const result = await analyzeCode('const x = "await foo"\nconst y = 1 +\n');
+      expect(result.valid).toBe(false);
+      expect(result.errors[0].type).toBe("syntax");
+      expect(result.errors[0].message).not.toContain("`await` is not supported");
+    });
 
     test("allows return statements (wrapped in function)", async () => {
       const result = await analyzeCode(`
-        const x =lattice.fileRead("test.txt");
+        const x = lattice.fileRead("test.txt");
         return x;
       `);
       expect(result.valid).toBe(true);
@@ -215,7 +251,7 @@ const z = 3;`);
   describe("valid code examples", () => {
     test("file reading and processing", async () => {
       const result = await analyzeCode(`
-        const content =lattice.fileRead("package.json");
+        const content = lattice.fileRead("package.json");
         const pkg = JSON.parse(content);
         return pkg.name;
       `);
@@ -258,7 +294,7 @@ const z = 3;`);
     test("try-catch error handling", async () => {
       const result = await analyzeCode(`
         try {
-          const content =lattice.fileRead("maybe-missing.txt");
+          const content = lattice.fileRead("maybe-missing.txt");
           return content;
         } catch (err) {
           console.error("File not found:", err.message);
@@ -270,7 +306,7 @@ const z = 3;`);
 
     test("regex operations", async () => {
       const result = await analyzeCode(`
-        const text =lattice.fileRead("log.txt");
+        const text = lattice.fileRead("log.txt");
         const pattern = /error:.*/gi;
         const matches = text.match(pattern);
         return matches || [];
@@ -299,15 +335,16 @@ const z = 3;`);
       expect(result.valid).toBe(true);
     });
 
-    test("require in string literal - still false positive for patterns", async () => {
+    test("require in string literal does NOT error (AST-based detection)", async () => {
       const result = await analyzeCode(`
         const msg = "Use require() to import modules";
         console.log(msg);
       `);
-      // Known limitation: pattern-based detection for require() can't distinguish strings
-      // This is acceptable since agents rarely put "require()" in string literals
-      expect(result.valid).toBe(false); // False positive for pattern detection
-      expect(result.errors.some((e) => e.message.includes("require()"))).toBe(true);
+
+      // We intentionally avoid pattern/substring scanning for require()/import() because those
+      // keywords can appear in user strings.
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
     });
 
     test("process in string literal does NOT error (AST-based detection)", async () => {

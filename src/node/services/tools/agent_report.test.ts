@@ -1,11 +1,11 @@
 import { describe, it, expect, mock } from "bun:test";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 import { createAgentReportTool } from "./agent_report";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
 import type { TaskService } from "@/node/services/taskService";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -13,10 +13,10 @@ const mockToolCallOptions: ToolCallOptions = {
 describe("agent_report tool", () => {
   it("throws when the task has active descendants", async () => {
     using tempDir = new TestTempDir("test-agent-report-tool");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "task-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "task-minion" });
 
     const taskService = {
-      hasActiveDescendantAgentTasksForWorkspace: mock(() => true),
+      hasActiveDescendantAgentTasksForMinion: mock(() => true),
     } as unknown as TaskService;
 
     const tool = createAgentReportTool({ ...baseConfig, taskService });
@@ -38,10 +38,10 @@ describe("agent_report tool", () => {
 
   it("returns success when the task has no active descendants", async () => {
     using tempDir = new TestTempDir("test-agent-report-tool-ok");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "task-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "task-minion" });
 
     const taskService = {
-      hasActiveDescendantAgentTasksForWorkspace: mock(() => false),
+      hasActiveDescendantAgentTasksForMinion: mock(() => false),
     } as unknown as TaskService;
 
     const tool = createAgentReportTool({ ...baseConfig, taskService });
@@ -50,6 +50,9 @@ describe("agent_report tool", () => {
       tool.execute!({ reportMarkdown: "done", title: "t" }, mockToolCallOptions)
     );
 
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual({
+      success: true,
+      message: "Report submitted successfully.",
+    });
   });
 });

@@ -77,8 +77,8 @@ test.describe("sidebar drag and drop", () => {
     await expect(terminalTab).toHaveAttribute("aria-selected", "false");
 
     // Verify initial order: costs, review, terminal (terminal is last after adding)
-    const initialTabs = await tablist.getByRole("tab").all();
-    const costsIndex = await tablist.getByRole("tab", { name: /Costs/ }).evaluate((el) => {
+    await tablist.getByRole("tab").all();
+    await tablist.getByRole("tab", { name: /Costs/ }).evaluate((el) => {
       return Array.from(el.parentElement?.parentElement?.children ?? []).indexOf(el.parentElement!);
     });
     const reviewIndex = await tablist.getByRole("tab", { name: /Review/ }).evaluate((el) => {
@@ -199,17 +199,17 @@ test.describe("sidebar drag and drop", () => {
     const tablists = await sidebar.getByRole("tablist").all();
     expect(tablists.length).toBe(2);
 
-    // Verify each tablist has expected tabs
-    const topTabs = await tablists[0].getByRole("tab").all();
-    const bottomTabs = await tablists[1].getByRole("tab").all();
-
-    expect(topTabs.length).toBe(3); // Costs, Review, Explorer
-    expect(bottomTabs.length).toBe(1); // Costs (duplicate tab in split)
+    // Verify each tablist has expected tabs.
+    //
+    // Stats is default-on, and both Stats + Explorer get auto-injected into the first tabset
+    // when loading a persisted layout that doesn't list every built-in tab.
+    await expect(tablists[0].getByRole("tab")).toHaveCount(4); // Costs, Review, Explorer, Stats
+    await expect(tablists[1].getByRole("tab")).toHaveCount(1); // Costs (duplicate tab in split)
   });
 
   // Note: Full drag-drop tests require real browser mouse events which
   // don't work reliably with Playwright + Xvfb + react-dnd HTML5 backend.
   // Drag behavior is tested via:
-  // - Unit tests: src/browser/utils/rightSidebarLayout.test.ts
-  // - UI integration: tests/ui/rightSidebar.integration.test.ts
+  // - Unit tests: src/browser/utils/workbenchPanelLayout.test.ts
+  // - UI integration: tests/ui/workbenchPanel.integration.test.ts
 });

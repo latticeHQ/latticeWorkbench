@@ -79,7 +79,7 @@ export async function discoverServerConfig(
 
   // Auth token precedence: secret storage -> env -> lockfile (only if same baseUrl).
   const secretToken = (await context.secrets.get(SERVER_AUTH_TOKEN_SECRET_KEY))?.trim();
-  const envToken = (process.env.LATTICE_SERVER_AUTH_TOKEN ?? process.env.LATTICE_SERVER_AUTH_TOKEN)?.trim();
+  const envToken = process.env.LATTICE_SERVER_AUTH_TOKEN?.trim();
 
   let authTokenSource: DiscoveredServerConfig["authTokenSource"] = "none";
   let authToken: string | undefined;

@@ -263,7 +263,6 @@ function WorkspaceScreenInner({
   );
   const { suggestions: commandSuggestions } = useSlashCommandSuggestions({
     input,
-    client,
     enabled: !isCreationMode,
   });
   useEffect(() => {
@@ -1673,7 +1672,7 @@ export function WorkspaceScreen({
           Workspace not found
         </ThemedText>
         <ThemedText variant="caption" style={{ marginTop: spacing.sm }}>
-          Try opening this workspace from the Headquarters screen.
+          Try opening this workspace from the Projects screen.
         </ThemedText>
         <Pressable
           onPress={() => router.back()}

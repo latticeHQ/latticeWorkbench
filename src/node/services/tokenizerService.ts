@@ -2,7 +2,9 @@ import { countTokens, countTokensBatch } from "@/node/utils/main/tokenizer";
 import { calculateTokenStats } from "@/common/utils/tokens/tokenStatsCalculator";
 import type { LatticeMessage } from "@/common/types/message";
 import type { ChatStats } from "@/common/types/chatStats";
+import type { ProvidersConfigMap } from "@/common/orpc/types";
 import assert from "@/common/utils/assert";
+import { computeProvidersConfigFingerprint } from "@/common/utils/providers/configFingerprint";
 import type { SessionUsageService, SessionUsageTokenStatsCacheV1 } from "./sessionUsageService";
 import { log } from "./log";
 
@@ -23,10 +25,10 @@ function getMaxHistorySequence(messages: LatticeMessage[]): number | undefined {
 export class TokenizerService {
   private readonly sessionUsageService: SessionUsageService;
 
-  // Token stats calculations can overlap for a single workspace (e.g., rapid tool events).
+  // Token stats calculations can overlap for a single minion (e.g., rapid tool events).
   // The renderer ignores outdated results client-side, but the backend must also avoid
   // persisting stale `tokenStatsCache` data if an older calculation finishes after a newer one.
-  private latestCalcIdByWorkspace = new Map<string, number>();
+  private latestCalcIdByMinion = new Map<string, number>();
   private nextCalcId = 0;
 
   constructor(sessionUsageService: SessionUsageService) {
@@ -61,13 +63,14 @@ export class TokenizerService {
    * Calculate detailed token statistics for a chat history.
    */
   async calculateStats(
-    workspaceId: string,
+    minionId: string,
     messages: LatticeMessage[],
-    model: string
+    model: string,
+    providersConfig: ProvidersConfigMap | null = null
   ): Promise<ChatStats> {
     assert(
-      typeof workspaceId === "string" && workspaceId.length > 0,
-      "Tokenizer calculateStats requires workspaceId"
+      typeof minionId === "string" && minionId.length > 0,
+      "Tokenizer calculateStats requires minionId"
     );
     assert(Array.isArray(messages), "Tokenizer calculateStats requires an array of messages");
     assert(
@@ -76,19 +79,20 @@ export class TokenizerService {
     );
 
     const calcId = ++this.nextCalcId;
-    this.latestCalcIdByWorkspace.set(workspaceId, calcId);
+    this.latestCalcIdByMinion.set(minionId, calcId);
 
-    const stats = await calculateTokenStats(messages, model);
+    const stats = await calculateTokenStats(messages, model, providersConfig);
 
     // Only persist the cache for the most recently-started calculation.
     // Older calculations can finish later and would otherwise overwrite a newer cache.
-    if (this.latestCalcIdByWorkspace.get(workspaceId) !== calcId) {
+    if (this.latestCalcIdByMinion.get(minionId) !== calcId) {
       return stats;
     }
 
     const cache: SessionUsageTokenStatsCacheV1 = {
       version: 1,
       computedAt: Date.now(),
+      providersConfigVersion: computeProvidersConfigFingerprint(providersConfig),
       model: stats.model,
       tokenizerName: stats.tokenizerName,
       history: {
@@ -122,16 +126,16 @@ export class TokenizerService {
       );
     } catch (error) {
       log.warn("[TokenizerService] Token stats cache invariant check failed; skipping persist", {
-        workspaceId,
+        minionId,
         error,
       });
       return stats;
     }
 
     try {
-      await this.sessionUsageService.setTokenStatsCache(workspaceId, cache);
+      await this.sessionUsageService.setTokenStatsCache(minionId, cache);
     } catch (error) {
-      log.warn("[TokenizerService] Failed to persist token stats cache", { workspaceId, error });
+      log.warn("[TokenizerService] Failed to persist token stats cache", { minionId, error });
     }
 
     return stats;

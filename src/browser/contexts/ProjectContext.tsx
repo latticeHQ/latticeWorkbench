@@ -9,12 +9,19 @@ import {
   type ReactNode,
 } from "react";
 import { useAPI } from "@/browser/contexts/API";
-import type { ProjectConfig, SectionConfig } from "@/common/types/project";
+import type { ProjectConfig, CrewConfig } from "@/common/types/project";
 import type { BranchListResult } from "@/common/orpc/types";
 import type { Secret } from "@/common/types/secrets";
 import type { Result } from "@/common/types/result";
+import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
+import {
+  MINION_DRAFTS_BY_PROJECT_KEY,
+  deleteMinionStorage,
+  getDraftScopeId,
+} from "@/common/constants/storage";
+import { getErrorMessage } from "@/common/utils/errors";
 
-interface WorkspaceModalState {
+interface MinionModalState {
   isOpen: boolean;
   projectPath: string | null;
   projectName: string;
@@ -30,52 +37,60 @@ export interface ProjectContext {
   loading: boolean;
   refreshProjects: () => Promise<void>;
   addProject: (normalizedPath: string, projectConfig: ProjectConfig) => void;
-  removeProject: (path: string, force?: boolean) => Promise<{ success: boolean; error?: string }>;
+  removeProject: (path: string) => Promise<{ success: boolean; error?: string }>;
 
-  // Headquarter creation modal
+  // Project creation modal
   isProjectCreateModalOpen: boolean;
   openProjectCreateModal: () => void;
   closeProjectCreateModal: () => void;
 
-  // Workspace modal state
-  workspaceModalState: WorkspaceModalState;
-  openWorkspaceModal: (projectPath: string, options?: { projectName?: string }) => Promise<void>;
-  closeWorkspaceModal: () => void;
+  // Minion modal state
+  minionModalState: MinionModalState;
+  openMinionModal: (projectPath: string, options?: { projectName?: string }) => Promise<void>;
+  closeMinionModal: () => void;
 
   // Helpers
   getBranchesForProject: (projectPath: string) => Promise<BranchListResult>;
   getSecrets: (projectPath: string) => Promise<Secret[]>;
   updateSecrets: (projectPath: string, secrets: Secret[]) => Promise<void>;
 
-  // Section operations
-  createSection: (
+  // Crew operations
+  createCrew: (
     projectPath: string,
     name: string,
     color?: string
-  ) => Promise<Result<SectionConfig>>;
-  updateSection: (
+  ) => Promise<Result<CrewConfig>>;
+  updateCrew: (
     projectPath: string,
-    sectionId: string,
+    crewId: string,
     updates: { name?: string; color?: string }
   ) => Promise<Result<void>>;
-  removeSection: (projectPath: string, sectionId: string) => Promise<Result<void>>;
-  reorderSections: (projectPath: string, sectionIds: string[]) => Promise<Result<void>>;
-  assignWorkspaceToSection: (
+  removeCrew: (projectPath: string, crewId: string) => Promise<Result<void>>;
+  reorderCrews: (projectPath: string, crewIds: string[]) => Promise<Result<void>>;
+  assignMinionToCrew: (
     projectPath: string,
-    workspaceId: string,
-    sectionId: string | null
+    minionId: string,
+    crewId: string | null
   ) => Promise<Result<void>>;
-  seedDefaultSections: (projectPath: string) => Promise<Result<SectionConfig[]>>;
 }
 
 const ProjectContext = createContext<ProjectContext | undefined>(undefined);
 
 function deriveProjectName(projectPath: string): string {
   if (!projectPath) {
-    return "Headquarter";
+    return "Project";
   }
   const segments = projectPath.split(/[\\/]/).filter(Boolean);
   return segments[segments.length - 1] ?? projectPath;
+}
+
+const PROJECT_REMOVE_ACTIVE_MINIONS_ERROR_PREFIX =
+  "Cannot remove project with active minions";
+
+function isExpectedProjectRemovalValidationError(error: string | undefined): boolean {
+  return (
+    typeof error === "string" && error.startsWith(PROJECT_REMOVE_ACTIVE_MINIONS_ERROR_PREFIX)
+  );
 }
 
 export function ProjectProvider(props: { children: ReactNode }) {
@@ -83,7 +98,7 @@ export function ProjectProvider(props: { children: ReactNode }) {
   const [projects, setProjects] = useState<Map<string, ProjectConfig>>(new Map());
   const [loading, setLoading] = useState(true);
   const [isProjectCreateModalOpen, setProjectCreateModalOpen] = useState(false);
-  const [workspaceModalState, setWorkspaceModalState] = useState<WorkspaceModalState>({
+  const [minionModalState, setMinionModalState] = useState<MinionModalState>({
     isOpen: false,
     projectPath: null,
     projectName: "",
@@ -92,16 +107,41 @@ export function ProjectProvider(props: { children: ReactNode }) {
     loadErrorMessage: null,
     isLoading: false,
   });
-  const workspaceModalProjectRef = useRef<string | null>(null);
+  const minionModalProjectRef = useRef<string | null>(null);
+
+  // Used to guard against refreshProjects() races.
+  //
+  // Example: the initial refresh (on mount) can start before a minion fork, then
+  // resolve after a fork-triggered refresh. Without this guard, the stale response
+  // could overwrite the newer project list and make the forked minion disappear
+  // from the sidebar again.
+  const projectsRefreshSeqRef = useRef(0);
+  const latestAppliedProjectsRefreshSeqRef = useRef(0);
 
   const refreshProjects = useCallback(async () => {
     if (!api) return;
+
+    const refreshSeq = projectsRefreshSeqRef.current + 1;
+    projectsRefreshSeqRef.current = refreshSeq;
+
     try {
       const projectsList = await api.projects.list();
+
+      // Ignore out-of-date refreshes so an older response can't clobber a newer success.
+      if (refreshSeq < latestAppliedProjectsRefreshSeqRef.current) {
+        return;
+      }
+
+      latestAppliedProjectsRefreshSeqRef.current = refreshSeq;
       setProjects(new Map(projectsList));
     } catch (error) {
+      // Ignore out-of-date refreshes so an older error can't clobber a newer success.
+      if (refreshSeq < latestAppliedProjectsRefreshSeqRef.current) {
+        return;
+      }
+
+      // Keep the previous project list on error to avoid emptying the sidebar.
       console.error("Failed to load projects:", error);
-      setProjects(new Map());
     }
   }, [api]);
 
@@ -121,23 +161,58 @@ export function ProjectProvider(props: { children: ReactNode }) {
   }, []);
 
   const removeProject = useCallback(
-    async (path: string, force?: boolean): Promise<{ success: boolean; error?: string }> => {
+    async (path: string): Promise<{ success: boolean; error?: string }> => {
       if (!api) return { success: false, error: "API not connected" };
       try {
-        const result = await api.projects.remove({ projectPath: path, force });
+        const result = await api.projects.remove({ projectPath: path });
         if (result.success) {
           setProjects((prev) => {
             const next = new Map(prev);
             next.delete(path);
             return next;
           });
+
+          // Clean up any UI-only minion drafts for this project.
+          const draftsValue = readPersistedState<unknown>(MINION_DRAFTS_BY_PROJECT_KEY, {});
+          if (draftsValue && typeof draftsValue === "object") {
+            const record = draftsValue as Record<string, unknown>;
+            const drafts = record[path];
+            if (drafts !== undefined) {
+              if (Array.isArray(drafts)) {
+                for (const draft of drafts) {
+                  if (!draft || typeof draft !== "object") continue;
+                  const draftId = (draft as { draftId?: unknown }).draftId;
+                  if (typeof draftId === "string" && draftId.trim().length > 0) {
+                    deleteMinionStorage(getDraftScopeId(path, draftId));
+                  }
+                }
+              }
+
+              updatePersistedState<Record<string, unknown>>(
+                MINION_DRAFTS_BY_PROJECT_KEY,
+                (prev) => {
+                  const next = prev && typeof prev === "object" ? { ...prev } : {};
+                  delete next[path];
+                  return next;
+                },
+                {}
+              );
+            }
+          }
+
           return { success: true };
         } else {
-          console.error("Failed to remove project:", result.error);
+          if (isExpectedProjectRemovalValidationError(result.error)) {
+            // Expected user-facing validation failures (for example, active minions still present)
+            // should surface in UI without polluting error-level console output.
+            console.warn("Failed to remove project:", result.error);
+          } else {
+            console.error("Failed to remove project:", result.error);
+          }
           return { success: false, error: result.error };
         }
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         console.error("Failed to remove project:", errorMessage);
         return { success: false, error: errorMessage };
       }
@@ -170,11 +245,11 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api]
   );
 
-  const openWorkspaceModal = useCallback(
+  const openMinionModal = useCallback(
     async (projectPath: string, options?: { projectName?: string }) => {
       const projectName = options?.projectName ?? deriveProjectName(projectPath);
-      workspaceModalProjectRef.current = projectPath;
-      setWorkspaceModalState((prev) => ({
+      minionModalProjectRef.current = projectPath;
+      setMinionModalState((prev) => ({
         ...prev,
         isOpen: true,
         projectPath,
@@ -187,10 +262,10 @@ export function ProjectProvider(props: { children: ReactNode }) {
 
       try {
         const { branches, recommendedTrunk } = await getBranchesForProject(projectPath);
-        if (workspaceModalProjectRef.current !== projectPath) {
+        if (minionModalProjectRef.current !== projectPath) {
           return;
         }
-        setWorkspaceModalState((prev) => ({
+        setMinionModalState((prev) => ({
           ...prev,
           branches,
           defaultTrunkBranch: recommendedTrunk ?? undefined,
@@ -199,12 +274,12 @@ export function ProjectProvider(props: { children: ReactNode }) {
         }));
       } catch (error) {
         console.error("Failed to load branches for project:", error);
-        if (workspaceModalProjectRef.current !== projectPath) {
+        if (minionModalProjectRef.current !== projectPath) {
           return;
         }
         const errorMessage =
           error instanceof Error ? error.message : "Failed to load branches for project";
-        setWorkspaceModalState((prev) => ({
+        setMinionModalState((prev) => ({
           ...prev,
           branches: [],
           defaultTrunkBranch: undefined,
@@ -216,9 +291,9 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [getBranchesForProject]
   );
 
-  const closeWorkspaceModal = useCallback(() => {
-    workspaceModalProjectRef.current = null;
-    setWorkspaceModalState({
+  const closeMinionModal = useCallback(() => {
+    minionModalProjectRef.current = null;
+    setMinionModalState({
       isOpen: false,
       projectPath: null,
       projectName: "",
@@ -232,7 +307,7 @@ export function ProjectProvider(props: { children: ReactNode }) {
   const getSecrets = useCallback(
     async (projectPath: string): Promise<Secret[]> => {
       if (!api) return [];
-      return await api.projects.secrets.get({ projectPath });
+      return await api.secrets.get({ projectPath });
     },
     [api]
   );
@@ -240,7 +315,7 @@ export function ProjectProvider(props: { children: ReactNode }) {
   const updateSecrets = useCallback(
     async (projectPath: string, secrets: Secret[]) => {
       if (!api) return;
-      const result = await api.projects.secrets.update({ projectPath, secrets });
+      const result = await api.secrets.update({ projectPath, secrets });
       if (!result.success) {
         console.error("Failed to update secrets:", result.error);
       }
@@ -248,11 +323,11 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api]
   );
 
-  // Section operations
-  const createSection = useCallback(
-    async (projectPath: string, name: string, color?: string): Promise<Result<SectionConfig>> => {
+  // Crew operations
+  const createCrew = useCallback(
+    async (projectPath: string, name: string, color?: string): Promise<Result<CrewConfig>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.sections.create({ projectPath, name, color });
+      const result = await api.projects.crews.create({ projectPath, name, color });
       if (result.success) {
         await refreshProjects();
       }
@@ -261,14 +336,14 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const updateSection = useCallback(
+  const updateCrew = useCallback(
     async (
       projectPath: string,
-      sectionId: string,
+      crewId: string,
       updates: { name?: string; color?: string }
     ): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.sections.update({ projectPath, sectionId, ...updates });
+      const result = await api.projects.crews.update({ projectPath, crewId, ...updates });
       if (result.success) {
         await refreshProjects();
       }
@@ -277,10 +352,10 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const removeSection = useCallback(
-    async (projectPath: string, sectionId: string): Promise<Result<void>> => {
+  const removeCrew = useCallback(
+    async (projectPath: string, crewId: string): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.sections.remove({ projectPath, sectionId });
+      const result = await api.projects.crews.remove({ projectPath, crewId });
       if (result.success) {
         await refreshProjects();
       }
@@ -289,10 +364,10 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const reorderSections = useCallback(
-    async (projectPath: string, sectionIds: string[]): Promise<Result<void>> => {
+  const reorderCrews = useCallback(
+    async (projectPath: string, crewIds: string[]): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.sections.reorder({ projectPath, sectionIds });
+      const result = await api.projects.crews.reorder({ projectPath, crewIds });
       if (result.success) {
         await refreshProjects();
       }
@@ -301,30 +376,18 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const assignWorkspaceToSection = useCallback(
+  const assignMinionToCrew = useCallback(
     async (
       projectPath: string,
-      workspaceId: string,
-      sectionId: string | null
+      minionId: string,
+      crewId: string | null
     ): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.sections.assignWorkspace({
+      const result = await api.projects.crews.assignMinion({
         projectPath,
-        workspaceId,
-        sectionId,
+        minionId,
+        crewId,
       });
-      if (result.success) {
-        await refreshProjects();
-      }
-      return result;
-    },
-    [api, refreshProjects]
-  );
-
-  const seedDefaultSections = useCallback(
-    async (projectPath: string): Promise<Result<SectionConfig[]>> => {
-      if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.sections.seedDefaults({ projectPath });
       if (result.success) {
         await refreshProjects();
       }
@@ -343,18 +406,17 @@ export function ProjectProvider(props: { children: ReactNode }) {
       isProjectCreateModalOpen,
       openProjectCreateModal: () => setProjectCreateModalOpen(true),
       closeProjectCreateModal: () => setProjectCreateModalOpen(false),
-      workspaceModalState,
-      openWorkspaceModal,
-      closeWorkspaceModal,
+      minionModalState,
+      openMinionModal,
+      closeMinionModal,
       getBranchesForProject,
       getSecrets,
       updateSecrets,
-      createSection,
-      updateSection,
-      removeSection,
-      reorderSections,
-      assignWorkspaceToSection,
-      seedDefaultSections,
+      createCrew,
+      updateCrew,
+      removeCrew,
+      reorderCrews,
+      assignMinionToCrew,
     }),
     [
       projects,
@@ -363,18 +425,17 @@ export function ProjectProvider(props: { children: ReactNode }) {
       addProject,
       removeProject,
       isProjectCreateModalOpen,
-      workspaceModalState,
-      openWorkspaceModal,
-      closeWorkspaceModal,
+      minionModalState,
+      openMinionModal,
+      closeMinionModal,
       getBranchesForProject,
       getSecrets,
       updateSecrets,
-      createSection,
-      updateSection,
-      removeSection,
-      reorderSections,
-      assignWorkspaceToSection,
-      seedDefaultSections,
+      createCrew,
+      updateCrew,
+      removeCrew,
+      reorderCrews,
+      assignMinionToCrew,
     ]
   );
 

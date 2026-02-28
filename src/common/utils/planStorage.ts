@@ -9,34 +9,34 @@
 const DEFAULT_LATTICE_HOME = "~/.lattice";
 
 /**
- * Get the plan file path for a workspace.
+ * Get the plan file path for a minion.
  * Returns a path that works with the specified runtime's lattice home directory.
  *
- * Plan files are stored at: {latticeHome}/plans/{projectName}/{workspaceName}.md
+ * Plan files are stored at: {latticeHome}/plans/{projectName}/{minionName}.md
  *
- * Workspace names include a random suffix (e.g., "sidebar-a1b2") making them
+ * Minion names include a random suffix (e.g., "sidebar-a1b2") making them
  * globally unique with high probability. The project folder is for organization
  * and discoverability, not uniqueness.
  *
- * @param workspaceName - Human-readable workspace name with suffix (e.g., "fix-plan-a1b2")
- * @param projectName - Headquarter name extracted from project path (e.g., "lattice")
+ * @param minionName - Human-readable minion name with suffix (e.g., "fix-plan-a1b2")
+ * @param projectName - Project name extracted from project path (e.g., "lattice")
  * @param latticeHome - Lattice home directory (default: ~/.lattice, Docker uses /var/lattice)
  */
 export function getPlanFilePath(
-  workspaceName: string,
+  minionName: string,
   projectName: string,
   latticeHome = DEFAULT_LATTICE_HOME
 ): string {
-  return `${latticeHome}/plans/${projectName}/${workspaceName}.md`;
+  return `${latticeHome}/plans/${projectName}/${minionName}.md`;
 }
 
 /**
- * Get the legacy plan file path (stored by workspace ID).
+ * Get the legacy plan file path (stored by minion ID).
  * Used for migration: when reading, check new path first, then fall back to legacy.
  * Note: Legacy paths are not used for Docker (no migration needed for new runtime).
  *
- * @param workspaceId - Stable workspace identifier (e.g., "a1b2c3d4e5")
+ * @param minionId - Stable minion identifier (e.g., "a1b2c3d4e5")
  */
-export function getLegacyPlanFilePath(workspaceId: string): string {
-  return `${DEFAULT_LATTICE_HOME}/plans/${workspaceId}.md`;
+export function getLegacyPlanFilePath(minionId: string): string {
+  return `${DEFAULT_LATTICE_HOME}/plans/${minionId}.md`;
 }

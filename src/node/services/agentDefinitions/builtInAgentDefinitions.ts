@@ -17,10 +17,14 @@ interface BuiltInSource {
 const BUILT_IN_SOURCES: BuiltInSource[] = [
   { id: "exec", content: BUILTIN_AGENT_CONTENT.exec },
   { id: "plan", content: BUILTIN_AGENT_CONTENT.plan },
+  { id: "ask", content: BUILTIN_AGENT_CONTENT.ask },
+  { id: "auto", content: BUILTIN_AGENT_CONTENT.auto },
   { id: "compact", content: BUILTIN_AGENT_CONTENT.compact },
   { id: "explore", content: BUILTIN_AGENT_CONTENT.explore },
   { id: "system1_bash", content: BUILTIN_AGENT_CONTENT.system1_bash },
   { id: "lattice", content: BUILTIN_AGENT_CONTENT.lattice },
+  { id: "inbox", content: BUILTIN_AGENT_CONTENT.inbox },
+  { id: "orchestrator", content: BUILTIN_AGENT_CONTENT.orchestrator },
 ];
 
 let cachedPackages: AgentDefinitionPackage[] | null = null;

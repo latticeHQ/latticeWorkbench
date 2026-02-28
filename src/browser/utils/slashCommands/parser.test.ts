@@ -7,10 +7,6 @@ const expectParse = (input: string, expected: ReturnType<typeof parseCommand>) =
   expect(parseCommand(input)).toEqual(expected);
 };
 
-const expectProvidersSet = (input: string, provider: string, keyPath: string[], value: string) => {
-  expectParse(input, { type: "providers-set", provider, keyPath, value });
-};
-
 const expectModelSet = (input: string, modelString: string) => {
   expectParse(input, { type: "model-set", modelString });
 };
@@ -27,67 +23,12 @@ describe("commandParser", () => {
       expectParse("/clear", { type: "clear" });
     });
 
-    it("should parse /providers help when no subcommand", () => {
-      expectParse("/providers", { type: "providers-help" });
-    });
-
-    it("should parse /providers with invalid subcommand", () => {
-      expectParse("/providers invalid", {
-        type: "providers-invalid-subcommand",
-        subcommand: "invalid",
+    it("treats removed /providers command as unknown", () => {
+      expectParse("/providers", {
+        type: "unknown-command",
+        command: "providers",
+        subcommand: undefined,
       });
-    });
-
-    it("should parse /providers set with missing args", () => {
-      const missingArgsCases = [
-        { input: "/providers set", argCount: 0 },
-        { input: "/providers set anthropic", argCount: 1 },
-        { input: "/providers set anthropic apiKey", argCount: 2 },
-      ];
-
-      missingArgsCases.forEach(({ input, argCount }) => {
-        expectParse(input, {
-          type: "providers-missing-args",
-          subcommand: "set",
-          argCount,
-        });
-      });
-    });
-
-    it("should parse /providers set with all arguments", () => {
-      expectProvidersSet(
-        "/providers set anthropic apiKey sk-123",
-        "anthropic",
-        ["apiKey"],
-        "sk-123"
-      );
-    });
-
-    it("should handle quoted arguments", () => {
-      expectProvidersSet(
-        '/providers set anthropic apiKey "my key with spaces"',
-        "anthropic",
-        ["apiKey"],
-        "my key with spaces"
-      );
-    });
-
-    it("should handle multiple spaces in value", () => {
-      expectProvidersSet(
-        "/providers set anthropic apiKey My Anthropic API",
-        "anthropic",
-        ["apiKey"],
-        "My Anthropic API"
-      );
-    });
-
-    it("should handle nested key paths", () => {
-      expectProvidersSet(
-        "/providers set anthropic baseUrl.scheme https",
-        "anthropic",
-        ["baseUrl", "scheme"],
-        "https"
-      );
     });
 
     it("should parse unknown commands", () => {
@@ -104,30 +45,21 @@ describe("commandParser", () => {
       });
     });
 
-    it("should handle multiple spaces between arguments", () => {
-      expectProvidersSet(
-        "/providers   set   anthropic   apiKey   sk-12345",
-        "anthropic",
-        ["apiKey"],
-        "sk-12345"
-      );
-    });
-
-    it("should handle quoted URL values", () => {
-      expectProvidersSet(
-        '/providers set anthropic baseUrl "https://api.anthropic.com/v1"',
-        "anthropic",
-        ["baseUrl"],
-        "https://api.anthropic.com/v1"
-      );
-    });
-
     it("should parse /model with abbreviation", () => {
       expectModelSet("/model opus", KNOWN_MODELS.OPUS.id);
     });
 
     it("should parse /model with full provider:model format", () => {
-      expectModelSet("/model claude-code:claude-sonnet-4-5", KNOWN_MODELS.SONNET.id);
+      expectModelSet("/model anthropic:claude-sonnet-4-6", KNOWN_MODELS.SONNET.id);
+    });
+
+    it("should parse /compact -m with alias", () => {
+      expectParse("/compact -m sonnet", {
+        type: "compact",
+        maxOutputTokens: undefined,
+        continueMessage: undefined,
+        model: KNOWN_MODELS.SONNET.id,
+      });
     });
 
     it("should parse /model help when no args", () => {
@@ -146,6 +78,59 @@ describe("commandParser", () => {
       });
     });
 
+    it("should parse /<model-alias> as model-oneshot with message", () => {
+      expectParse("/haiku check the pr", {
+        type: "model-oneshot",
+        modelString: KNOWN_MODELS.HAIKU.id,
+        message: "check the pr",
+      });
+    });
+
+    it("should parse /<model-alias> with multiline message", () => {
+      expectParse("/sonnet first line\nsecond line", {
+        type: "model-oneshot",
+        modelString: KNOWN_MODELS.SONNET.id,
+        message: "first line\nsecond line",
+      });
+    });
+
+    it("should return model-help for /<model-alias> without message", () => {
+      expectParse("/haiku", { type: "model-help" });
+      expectParse("/sonnet  ", { type: "model-help" }); // whitespace only
+    });
+
+    it("should return unknown-command for unknown aliases", () => {
+      expectParse("/xyz do something", {
+        type: "unknown-command",
+        command: "xyz",
+        subcommand: "do",
+      });
+    });
+
+    it("should not treat inherited properties as model aliases", () => {
+      // Ensures we use Object.hasOwn to avoid prototype chain lookups
+      expectParse("/toString hello", {
+        type: "unknown-command",
+        command: "toString",
+        subcommand: "hello",
+      });
+      expectParse("/constructor test", {
+        type: "unknown-command",
+        command: "constructor",
+        subcommand: "test",
+      });
+    });
+
+    it("treats inherited properties as literal model inputs", () => {
+      expectParse("/model toString", { type: "model-set", modelString: "toString" });
+      expectParse("/compact -m toString", {
+        type: "compact",
+        maxOutputTokens: undefined,
+        continueMessage: undefined,
+        model: "toString",
+      });
+    });
+
     it("should parse /vim command", () => {
       expectParse("/vim", { type: "vim-toggle" });
     });
@@ -158,51 +143,144 @@ describe("commandParser", () => {
       });
     });
 
-    it("should parse /fork command with name only", () => {
-      expectParse("/fork feature-branch", {
-        type: "fork",
-        newName: "feature-branch",
-        startMessage: undefined,
-      });
+    it("should parse /fork with no args (seamless fork)", () => {
+      expectParse("/fork", { type: "fork" });
     });
 
-    it("should parse /fork command with start message", () => {
-      expectParse("/fork feature-branch let's go", {
+    it("should parse /fork with start message", () => {
+      expectParse("/fork let's explore this idea", {
         type: "fork",
-        newName: "feature-branch",
-        startMessage: "let's go",
+        startMessage: "let's explore this idea",
       });
-    });
-
-    it("should show /fork help when missing args", () => {
-      expectParse("/fork", { type: "fork-help" });
     });
   });
 });
-it("should preserve start message when no workspace name provided", () => {
+
+describe("thinking oneshot (/model+level syntax)", () => {
+  it("parses /opus+2 as model + numeric thinking index", () => {
+    expectParse("/opus+2 deep review", {
+      type: "model-oneshot",
+      modelString: KNOWN_MODELS.OPUS.id,
+      thinkingLevel: 2, // Numeric: resolved against model policy at send time
+      message: "deep review",
+    });
+  });
+
+  it("parses /haiku+0 as model with thinking at lowest level", () => {
+    expectParse("/haiku+0 quick answer", {
+      type: "model-oneshot",
+      modelString: KNOWN_MODELS.HAIKU.id,
+      thinkingLevel: 0, // Numeric: resolved to model's lowest allowed level at send time
+      message: "quick answer",
+    });
+  });
+
+  it("parses /sonnet+high with named thinking level", () => {
+    expectParse("/sonnet+high analyze this", {
+      type: "model-oneshot",
+      modelString: KNOWN_MODELS.SONNET.id,
+      thinkingLevel: "high",
+      message: "analyze this",
+    });
+  });
+
+  it("parses /haiku+med with shorthand thinking level", () => {
+    expectParse("/haiku+med fast check", {
+      type: "model-oneshot",
+      modelString: KNOWN_MODELS.HAIKU.id,
+      thinkingLevel: "medium",
+      message: "fast check",
+    });
+  });
+
+  it("parses /+0 as thinking-only override (no model)", () => {
+    expectParse("/+0 quick question", {
+      type: "model-oneshot",
+      thinkingLevel: 0, // Numeric: resolved at send time
+      message: "quick question",
+    });
+  });
+
+  it("parses /+high as thinking-only override with named level", () => {
+    expectParse("/+high deep thought", {
+      type: "model-oneshot",
+      thinkingLevel: "high",
+      message: "deep thought",
+    });
+  });
+
+  it("parses /+4 as thinking-only override (numeric)", () => {
+    expectParse("/+4 analyze deeply", {
+      type: "model-oneshot",
+      thinkingLevel: 4, // Numeric: resolved at send time
+      message: "analyze deeply",
+    });
+  });
+
+  it("returns model-help for /opus+2 without message", () => {
+    expectParse("/opus+2", { type: "model-help" });
+    expectParse("/+0", { type: "model-help" });
+    expectParse("/+high  ", { type: "model-help" });
+  });
+
+  it("returns unknown-command for invalid thinking level", () => {
+    expectParse("/opus+99 do something", {
+      type: "unknown-command",
+      command: "opus+99",
+      subcommand: "do",
+    });
+  });
+
+  it("returns unknown-command for unknown model with +level", () => {
+    expectParse("/xyz+2 do something", {
+      type: "unknown-command",
+      command: "xyz+2",
+      subcommand: "do",
+    });
+  });
+
+  it("returns unknown-command for bare + with no level", () => {
+    expectParse("/haiku+ do something", {
+      type: "unknown-command",
+      command: "haiku+",
+      subcommand: "do",
+    });
+  });
+
+  it("preserves multiline messages with thinking oneshot", () => {
+    expectParse("/opus+high first line\nsecond line", {
+      type: "model-oneshot",
+      modelString: KNOWN_MODELS.OPUS.id,
+      thinkingLevel: "high",
+      message: "first line\nsecond line",
+    });
+  });
+});
+
+it("should preserve start message when no minion name provided", () => {
   expectParse("/new\nBuild authentication system", {
     type: "new",
-    workspaceName: undefined,
+    minionName: undefined,
     trunkBranch: undefined,
     runtime: undefined,
     startMessage: "Build authentication system",
   });
 });
 
-it("should preserve start message and flags when no workspace name", () => {
+it("should preserve start message and flags when no minion name", () => {
   expectParse("/new -t develop\nImplement feature X", {
     type: "new",
-    workspaceName: undefined,
+    minionName: undefined,
     trunkBranch: "develop",
     runtime: undefined,
     startMessage: "Implement feature X",
   });
 });
 
-it("should preserve start message with runtime flag when no workspace name", () => {
+it("should preserve start message with runtime flag when no minion name", () => {
   expectParse('/new -r "ssh dev.example.com"\nDeploy to staging', {
     type: "new",
-    workspaceName: undefined,
+    minionName: undefined,
     trunkBranch: undefined,
     runtime: "ssh dev.example.com",
     startMessage: "Deploy to staging",

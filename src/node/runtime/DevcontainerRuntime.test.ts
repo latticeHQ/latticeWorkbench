@@ -4,8 +4,8 @@ import { DevcontainerRuntime } from "./DevcontainerRuntime";
 interface RuntimeState {
   remoteHomeDir?: string;
   remoteUser?: string;
-  remoteWorkspaceFolder?: string;
-  currentWorkspacePath?: string;
+  remoteMinionFolder?: string;
+  currentMinionPath?: string;
 }
 
 function createRuntime(state: RuntimeState): DevcontainerRuntime {
@@ -16,8 +16,8 @@ function createRuntime(state: RuntimeState): DevcontainerRuntime {
   const internal = runtime as unknown as RuntimeState;
   internal.remoteHomeDir = state.remoteHomeDir;
   internal.remoteUser = state.remoteUser;
-  internal.remoteWorkspaceFolder = state.remoteWorkspaceFolder;
-  internal.currentWorkspacePath = state.currentWorkspacePath;
+  internal.remoteMinionFolder = state.remoteMinionFolder;
+  internal.currentMinionPath = state.currentMinionPath;
   return runtime;
 }
 
@@ -48,13 +48,13 @@ describe("DevcontainerRuntime.resolvePath", () => {
     expect(await runtime.resolvePath("~")).toBe("/root");
   });
 
-  it("resolves relative paths against remoteWorkspaceFolder", async () => {
-    const runtime = createRuntime({ remoteWorkspaceFolder: "/workspaces/demo" });
-    expect(await runtime.resolvePath("./foo")).toBe("/workspaces/demo/foo");
-    expect(await runtime.resolvePath("bar")).toBe("/workspaces/demo/bar");
+  it("resolves relative paths against remoteMinionFolder", async () => {
+    const runtime = createRuntime({ remoteMinionFolder: "/minions/demo" });
+    expect(await runtime.resolvePath("./foo")).toBe("/minions/demo/foo");
+    expect(await runtime.resolvePath("bar")).toBe("/minions/demo/bar");
   });
 
-  it("resolves relative paths against / when no workspace set", async () => {
+  it("resolves relative paths against / when no minion set", async () => {
     const runtime = createRuntime({});
     expect(await runtime.resolvePath("foo")).toBe("/foo");
   });
@@ -82,39 +82,39 @@ describe("DevcontainerRuntime.resolveContainerCwd", () => {
   function resolveContainerCwd(
     runtime: DevcontainerRuntime,
     optionsCwd: string | undefined,
-    workspaceFolder: string
+    minionFolder: string
   ): string {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return
-    return (runtime as any).resolveContainerCwd(optionsCwd, workspaceFolder);
+    return (runtime as any).resolveContainerCwd(optionsCwd, minionFolder);
   }
 
   it("uses POSIX absolute path as cwd", () => {
-    const runtime = createRuntime({ remoteWorkspaceFolder: "/workspaces/project" });
-    expect(resolveContainerCwd(runtime, "/tmp/test", "/host/workspace")).toBe("/tmp/test");
+    const runtime = createRuntime({ remoteMinionFolder: "/minions/project" });
+    expect(resolveContainerCwd(runtime, "/tmp/test", "/host/minion")).toBe("/tmp/test");
   });
 
-  it("rejects Windows drive letter paths and falls back to workspace", () => {
-    const runtime = createRuntime({ remoteWorkspaceFolder: "/workspaces/project" });
-    expect(resolveContainerCwd(runtime, "C:\\Users\\dev", "/host/workspace")).toBe(
-      "/workspaces/project"
+  it("rejects Windows drive letter paths and falls back to minion", () => {
+    const runtime = createRuntime({ remoteMinionFolder: "/minions/project" });
+    expect(resolveContainerCwd(runtime, "C:\\Users\\dev", "/host/minion")).toBe(
+      "/minions/project"
     );
   });
 
-  it("rejects paths with backslashes and falls back to workspace", () => {
-    const runtime = createRuntime({ remoteWorkspaceFolder: "/workspaces/project" });
-    expect(resolveContainerCwd(runtime, "some\\path", "/host/workspace")).toBe(
-      "/workspaces/project"
+  it("rejects paths with backslashes and falls back to minion", () => {
+    const runtime = createRuntime({ remoteMinionFolder: "/minions/project" });
+    expect(resolveContainerCwd(runtime, "some\\path", "/host/minion")).toBe(
+      "/minions/project"
     );
   });
 
-  it("falls back to workspaceFolder when remoteWorkspaceFolder not set", () => {
+  it("falls back to minionFolder when remoteMinionFolder not set", () => {
     const runtime = createRuntime({});
-    expect(resolveContainerCwd(runtime, "C:\\", "/host/workspace")).toBe("/host/workspace");
+    expect(resolveContainerCwd(runtime, "C:\\", "/host/minion")).toBe("/host/minion");
   });
 
   it("falls back when cwd is undefined", () => {
-    const runtime = createRuntime({ remoteWorkspaceFolder: "/workspaces/project" });
-    expect(resolveContainerCwd(runtime, undefined, "/host/workspace")).toBe("/workspaces/project");
+    const runtime = createRuntime({ remoteMinionFolder: "/minions/project" });
+    expect(resolveContainerCwd(runtime, undefined, "/host/minion")).toBe("/minions/project");
   });
 });
 
@@ -127,8 +127,8 @@ describe("DevcontainerRuntime.resolveHostPathForMounted", () => {
     return (runtime as any).resolveHostPathForMounted(filePath);
   }
 
-  it("accepts Windows host paths under the workspace root", () => {
-    const runtime = createRuntime({ currentWorkspacePath: "C:\\ws\\proj" });
+  it("accepts Windows host paths under the minion root", () => {
+    const runtime = createRuntime({ currentMinionPath: "C:\\ws\\proj" });
     const filePath = "C:\\ws\\proj\\.lattice\\mcp.local.jsonc";
     expect(resolveHostPathForMounted(runtime, filePath)).toBe(filePath);
   });
@@ -140,46 +140,46 @@ describe("DevcontainerRuntime.mapHostPathToContainer", () => {
     return (runtime as any).mapHostPathToContainer(hostPath);
   }
 
-  it("maps host workspace root to container workspace", () => {
+  it("maps host minion root to container minion", () => {
     const runtime = createRuntime({
-      remoteWorkspaceFolder: "/workspaces/project",
-      currentWorkspacePath: "/home/user/lattice/project/branch",
+      remoteMinionFolder: "/minions/project",
+      currentMinionPath: "/home/user/lattice/project/branch",
     });
     expect(mapHostPathToContainer(runtime, "/home/user/lattice/project/branch")).toBe(
-      "/workspaces/project"
+      "/minions/project"
     );
   });
 
   it("maps host subpath to container subpath", () => {
     const runtime = createRuntime({
-      remoteWorkspaceFolder: "/workspaces/project",
-      currentWorkspacePath: "/home/user/lattice/project/branch",
+      remoteMinionFolder: "/minions/project",
+      currentMinionPath: "/home/user/lattice/project/branch",
     });
     expect(mapHostPathToContainer(runtime, "/home/user/lattice/project/branch/src/file.ts")).toBe(
-      "/workspaces/project/src/file.ts"
+      "/minions/project/src/file.ts"
     );
   });
 
   it("normalizes Windows backslashes to forward slashes", () => {
     const runtime = createRuntime({
-      remoteWorkspaceFolder: "/workspaces/project",
-      currentWorkspacePath: "C:\\Users\\dev\\lattice\\project\\branch",
+      remoteMinionFolder: "/minions/project",
+      currentMinionPath: "C:\\Users\\dev\\lattice\\project\\branch",
     });
     // Windows-style path with backslashes should map correctly
     expect(
       mapHostPathToContainer(runtime, "C:\\Users\\dev\\lattice\\project\\branch\\src\\file.ts")
-    ).toBe("/workspaces/project/src/file.ts");
+    ).toBe("/minions/project/src/file.ts");
   });
 
-  it("returns null for paths outside workspace", () => {
+  it("returns null for paths outside minion", () => {
     const runtime = createRuntime({
-      remoteWorkspaceFolder: "/workspaces/project",
-      currentWorkspacePath: "/home/user/lattice/project/branch",
+      remoteMinionFolder: "/minions/project",
+      currentMinionPath: "/home/user/lattice/project/branch",
     });
     expect(mapHostPathToContainer(runtime, "/tmp/other")).toBeNull();
   });
 
-  it("returns null when workspace not set", () => {
+  it("returns null when minion not set", () => {
     const runtime = createRuntime({});
     expect(mapHostPathToContainer(runtime, "/some/path")).toBeNull();
   });

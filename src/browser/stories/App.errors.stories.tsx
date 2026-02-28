@@ -3,24 +3,23 @@
  */
 
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
-import type { WorkspaceChatMessage, ChatLatticeMessage } from "@/common/orpc/types";
+import type { MinionChatMessage, ChatLatticeMessage } from "@/common/orpc/types";
 import type { DebugLlmRequestSnapshot } from "@/common/types/debugLlmRequest";
 import {
   STABLE_TIMESTAMP,
-  createWorkspace,
-  createIncompatibleWorkspace,
-  groupWorkspacesByProject,
+  createMinion,
+  createIncompatibleMinion,
+  groupMinionsByProject,
   createUserMessage,
   createAssistantMessage,
   createFileEditTool,
   createStaticChatHandler,
 } from "./mockFactory";
-import { disableAutoRetryPreference } from "@/browser/utils/messages/autoRetryPreference";
 import {
-  collapseRightSidebar,
+  collapseWorkbenchPanel,
   createOnChatAdapter,
   expandProjects,
-  selectWorkspace,
+  selectMinion,
   setupCustomChatStory,
   setupSimpleChatStory,
 } from "./storyHelpers";
@@ -105,9 +104,9 @@ const LARGE_DIFF = [
 // DEBUG LLM REQUEST FIXTURE
 // ═══════════════════════════════════════════════════════════════════════════════
 
-const createDebugLlmRequestSnapshot = (workspaceId: string): DebugLlmRequestSnapshot => ({
+const createDebugLlmRequestSnapshot = (minionId: string): DebugLlmRequestSnapshot => ({
   capturedAt: STABLE_TIMESTAMP - 45000,
-  workspaceId,
+  minionId,
   messageId: "assistant-debug-1",
   model: "anthropic:claude-3-5-sonnet-20241022",
   providerName: "anthropic",
@@ -116,7 +115,7 @@ const createDebugLlmRequestSnapshot = (workspaceId: string): DebugLlmRequestSnap
   agentId: "exec",
   maxOutputTokens: 2048,
   systemMessage:
-    "You are part of LATTICE WORKBENCH, a system of AI agents for software development. Follow the user's instructions and keep answers short.",
+    "You are Lattice, a focused coding agent. Follow the user’s instructions and keep answers short.",
   messages: [
     {
       role: "user",
@@ -177,17 +176,14 @@ export const ContextExceededSuggestion: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-context-exceeded";
-        // Disable auto-retry to keep this story deterministic (no countdown timer)
-        disableAutoRetryPreference(workspaceId);
-
+        const minionId = "ws-context-exceeded";
         return setupCustomChatStory({
-          workspaceId,
+          minionId,
           providersConfig: {
-            openai: { apiKeySet: true, isConfigured: true },
-            xai: { apiKeySet: true, isConfigured: true },
+            openai: { apiKeySet: true, isEnabled: true, isConfigured: true },
+            xai: { apiKeySet: true, isEnabled: true, isConfigured: true },
           },
-          chatHandler: (callback: (event: WorkspaceChatMessage) => void) => {
+          chatHandler: (callback: (event: MinionChatMessage) => void) => {
             setTimeout(() => {
               callback(
                 createUserMessage("msg-1", "Can you help me with this huge codebase?", {
@@ -200,7 +196,7 @@ export const ContextExceededSuggestion: AppStory = {
               // Simulate a stream start with a smaller-context model...
               callback({
                 type: "stream-start",
-                workspaceId,
+                minionId,
                 messageId: "assistant-1",
                 model: "openai:gpt-5.2",
                 historySequence: 2,
@@ -230,19 +226,18 @@ export const DebugLlmRequestModal: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-debug-request";
-        disableAutoRetryPreference(workspaceId);
+        const minionId = "ws-debug-request";
 
-        const workspaces = [
-          createWorkspace({ id: workspaceId, name: "debug", projectName: "my-app" }),
+        const minions = [
+          createMinion({ id: minionId, name: "debug", projectName: "my-app" }),
         ];
-        selectWorkspace(workspaces[0]);
-        collapseRightSidebar();
+        selectMinion(minions[0]);
+        collapseWorkbenchPanel();
 
         const chatHandlers = new Map([
           [
-            workspaceId,
-            (callback: (event: WorkspaceChatMessage) => void) => {
+            minionId,
+            (callback: (event: MinionChatMessage) => void) => {
               setTimeout(() => {
                 callback(
                   createUserMessage("msg-1", "Can you summarize what just happened?", {
@@ -265,12 +260,12 @@ export const DebugLlmRequestModal: AppStory = {
         ]);
 
         const lastLlmRequestSnapshots = new Map([
-          [workspaceId, createDebugLlmRequestSnapshot(workspaceId)],
+          [minionId, createDebugLlmRequestSnapshot(minionId)],
         ]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           onChat: createOnChatAdapter(chatHandlers),
           lastLlmRequestSnapshots,
         });
@@ -278,15 +273,12 @@ export const DebugLlmRequestModal: AppStory = {
     />
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
-    await waitFor(
-      () => {
-        const debugButton = canvasElement.querySelector(
-          'button[aria-label="Open last LLM request debug modal"]'
-        );
-        if (!debugButton) throw new Error("Debug button not found");
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const debugButton = canvasElement.querySelector(
+        'button[aria-label="Open last LLM request debug modal"]'
+      );
+      if (!debugButton) throw new Error("Debug button not found");
+    });
 
     const debugButton = canvasElement.querySelector(
       'button[aria-label="Open last LLM request debug modal"]'
@@ -296,28 +288,23 @@ export const DebugLlmRequestModal: AppStory = {
     }
     await userEvent.click(debugButton);
 
-    await waitFor(
-      () => {
-        const dialog = document.querySelector('[role="dialog"]');
-        if (!dialog?.textContent?.includes("Last LLM request")) {
-          throw new Error("Debug modal did not open");
-        }
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const dialog = document.querySelector('[role="dialog"]');
+      if (!dialog?.textContent?.includes("Last LLM request")) {
+        throw new Error("Debug modal did not open");
+      }
+    });
   },
 };
 export const StreamError: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaceId = "ws-error";
-        // Disable auto-retry to show deterministic "Retry" button instead of countdown timer
-        disableAutoRetryPreference(workspaceId);
+        const minionId = "ws-error";
 
         return setupCustomChatStory({
-          workspaceId,
-          chatHandler: (callback: (event: WorkspaceChatMessage) => void) => {
+          minionId,
+          chatHandler: (callback: (event: MinionChatMessage) => void) => {
             setTimeout(() => {
               callback(
                 createUserMessage("msg-1", "Help me refactor the database layer", {
@@ -333,6 +320,50 @@ export const StreamError: AppStory = {
                 messageId: "error-msg",
                 error: "Rate limit exceeded. Please wait before making more requests.",
                 errorType: "rate_limit",
+              });
+            }, 50);
+            // eslint-disable-next-line @typescript-eslint/no-empty-function
+            return () => {};
+          },
+        });
+      }}
+    />
+  ),
+};
+
+export const AnthropicOverloaded: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        const minionId = "ws-anthropic-overloaded";
+
+        return setupCustomChatStory({
+          minionId,
+          chatHandler: (callback: (event: MinionChatMessage) => void) => {
+            setTimeout(() => {
+              callback(
+                createUserMessage("msg-1", "Why did my request fail?", {
+                  historySequence: 1,
+                  timestamp: STABLE_TIMESTAMP - 100000,
+                })
+              );
+              callback({ type: "caught-up" });
+
+              callback({
+                type: "stream-start",
+                minionId,
+                messageId: "assistant-1",
+                model: "anthropic:claude-3-5-sonnet-20241022",
+                historySequence: 2,
+                startTime: STABLE_TIMESTAMP - 90000,
+                mode: "exec",
+              });
+
+              callback({
+                type: "stream-error",
+                messageId: "assistant-1",
+                error: "Anthropic is temporarily overloaded (HTTP 529). Please try again later.",
+                errorType: "server_error",
               });
             }, 50);
             // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -379,7 +410,7 @@ export const HiddenHistory: AppStory = {
         ];
 
         return setupCustomChatStory({
-          workspaceId: "ws-history",
+          minionId: "ws-history",
           chatHandler: createStaticChatHandler(messages),
         });
       }}
@@ -388,31 +419,31 @@ export const HiddenHistory: AppStory = {
 };
 
 /**
- * Incompatible workspace error view.
+ * Incompatible minion error view.
  *
  * When a user downgrades to an older version of lattice that doesn't support
- * a workspace's runtime configuration, the workspace shows an error message
+ * a minion's runtime configuration, the minion shows an error message
  * instead of crashing. This ensures graceful degradation.
  */
-export const IncompatibleWorkspace: AppStory = {
+export const IncompatibleMinion: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaces = [
-          createWorkspace({ id: "ws-main", name: "main", projectName: "my-app" }),
-          createIncompatibleWorkspace({
+        const minions = [
+          createMinion({ id: "ws-main", name: "main", projectName: "my-app" }),
+          createIncompatibleMinion({
             id: "ws-incompatible",
             name: "incompatible",
             projectName: "my-app",
           }),
         ];
 
-        // Select the incompatible workspace
-        selectWorkspace(workspaces[1]);
+        // Select the incompatible minion
+        selectMinion(minions[1]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
         });
       }}
     />
@@ -425,7 +456,7 @@ export const LargeDiff: AppStory = {
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-diff",
+          minionId: "ws-diff",
           messages: [
             createUserMessage(
               "msg-1",
@@ -452,30 +483,30 @@ export const LargeDiff: AppStory = {
 };
 
 /**
- * Headquarter removal error popover.
+ * Project removal error popover.
  *
- * Shows the error popup when attempting to remove a project that has active workspaces.
+ * Shows the error popup when attempting to remove a project that has active minions.
  * The play function hovers the project and clicks the remove button to trigger the error.
  */
 export const ProjectRemovalError: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaces = [
-          createWorkspace({ id: "ws-1", name: "main", projectName: "my-app" }),
-          createWorkspace({ id: "ws-2", name: "feature/auth", projectName: "my-app" }),
+        const minions = [
+          createMinion({ id: "ws-1", name: "main", projectName: "my-app" }),
+          createMinion({ id: "ws-2", name: "feature/auth", projectName: "my-app" }),
         ];
 
-        // Expand the project so workspaces are visible
+        // Expand the project so minions are visible
         expandProjects(["/mock/my-app"]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           onProjectRemove: () => ({
             success: false,
             error:
-              "Cannot remove project with active workspaces. Please remove all 2 workspace(s) first.",
+              "Cannot remove project with active minions. Please remove all 2 minion(s) first.",
           }),
         });
       }}
@@ -483,34 +514,24 @@ export const ProjectRemovalError: AppStory = {
   ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     // Wait for the remove button to exist in DOM
-    await waitFor(
-      () => {
-        const removeButton = canvasElement.querySelector(
-          'button[aria-label="Remove project my-app"]'
-        );
-        if (!removeButton) throw new Error("Remove button not found");
-      },
-      { timeout: 5000 }
-    );
+    await waitFor(() => {
+      const removeButton = canvasElement.querySelector(
+        'button[aria-label="Remove project my-app"]'
+      );
+      if (!removeButton) throw new Error("Remove button not found");
+    });
 
-    // Get the project row container and hover to reveal the button
-    const removeButton = canvasElement.querySelector('button[aria-label="Remove project my-app"]')!;
-    const projectRow = removeButton.closest("[data-project-path]")!;
-    await userEvent.hover(projectRow);
-
-    // Small delay for hover state to apply
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Click the remove button
-    await userEvent.click(removeButton);
+    // Trigger removal directly so this interaction remains stable across Chromatic snapshot modes,
+    // where hover-driven opacity transitions can be flaky.
+    const removeButton = canvasElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove project my-app"]'
+    )!;
+    removeButton.click();
 
     // Wait for the error popover to appear
-    await waitFor(
-      () => {
-        const errorPopover = document.querySelector('[role="alert"]');
-        if (!errorPopover) throw new Error("Error popover not found");
-      },
-      { timeout: 2000 }
-    );
+    await waitFor(() => {
+      const errorPopover = document.querySelector('[role="alert"]');
+      if (!errorPopover) throw new Error("Error popover not found");
+    });
   },
 };

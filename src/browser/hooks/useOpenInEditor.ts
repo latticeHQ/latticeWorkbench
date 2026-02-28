@@ -18,7 +18,7 @@ export function useOpenInEditor() {
 
   return useCallback(
     async (
-      workspaceId: string,
+      minionId: string,
       targetPath: string,
       runtimeConfig?: RuntimeConfig,
       options?: { isFile?: boolean }
@@ -26,7 +26,7 @@ export function useOpenInEditor() {
       return openInEditor({
         api,
         openSettings,
-        workspaceId,
+        minionId,
         targetPath,
         runtimeConfig,
         isFile: options?.isFile,

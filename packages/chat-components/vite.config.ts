@@ -11,7 +11,7 @@ export default defineConfig({
   build: {
     lib: {
       entry: resolve(__dirname, "src/index.ts"),
-      name: "MuxChatComponents",
+      name: "LatticeChatComponents",
       formats: ["es"],
       fileName: () => "index.js",
     },
@@ -28,7 +28,7 @@ export default defineConfig({
     minify: false, // Keep readable for debugging
   },
   worker: {
-    // Required because Mux uses Vite workers (Shiki highlighting).
+    // Required because Lattice uses Vite workers (Shiki highlighting).
     // 'iife' is incompatible with code-splitting builds.
     format: "es",
   },

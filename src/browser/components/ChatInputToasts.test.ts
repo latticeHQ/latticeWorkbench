@@ -18,6 +18,34 @@ describe("ChatInputToasts", () => {
       expect(toast.message).toContain("API key");
     });
 
+    test("should create generic toast for oauth_not_connected error", () => {
+      const error: SendMessageError = {
+        type: "oauth_not_connected",
+        provider: "openai",
+      };
+
+      const toast = createErrorToast(error);
+
+      expect(toast.type).toBe("error");
+      expect(toast.title).toBe("OAuth Not Connected");
+      expect(toast.message).toContain("openai");
+      expect(toast.message).toContain("OAuth connection");
+    });
+
+    test("should create toast for provider_disabled error", () => {
+      const error: SendMessageError = {
+        type: "provider_disabled",
+        provider: "openai",
+      };
+
+      const toast = createErrorToast(error);
+
+      expect(toast.type).toBe("error");
+      expect(toast.title).toBe("Provider Disabled");
+      expect(toast.message).toContain("OpenAI");
+      expect(toast.message).toContain("disabled");
+    });
+
     test("should create toast for provider_not_supported error", () => {
       const error: SendMessageError = {
         type: "provider_not_supported",
@@ -70,16 +98,16 @@ describe("ChatInputToasts", () => {
       expect(toast.message).toContain("unexpected error");
     });
 
-    test("should create toast for incompatible_workspace error", () => {
+    test("should create toast for incompatible_minion error", () => {
       const error: SendMessageError = {
-        type: "incompatible_workspace",
-        message: "This workspace uses a runtime configuration from a newer version of lattice.",
+        type: "incompatible_minion",
+        message: "This minion uses a runtime configuration from a newer version of lattice.",
       };
 
       const toast = createErrorToast(error);
 
       expect(toast.type).toBe("error");
-      expect(toast.title).toBe("Incompatible Workspace");
+      expect(toast.title).toBe("Incompatible Minion");
       expect(toast.message).toContain("newer version");
     });
   });

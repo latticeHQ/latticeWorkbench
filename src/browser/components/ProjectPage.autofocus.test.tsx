@@ -1,6 +1,7 @@
-import React, { useEffect } from "react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { GlobalWindow } from "happy-dom";
+import { RouterProvider } from "@/browser/contexts/RouterContext";
 import { SettingsProvider } from "@/browser/contexts/SettingsContext";
 import { cleanup, render, waitFor } from "@testing-library/react";
 
@@ -17,27 +18,35 @@ void mock.module("@/browser/contexts/API", () => ({
   }),
 }));
 
-// Mock useCliAgentDetection to return a detected agent so ChatInput renders
-void mock.module("@/browser/hooks/useCliAgentDetection", () => ({
-  useCliAgentDetection: () => ({
-    agents: [{ slug: "claude-code", displayName: "Claude Code", detected: true }],
-    detectedAgents: [{ slug: "claude-code", displayName: "Claude Code", detected: true }],
-    missingAgents: [],
+// Mock useProvidersConfig to return a configured provider so ChatInput renders
+void mock.module("@/browser/hooks/useProvidersConfig", () => ({
+  useProvidersConfig: () => ({
+    config: { anthropic: { apiKeySet: true, isEnabled: true, isConfigured: true } },
     loading: false,
-    refresh: () => undefined,
+    error: null,
   }),
 }));
 
+// Mock ConfiguredProvidersBar to avoid tooltip/context dependencies
+void mock.module("./ConfiguredProvidersBar", () => ({
+  ConfiguredProvidersBar: () => <div data-testid="ConfiguredProvidersBarMock" />,
+}));
+
+// Mock ProjectHQOverview to avoid ProjectContext/MinionContext dependencies
+void mock.module("./ProjectHQOverview", () => ({
+  ProjectHQOverview: () => <div data-testid="ProjectHQOverviewMock" />,
+}));
+
 // Mock ChatInput to simulate the old (buggy) behavior where onReady can fire again
-// on unrelated re-renders (e.g. workspace list updates).
+// on unrelated re-renders (e.g. minion list updates).
 void mock.module("./ChatInput/index", () => ({
   ChatInput: (props: {
     onReady?: (api: {
       focus: () => void;
       restoreText: (text: string) => void;
+      restoreDraft: (pending: unknown) => void;
       appendText: (text: string) => void;
       prependText: (text: string) => void;
-      restoreAttachments: (images: unknown[]) => void;
     }) => void;
   }) => {
     useEffect(() => {
@@ -51,9 +60,9 @@ void mock.module("./ChatInput/index", () => ({
           focusMock();
         },
         restoreText: () => undefined,
+        restoreDraft: () => undefined,
         appendText: () => undefined,
         prependText: () => undefined,
-        restoreAttachments: () => undefined,
       });
     }, [props]);
 
@@ -68,6 +77,17 @@ describe("ProjectPage", () => {
     const dom = new GlobalWindow();
     globalThis.window = dom as unknown as Window & typeof globalThis;
     globalThis.document = globalThis.window.document;
+
+    // Pre-set project tab to "minion" so ChatInput renders immediately
+    // (the "pipeline" tab renders ProjectHQOverview, not ChatInput).
+    try {
+      globalThis.window.localStorage.setItem(
+        `projectTab:/projects/demo`,
+        JSON.stringify("minion")
+      );
+    } catch {
+      // ignore if localStorage not fully available
+    }
 
     readyCalls = 0;
     focusMock = mock(() => undefined);
@@ -86,14 +106,15 @@ describe("ProjectPage", () => {
       projectName: "demo",
       leftSidebarCollapsed: true,
       onToggleLeftSidebarCollapsed: () => undefined,
-      onProviderConfig: () => Promise.resolve(undefined),
-      onWorkspaceCreated: () => undefined,
+      onMinionCreated: () => undefined,
     };
 
     const { rerender } = render(
-      <SettingsProvider>
-        <ProjectPage {...baseProps} />
-      </SettingsProvider>
+      <RouterProvider>
+        <SettingsProvider>
+          <ProjectPage {...baseProps} />
+        </SettingsProvider>
+      </RouterProvider>
     );
 
     await waitFor(() => expect(readyCalls).toBe(1));
@@ -101,9 +122,11 @@ describe("ProjectPage", () => {
 
     // Simulate an unrelated App re-render that changes an inline callback identity.
     rerender(
-      <SettingsProvider>
-        <ProjectPage {...baseProps} onWorkspaceCreated={() => undefined} />
-      </SettingsProvider>
+      <RouterProvider>
+        <SettingsProvider>
+          <ProjectPage {...baseProps} onMinionCreated={() => undefined} />
+        </SettingsProvider>
+      </RouterProvider>
     );
 
     await waitFor(() => expect(readyCalls).toBe(2));

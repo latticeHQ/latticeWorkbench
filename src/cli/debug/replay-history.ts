@@ -16,11 +16,13 @@ import * as path from "path";
 import { parseArgs } from "util";
 import { defaultConfig } from "@/node/config";
 import type { LatticeMessage } from "@/common/types/message";
+import type { ThinkingLevel } from "@/common/types/thinking";
+import { enforceThinkingPolicy } from "@/common/utils/thinking/policy";
 import { createLatticeMessage } from "@/common/types/message";
 import { InitStateManager } from "@/node/services/initStateManager";
 import { AIService } from "@/node/services/aiService";
+import { ProviderService } from "@/node/services/providerService";
 import { HistoryService } from "@/node/services/historyService";
-import { PartialService } from "@/node/services/partialService";
 
 const { positionals, values } = parseArgs({
   args: process.argv.slice(2),
@@ -85,29 +87,29 @@ async function main() {
     console.log(`  ${msg.role.padEnd(9)} (${model}): ${preview}`);
   }
 
-  // Create a temporary workspace
-  const workspaceId = `debug-replay-${Date.now()}`;
-  const sessionDir = defaultConfig.getSessionDir(workspaceId);
+  // Create a temporary minion
+  const minionId = `debug-replay-${Date.now()}`;
+  const sessionDir = defaultConfig.getSessionDir(minionId);
   fs.mkdirSync(sessionDir, { recursive: true });
 
-  // Create workspace metadata
+  // Create minion metadata
   const metadataPath = path.join(sessionDir, "metadata.json");
   fs.writeFileSync(
     metadataPath,
     JSON.stringify({
-      id: workspaceId,
+      id: minionId,
       projectName: "debug",
-      workspacePath: `/tmp/${workspaceId}`,
+      minionPath: `/tmp/${minionId}`,
     })
   );
 
   const chatHistoryPath = path.join(sessionDir, "chat.jsonl");
 
-  // Write history to temp workspace
-  const historyLines = messages.map((m) => JSON.stringify({ ...m, workspaceId })).join("\n");
+  // Write history to temp minion
+  const historyLines = messages.map((m) => JSON.stringify({ ...m, minionId })).join("\n");
   fs.writeFileSync(chatHistoryPath, historyLines + "\n");
 
-  console.log(`\n✓ Created temporary workspace: ${workspaceId}`);
+  console.log(`\n✓ Created temporary minion: ${minionId}`);
 
   // Add new user message to the history
   const userMessage = createLatticeMessage(
@@ -123,16 +125,24 @@ async function main() {
   // Initialize services - AIService creates its own StreamManager
   const config = defaultConfig;
   const historyService = new HistoryService(config);
-  const partialService = new PartialService(config, historyService);
   const initStateManager = new InitStateManager(config);
-  const aiService = new AIService(config, historyService, partialService, initStateManager);
+  const providerService = new ProviderService(config);
+  const aiService = new AIService(config, historyService, initStateManager, providerService);
 
   const modelString = values.model ?? "openai:gpt-5-codex";
-  const thinkingLevel = (values.thinking ?? "high") as "low" | "medium" | "high";
+  const thinkingLevel = enforceThinkingPolicy(
+    modelString,
+    (values.thinking ?? "high") as ThinkingLevel
+  );
 
   try {
     // Stream the message - pass all messages including the new one
-    const result = await aiService.streamMessage(messages, workspaceId, modelString, thinkingLevel);
+    const result = await aiService.streamMessage({
+      messages,
+      minionId,
+      modelString,
+      thinkingLevel,
+    });
 
     if (!result.success) {
       console.error(`\n❌ Error:`, JSON.stringify(result.error, null, 2));
@@ -149,14 +159,14 @@ async function main() {
     let errorMessage = "";
 
     interface StreamEvent {
-      workspaceId: string;
+      minionId: string;
       type: string;
       toolName?: string;
       error?: string;
     }
 
     aiService.on("stream-event", (event: StreamEvent) => {
-      if (event.workspaceId !== workspaceId) return;
+      if (event.minionId !== minionId) return;
 
       if (event.type === "stream-start") {
         console.log(`[${event.type}] Started`);
@@ -184,10 +194,10 @@ async function main() {
       const checkInterval = setInterval(() => {
         const streamManager = (
           aiService as unknown as {
-            streamManager: { workspaceStreams: Map<string, { state: string }> };
+            streamManager: { minionStreams: Map<string, { state: string }> };
           }
         ).streamManager;
-        const stream = streamManager.workspaceStreams.get(workspaceId);
+        const stream = streamManager.minionStreams.get(minionId);
         if (!stream || stream.state === "completed" || stream.state === "error") {
           clearInterval(checkInterval);
           resolve();
@@ -219,7 +229,7 @@ async function main() {
     process.exit(1);
   } finally {
     // Cleanup
-    console.log(`\n🧹 Cleaning up temporary workspace...`);
+    console.log(`\n🧹 Cleaning up temporary minion...`);
     fs.rmSync(sessionDir, { recursive: true, force: true });
   }
 }
