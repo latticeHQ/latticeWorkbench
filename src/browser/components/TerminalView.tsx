@@ -451,7 +451,7 @@ export function TerminalView({
 
         // Resolve CSS variables for xterm.js (canvas rendering doesn't support CSS vars)
         const styles = getComputedStyle(document.documentElement);
-        const terminalBg = styles.getPropertyValue("--color-terminal-bg").trim() || "#0D0D0D";
+        const terminalBg = styles.getPropertyValue("--color-terminal-bg").trim() || "#0C0F1A";
 
         const resolvedFontFamily = resolveTerminalFontFamily(
           terminalFontConfig.fontFamily,
