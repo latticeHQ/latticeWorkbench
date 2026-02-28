@@ -20,10 +20,15 @@ export function registerTerminalTools(
   // ── Create terminal ────────────────────────────────────────────────────
   server.tool(
     "terminal_create",
-    "Create a new terminal session in a minion. Optionally run an initial command " +
-      "or launch a terminal profile (e.g. 'claude-code', 'aider', 'gemini-cli'). " +
-      "Use profileId to launch a detected CLI tool, or profileCommand/profileArgs " +
-      "for explicit control. Returns a sessionId for subsequent send_input/close calls.",
+    "Create a new terminal session in a minion. Can launch a BUILT-IN AI agent " +
+      "profile (claude-code, gemini-cli, github-copilot, codex, aider, amp) by " +
+      "passing profileId — no need to build anything, these are pre-configured.\n\n" +
+      "To launch an AI agent terminal: pass profileId (e.g. 'claude-code', 'gemini-cli'). " +
+      "To run a plain shell: pass initialCommand or leave empty for interactive shell. " +
+      "Returns sessionId for subsequent send_input/close calls.\n\n" +
+      "IMPORTANT: When a user asks to 'run Claude Code', 'open Gemini', 'launch Aider', " +
+      "etc. — use this tool with the corresponding profileId. Check terminal_profiles_list " +
+      "first to verify it's installed and enabled.",
     {
       minionId: z.string().describe("The minion ID to create the terminal in"),
       cols: z.number().optional().describe("Terminal columns (default: 120)"),
