@@ -57,10 +57,11 @@
   font-synthesis: style;
 
   @theme {
-    /* Lattice Theme — distinct-hue techy palette
-     * Brand accent: orange #FF6600
+    /* Lattice Theme — "Gru's Lab" Minion palette
+     * Brand accent: Minion Yellow #FBBF24
+     * Deep navy backgrounds with subtle blue-purple tint.
      * Each mode/status gets a unique hue for instant visual recognition.
-     * Hue map: plan=violet, ask=blue, auto=orange, exec=teal,
+     * Hue map: plan=violet, ask=blue, auto=yellow, exec=teal,
      *          edit=amber, debug=rose, thinking=indigo, task=emerald */
 
     /* Mode Colors — each a distinct hue for visual clarity */
@@ -74,7 +75,7 @@
     --color-ask-mode-light: hsl(210 80% 78%);
     --color-ask-mode-alpha: hsla(210 80% 60% / 0.1);
 
-    --color-auto-mode: hsl(24 90% 50%);
+    --color-auto-mode: hsl(43 96% 56%);
 
     --color-exec-mode: hsl(168 72% 45%);
     --color-exec-mode-hover: hsl(168 72% 55%);
@@ -115,24 +116,24 @@
     --color-git-modified: #60A5FA;
     --color-git-untracked: #34D399;
 
-    /* Background & Layout — near-black Lattice dark */
-    --color-background: #0D0D0D;
-    --color-background-secondary: #141414;
-    --color-border: #1F1F1F;
-    --color-foreground: #E0E0E0;
-    --color-text: #E0E0E0;
-    --color-text-light: hsl(0 0% 73%);
-    --color-text-secondary: hsl(0 0% 42%);
-    --color-muted-foreground: hsl(0 0% 60%);
-    --color-secondary: hsl(0 0% 42%);
+    /* Background & Layout — deep navy "Gru's Lair" dark */
+    --color-background: #0C0F1A;
+    --color-background-secondary: #111528;
+    --color-border: #1E2235;
+    --color-foreground: #E2E4EB;
+    --color-text: #E2E4EB;
+    --color-text-light: hsl(225 10% 73%);
+    --color-text-secondary: hsl(225 8% 44%);
+    --color-muted-foreground: hsl(225 8% 60%);
+    --color-secondary: hsl(225 8% 44%);
 
     /* Code */
-    --color-code-bg: #090909;
+    --color-code-bg: #080B16;
 
     /* Buttons */
-    --color-button-bg: #1C1C1C;
-    --color-button-text: hsl(0 0% 80%);
-    --color-button-hover: #262626;
+    --color-button-bg: #181C2E;
+    --color-button-text: hsl(225 10% 80%);
+    --color-button-hover: #222840;
 
     /* Messages */
     --color-user-border: hsla(0 0% 100% / 0.1);
@@ -148,25 +149,25 @@
     --color-line-number-text: rgba(255, 255, 255, 0.4);
     --color-line-number-border: rgba(255, 255, 255, 0.1);
     --color-assistant-border: hsl(210 60% 50%);
-    --color-hover-foreground: hsl(0 0% 96%);
-    --color-command-surface: #111111;
-    --color-command-border: #222222;
-    --color-command-input: #090909;
-    --color-command-input-border: hsla(0 0% 100% / 0.08);
-    --color-command-foreground: #E0E0E0;
-    --color-command-subdued: hsl(0 0% 63%);
-    --color-sidebar-tab-active: hsl(0 0% 100%);
+    --color-hover-foreground: hsl(225 15% 96%);
+    --color-command-surface: #0E1120;
+    --color-command-border: #1E2235;
+    --color-command-input: #080B16;
+    --color-command-input-border: hsla(225 30% 80% / 0.08);
+    --color-command-foreground: #E2E4EB;
+    --color-command-subdued: hsl(225 8% 63%);
+    --color-sidebar-tab-active: hsl(225 15% 100%);
     --color-assistant-border-hover: hsl(210 60% 60%);
     --color-message-header: hsl(0 0% 80%);
 
     /* Tokens — distinct colors for each token type */
-    --color-token-prompt: hsl(0 0% 40%);
-    --color-token-completion: #FF6600;
+    --color-token-prompt: hsl(225 8% 42%);
+    --color-token-completion: #FBBF24;
     --color-token-variable: #60A5FA;
-    --color-token-fixed: hsl(0 0% 40%);
-    --color-token-input: #FBBF24;
+    --color-token-fixed: hsl(225 8% 42%);
+    --color-token-input: #FCD34D;
     --color-token-output: #34D399;
-    --color-token-cached: hsl(0 0% 50%);
+    --color-token-cached: hsl(225 6% 50%);
     --color-token-cache-create: #2DD4BF;
 
     /* Task/sidekick surfaces — emerald for parallel work */
@@ -208,72 +209,72 @@
     --border-warning-dashed: color-mix(in srgb, var(--color-warning), transparent 45%);
 
     /* Toggle */
-    --color-toggle-bg: #141414;
-    --color-toggle-active: #1C1C1C;
-    --color-toggle-hover: #181818;
-    --color-toggle-text: hsl(0 0% 53.3%);
-    --color-toggle-text-active: hsl(0 0% 100%);
-    --color-toggle-text-hover: hsl(0 0% 66.7%);
+    --color-toggle-bg: #111528;
+    --color-toggle-active: #181C2E;
+    --color-toggle-hover: #151930;
+    --color-toggle-text: hsl(225 8% 53%);
+    --color-toggle-text-active: hsl(225 15% 100%);
+    --color-toggle-text-hover: hsl(225 8% 67%);
 
     /* Status */
-    --color-interrupted: hsl(0 0% 53%);
+    --color-interrupted: hsl(225 8% 53%);
     --color-backgrounded: hsl(45 85% 52%);
     --color-review-accent: hsl(265 65% 55%);
-    --color-git-dirty: hsl(24 92% 50%);
+    --color-git-dirty: hsl(43 92% 50%);
     --color-error: hsl(0 70% 50%);
     --color-error-bg: hsl(0 32% 14%);
 
     /* Input */
-    --color-input-bg: #0D0D0D;
-    --color-input-text: hsl(0 0% 80%);
-    --color-input-border: #FF6600;
-    --color-input-border-focus: #FF8533;
+    --color-input-bg: #0C0F1A;
+    --color-input-text: hsl(225 10% 80%);
+    --color-input-border: #FBBF24;
+    --color-input-border-focus: #FCD34D;
 
     /* Scrollbar */
-    --color-scrollbar-track: #111111;
-    --color-scrollbar-thumb: #2A2A2A;
-    --color-scrollbar-thumb-hover: #3A3A3A;
+    --color-scrollbar-track: #0E1120;
+    --color-scrollbar-thumb: #252A40;
+    --color-scrollbar-thumb-hover: #353B55;
 
     /* Additional Semantic Colors */
-    --color-muted: hsl(0 0% 53%);
-    --color-muted-light: hsl(0 0% 50%);
-    --color-muted-dark: hsl(0 0% 43%);
-    --color-placeholder: hsl(0 0% 42%);
-    --color-subtle: hsl(0 0% 60%);
-    --color-dim: hsl(0 0% 42%);
-    --color-light: hsl(0 0% 83%);
-    --color-text-lighter: hsl(0 0% 87%);
-    --color-lighter: hsl(0 0% 90%);
-    --color-bright: hsl(0 0% 80%);
-    --color-subdued: hsl(0 0% 60%);
-    --color-label: hsl(0 0% 67%);
-    --color-gray: hsl(0 0% 48%);
-    --color-medium: hsl(0 0% 59%);
+    --color-muted: hsl(225 8% 53%);
+    --color-muted-light: hsl(225 8% 50%);
+    --color-muted-dark: hsl(225 8% 43%);
+    --color-placeholder: hsl(225 8% 44%);
+    --color-subtle: hsl(225 8% 60%);
+    --color-dim: hsl(225 8% 44%);
+    --color-light: hsl(225 10% 83%);
+    --color-text-lighter: hsl(225 10% 87%);
+    --color-lighter: hsl(225 10% 90%);
+    --color-bright: hsl(225 10% 80%);
+    --color-subdued: hsl(225 8% 60%);
+    --color-label: hsl(225 8% 67%);
+    --color-gray: hsl(225 8% 48%);
+    --color-medium: hsl(225 8% 59%);
 
-    --color-border-light: #1F1F1F;
-    --color-border-medium: #2A2A2A;
-    --color-border-darker: #3A3A3A;
-    --color-border-subtle: hsl(0 0% 40%);
-    --color-border-gray: #2A2A2A;
+    --color-border-light: #1E2235;
+    --color-border-medium: #252A40;
+    --color-border-darker: #353B55;
+    --color-border-subtle: hsl(225 12% 40%);
+    --color-border-gray: #252A40;
 
-    --color-dark: #111111;
-    --color-darker: #090909;
-    --color-hover: #1A1A1A;
-    --color-bg-medium: #2A2A2A;
-    --color-bg-light: #333333;
-    --color-bg-subtle: #181818;
+    --color-dark: #0E1120;
+    --color-darker: #080B16;
+    --color-hover: #161A2E;
+    --color-bg-medium: #252A40;
+    --color-bg-light: #2E3450;
+    --color-bg-subtle: #151930;
 
-    --color-sidebar: #111111;
-    --color-separator: #1F1F1F;
-    --color-separator-light: #2A2A2A;
-    --color-modal-bg: #181818;
-    --color-inline-code-dark-bg: #181818;
+    --color-sidebar: #0E1120;
+    --color-separator: #1E2235;
+    --color-separator-light: #252A40;
+    --color-modal-bg: #151930;
+    --color-inline-code-dark-bg: #151930;
 
-    --color-accent: #FF6600;
-    --color-accent-hover: #FF8533;
-    --color-accent-dark: #CC5200;
-    --color-accent-darker: #993D00;
-    --color-accent-light: #FFB380;
+    --color-accent: #FBBF24;
+    --color-accent-hover: #FCD34D;
+    --color-accent-dark: #D4A017;
+    --color-accent-darker: #B8860B;
+    --color-accent-light: #FDE68A;
 
     --color-success: hsl(160 72% 42%);
     --color-success-light: hsl(160 72% 58%);
@@ -295,38 +296,38 @@
     --color-syntax-error: hsl(355 65% 65%);
 
     /* Terminal */
-    --color-terminal-bg: #0D0D0D;
-    --color-terminal-fg: #E0E0E0;
+    --color-terminal-bg: #0C0F1A;
+    --color-terminal-fg: #E2E4EB;
 
     /* Info — sky blue for informational states */
     --color-info: hsl(200 90% 55%);
 
     /* Init message surfaces */
-    --color-init-bg: hsl(210 20% 14%);
-    --color-init-border: hsl(210 16% 22%);
+    --color-init-bg: hsl(225 25% 14%);
+    --color-init-border: hsl(225 20% 22%);
     --color-init-error-bg: hsl(0 33% 14%);
     --color-init-error-border: hsl(0 28% 25%);
-    --color-init-output-bg: hsl(210 12% 10%);
-    --color-init-output-text: hsl(0 0% 73%);
+    --color-init-output-bg: hsl(225 18% 10%);
+    --color-init-output-text: hsl(225 10% 73%);
     --color-init-output-error-text: hsl(6 93% 71%);
 
     /* Toast and notification backgrounds */
-    --color-toast-success-bg: hsl(160 30% 14%);
+    --color-toast-success-bg: hsl(160 30% 12%);
     --color-toast-success-text: #34D399;
-    --color-toast-error-bg: hsl(5 35% 16%);
+    --color-toast-error-bg: hsl(5 30% 14%);
     --color-toast-error-text: hsl(5 89% 60%);
     --color-toast-error-border: hsl(5 89% 60%);
-    --color-toast-fatal-bg: hsl(0 33% 14%);
-    --color-toast-fatal-border: hsl(0 36% 22%);
+    --color-toast-fatal-bg: hsl(0 28% 14%);
+    --color-toast-fatal-border: hsl(0 30% 22%);
 
     /* Semi-transparent overlays */
     --color-danger-overlay: hsl(4 90% 58% / 0.1);
     --color-warning-overlay: hsl(45 100% 51% / 0.1);
-    --color-gray-overlay: hsl(0 0% 39% / 0.05);
-    --color-white-overlay-light: hsl(0 0% 100% / 0.05);
-    --color-white-overlay: hsl(0 0% 100% / 0.1);
+    --color-gray-overlay: hsl(225 12% 39% / 0.05);
+    --color-white-overlay-light: hsl(225 15% 100% / 0.05);
+    --color-white-overlay: hsl(225 15% 100% / 0.1);
     --color-selection: hsl(210 100% 50% / 0.4);
-    --color-vim-status: hsl(0 0% 83% / 0.6);
+    --color-vim-status: hsl(225 10% 83% / 0.6);
     --color-code-keyword-overlay-light: hsl(265 80% 60% / 0.05);
     --color-code-keyword-overlay: hsl(265 80% 60% / 0.2);
 
@@ -335,15 +336,15 @@
     --color-info-yellow: hsl(45 100% 64%);
 
     /* Review/diff backgrounds */
-    --color-review-bg-blue: hsl(210 25% 16%);
-    --color-review-bg-info: hsl(210 28% 18%);
+    --color-review-bg-blue: hsl(225 25% 16%);
+    --color-review-bg-info: hsl(225 28% 18%);
     --color-review-bg-warning: hsl(45 100% 12%);
     --color-review-warning: hsl(45 100% 25%);
     --color-review-warning-medium: hsl(45 100% 32%);
     --color-review-warning-light: hsl(45 100% 20%);
 
     /* Error backgrounds */
-    --color-error-bg-dark: hsl(0 33% 11%);
+    --color-error-bg-dark: hsl(0 28% 11%);
 
     /* Radius */
     --radius: 0.5rem;
@@ -426,53 +427,53 @@
   --color-git-modified: #3B82F6;
   --color-git-untracked: color-mix(in srgb, var(--color-success), black 30%);
 
-  --color-background: #FAFAF7;
-  --color-background-secondary: #F2F0EB;
-  --color-border: #E0DDD5;
-  --color-foreground: #1A1A1A;
-  --color-text: #1A1A1A;
-  --color-text-light: hsl(20 10% 28%);
-  --color-text-secondary: hsl(20 8% 42%);
-  --color-muted-foreground: hsl(20 10% 48%);
-  --color-secondary: hsl(20 14% 60%);
+  --color-background: #FFFCF0;
+  --color-background-secondary: #FFF8E1;
+  --color-border: #E8DFC0;
+  --color-foreground: #1A1820;
+  --color-text: #1A1820;
+  --color-text-light: hsl(42 10% 28%);
+  --color-text-secondary: hsl(42 8% 42%);
+  --color-muted-foreground: hsl(42 10% 48%);
+  --color-secondary: hsl(42 14% 60%);
 
-  --color-code-bg: #F5F3EE;
+  --color-code-bg: #FFF6DE;
 
-  --color-button-bg: #EDEBE4;
-  --color-button-text: #1A1A1A;
-  --color-button-hover: #E5E3DB;
+  --color-button-bg: #F5EDCF;
+  --color-button-text: #1A1820;
+  --color-button-hover: #EDE4C0;
 
-  --color-user-surface: #F0EDE6;
-  --color-user-border: #D8D5CC;
-  --color-user-border-hover: #C8C5BC;
-  --color-user-text: #1A1A1A;
-  --color-message-debug-bg: #F5F3EE;
-  --color-message-debug-border: #E0DDD5;
-  --color-message-debug-text: hsl(20 14% 32%);
-  --color-message-hidden-bg: #F5F3EE;
-  --color-attachment-border: #E0DDD5;
-  --color-line-number-bg: #F2F0EB;
-  --color-line-number-text: hsl(20 10% 46%);
-  --color-line-number-border: #E0DDD5;
+  --color-user-surface: #FFF3D0;
+  --color-user-border: #E8DFC0;
+  --color-user-border-hover: #D8CFA8;
+  --color-user-text: #1A1820;
+  --color-message-debug-bg: #FFF6DE;
+  --color-message-debug-border: #E8DFC0;
+  --color-message-debug-text: hsl(42 14% 32%);
+  --color-message-hidden-bg: #FFF6DE;
+  --color-attachment-border: #E8DFC0;
+  --color-line-number-bg: #FFF8E1;
+  --color-line-number-text: hsl(42 10% 46%);
+  --color-line-number-border: #E8DFC0;
   --color-assistant-border: hsl(210 55% 42%);
-  --color-hover-foreground: #111111;
-  --color-command-surface: #FAFAF7;
-  --color-command-border: #E0DDD5;
-  --color-command-input: #F5F3EE;
-  --color-command-input-border: #D8D5CC;
-  --color-command-foreground: #1A1A1A;
-  --color-command-subdued: hsl(20 10% 46%);
-  --color-sidebar-tab-active: #1A1A1A;
+  --color-hover-foreground: #1A1820;
+  --color-command-surface: #FFFCF0;
+  --color-command-border: #E8DFC0;
+  --color-command-input: #FFF6DE;
+  --color-command-input-border: #D8CFA8;
+  --color-command-foreground: #1A1820;
+  --color-command-subdued: hsl(42 10% 46%);
+  --color-sidebar-tab-active: #1A1820;
   --color-assistant-border-hover: hsl(210 55% 36%);
-  --color-message-header: #1A1A1A;
+  --color-message-header: #1A1820;
 
-  --color-token-prompt: hsl(220 14% 40%);
-  --color-token-completion: #E65C00;
+  --color-token-prompt: hsl(42 14% 40%);
+  --color-token-completion: #D4A017;
   --color-token-variable: #2563EB;
-  --color-token-fixed: hsl(220 12% 44%);
-  --color-token-input: #D97706;
+  --color-token-fixed: hsl(42 12% 44%);
+  --color-token-input: #B8860B;
   --color-token-output: #0891B2;
-  --color-token-cached: hsl(220 10% 56%);
+  --color-token-cached: hsl(42 10% 56%);
   --color-token-cache-create: #0D9488;
 
   --surface-plan-gradient: linear-gradient(
@@ -498,66 +499,66 @@
 
   --border-warning-dashed: color-mix(in srgb, var(--color-warning), transparent 55%);
 
-  --color-toggle-bg: #F2F0EB;
-  --color-toggle-active: #E5E3DB;
-  --color-toggle-hover: #EDEBE4;
-  --color-toggle-text: hsl(20 12% 32%);
-  --color-toggle-text-active: #1A1A1A;
-  --color-toggle-text-hover: hsl(20 14% 26%);
+  --color-toggle-bg: #FFF8E1;
+  --color-toggle-active: #F5EDCF;
+  --color-toggle-hover: #FFF3D0;
+  --color-toggle-text: hsl(42 12% 32%);
+  --color-toggle-text-active: #1A1820;
+  --color-toggle-text-hover: hsl(42 14% 26%);
 
-  --color-interrupted: hsl(0 0% 50%);
+  --color-interrupted: hsl(42 8% 50%);
   --color-backgrounded: hsl(45 80% 46%);
   --color-review-accent: hsl(265 60% 48%);
-  --color-git-dirty: hsl(24 92% 44%);
+  --color-git-dirty: hsl(43 92% 44%);
   --color-error: hsl(0 68% 46%);
   --color-error-bg: hsl(0 82% 94%);
 
-  --color-input-bg: #FFFFFF;
-  --color-input-text: #1A1A1A;
-  --color-input-border: #E65C00;
-  --color-input-border-focus: #FF6600;
+  --color-input-bg: #FFFDF5;
+  --color-input-text: #1A1820;
+  --color-input-border: #D4A017;
+  --color-input-border-focus: #FBBF24;
 
-  --color-scrollbar-track: #F5F3EE;
-  --color-scrollbar-thumb: #D8D5CC;
-  --color-scrollbar-thumb-hover: #C8C5BC;
+  --color-scrollbar-track: #FFF6DE;
+  --color-scrollbar-thumb: #D8CFA8;
+  --color-scrollbar-thumb-hover: #C8BF98;
 
-  --color-muted: hsl(20 10% 52%);
-  --color-muted-light: hsl(20 14% 60%);
-  --color-muted-dark: hsl(20 8% 42%);
-  --color-placeholder: hsl(20 12% 52%);
-  --color-subtle: hsl(20 14% 64%);
-  --color-dim: hsl(20 12% 50%);
-  --color-light: hsl(20 16% 40%);
-  --color-lighter: hsl(20 18% 52%);
+  --color-muted: hsl(42 10% 52%);
+  --color-muted-light: hsl(42 14% 60%);
+  --color-muted-dark: hsl(42 8% 42%);
+  --color-placeholder: hsl(42 12% 52%);
+  --color-subtle: hsl(42 14% 64%);
+  --color-dim: hsl(42 12% 50%);
+  --color-light: hsl(42 16% 40%);
+  --color-lighter: hsl(42 18% 52%);
   --color-bright: hsl(210 45% 48%);
-  --color-subdued: hsl(20 14% 60%);
-  --color-label: hsl(20 14% 46%);
-  --color-gray: hsl(20 10% 54%);
-  --color-medium: hsl(20 14% 58%);
+  --color-subdued: hsl(42 14% 60%);
+  --color-label: hsl(42 14% 46%);
+  --color-gray: hsl(42 10% 54%);
+  --color-medium: hsl(42 14% 58%);
 
-  --color-border-light: #E0DDD5;
-  --color-border-medium: #D8D5CC;
-  --color-border-darker: #C8C5BC;
-  --color-border-subtle: #B8B5AC;
-  --color-border-gray: #D0CDC5;
+  --color-border-light: #E8DFC0;
+  --color-border-medium: #D8CFA8;
+  --color-border-darker: #C8BF98;
+  --color-border-subtle: #B8AF88;
+  --color-border-gray: #D0C7A8;
 
-  --color-dark: #FAFAF7;
-  --color-darker: #F2F0EB;
-  --color-hover: #EDEBE4;
-  --color-bg-medium: #E5E3DB;
-  --color-bg-light: #D8D5CC;
-  --color-bg-subtle: #F2F0EB;
+  --color-dark: #FFFCF0;
+  --color-darker: #FFF8E1;
+  --color-hover: #FFF3D0;
+  --color-bg-medium: #F5EDCF;
+  --color-bg-light: #E8DFC0;
+  --color-bg-subtle: #FFF8E1;
 
-  --color-sidebar: #F5F3EE;
-  --color-separator: #E8E5DD;
-  --color-separator-light: #F2F0EB;
-  --color-modal-bg: #F5F3EE;
+  --color-sidebar: #FFF6DE;
+  --color-separator: #EDE4C0;
+  --color-separator-light: #FFF8E1;
+  --color-modal-bg: #FFF6DE;
 
-  --color-accent: #E65C00;
-  --color-accent-hover: #CC5200;
-  --color-accent-dark: #B34700;
-  --color-accent-darker: #8C3800;
-  --color-accent-light: #FF9966;
+  --color-accent: #D4A017;
+  --color-accent-hover: #B8860B;
+  --color-accent-dark: #9A7209;
+  --color-accent-darker: #7C5B07;
+  --color-accent-light: #FBBF24;
 
   --color-success: hsl(160 68% 36%);
   --color-success-light: hsl(160 68% 52%);
@@ -585,19 +586,19 @@
 
   --color-danger-overlay: hsl(4 80% 52% / 0.12);
   --color-warning-overlay: hsl(45 100% 50% / 0.12);
-  --color-gray-overlay: hsl(20 12% 30% / 0.08);
-  --color-white-overlay-light: hsl(20 10% 12% / 0.04);
-  --color-white-overlay: hsl(20 10% 12% / 0.08);
+  --color-gray-overlay: hsl(42 12% 30% / 0.08);
+  --color-white-overlay-light: hsl(42 10% 12% / 0.04);
+  --color-white-overlay: hsl(42 10% 12% / 0.08);
   --color-selection: hsl(210 100% 50% / 0.25);
-  --color-vim-status: hsl(20 14% 32% / 0.6);
+  --color-vim-status: hsl(42 14% 32% / 0.6);
   --color-code-keyword-overlay-light: hsl(265 65% 38% / 0.1);
   --color-code-keyword-overlay: hsl(265 65% 38% / 0.22);
 
   --color-info-light: hsl(200 85% 62%);
   --color-info-yellow: hsl(45 100% 55%);
 
-  --color-review-bg-blue: hsl(210 40% 88%);
-  --color-review-bg-info: hsl(210 42% 86%);
+  --color-review-bg-blue: hsl(210 40% 90%);
+  --color-review-bg-info: hsl(210 42% 88%);
   --color-review-bg-warning: hsl(45 88% 86%);
   --color-review-warning: hsl(45 80% 38%);
   --color-review-warning-medium: hsl(45 80% 46%);
@@ -606,12 +607,12 @@
   --color-error-bg-dark: hsl(0 65% 86%);
 
   /* Init message surfaces */
-  --color-init-bg: #F2F0EB;
-  --color-init-border: #E0DDD5;
+  --color-init-bg: #FFF8E1;
+  --color-init-border: #E8DFC0;
   --color-init-error-bg: hsl(0 56% 94%);
   --color-init-error-border: hsl(0 48% 78%);
-  --color-init-output-bg: #EDEBE4;
-  --color-init-output-text: hsl(20 14% 28%);
+  --color-init-output-bg: #FFF3D0;
+  --color-init-output-text: hsl(42 14% 28%);
   --color-init-output-error-text: hsl(0 65% 42%);
 
   --radius: 0.5rem;
