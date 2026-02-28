@@ -58,7 +58,7 @@ export interface CoreServices {
  * The lattice MCP server gives agents full control of Lattice itself (minions,
  * projects, terminals, analytics, etc.).
  */
-function getBuiltinInlineServers(): Record<string, string> {
+function getBuiltinInlineServers(config?: Config): Record<string, string> {
   // Resolve path to the bundled lattice MCP server.
   // In dev:   __dirname = src/node/services/  → ../../mcp-server/ = src/mcp-server/
   // In build: __dirname = dist/node/services/ → ../../../src/mcp-server/ (back to source)
@@ -67,9 +67,21 @@ function getBuiltinInlineServers(): Record<string, string> {
   const latticeMcpServerPath = inDist
     ? path.resolve(__dirname, "../../../src/mcp-server/index.ts")
     : path.resolve(__dirname, "../../mcp-server/index.ts");
-  return {
+
+  const servers: Record<string, string> = {
     lattice: `bun run ${latticeMcpServerPath}`,
   };
+
+  // NotebookLM: built-in but toggleable via config (default: enabled).
+  const nlmEnabled = config?.loadConfigOrDefault().notebooklm?.enabled ?? true;
+  if (nlmEnabled) {
+    const notebooklmMcpServerPath = inDist
+      ? path.resolve(__dirname, "../../../src/notebooklm-mcp/index.ts")
+      : path.resolve(__dirname, "../../notebooklm-mcp/index.ts");
+    servers.notebooklm = `bun run ${notebooklmMcpServerPath}`;
+  }
+
+  return servers;
 }
 
 export function createCoreServices(opts: CoreServicesOptions): CoreServices {
@@ -98,7 +110,7 @@ export function createCoreServices(opts: CoreServicesOptions): CoreServices {
   // MCP: merge built-in inline servers with any caller-provided ones.
   // Built-in servers are always present; caller-provided ones can add more
   // but cannot remove built-ins (inline servers override config, not vice versa).
-  const builtinInlineServers = getBuiltinInlineServers();
+  const builtinInlineServers = getBuiltinInlineServers(config);
   const mergedMcpOptions: MCPServerManagerOptions = {
     ...opts.mcpServerManagerOptions,
     inlineServers: {
