@@ -22,14 +22,14 @@ import {
 import { installDom } from "../dom";
 import { renderReviewPanel, type RenderedApp } from "../renderReviewPanel";
 import { cleanupView, setupWorkspaceView, waitForRefreshButtonIdle } from "../helpers";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type { APIClient } from "@/browser/contexts/API";
 import { updatePersistedState } from "@/browser/hooks/usePersistedState";
-import { STORAGE_KEYS } from "@/constants/workspaceDefaults";
+import { STORAGE_KEYS } from "@/constants/minionDefaults";
 
 const describeIntegration = shouldRunIntegrationTests() ? describe : describe.skip;
 
-type ExecuteBashResult = Awaited<ReturnType<APIClient["workspace"]["executeBash"]>>;
+type ExecuteBashResult = Awaited<ReturnType<APIClient["minion"]["executeBash"]>>;
 type ExecuteBashSuccess = Extract<ExecuteBashResult, { success: true }>;
 type BashToolResult = ExecuteBashSuccess["data"];
 
@@ -53,8 +53,8 @@ async function executeWorkspaceBashOrThrow(params: {
   let lastError: string | null = null;
 
   for (let attempt = 1; attempt <= retries; attempt++) {
-    const result = await params.orpc.workspace.executeBash({
-      workspaceId: params.workspaceId,
+    const result = await params.orpc.minion.executeBash({
+      minionId: params.workspaceId,
       script: params.script,
       options: params.timeoutSecs ? { timeout_secs: params.timeoutSecs } : undefined,
     });
@@ -134,7 +134,7 @@ async function waitForNotLoading(
 }
 
 async function withReviewPanel(
-  params: { apiClient: APIClient; metadata: FrontendWorkspaceMetadata },
+  params: { apiClient: APIClient; metadata: FrontendMinionMetadata },
   fn: (view: RenderedApp) => Promise<void>
 ): Promise<void> {
   const cleanupDom = installDom();
@@ -174,7 +174,7 @@ async function waitForButton(
 
 async function setupReviewPanelWithDiff(
   view: RenderedApp,
-  metadata: FrontendWorkspaceMetadata,
+  metadata: FrontendMinionMetadata,
   workspaceId: string,
   orpc: APIClient
 ): Promise<HTMLElement> {
@@ -231,7 +231,7 @@ describeIntegration("ReadMore context expansion (UI + ORPC)", () => {
   });
 
   test("expand-up button loads additional context above hunk", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         const container = await setupReviewPanelWithDiff(view, metadata, workspaceId, env.orpc);
 
@@ -260,7 +260,7 @@ describeIntegration("ReadMore context expansion (UI + ORPC)", () => {
   }, 180_000);
 
   test("expand-down button loads additional context below hunk", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         const container = await setupReviewPanelWithDiff(view, metadata, workspaceId, env.orpc);
 
@@ -289,7 +289,7 @@ describeIntegration("ReadMore context expansion (UI + ORPC)", () => {
   }, 180_000);
 
   test("hides expand-up button when diff starts at line 1 (BOF)", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         await setupWorkspaceView(view, metadata, workspaceId);
 
@@ -329,7 +329,7 @@ git diff HEAD -- bof-test.ts | grep -q "Modified line 1"`,
   }, 180_000);
 
   test("hides expand-up button for newly added files (oldStart=0, newStart=1)", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         await setupWorkspaceView(view, metadata, workspaceId);
 
@@ -357,7 +357,7 @@ git diff --cached -- brand-new-file.ts | grep -q "New file line 1"`,
   }, 180_000);
 
   test("hides expand-down button when expanded past file end (EOF)", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         await setupWorkspaceView(view, metadata, workspaceId);
 
@@ -405,7 +405,7 @@ git diff HEAD -- eof-test.ts | grep -q "MODIFIED"`,
   }, 180_000);
 
   test("expand button stays hidden after reaching EOF (no flash back)", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         await setupWorkspaceView(view, metadata, workspaceId);
 
@@ -460,7 +460,7 @@ git diff HEAD -- tiny-file.ts | grep -q "MODIFIED"`,
   }, 180_000);
 
   test("multiple expand clicks accumulate context", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         const container = await setupReviewPanelWithDiff(view, metadata, workspaceId, env.orpc);
 
@@ -476,7 +476,7 @@ git diff HEAD -- tiny-file.ts | grep -q "MODIFIED"`,
   }, 180_000);
 
   test("per-side collapse button hides expanded context", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         const container = await setupReviewPanelWithDiff(view, metadata, workspaceId, env.orpc);
 
@@ -497,7 +497,7 @@ git diff HEAD -- tiny-file.ts | grep -q "MODIFIED"`,
   // Skip: happy-dom cleanup issue with React state updates after unmount
   // The persistence is tested via Storybook stories which use real browser
   test.skip("expansion state persists across tab switches", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       await withReviewPanel({ apiClient: env.orpc, metadata }, async (view) => {
         const container = await setupReviewPanelWithDiff(view, metadata, workspaceId, env.orpc);
 

@@ -14,12 +14,12 @@
  *   const events = collector.getEvents();
  */
 
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 import type { OrpcTestClient } from "./orpcTestClient";
 
 /** Event with arrival timestamp for timing analysis in tests */
 export interface TimestampedEvent {
-  event: WorkspaceChatMessage;
+  event: MinionChatMessage;
   arrivedAt: number; // Date.now() when event was received
 }
 
@@ -30,10 +30,10 @@ export interface TimestampedEvent {
  * iterates over the actual ORPC subscription generator.
  */
 export class StreamCollector {
-  private events: WorkspaceChatMessage[] = [];
+  private events: MinionChatMessage[] = [];
   private timestampedEvents: TimestampedEvent[] = [];
   private abortController: AbortController;
-  private iterator: AsyncIterableIterator<WorkspaceChatMessage> | null = null;
+  private iterator: AsyncIterableIterator<MinionChatMessage> | null = null;
   private iteratorPromise: Promise<void> | null = null;
   private started = false;
   private stopped = false;
@@ -41,13 +41,13 @@ export class StreamCollector {
   private subscriptionReadyResolve: (() => void) | null = null;
   private waiters: Array<{
     eventType: string;
-    resolve: (event: WorkspaceChatMessage | null) => void;
+    resolve: (event: MinionChatMessage | null) => void;
     timer: ReturnType<typeof setTimeout>;
   }> = [];
 
   constructor(
     private client: OrpcTestClient,
-    private workspaceId: string
+    private minionId: string
   ) {
     this.abortController = new AbortController();
   }
@@ -148,8 +148,8 @@ export class StreamCollector {
   private async collectLoop(): Promise<void> {
     try {
       // ORPC returns an async iterator from the subscription
-      const iterator = await this.client.workspace.onChat(
-        { workspaceId: this.workspaceId },
+      const iterator = await this.client.minion.onChat(
+        { minionId: this.minionId },
         { signal: this.abortController.signal }
       );
       this.iterator = iterator;
@@ -198,7 +198,7 @@ export class StreamCollector {
   /**
    * Check if any waiters are satisfied by the new message.
    */
-  private checkWaiters(message: WorkspaceChatMessage): void {
+  private checkWaiters(message: MinionChatMessage): void {
     const msgType = "type" in message ? (message as { type: string }).type : null;
     if (!msgType) return;
 
@@ -225,7 +225,7 @@ export class StreamCollector {
   async waitForEvent(
     eventType: string,
     timeoutMs: number = 30000
-  ): Promise<WorkspaceChatMessage | null> {
+  ): Promise<MinionChatMessage | null> {
     if (!this.started) {
       throw new Error("StreamCollector not started. Call start() first.");
     }
@@ -239,7 +239,7 @@ export class StreamCollector {
     }
 
     // Wait for the event
-    return new Promise<WorkspaceChatMessage | null>((resolve) => {
+    return new Promise<MinionChatMessage | null>((resolve) => {
       const timer = setTimeout(() => {
         // Remove this waiter
         const idx = this.waiters.findIndex((w) => w.resolve === resolve);
@@ -263,7 +263,7 @@ export class StreamCollector {
     eventType: string,
     n: number,
     timeoutMs: number = 30000
-  ): Promise<WorkspaceChatMessage | null> {
+  ): Promise<MinionChatMessage | null> {
     if (!this.started) {
       throw new Error("StreamCollector not started. Call start() first.");
     }
@@ -285,7 +285,7 @@ export class StreamCollector {
     }
 
     // Poll for the Nth event
-    return new Promise<WorkspaceChatMessage | null>((resolve) => {
+    return new Promise<MinionChatMessage | null>((resolve) => {
       const startTime = Date.now();
 
       const check = () => {
@@ -320,7 +320,7 @@ export class StreamCollector {
   /**
    * Get all collected events.
    */
-  getEvents(): WorkspaceChatMessage[] {
+  getEvents(): MinionChatMessage[] {
     return [...this.events];
   }
 
@@ -365,14 +365,14 @@ export class StreamCollector {
   /**
    * Get all stream-delta events.
    */
-  getDeltas(): WorkspaceChatMessage[] {
+  getDeltas(): MinionChatMessage[] {
     return this.events.filter((e) => "type" in e && e.type === "stream-delta");
   }
 
   /**
    * Get the final assistant message (from stream-end).
    */
-  getFinalMessage(): WorkspaceChatMessage | undefined {
+  getFinalMessage(): MinionChatMessage | undefined {
     return this.events.find((e) => "type" in e && e.type === "stream-end");
   }
 
@@ -393,7 +393,7 @@ export class StreamCollector {
     console.error(`\n${"=".repeat(80)}`);
     console.error(`EVENT DIAGNOSTICS: ${context}`);
     console.error(`${"=".repeat(80)}`);
-    console.error(`Workspace: ${this.workspaceId}`);
+    console.error(`Minion: ${this.minionId}`);
     console.error(`Total events: ${this.events.length}`);
     console.error(`\nEvent sequence:`);
 
@@ -484,9 +484,9 @@ export class StreamCollector {
  */
 export function createStreamCollector(
   client: OrpcTestClient,
-  workspaceId: string
+  minionId: string
 ): StreamCollector {
-  return new StreamCollector(client, workspaceId);
+  return new StreamCollector(client, minionId);
 }
 
 /**
@@ -548,10 +548,10 @@ export function assertStreamSuccess(collector: StreamCollector): void {
  */
 export async function withStreamCollection<T>(
   client: OrpcTestClient,
-  workspaceId: string,
+  minionId: string,
   fn: (collector: StreamCollector) => Promise<T>
 ): Promise<T> {
-  const collector = createStreamCollector(client, workspaceId);
+  const collector = createStreamCollector(client, minionId);
   collector.start();
   try {
     return await fn(collector);
@@ -566,10 +566,10 @@ export async function withStreamCollection<T>(
  */
 export async function waitForStreamSuccess(
   client: OrpcTestClient,
-  workspaceId: string,
+  minionId: string,
   timeoutMs: number = 30000
 ): Promise<StreamCollector> {
-  const collector = createStreamCollector(client, workspaceId);
+  const collector = createStreamCollector(client, minionId);
   collector.start();
   await collector.waitForEvent("stream-end", timeoutMs);
   assertStreamSuccess(collector);
@@ -580,7 +580,7 @@ export async function waitForStreamSuccess(
  * Extract text content from stream events.
  * Filters for stream-delta events and concatenates the delta text.
  */
-export function extractTextFromEvents(events: WorkspaceChatMessage[]): string {
+export function extractTextFromEvents(events: MinionChatMessage[]): string {
   return events
     .filter((e: unknown) => {
       const typed = e as { type?: string };

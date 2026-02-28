@@ -8,7 +8,7 @@ import {
 } from "../helpers";
 import { HistoryService } from "../../../src/node/services/historyService";
 import { createLatticeMessage } from "../../../src/common/types/message";
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 
 // Skip all tests if TEST_INTEGRATION is not set
 const describeIntegration = shouldRunIntegrationTests() ? describe : describe.skip;
@@ -25,8 +25,8 @@ describeIntegration("resumeStream", () => {
   test.concurrent(
     "should resume interrupted stream without new user message",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
-      const collector1 = createStreamCollector(env.orpc, workspaceId);
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
+      const collector1 = createStreamCollector(env.orpc, minionId);
       collector1.start();
       // Wait until the onChat subscription is fully established before sending.
       // Without this guard, the initial history replay can race with the live user
@@ -42,7 +42,7 @@ describeIntegration("resumeStream", () => {
         const expectedWord = "RESUMPTION_TEST_SUCCESS";
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           `Use bash to run: for i in {1..10}; do sleep 0.5; done && echo '${expectedWord}'. Set display_name="resume-test" and timeout_secs=120. Do not spawn a sub-agent.`,
           modelString("anthropic", "claude-sonnet-4-5"),
           {
@@ -59,7 +59,7 @@ describeIntegration("resumeStream", () => {
 
         // Interrupt the stream with interruptStream()
         const client = resolveOrpcClient(env);
-        const interruptResult = await client.workspace.interruptStream({ workspaceId });
+        const interruptResult = await client.minion.interruptStream({ minionId });
         expect(interruptResult.success).toBe(true);
 
         // Wait for stream to be interrupted (abort or end event)
@@ -72,12 +72,12 @@ describeIntegration("resumeStream", () => {
         // Count user messages before resume (should be 1)
         const userMessagesBefore = collector1
           .getEvents()
-          .filter((e: WorkspaceChatMessage) => "role" in e && e.role === "user");
+          .filter((e: MinionChatMessage) => "role" in e && e.role === "user");
         expect(userMessagesBefore.length).toBe(1);
         collector1.stop();
 
         // Create a new collector for resume events
-        const collector2 = createStreamCollector(env.orpc, workspaceId);
+        const collector2 = createStreamCollector(env.orpc, minionId);
         collector2.start();
 
         // Wait for history replay to complete (caught-up event)
@@ -86,12 +86,12 @@ describeIntegration("resumeStream", () => {
         // Count user messages from history replay (should be 1 - the original message)
         const userMessagesFromReplay = collector2
           .getEvents()
-          .filter((e: WorkspaceChatMessage) => "role" in e && e.role === "user");
+          .filter((e: MinionChatMessage) => "role" in e && e.role === "user");
         expect(userMessagesFromReplay.length).toBe(1);
 
         // Resume the stream (no new user message)
-        const resumeResult = await client.workspace.resumeStream({
-          workspaceId,
+        const resumeResult = await client.minion.resumeStream({
+          minionId,
           options: { model: "anthropic:claude-sonnet-4-5", agentId: "exec" },
         });
         expect(resumeResult.success).toBe(true);
@@ -107,13 +107,13 @@ describeIntegration("resumeStream", () => {
         // Verify no NEW user message was created after resume (total should still be 1)
         const userMessagesAfter = collector2
           .getEvents()
-          .filter((e: WorkspaceChatMessage) => "role" in e && e.role === "user");
+          .filter((e: MinionChatMessage) => "role" in e && e.role === "user");
         expect(userMessagesAfter.length).toBe(1); // Still only the original user message
 
         // Verify stream completed successfully (without errors)
         const streamErrors = collector2
           .getEvents()
-          .filter((e: WorkspaceChatMessage) => "type" in e && e.type === "stream-error");
+          .filter((e: MinionChatMessage) => "type" in e && e.type === "stream-error");
         expect(streamErrors.length).toBe(0);
 
         // Verify we received stream deltas (actual content)
@@ -130,8 +130,8 @@ describeIntegration("resumeStream", () => {
         // Verify we received the expected word in the output
         // This proves the bash command completed successfully after resume
         const allText = deltas
-          .filter((d: WorkspaceChatMessage) => "delta" in d)
-          .map((d: WorkspaceChatMessage) => ("delta" in d ? (d as { delta: string }).delta : ""))
+          .filter((d: MinionChatMessage) => "delta" in d)
+          .map((d: MinionChatMessage) => ("delta" in d ? (d as { delta: string }).delta : ""))
           .join("");
         expect(allText).toContain(expectedWord);
         collector2.stop();
@@ -145,8 +145,8 @@ describeIntegration("resumeStream", () => {
   test.concurrent(
     "should resume from single assistant message (post-compaction scenario)",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       try {
         // Create a history service to write directly to chat.jsonl
@@ -165,7 +165,7 @@ describeIntegration("resumeStream", () => {
         );
 
         // Write the summary message to history
-        const appendResult = await historyService.appendToHistory(workspaceId, summaryMessage);
+        const appendResult = await historyService.appendToHistory(minionId, summaryMessage);
         expect(appendResult.success).toBe(true);
 
         // Wait a moment for events to settle
@@ -173,8 +173,8 @@ describeIntegration("resumeStream", () => {
 
         // Resume the stream (should continue from the summary message)
         const client = resolveOrpcClient(env);
-        const resumeResult = await client.workspace.resumeStream({
-          workspaceId,
+        const resumeResult = await client.minion.resumeStream({
+          minionId,
           options: { model: "anthropic:claude-sonnet-4-5", agentId: "exec" },
         });
         expect(resumeResult.success).toBe(true);
@@ -190,7 +190,7 @@ describeIntegration("resumeStream", () => {
         // Verify no user message was created (resumeStream should not add one)
         const userMessages = collector
           .getEvents()
-          .filter((e: WorkspaceChatMessage) => "role" in e && e.role === "user");
+          .filter((e: MinionChatMessage) => "role" in e && e.role === "user");
         expect(userMessages.length).toBe(0);
 
         // Verify we received content deltas (the actual assistant response during streaming)
@@ -200,13 +200,13 @@ describeIntegration("resumeStream", () => {
         // Verify no stream errors
         const streamErrors = collector
           .getEvents()
-          .filter((e: WorkspaceChatMessage) => "type" in e && e.type === "stream-error");
+          .filter((e: MinionChatMessage) => "type" in e && e.type === "stream-error");
         expect(streamErrors.length).toBe(0);
 
         // Verify the assistant responded with actual content and said the verification word
         const allText = deltas
-          .filter((d: WorkspaceChatMessage) => "delta" in d)
-          .map((d: WorkspaceChatMessage) => ("delta" in d ? (d as { delta: string }).delta : ""))
+          .filter((d: MinionChatMessage) => "delta" in d)
+          .map((d: MinionChatMessage) => ("delta" in d ? (d as { delta: string }).delta : ""))
           .join("");
         expect(allText.length).toBeGreaterThan(0);
 

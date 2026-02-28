@@ -46,7 +46,7 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
   });
 
   test("initial git status shows clean state for fresh workspace", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({
@@ -70,7 +70,7 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
   }, 45_000);
 
   test("git status updates on window focus after file change", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({
@@ -83,8 +83,8 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
         await waitForCleanStatus(view.container, workspaceId, 30_000);
 
         // Modify file (simulates external change or terminal command)
-        const bashRes = await env.orpc.workspace.executeBash({
-          workspaceId,
+        const bashRes = await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "TEST_MARKER" >> README.md`,
         });
         expect(bashRes.success).toBe(true);
@@ -102,7 +102,7 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
   }, 45_000);
 
   test("git status shows clean after committing", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({
@@ -113,8 +113,8 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
       try {
         await setupWorkspaceView(view, metadata, workspaceId);
 
-        const bashRes = await env.orpc.workspace.executeBash({
-          workspaceId,
+        const bashRes = await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "COMMIT_MARKER" >> README.md && git add README.md && git commit -m "test commit"`,
         });
         expect(bashRes.success).toBe(true);
@@ -131,7 +131,7 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
   }, 45_000);
 
   test("git status reflects ahead count", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({
@@ -153,8 +153,8 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
 
         // Make 2 commits to get ahead of remote
         for (let i = 0; i < 2; i++) {
-          const bashRes = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const bashRes = await env.orpc.minion.executeBash({
+            minionId: workspaceId,
             script: `echo "commit-${i}" >> README.md && git add README.md && git commit -m "test commit ${i}"`,
           });
           expect(bashRes.success).toBe(true);
@@ -172,7 +172,7 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
   }, 45_000);
 
   test("git status includes current branch name", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({
@@ -197,7 +197,7 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
   }, 45_000);
 
   test("git status detects branch change after external checkout", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({
@@ -216,8 +216,8 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
 
         // Create and checkout a new branch (simulates external git operation)
         const newBranch = `test-branch-switch-${Date.now()}`;
-        const bashRes = await env.orpc.workspace.executeBash({
-          workspaceId,
+        const bashRes = await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `git checkout -b "${newBranch}" 2>&1`,
           options: { timeout_secs: 10 },
         });
@@ -230,8 +230,8 @@ describeIntegration("GitStatus (UI + ORPC)", () => {
         await waitForBranchStatus(view.container, workspaceId, newBranch, 30_000);
 
         // Switch back to original branch to clean up
-        await env.orpc.workspace.executeBash({
-          workspaceId,
+        await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `git checkout "${originalBranch}" && git branch -D "${newBranch}"`,
           options: { timeout_secs: 10 },
         });

@@ -37,10 +37,10 @@ describeIntegration("sendMessage heavy/load tests", () => {
     test.concurrent(
       "should emit context_exceeded when forceContextLimitError is set",
       async () => {
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Trigger a forced context limit error",
             modelString(provider, model),
             {
@@ -72,12 +72,12 @@ describeIntegration("sendMessage heavy/load tests", () => {
     test.concurrent(
       "should handle very long single messages",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           // Send a very long message
           const longContent = "This is a test message. ".repeat(1000);
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             longContent,
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );

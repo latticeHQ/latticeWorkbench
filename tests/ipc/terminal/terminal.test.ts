@@ -5,11 +5,11 @@ import {
   createWorkspace,
   resolveOrpcClient,
 } from "../helpers";
-import type { WorkspaceMetadata } from "../../../src/common/types/workspace";
+import type { MinionMetadata } from "../../../src/common/types/minion";
 
 type WorkspaceCreationResult = Awaited<ReturnType<typeof createWorkspace>>;
 
-function expectWorkspaceCreationSuccess(result: WorkspaceCreationResult): WorkspaceMetadata {
+function expectWorkspaceCreationSuccess(result: WorkspaceCreationResult): MinionMetadata {
   expect(result.success).toBe(true);
   if (!result.success) {
     throw new Error(`Expected workspace creation to succeed, but it failed: ${result.error}`);
@@ -31,18 +31,18 @@ describeIntegration("terminal PTY", () => {
         // Create a workspace (uses worktree runtime by default)
         const createResult = await createWorkspace(env, tempGitRepo, "test-terminal");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Create terminal session
         const session = await client.terminal.create({
-          workspaceId,
+          minionId,
           cols: 80,
           rows: 24,
         });
 
         expect(session.sessionId).toBeTruthy();
-        expect(session.workspaceId).toBe(workspaceId);
+        expect(session.minionId).toBe(minionId);
 
         // Collect output
         const outputChunks: string[] = [];
@@ -82,7 +82,7 @@ describeIntegration("terminal PTY", () => {
         await client.terminal.close({ sessionId: session.sessionId });
 
         // Clean up workspace
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -101,12 +101,12 @@ describeIntegration("terminal PTY", () => {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-terminal-exit");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Create terminal session
         const session = await client.terminal.create({
-          workspaceId,
+          minionId,
           cols: 80,
           rows: 24,
         });
@@ -141,7 +141,7 @@ describeIntegration("terminal PTY", () => {
         expect(exitCode).toBe(0);
 
         // Clean up workspace
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -160,12 +160,12 @@ describeIntegration("terminal PTY", () => {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-terminal-resize");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Create terminal session with initial size
         const session = await client.terminal.create({
-          workspaceId,
+          minionId,
           cols: 80,
           rows: 24,
         });
@@ -206,7 +206,7 @@ describeIntegration("terminal PTY", () => {
 
         // Clean up
         await client.terminal.close({ sessionId: session.sessionId });
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -224,12 +224,12 @@ describeIntegration("terminal PTY", () => {
       try {
         const createResult = await createWorkspace(env, tempGitRepo, "test-attach");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Create terminal session
         const session = await client.terminal.create({
-          workspaceId,
+          minionId,
           cols: 80,
           rows: 24,
         });
@@ -284,7 +284,7 @@ describeIntegration("terminal PTY", () => {
         expect(fullOutput).toContain("ATTACH_TEST");
 
         await client.terminal.close({ sessionId: session.sessionId });
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -302,12 +302,12 @@ describeIntegration("terminal PTY", () => {
       try {
         const createResult = await createWorkspace(env, tempGitRepo, "test-attach-order");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Create terminal and send numbered output
         const session = await client.terminal.create({
-          workspaceId,
+          minionId,
           cols: 80,
           rows: 24,
         });
@@ -383,7 +383,7 @@ describeIntegration("terminal PTY", () => {
         expect(line3Pos).toBeLessThan(line4Pos);
 
         await client.terminal.close({ sessionId: session.sessionId });
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -401,12 +401,12 @@ describeIntegration("terminal PTY", () => {
       try {
         const createResult = await createWorkspace(env, tempGitRepo, "test-reattach");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Create terminal session
         const session = await client.terminal.create({
-          workspaceId,
+          minionId,
           cols: 80,
           rows: 24,
         });
@@ -464,7 +464,7 @@ describeIntegration("terminal PTY", () => {
         expect(screenState).toMatch(/\x1b\[/);
 
         await client.terminal.close({ sessionId: session.sessionId });
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -482,22 +482,22 @@ describeIntegration("terminal PTY", () => {
       try {
         const createResult = await createWorkspace(env, tempGitRepo, "test-list-sessions");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Initially no sessions
-        const initialSessions = await client.terminal.listSessions({ workspaceId });
+        const initialSessions = await client.terminal.listSessions({ minionId });
         expect(initialSessions).toEqual([]);
 
         // Create a terminal session
         const session = await client.terminal.create({
-          workspaceId,
+          minionId,
           cols: 80,
           rows: 24,
         });
 
         // Now should have one session
-        const afterCreate = await client.terminal.listSessions({ workspaceId });
+        const afterCreate = await client.terminal.listSessions({ minionId });
         expect(afterCreate).toContain(session.sessionId);
         expect(afterCreate.length).toBe(1);
 
@@ -508,10 +508,10 @@ describeIntegration("terminal PTY", () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Should be empty again
-        const afterClose = await client.terminal.listSessions({ workspaceId });
+        const afterClose = await client.terminal.listSessions({ minionId });
         expect(afterClose).toEqual([]);
 
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);

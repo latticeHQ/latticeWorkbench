@@ -90,7 +90,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     config: services.config,
     aiService: services.aiService,
     projectService: services.projectService,
-    workspaceService: services.workspaceService,
+    minionService: services.minionService,
     latticeGovernorOauthService: services.latticeGovernorOauthService,
     codexOauthService: services.codexOauthService,
     copilotOauthService: services.copilotOauthService,
@@ -104,7 +104,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     tokenizerService: services.tokenizerService,
     serverService: services.serverService,
     featureFlagService: services.featureFlagService,
-    workspaceMcpOverridesService: services.workspaceMcpOverridesService,
+    minionMcpOverridesService: services.minionMcpOverridesService,
     sessionTimingService: services.sessionTimingService,
     mcpConfigService: services.mcpConfigService,
     mcpOauthService: services.mcpOauthService,
@@ -221,7 +221,7 @@ export async function setupWorkspace(
   }
 ): Promise<{
   env: TestEnvironment;
-  workspaceId: string;
+  minionId: string;
   workspacePath: string;
   branchName: string;
   tempGitRepo: string;
@@ -252,7 +252,7 @@ export async function setupWorkspace(
   const waitForInit = options?.waitForInit ?? false;
   const isSSH = options?.isSSH ?? false;
 
-  let workspaceId: string;
+  let minionId: string;
   let workspacePath: string;
 
   try {
@@ -265,7 +265,7 @@ export async function setupWorkspace(
         true,
         isSSH
       );
-      workspaceId = initResult.workspaceId;
+      minionId = initResult.minionId;
       workspacePath = initResult.workspacePath;
     } else {
       const createResult = await createWorkspace(
@@ -284,12 +284,12 @@ export async function setupWorkspace(
         throw new Error("Workspace ID not returned from creation");
       }
 
-      if (!createResult.metadata.namedWorkspacePath) {
+      if (!createResult.metadata.namedMinionPath) {
         throw new Error("Workspace path not returned from creation");
       }
 
-      workspaceId = createResult.metadata.id;
-      workspacePath = createResult.metadata.namedWorkspacePath;
+      minionId = createResult.metadata.id;
+      workspacePath = createResult.metadata.namedMinionPath;
     }
   } catch (error) {
     await cleanupTestEnvironment(env);
@@ -300,8 +300,8 @@ export async function setupWorkspace(
   const cleanup = async () => {
     // Best-effort: remove workspace to stop MCP servers and clean up worktrees/sessions.
     try {
-      const removeResult = await env.orpc.workspace.remove({
-        workspaceId,
+      const removeResult = await env.orpc.minion.remove({
+        minionId,
         options: { force: true },
       });
       if (!removeResult.success) {
@@ -317,7 +317,7 @@ export async function setupWorkspace(
 
   return {
     env,
-    workspaceId,
+    minionId,
     workspacePath,
     branchName,
     tempGitRepo,
@@ -331,7 +331,7 @@ export async function setupWorkspace(
  */
 export async function setupWorkspaceWithoutProvider(branchPrefix?: string): Promise<{
   env: TestEnvironment;
-  workspaceId: string;
+  minionId: string;
   workspacePath: string;
   branchName: string;
   tempGitRepo: string;
@@ -371,15 +371,15 @@ export async function setupWorkspaceWithoutProvider(branchPrefix?: string): Prom
     throw new Error("Workspace ID not returned from creation");
   }
 
-  if (!createResult.metadata.namedWorkspacePath) {
+  if (!createResult.metadata.namedMinionPath) {
     Object.assign(process.env, savedEnvVars);
     await cleanupTestEnvironment(env);
     await cleanupTempGitRepo(tempGitRepo);
     throw new Error("Workspace path not returned from creation");
   }
 
-  const workspaceId = createResult.metadata.id;
-  const workspacePath = createResult.metadata.namedWorkspacePath;
+  const minionId = createResult.metadata.id;
+  const workspacePath = createResult.metadata.namedMinionPath;
 
   const cleanup = async () => {
     // Restore env vars
@@ -391,8 +391,8 @@ export async function setupWorkspaceWithoutProvider(branchPrefix?: string): Prom
 
     // Best-effort: remove workspace to stop MCP servers and clean up worktrees/sessions.
     try {
-      const removeResult = await env.orpc.workspace.remove({
-        workspaceId,
+      const removeResult = await env.orpc.minion.remove({
+        minionId,
         options: { force: true },
       });
       if (!removeResult.success) {
@@ -408,7 +408,7 @@ export async function setupWorkspaceWithoutProvider(branchPrefix?: string): Prom
 
   return {
     env,
-    workspaceId,
+    minionId,
     workspacePath,
     branchName,
     tempGitRepo,

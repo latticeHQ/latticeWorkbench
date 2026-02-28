@@ -34,8 +34,8 @@ describeIntegration("Anthropic reasoning parameter tests", () => {
   test.concurrent(
     "Sonnet 4.6 with thinking (effort + adaptive)",
     async () => {
-      await withSharedWorkspace("anthropic", async ({ env, workspaceId, collector }) => {
-        const result = await sendMessage(env, workspaceId, "What is 2+2? Answer in one word.", {
+      await withSharedWorkspace("anthropic", async ({ env, minionId, collector }) => {
+        const result = await sendMessage(env, minionId, "What is 2+2? Answer in one word.", {
           model: KNOWN_MODELS.SONNET.id,
           thinkingLevel: "low",
         });
@@ -54,8 +54,8 @@ describeIntegration("Anthropic reasoning parameter tests", () => {
   test.concurrent(
     "Opus 4.6 with thinking (effort + adaptive)",
     async () => {
-      await withSharedWorkspace("anthropic", async ({ env, workspaceId, collector }) => {
-        const result = await sendMessage(env, workspaceId, "What is 4+4? Answer in one word.", {
+      await withSharedWorkspace("anthropic", async ({ env, minionId, collector }) => {
+        const result = await sendMessage(env, minionId, "What is 4+4? Answer in one word.", {
           model: KNOWN_MODELS.OPUS.id,
           thinkingLevel: "low",
         });
@@ -74,8 +74,8 @@ describeIntegration("Anthropic reasoning parameter tests", () => {
   test.concurrent(
     "should receive reasoning events when thinking enabled",
     async () => {
-      await withSharedWorkspace("anthropic", async ({ env, workspaceId, collector }) => {
-        const result = await sendMessage(env, workspaceId, "Explain briefly why 2+2=4", {
+      await withSharedWorkspace("anthropic", async ({ env, minionId, collector }) => {
+        const result = await sendMessage(env, minionId, "Explain briefly why 2+2=4", {
           model: KNOWN_MODELS.SONNET.id,
           thinkingLevel: "medium",
         });

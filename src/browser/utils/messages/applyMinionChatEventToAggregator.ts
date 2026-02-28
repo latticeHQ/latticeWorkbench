@@ -1,5 +1,4 @@
 import assert from "@/common/utils/assert";
-import { CUSTOM_EVENTS, createCustomEvent } from "@/common/constants/events";
 import type { DeleteMessage, StreamErrorMessage, MinionChatMessage } from "@/common/orpc/types";
 import {
   isBashOutputEvent,
@@ -91,15 +90,13 @@ export interface MinionChatEventAggregator {
 export function applyMinionChatEventToAggregator(
   aggregator: MinionChatEventAggregator,
   event: MinionChatMessage,
-  options?: ApplyMinionChatEventToAggregatorOptions
+  _options?: ApplyMinionChatEventToAggregatorOptions
 ): MinionChatEventUpdateHint {
   assert(aggregator, "applyMinionChatEventToAggregator requires aggregator");
   assert(
     event && typeof event === "object",
     "applyMinionChatEventToAggregator requires event object"
   );
-
-  const allowSideEffects = options?.allowSideEffects !== false;
 
   if (isStreamStart(event)) {
     aggregator.handleStreamStart(event);

@@ -17,9 +17,9 @@ import { fireEvent, waitFor } from "@testing-library/react";
 import { preloadTestModules } from "../../ipc/setup";
 import { createAppHarness, type AppHarness } from "../harness";
 import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
-import { getWorkspaceLastReadKey } from "@/common/constants/storage";
-import { LATTICE_HELP_CHAT_WORKSPACE_ID } from "@/common/constants/latticeChat";
-import { workspaceStore } from "@/browser/stores/WorkspaceStore";
+import { getMinionLastReadKey } from "@/common/constants/storage";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
+import { minionStore } from "@/browser/stores/MinionStore";
 
 /**
  * Get the unread state for a workspace from the WorkspaceStore.
@@ -28,7 +28,7 @@ function getWorkspaceUnreadState(workspaceId: string): {
   recencyTimestamp: number | null;
   isUnread: (lastReadTimestamp: number) => boolean;
 } {
-  const state = workspaceStore.getWorkspaceSidebarState(workspaceId);
+  const state = minionStore.getMinionSidebarState(workspaceId);
   return {
     recencyTimestamp: state.recencyTimestamp,
     isUnread: (lastReadTimestamp: number) =>
@@ -40,7 +40,7 @@ function getWorkspaceUnreadState(workspaceId: string): {
  * Get the lastReadTimestamp from persisted state.
  */
 function getLastReadTimestamp(workspaceId: string): number {
-  return readPersistedState<number>(getWorkspaceLastReadKey(workspaceId), 0);
+  return readPersistedState<number>(getMinionLastReadKey(workspaceId), 0);
 }
 
 /**
@@ -102,15 +102,15 @@ describe("Unread indicator (mock AI router)", () => {
 
       // Ensure the target workspace has recency so this test is sensitive.
       await waitFor(() => {
-        const { recencyTimestamp } = workspaceStore.getWorkspaceSidebarState(
-          LATTICE_HELP_CHAT_WORKSPACE_ID
+        const { recencyTimestamp } = minionStore.getMinionSidebarState(
+          LATTICE_HELP_CHAT_MINION_ID
         );
         expect(recencyTimestamp).not.toBeNull();
       });
 
       // Simulate legacy state: no persisted lastRead key for this workspace.
-      updatePersistedState(getWorkspaceLastReadKey(LATTICE_HELP_CHAT_WORKSPACE_ID), null);
-      expect(window.localStorage.getItem(getWorkspaceLastReadKey(LATTICE_HELP_CHAT_WORKSPACE_ID))).toBe(
+      updatePersistedState(getMinionLastReadKey(LATTICE_HELP_CHAT_MINION_ID), null);
+      expect(window.localStorage.getItem(getMinionLastReadKey(LATTICE_HELP_CHAT_MINION_ID))).toBe(
         null
       );
 
@@ -252,7 +252,7 @@ describe("Unread indicator (mock AI router)", () => {
 
       // Simulate "looking away" by setting lastReadTimestamp to the past
       const pastTime = (recencyAfterFirstMsg ?? Date.now()) - 10000;
-      updatePersistedState(getWorkspaceLastReadKey(app.workspaceId), pastTime);
+      updatePersistedState(getMinionLastReadKey(app.workspaceId), pastTime);
 
       // Now simulate another message arriving (as if from background)
       await app.chat.send("Second message while away");
@@ -356,7 +356,7 @@ describe("Unread indicator (mock AI router)", () => {
 
       // Verify the workspace entered the start-pending phase.
       await waitFor(() => {
-        const state = workspaceStore.getWorkspaceSidebarState(app.workspaceId);
+        const state = minionStore.getMinionSidebarState(app.workspaceId);
         expect(state.isStarting).toBe(true);
         expect(state.canInterrupt).toBe(false);
       });
@@ -398,7 +398,7 @@ describe("Unread indicator (mock AI router)", () => {
 
       const recency = getWorkspaceUnreadState(app.workspaceId).recencyTimestamp;
       const pastTime = (recency ?? Date.now()) - 5000;
-      updatePersistedState(getWorkspaceLastReadKey(app.workspaceId), pastTime);
+      updatePersistedState(getMinionLastReadKey(app.workspaceId), pastTime);
 
       // Wait for state to propagate
       await waitFor(() => {

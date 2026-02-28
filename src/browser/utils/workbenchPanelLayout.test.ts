@@ -4,13 +4,13 @@ import {
   addToolToFocusedTabset,
   closeSplit,
   dockTabToEdge,
-  getDefaultWorkbenchPanelLayoutState,
   moveTabToTabset,
   reorderTabInTabset,
   selectTabInFocusedTabset,
   splitFocusedTabset,
   type WorkbenchPanelLayoutState,
 } from "./workbenchPanelLayout";
+import type { TabType } from "@/browser/types/workbenchPanel";
 
 /** Helper: create a simple single-tabset layout for unit tests. */
 function makeFlatState(tabs: string[], activeTab?: string): WorkbenchPanelLayoutState {
@@ -21,10 +21,8 @@ function makeFlatState(tabs: string[], activeTab?: string): WorkbenchPanelLayout
     root: {
       type: "tabset",
       id: "tabset-1",
-      tabs: tabs as WorkbenchPanelLayoutState["root"]["type"] extends "tabset"
-        ? WorkbenchPanelLayoutState["root"]["tabs"]
-        : never,
-      activeTab: (activeTab ?? tabs[0]) as any,
+      tabs: tabs as TabType[],
+      activeTab: (activeTab ?? tabs[0]) as TabType,
     },
   };
 }

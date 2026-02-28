@@ -84,7 +84,7 @@ describeIntegration("File Change Notification Integration", () => {
     const branchName = generateBranchName("file-change-test");
     const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath: repoPath,
       branchName,
       trunkBranch,
@@ -93,14 +93,14 @@ describeIntegration("File Change Notification Integration", () => {
     expect(createResult.success).toBe(true);
     if (!createResult.success) throw new Error("Failed to create workspace");
 
-    const workspaceId = createResult.metadata.id;
-    const workspaceName = createResult.metadata.name;
+    const minionId = createResult.metadata.id;
+    const minionName = createResult.metadata.name;
     const projectName = createResult.metadata.projectName;
 
     try {
       // 2. Get the AgentSession and plan file path
-      const session = env.services.workspaceService.getOrCreateSession(workspaceId);
-      const planPath = getPlanFilePath(workspaceName, projectName);
+      const session = env.services.minionService.getOrCreateSession(minionId);
+      const planPath = getPlanFilePath(minionName, projectName);
 
       // 3. Create the plan directory and file
       const planDir = join(planPath, "..");
@@ -127,13 +127,13 @@ describeIntegration("File Change Notification Integration", () => {
       await utimes(planPath, newMtime / 1000, newMtime / 1000);
 
       // 6. Set up stream collector and send a message
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       await collector.waitForSubscription();
 
       // Send a simple message to trigger LLM call
-      const sendResult = await env.orpc.workspace.sendMessage({
-        workspaceId,
+      const sendResult = await env.orpc.minion.sendMessage({
+        minionId,
         message: "Continue with the plan",
         options: {
           model: HAIKU_MODEL,
@@ -149,8 +149,8 @@ describeIntegration("File Change Notification Integration", () => {
       collector.stop();
 
       // 7. Check the debug log file for the injected message
-      // The messages with file changes are logged to ~/.lattice/debug_obj/${workspaceId}/2a_redacted_messages.json
-      const debugObjDir = join(getLatticeHome(), "debug_obj", workspaceId);
+      // The messages with file changes are logged to ~/.lattice/debug_obj/${minionId}/2a_redacted_messages.json
+      const debugObjDir = join(getLatticeHome(), "debug_obj", minionId);
       const debugFiles = await readdir(debugObjDir).catch(() => [] as string[]);
 
       // Find the redacted messages file
@@ -189,7 +189,7 @@ describeIntegration("File Change Notification Integration", () => {
       }
     } finally {
       // Cleanup workspace
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 60000);
 
@@ -198,7 +198,7 @@ describeIntegration("File Change Notification Integration", () => {
     const branchName = generateBranchName("file-unchanged-test");
     const trunkBranch = await detectDefaultTrunkBranch(repoPath);
 
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath: repoPath,
       branchName,
       trunkBranch,
@@ -207,14 +207,14 @@ describeIntegration("File Change Notification Integration", () => {
     expect(createResult.success).toBe(true);
     if (!createResult.success) throw new Error("Failed to create workspace");
 
-    const workspaceId = createResult.metadata.id;
-    const workspaceName = createResult.metadata.name;
+    const minionId = createResult.metadata.id;
+    const minionName = createResult.metadata.name;
     const projectName = createResult.metadata.projectName;
 
     try {
       // 2. Get the AgentSession and plan file path
-      const session = env.services.workspaceService.getOrCreateSession(workspaceId);
-      const planPath = getPlanFilePath(workspaceName, projectName);
+      const session = env.services.minionService.getOrCreateSession(minionId);
+      const planPath = getPlanFilePath(minionName, projectName);
 
       // 3. Create the plan directory and file
       const planDir = join(planPath, "..");
@@ -233,13 +233,13 @@ describeIntegration("File Change Notification Integration", () => {
       // 5. DO NOT modify the file - leave it unchanged
 
       // 6. Set up stream collector and send a message
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       await collector.waitForSubscription();
 
       // Send a simple message to trigger LLM call
-      const sendResult = await env.orpc.workspace.sendMessage({
-        workspaceId,
+      const sendResult = await env.orpc.minion.sendMessage({
+        minionId,
         message: "Hello",
         options: {
           model: HAIKU_MODEL,
@@ -255,7 +255,7 @@ describeIntegration("File Change Notification Integration", () => {
       collector.stop();
 
       // 7. Check the debug log file - should NOT have file change notification
-      const debugObjDir = join(getLatticeHome(), "debug_obj", workspaceId);
+      const debugObjDir = join(getLatticeHome(), "debug_obj", minionId);
       const debugFiles = await readdir(debugObjDir).catch(() => [] as string[]);
 
       const redactedFile = debugFiles.find((f) => f.includes("2a_redacted_messages"));
@@ -282,7 +282,7 @@ describeIntegration("File Change Notification Integration", () => {
       }
     } finally {
       // Cleanup workspace
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 60000);
 });

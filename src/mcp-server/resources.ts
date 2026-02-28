@@ -260,4 +260,58 @@ export function registerResources(
       }],
     };
   });
+
+  // ── Static: Inbox adapter connection status ─────────────────────────
+  server.resource(
+    "inbox-status",
+    "lattice://inbox/status",
+    { description: "Connection status of all inbox adapters (Slack, Discord, etc.)", mimeType: "application/json" },
+    async () => {
+      try {
+        const status = await client.inbox.connectionStatus();
+        return {
+          contents: [{
+            uri: "lattice://inbox/status",
+            mimeType: "application/json",
+            text: JSON.stringify(status, null, 2),
+          }],
+        };
+      } catch {
+        return {
+          contents: [{
+            uri: "lattice://inbox/status",
+            mimeType: "application/json",
+            text: JSON.stringify({ message: "Inbox not available" }),
+          }],
+        };
+      }
+    }
+  );
+
+  // ── Static: Sync status ────────────────────────────────────────────────
+  server.resource(
+    "sync-status",
+    "lattice://sync/status",
+    { description: "Current git sync status and configuration", mimeType: "application/json" },
+    async () => {
+      try {
+        const status = await client.sync.getStatus();
+        return {
+          contents: [{
+            uri: "lattice://sync/status",
+            mimeType: "application/json",
+            text: JSON.stringify(status, null, 2),
+          }],
+        };
+      } catch {
+        return {
+          contents: [{
+            uri: "lattice://sync/status",
+            mimeType: "application/json",
+            text: JSON.stringify({ message: "Sync not available" }),
+          }],
+        };
+      }
+    }
+  );
 }

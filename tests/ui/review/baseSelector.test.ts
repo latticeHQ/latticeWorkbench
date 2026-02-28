@@ -19,7 +19,7 @@ import {
 import { installDom } from "../dom";
 import { renderReviewPanel, type RenderedApp } from "../renderReviewPanel";
 import { cleanupView, setupWorkspaceView } from "../helpers";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 
 configureTestRetries(2);
 
@@ -34,7 +34,7 @@ const describeIntegration = shouldRunIntegrationTests() ? describe : describe.sk
  */
 async function setupReviewPanel(
   view: RenderedApp,
-  metadata: FrontendWorkspaceMetadata,
+  metadata: FrontendMinionMetadata,
   workspaceId: string
 ): Promise<void> {
   await setupWorkspaceView(view, metadata, workspaceId);
@@ -127,7 +127,7 @@ describeIntegration("ReviewPanel base selector", () => {
   });
 
   test("clicking a suggestion updates the displayed base value", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({
@@ -160,7 +160,7 @@ describeIntegration("ReviewPanel base selector", () => {
   }, 90_000);
 
   test("multiple suggestion clicks work correctly", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanel({

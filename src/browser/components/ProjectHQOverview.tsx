@@ -539,7 +539,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
 
   const projectConfig = projects.get(projectPath);
   const sections = useMemo(
-    () => sortCrewsByLinkedList(projectConfig?.sections ?? []),
+    () => sortCrewsByLinkedList(projectConfig?.crews ?? []),
     [projectConfig]
   );
 

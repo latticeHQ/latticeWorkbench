@@ -63,7 +63,7 @@ describeIntegration("interruptStream during startup", () => {
       ['echo "Starting init hook..."', "sleep 6", 'echo "Init hook done"', "exit 0"].join("\n")
     );
 
-    let workspaceId: string | null = null;
+    let minionId: string | null = null;
     let collector: ReturnType<typeof createStreamCollector> | null = null;
 
     try {
@@ -79,10 +79,10 @@ describeIntegration("interruptStream during startup", () => {
       if (!result.success) {
         throw new Error(result.error);
       }
-      workspaceId = result.metadata.id;
+      minionId = result.metadata.id;
 
-      // Start collector now that we have a workspaceId.
-      collector = createStreamCollector(env.orpc, workspaceId);
+      // Start collector now that we have a minionId.
+      collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       await collector.waitForSubscription(5000);
 
@@ -99,7 +99,7 @@ describeIntegration("interruptStream during startup", () => {
       // Start sending a message (will block on init hook).
       const sendPromise = sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "Say 'hello' and nothing else",
         HAIKU_MODEL
       );
@@ -124,7 +124,7 @@ describeIntegration("interruptStream during startup", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Interrupt while still in "starting...".
-      const interruptResult = await env.orpc.workspace.interruptStream({ workspaceId });
+      const interruptResult = await env.orpc.minion.interruptStream({ minionId });
       expect(interruptResult.success).toBe(true);
 
       const abortEvent = await activeCollector.waitForEvent("stream-abort", 5000);
@@ -151,8 +151,8 @@ describeIntegration("interruptStream during startup", () => {
       expect(streamStartEvent).toBeNull();
     } finally {
       collector?.stop();
-      if (workspaceId) {
-        await env.orpc.workspace.remove({ workspaceId });
+      if (minionId) {
+        await env.orpc.minion.remove({ minionId });
       }
       await cleanupTestEnvironment(env);
       await cleanupTempGitRepo(repoPath);

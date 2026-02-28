@@ -14,8 +14,8 @@ describeIntegration("model_not_found error handling", () => {
   test.concurrent(
     "should classify Anthropic 404 as model_not_found (not retryable)",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       await collector.waitForSubscription();
       try {
@@ -23,7 +23,7 @@ describeIntegration("model_not_found error handling", () => {
         // Anthropic returns 404 with error.type === 'not_found_error'
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Hello",
           modelString("anthropic", "invalid-model-that-does-not-exist-xyz123")
         );
@@ -52,8 +52,8 @@ describeIntegration("model_not_found error handling", () => {
   test.concurrent(
     "should classify OpenAI 400 model_not_found as model_not_found (not retryable)",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("openai");
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const { env, minionId, cleanup } = await setupWorkspace("openai");
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
       await collector.waitForSubscription();
       try {
@@ -61,7 +61,7 @@ describeIntegration("model_not_found error handling", () => {
         // OpenAI returns 400 with error.code === 'model_not_found'
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Hello",
           modelString("openai", "gpt-nonexistent-model-xyz123")
         );
