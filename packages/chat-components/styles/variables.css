@@ -1,9 +1,10 @@
 /**
  * Lattice Chat Components CSS Variables
  *
- * Brand: orange accent (#FF6600) on dark carbon backgrounds.
+ * Brand: Minion Yellow accent (#FBBF24) on deep navy backgrounds.
+ * "Gru's Lab" design language — playful but professional.
  * Each semantic role has a distinct hue for instant recognition:
- *   accent    → orange  #FF6600  (brand identity)
+ *   accent    → yellow  #FBBF24  (Minion Yellow — brand identity)
  *   success   → emerald #10B981  (go / done)
  *   warning   → amber   #FBBF24  (caution)
  *   danger    → red     #EF4444  (error / destructive)
@@ -23,27 +24,27 @@
  */
 
 :root {
-  /* ── Base surfaces — dark carbon ────────────────────────────────── */
-  --color-background: #0D0D0D;
-  --color-foreground: #E0E0E0;
-  --color-text: #E0E0E0;
-  --color-muted: #737373;
-  --color-border: #1F1F1F;
-  --color-card: #141414;
-  --color-accent: #FF6600;
+  /* ── Base surfaces — deep navy "Gru's Lair" ─────────────────────── */
+  --color-background: #0C0F1A;
+  --color-foreground: #E2E4EB;
+  --color-text: #E2E4EB;
+  --color-muted: #6B7394;
+  --color-border: #1E2235;
+  --color-card: #111528;
+  --color-accent: #FBBF24;
 
   /* ── Code blocks ────────────────────────────────────────────────── */
-  --color-code-bg: #090909;
-  --color-code-border: #1F1F1F;
+  --color-code-bg: #080B16;
+  --color-code-border: #1E2235;
 
   /* ── User messages ──────────────────────────────────────────────── */
-  --color-user-surface: hsla(0 0% 100% / 0.06);
-  --color-user-border: hsla(0 0% 100% / 0.1);
+  --color-user-surface: hsla(225 30% 80% / 0.06);
+  --color-user-border: hsla(225 30% 80% / 0.1);
 
   /* ── Message debug view ─────────────────────────────────────────── */
-  --color-message-debug-bg: rgba(0, 0, 0, 0.3);
-  --color-message-debug-border: rgba(255, 255, 255, 0.1);
-  --color-message-debug-text: rgba(255, 255, 255, 0.7);
+  --color-message-debug-bg: rgba(8, 11, 22, 0.3);
+  --color-message-debug-border: rgba(226, 228, 235, 0.1);
+  --color-message-debug-text: rgba(226, 228, 235, 0.7);
 
   /* ── Agent mode colors — distinct hues ──────────────────────────── */
   --color-thinking-mode: #818CF8;       /* indigo-400  — contemplation */
@@ -63,29 +64,32 @@
   /* ── Diff colors ────────────────────────────────────────────────── */
   --color-diff-add-bg: rgba(16, 185, 129, 0.1);   /* emerald tint */
   --color-diff-remove-bg: rgba(239, 68, 68, 0.1);  /* red tint */
+
+  /* ── Minion Yellow token highlight ─────────────────────────────── */
+  --color-token-completion: #FBBF24;
 }
 
 /* ══════════════════════════════════════════════════════════════════════
    Light theme
    ══════════════════════════════════════════════════════════════════════ */
 .light {
-  --color-background: #FAFAF7;
-  --color-foreground: #1A1A1A;
-  --color-text: #1A1A1A;
-  --color-muted: #78716C;
-  --color-border: #E0DDD5;
-  --color-card: #F5F3EE;
-  --color-accent: #E65C00;
+  --color-background: #FFFCF0;
+  --color-foreground: #1A1820;
+  --color-text: #1A1820;
+  --color-muted: #8A7B50;
+  --color-border: #E8DFC0;
+  --color-card: #FFF6DE;
+  --color-accent: #D4A017;
 
-  --color-code-bg: #F5F3EE;
-  --color-code-border: #E0DDD5;
+  --color-code-bg: #FFF6DE;
+  --color-code-border: #E8DFC0;
 
-  --color-user-surface: #F0EDE6;
-  --color-user-border: #D8D5CC;
+  --color-user-surface: #FFF3D0;
+  --color-user-border: #D8CFA8;
 
-  --color-message-debug-bg: #F5F3EE;
-  --color-message-debug-border: #E0DDD5;
-  --color-message-debug-text: #57534E;
+  --color-message-debug-bg: #FFF6DE;
+  --color-message-debug-border: #E8DFC0;
+  --color-message-debug-text: #6B5D3A;
 
   /* Mode colors — darker for light-bg readability */
   --color-thinking-mode: #4F46E5;       /* indigo-600 */
@@ -110,23 +114,23 @@
    Dark theme (explicit class — mirrors :root)
    ══════════════════════════════════════════════════════════════════════ */
 .dark {
-  --color-background: #0D0D0D;
-  --color-foreground: #E0E0E0;
-  --color-text: #E0E0E0;
-  --color-muted: #737373;
-  --color-border: #1F1F1F;
-  --color-card: #141414;
-  --color-accent: #FF6600;
+  --color-background: #0C0F1A;
+  --color-foreground: #E2E4EB;
+  --color-text: #E2E4EB;
+  --color-muted: #6B7394;
+  --color-border: #1E2235;
+  --color-card: #111528;
+  --color-accent: #FBBF24;
 
-  --color-code-bg: #090909;
-  --color-code-border: #1F1F1F;
+  --color-code-bg: #080B16;
+  --color-code-border: #1E2235;
 
-  --color-user-surface: hsla(0 0% 100% / 0.06);
-  --color-user-border: hsla(0 0% 100% / 0.1);
+  --color-user-surface: hsla(225 30% 80% / 0.06);
+  --color-user-border: hsla(225 30% 80% / 0.1);
 
-  --color-message-debug-bg: rgba(0, 0, 0, 0.3);
-  --color-message-debug-border: rgba(255, 255, 255, 0.1);
-  --color-message-debug-text: rgba(255, 255, 255, 0.7);
+  --color-message-debug-bg: rgba(8, 11, 22, 0.3);
+  --color-message-debug-border: rgba(226, 228, 235, 0.1);
+  --color-message-debug-text: rgba(226, 228, 235, 0.7);
 }
 
 /* ══════════════════════════════════════════════════════════════════════
