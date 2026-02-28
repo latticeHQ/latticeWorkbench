@@ -1,19 +1,19 @@
 export const colors = {
-  background: "#1f1f1f", // matches --color-background
-  surface: "#252526", // sidebar background
-  surfaceSecondary: "#2a2a2b", // header/footer backgrounds
-  surfaceElevated: "#2a2a2b", // hover/raised surfaces
-  surfaceSunken: "#161616", // deeper backgrounds
-  border: "#3e3e42",
-  borderSubtle: "#2a2a2b",
-  separator: "#2d2d30",
-  foregroundPrimary: "#d4d4d4",
-  foregroundSecondary: "#9a9a9a",
-  foregroundMuted: "#6e6e6e",
-  foregroundInverted: "#0b0b0c",
-  accent: "#007acc",
-  accentHover: "#1177bb",
-  accentMuted: "rgba(17, 119, 187, 0.08)",
+  background: "#0C0F1A", // deep navy — Gru's Lair
+  surface: "#111528", // sidebar background
+  surfaceSecondary: "#181C2E", // header/footer backgrounds
+  surfaceElevated: "#1E2235", // hover/raised surfaces
+  surfaceSunken: "#080B16", // deeper backgrounds
+  border: "#252A40",
+  borderSubtle: "#1E2235",
+  separator: "#1E2235",
+  foregroundPrimary: "#E2E4EB",
+  foregroundSecondary: "#9098B8",
+  foregroundMuted: "#6B7394",
+  foregroundInverted: "#0C0F1A",
+  accent: "#FBBF24", // Minion Yellow
+  accentHover: "#FCD34D",
+  accentMuted: "rgba(251, 191, 36, 0.08)",
   warning: "#ffc107",
   danger: "#f44336",
   success: "#4caf50",
@@ -21,14 +21,14 @@ export const colors = {
   error: "#f44336",
   errorBackground: "#ffeef0",
   info: "#3794ff",
-  foregroundTertiary: "#6e6e6e",
-  overlay: "rgba(0, 0, 0, 0.4)",
-  inputBackground: "#1f1f1f",
-  inputBorder: "#3e3e42",
-  inputBorderFocused: "#4db8ff",
-  chipBackground: "rgba(17, 119, 187, 0.16)",
-  chipBorder: "rgba(17, 119, 187, 0.4)",
-  backdrop: "rgba(10, 10, 10, 0.72)",
+  foregroundTertiary: "#6B7394",
+  overlay: "rgba(8, 11, 22, 0.4)",
+  inputBackground: "#0C0F1A",
+  inputBorder: "#252A40",
+  inputBorderFocused: "#FBBF24",
+  chipBackground: "rgba(251, 191, 36, 0.16)",
+  chipBorder: "rgba(251, 191, 36, 0.4)",
+  backdrop: "rgba(8, 11, 22, 0.72)",
 
   // Mode colors (matching web/Electron src/styles/globals.css)
   // Plan Mode - blue (hsl(210 70% 40%) = #1f6bb8)
