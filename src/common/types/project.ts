@@ -182,4 +182,17 @@ export interface ProjectsConfig {
    * The env var LATTICE_DISABLE_TELEMETRY=1 always takes precedence over this setting.
    */
   telemetryEnabled?: boolean;
+
+  /**
+   * NotebookLM integration configuration.
+   *
+   * Controls the built-in NotebookLM MCP server that provides AI notebook,
+   * audio/video generation, research, and studio artifact tools via Google's
+   * NotebookLM service.
+   *
+   * Default ON (undefined = enabled).
+   */
+  notebooklm?: {
+    enabled?: boolean;
+  };
 }

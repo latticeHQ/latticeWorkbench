@@ -300,6 +300,7 @@ export class Config {
           latticeGatewayUrl?: unknown;
           telegramBotToken?: unknown;
           telemetryEnabled?: unknown;
+          notebooklm?: unknown;
         };
 
         // Config is stored as array of [path, config] pairs
@@ -400,6 +401,9 @@ export class Config {
             latticeGatewayUrl: parseOptionalNonEmptyString(parsed.latticeGatewayUrl),
             telegramBotToken: parseOptionalNonEmptyString(parsed.telegramBotToken),
             telemetryEnabled,
+            notebooklm: parsed.notebooklm && typeof (parsed.notebooklm as Record<string, unknown>).enabled === "boolean"
+              ? { enabled: (parsed.notebooklm as Record<string, unknown>).enabled as boolean }
+              : undefined,
           };
         }
       }
@@ -454,6 +458,7 @@ export class Config {
         sync?: ProjectsConfig["sync"];
         telegramBotToken?: string;
         telemetryEnabled?: boolean;
+        notebooklm?: ProjectsConfig["notebooklm"];
       } = {
         projects: Array.from(config.projects.entries()).map(
           ([projectPath, projectConfig]) =>
@@ -608,6 +613,11 @@ export class Config {
       // Default ON: persist `false` only.
       if (config.telemetryEnabled === false) {
         data.telemetryEnabled = false;
+      }
+
+      // NotebookLM: default ON, persist only when explicitly disabled.
+      if (config.notebooklm?.enabled === false) {
+        data.notebooklm = { enabled: false };
       }
 
       await writeFileAtomic(this.configFile, JSON.stringify(data, null, 2), "utf-8");
