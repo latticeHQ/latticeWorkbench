@@ -248,6 +248,23 @@ async function generateBuildPng() {
   // Build PNG is App Icon (White on Black)
   const img = await generateRasterIcon({ size: 512, ...APP_ICON });
   await img.toFile(PNG_OUTPUT);
+
+  // Dock PNG — same icon but with macOS squircle mask baked in.
+  // app.dock.setIcon() doesn't apply the system mask, so we embed it.
+  // Apple's continuous superellipse ≈ 22.37% corner radius (115px on 512).
+  const DOCK_SIZE = 512;
+  const DOCK_RADIUS = 115;
+  const squircleMask = Buffer.from(
+    `<svg width="${DOCK_SIZE}" height="${DOCK_SIZE}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="${DOCK_SIZE}" height="${DOCK_SIZE}" rx="${DOCK_RADIUS}" ry="${DOCK_RADIUS}" fill="white"/>
+    </svg>`
+  );
+
+  const maskedIcon = await sharp(PNG_OUTPUT)
+    .composite([{ input: squircleMask, blend: "dest-in" }])
+    .png()
+    .toBuffer();
+  await writeFile(path.join(BUILD_DIR, "icon-dock.png"), maskedIcon);
 }
 
 async function generateIconsetPngs() {
