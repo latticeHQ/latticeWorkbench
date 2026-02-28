@@ -827,12 +827,16 @@ export function createClaudeCodeModel(
         // ── Streaming mode: write conversation as stream-json events to stdin ──
         const events = promptToStreamJsonEvents(options);
 
+        // CLI still needs MCP config to know about available tools
+        const mcpConfigJson = await generateLatticeMcpConfig();
+
         const args = buildClaudeArgs({
           prompt: "", // not used in streaming mode — input via stdin
           modelId: normalizedModelId,
           systemPrompt,
           outputFormat: "stream-json",
           mode: "streaming",
+          mcpConfigJson,
         });
 
         log.info(
@@ -954,8 +958,16 @@ function buildClaudeArgs(options: ClaudeArgOptions): string[] {
     args.push("--model", modelId);
     args.push("--verbose");
     args.push("--no-session-persistence");
-    // No --mcp-config: Lattice handles tool execution via AI SDK
-    // No --permission-mode: Lattice manages permissions via its own UI
+
+    // The CLI still needs tool definitions to generate tool_use events.
+    // We pass --mcp-config so it knows about Lattice tools.
+    if (mcpConfigJson) {
+      args.push("--mcp-config", mcpConfigJson);
+    }
+    args.push("--permission-mode", "bypassPermissions");
+
+    const effectiveMaxTurns = maxTurns ?? DEFAULT_AGENTIC_MAX_TURNS;
+    args.push("--max-turns", String(effectiveMaxTurns));
     return args;
   }
 
