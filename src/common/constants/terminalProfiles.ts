@@ -132,6 +132,17 @@ export const TERMINAL_PROFILE_DEFINITIONS: Record<string, TerminalProfileDefinit
       local: [{ method: "npm", command: "npm install -g @anthropic-ai/amp" }],
     },
   },
+  notebooklm: {
+    id: "notebooklm",
+    displayName: "NotebookLM",
+    command: "nlm",
+    description: "Google NotebookLM — AI notebooks with audio, video, and research",
+    category: "ai-agent",
+    group: "platform",
+    install: {
+      local: [{ method: "pip", command: "pip install notebooklm-mcp-cli" }],
+    },
+  },
   exo: {
     id: "exo",
     displayName: "Exo Cluster",
