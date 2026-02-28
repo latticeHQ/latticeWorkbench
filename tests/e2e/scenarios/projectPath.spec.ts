@@ -8,7 +8,7 @@ test.skip(
   "Electron scenario runs on chromium only"
 );
 
-test.describe("Headquarter Path Handling", () => {
+test.describe("Project Path Handling", () => {
   test("project with trailing slash displays correctly", async ({ workspace, page }) => {
     const { configRoot } = workspace;
     const srcDir = path.join(configRoot, "src");
@@ -60,7 +60,7 @@ test.describe("Headquarter Path Handling", () => {
     await page.waitForLoadState("domcontentloaded");
 
     // Find the project in the sidebar - it should show the project name, not empty
-    const navigation = page.getByRole("navigation", { name: "Headquarters" });
+    const navigation = page.getByRole("navigation", { name: "Projects" });
     await expect(navigation).toBeVisible();
 
     // The project name should be visible (extracted correctly despite trailing slash)

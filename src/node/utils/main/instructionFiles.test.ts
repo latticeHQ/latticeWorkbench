@@ -99,10 +99,10 @@ describe("instructionFiles", () => {
       await fs.mkdir(dir2);
 
       await fs.writeFile(path.join(dir1, "AGENTS.md"), "global instructions");
-      await fs.writeFile(path.join(dir2, "AGENTS.md"), "workspace instructions");
+      await fs.writeFile(path.join(dir2, "AGENTS.md"), "minion instructions");
 
       const result = await gatherInstructionSets([dir1, dir2]);
-      expect(result).toEqual(["global instructions", "workspace instructions"]);
+      expect(result).toEqual(["global instructions", "minion instructions"]);
     });
 
     it("should include local files in gathered instructions", async () => {
@@ -113,11 +113,11 @@ describe("instructionFiles", () => {
 
       await fs.writeFile(path.join(dir1, "AGENTS.md"), "global base");
       await fs.writeFile(path.join(dir1, "AGENTS.local.md"), "global local");
-      await fs.writeFile(path.join(dir2, "AGENTS.md"), "workspace base");
-      await fs.writeFile(path.join(dir2, "AGENTS.local.md"), "workspace local");
+      await fs.writeFile(path.join(dir2, "AGENTS.md"), "minion base");
+      await fs.writeFile(path.join(dir2, "AGENTS.local.md"), "minion local");
 
       const result = await gatherInstructionSets([dir1, dir2]);
-      expect(result).toEqual(["global base\n\nglobal local", "workspace base\n\nworkspace local"]);
+      expect(result).toEqual(["global base\n\nglobal local", "minion base\n\nminion local"]);
     });
 
     it("should skip directories without instruction files", async () => {

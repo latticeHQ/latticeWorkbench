@@ -1,60 +1,68 @@
 import { expect, test, mock } from "bun:test";
 import { buildCoreSources } from "./sources";
 import type { ProjectConfig } from "@/node/config";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
-import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
+import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/minion";
+import { GlobalWindow } from "happy-dom";
+import { CUSTOM_EVENTS } from "@/common/constants/events";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import type { APIClient } from "@/browser/contexts/API";
 
 const mk = (over: Partial<Parameters<typeof buildCoreSources>[0]> = {}) => {
   const projects = new Map<string, ProjectConfig>();
   projects.set("/repo/a", {
-    workspaces: [{ path: "/repo/a/feat-x" }, { path: "/repo/a/feat-y" }],
+    minions: [{ path: "/repo/a/feat-x" }, { path: "/repo/a/feat-y" }],
   });
-  const workspaceMetadata = new Map<string, FrontendWorkspaceMetadata>();
-  workspaceMetadata.set("w1", {
+  const minionMetadata = new Map<string, FrontendMinionMetadata>();
+  minionMetadata.set("w1", {
     id: "w1",
     name: "feat-x",
     projectName: "a",
     projectPath: "/repo/a",
-    namedWorkspacePath: "/repo/a/feat-x",
+    namedMinionPath: "/repo/a/feat-x",
     runtimeConfig: DEFAULT_RUNTIME_CONFIG,
   });
-  workspaceMetadata.set("w2", {
+  minionMetadata.set("w2", {
     id: "w2",
     name: "feat-y",
     projectName: "a",
     projectPath: "/repo/a",
-    namedWorkspacePath: "/repo/a/feat-y",
+    namedMinionPath: "/repo/a/feat-y",
     runtimeConfig: DEFAULT_RUNTIME_CONFIG,
   });
   const params: Parameters<typeof buildCoreSources>[0] = {
     projects,
     theme: "dark",
-    workspaceMetadata,
-    selectedWorkspace: {
+    minionMetadata,
+    selectedMinion: {
       projectPath: "/repo/a",
       projectName: "a",
-      namedWorkspacePath: "/repo/a/feat-x",
-      workspaceId: "w1",
+      namedMinionPath: "/repo/a/feat-x",
+      minionId: "w1",
     },
+    confirmDialog: () => Promise.resolve(true),
     streamingModels: new Map<string, string>(),
     getThinkingLevel: () => "off",
     onSetThinkingLevel: () => undefined,
-    onStartWorkspaceCreation: () => undefined,
-    onSelectWorkspace: () => undefined,
-    onRemoveWorkspace: () => Promise.resolve({ success: true }),
-    onRenameWorkspace: () => Promise.resolve({ success: true }),
+    onStartMinionCreation: () => undefined,
+    onArchiveMergedMinionsInProject: () => Promise.resolve(),
+    onSelectMinion: () => undefined,
+    onRemoveMinion: () => Promise.resolve({ success: true }),
+    onUpdateTitle: () => Promise.resolve({ success: true }),
     onAddProject: () => undefined,
     onRemoveProject: () => undefined,
     onToggleSidebar: () => undefined,
-    onNavigateWorkspace: () => undefined,
-    onOpenWorkspaceInTerminal: () => undefined,
+    onNavigateMinion: () => undefined,
+    onOpenMinionInTerminal: () => undefined,
     onToggleTheme: () => undefined,
     onSetTheme: () => undefined,
     api: {
-      workspace: {
+      minion: {
         truncateHistory: () => Promise.resolve({ success: true, data: undefined }),
         interruptStream: () => Promise.resolve({ success: true, data: undefined }),
+      },
+      analytics: {
+        rebuildDatabase: () => Promise.resolve({ success: true, minionsIngested: 2 }),
       },
     } as unknown as APIClient,
     getBranchesForProject: () =>
@@ -67,19 +75,19 @@ const mk = (over: Partial<Parameters<typeof buildCoreSources>[0]> = {}) => {
   return buildCoreSources(params);
 };
 
-test("buildCoreSources includes create/switch workspace actions", () => {
+test("buildCoreSources includes create/switch minion actions", () => {
   const sources = mk();
   const actions = sources.flatMap((s) => s());
   const titles = actions.map((a) => a.title);
-  expect(titles.some((t) => t.startsWith("Create New Workspace"))).toBe(true);
-  // Workspace switcher shows workspace name (or title) as primary label
+  expect(titles.some((t) => t.startsWith("Summon New Minion"))).toBe(true);
+  // Minion switcher shows minion name (or title) as primary label
   expect(titles.some((t) => t.includes("feat-x") || t.includes("feat-y"))).toBe(true);
-  expect(titles.includes("Right Sidebar: Split Horizontally")).toBe(true);
-  expect(titles.includes("Right Sidebar: Split Vertically")).toBe(true);
-  expect(titles.includes("Right Sidebar: Add Tool…")).toBe(true);
-  expect(titles.includes("Right Sidebar: Focus Terminal")).toBe(true);
+  expect(titles.includes("Workbench: Split Horizontally")).toBe(true);
+  expect(titles.includes("Workbench: Split Vertically")).toBe(true);
+  expect(titles.includes("Workbench: Add Tool…")).toBe(true);
+  expect(titles.includes("Workbench: Focus Terminal")).toBe(true);
   expect(titles.includes("New Terminal Window")).toBe(true);
-  expect(titles.includes("Open Terminal Window for Workspace…")).toBe(true);
+  expect(titles.includes("Open Terminal Window for Minion…")).toBe(true);
 });
 
 test("buildCoreSources adds thinking effort command", () => {
@@ -91,7 +99,7 @@ test("buildCoreSources adds thinking effort command", () => {
   expect(thinkingAction?.subtitle).toContain("Medium");
 });
 
-test("workspace switch commands include keywords for filtering", () => {
+test("minion switch commands include keywords for filtering", () => {
   const sources = mk();
   const actions = sources.flatMap((s) => s());
   const switchAction = actions.find((a) => a.id.startsWith("ws:switch:"));
@@ -103,8 +111,8 @@ test("workspace switch commands include keywords for filtering", () => {
   expect(switchAction?.keywords).toContain("a"); // projectName from mk()
 });
 
-test("workspace switch with title shows title as primary label", () => {
-  const workspaceMetadata = new Map<string, FrontendWorkspaceMetadata>([
+test("minion switch with title shows title as primary label", () => {
+  const minionMetadata = new Map<string, FrontendMinionMetadata>([
     [
       "w-titled",
       {
@@ -112,14 +120,14 @@ test("workspace switch with title shows title as primary label", () => {
         name: "feature-branch",
         projectPath: "/proj",
         projectName: "my-project",
-        namedWorkspacePath: "/proj/feature-branch",
+        namedMinionPath: "/proj/feature-branch",
         createdAt: "2024-01-01T00:00:00Z",
         runtimeConfig: DEFAULT_RUNTIME_CONFIG,
         title: "Fix login button styling",
       },
     ],
   ]);
-  const sources = mk({ workspaceMetadata });
+  const sources = mk({ minionMetadata });
   const actions = sources.flatMap((s) => s());
   const switchAction = actions.find((a) => a.id === "ws:switch:w-titled");
 
@@ -145,4 +153,204 @@ test("thinking effort command submits selected level", async () => {
   await thinkingAction!.prompt!.onSubmit({ thinkingLevel: "high" });
 
   expect(onSetThinkingLevel).toHaveBeenCalledWith("w1", "high");
+});
+
+test("buildCoreSources includes archive merged minions in project action", () => {
+  const sources = mk();
+  const actions = sources.flatMap((s) => s());
+  const archiveAction = actions.find((a) => a.id === "ws:archive-merged-in-project");
+
+  expect(archiveAction).toBeDefined();
+  expect(archiveAction?.title).toBe("Bench Merged Minions in Project…");
+});
+
+test("archive merged minions prompt submits selected project", async () => {
+  const onArchiveMergedMinionsInProject = mock(() => Promise.resolve());
+  const sources = mk({ onArchiveMergedMinionsInProject });
+  const actions = sources.flatMap((s) => s());
+  const archiveAction = actions.find((a) => a.id === "ws:archive-merged-in-project");
+
+  expect(archiveAction).toBeDefined();
+  expect(archiveAction?.prompt).toBeDefined();
+
+  // buildCoreSources uses confirm(...) in onSubmit.
+  const originalConfirm = (globalThis as unknown as { confirm?: typeof confirm }).confirm;
+  (globalThis as unknown as { confirm: typeof confirm }).confirm = () => true;
+  try {
+    await archiveAction!.prompt!.onSubmit({ projectPath: "/repo/a" });
+  } finally {
+    if (originalConfirm) {
+      (globalThis as unknown as { confirm: typeof confirm }).confirm = originalConfirm;
+    } else {
+      delete (globalThis as unknown as { confirm?: typeof confirm }).confirm;
+    }
+  }
+
+  expect(onArchiveMergedMinionsInProject).toHaveBeenCalledTimes(1);
+  expect(onArchiveMergedMinionsInProject).toHaveBeenCalledWith("/repo/a");
+});
+
+test("buildCoreSources includes rebuild analytics database action with discoverable keywords", () => {
+  const sources = mk();
+  const actions = sources.flatMap((s) => s());
+  const rebuildAction = actions.find((a) => a.id === "analytics:rebuild-database");
+
+  expect(rebuildAction).toBeDefined();
+  expect(rebuildAction?.title).toBe("Rebuild Analytics Database");
+  expect(rebuildAction?.keywords).toContain("analytics");
+  expect(rebuildAction?.keywords).toContain("rebuild");
+  expect(rebuildAction?.keywords).toContain("recompute");
+  expect(rebuildAction?.keywords).toContain("database");
+  expect(rebuildAction?.keywords).toContain("stats");
+});
+
+test("analytics rebuild command calls route and dispatches toast feedback", async () => {
+  const rebuildDatabase = mock(() => Promise.resolve({ success: true, minionsIngested: 4 }));
+
+  const testWindow = new GlobalWindow();
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const originalCustomEvent = globalThis.CustomEvent;
+
+  globalThis.window = testWindow as unknown as Window & typeof globalThis;
+  globalThis.document = testWindow.document as unknown as Document;
+  globalThis.CustomEvent = testWindow.CustomEvent as unknown as typeof CustomEvent;
+
+  const chatInputHost = document.createElement("div");
+  chatInputHost.setAttribute("data-component", "ChatInputSection");
+  document.body.appendChild(chatInputHost);
+
+  const receivedToasts: Array<{
+    type: "success" | "error";
+    message: string;
+    title?: string;
+  }> = [];
+  const handleToast = (event: Event) => {
+    receivedToasts.push(
+      (event as CustomEvent<{ type: "success" | "error"; message: string; title?: string }>).detail
+    );
+  };
+  window.addEventListener(CUSTOM_EVENTS.ANALYTICS_REBUILD_TOAST, handleToast);
+
+  try {
+    const sources = mk({
+      api: {
+        minion: {
+          truncateHistory: () => Promise.resolve({ success: true, data: undefined }),
+          interruptStream: () => Promise.resolve({ success: true, data: undefined }),
+        },
+        analytics: { rebuildDatabase },
+      } as unknown as APIClient,
+    });
+    const actions = sources.flatMap((s) => s());
+    const rebuildAction = actions.find((a) => a.id === "analytics:rebuild-database");
+
+    expect(rebuildAction).toBeDefined();
+    await rebuildAction!.run();
+
+    expect(rebuildDatabase).toHaveBeenCalledWith({});
+    expect(receivedToasts).toEqual([
+      {
+        type: "success",
+        message: "Analytics database rebuilt successfully (4 minions ingested).",
+      },
+    ]);
+  } finally {
+    window.removeEventListener(CUSTOM_EVENTS.ANALYTICS_REBUILD_TOAST, handleToast);
+    globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
+    globalThis.CustomEvent = originalCustomEvent;
+  }
+});
+
+test("analytics rebuild command falls back to alert when chat input toast host is unavailable", async () => {
+  const rebuildDatabase = mock(() => Promise.resolve({ success: true, minionsIngested: 1 }));
+
+  const testWindow = new GlobalWindow();
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const originalCustomEvent = globalThis.CustomEvent;
+
+  globalThis.window = testWindow as unknown as Window & typeof globalThis;
+  globalThis.document = testWindow.document as unknown as Document;
+  globalThis.CustomEvent = testWindow.CustomEvent as unknown as typeof CustomEvent;
+
+  const alertMock = mock(() => undefined);
+  window.alert = alertMock as unknown as typeof window.alert;
+
+  try {
+    const sources = mk({
+      api: {
+        minion: {
+          truncateHistory: () => Promise.resolve({ success: true, data: undefined }),
+          interruptStream: () => Promise.resolve({ success: true, data: undefined }),
+        },
+        analytics: { rebuildDatabase },
+      } as unknown as APIClient,
+    });
+    const actions = sources.flatMap((s) => s());
+    const rebuildAction = actions.find((a) => a.id === "analytics:rebuild-database");
+
+    expect(rebuildAction).toBeDefined();
+    await rebuildAction!.run();
+
+    expect(rebuildDatabase).toHaveBeenCalledWith({});
+    expect(alertMock).toHaveBeenCalledWith(
+      "Analytics database rebuilt successfully (1 minion ingested)."
+    );
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
+    globalThis.CustomEvent = originalCustomEvent;
+  }
+});
+
+test("minion generate title command is hidden for Chat with Lattice minion", () => {
+  const sources = mk({
+    selectedMinion: {
+      projectPath: "/repo/a",
+      projectName: "a",
+      namedMinionPath: "/repo/a/lattice-help",
+      minionId: LATTICE_HELP_CHAT_MINION_ID,
+    },
+  });
+  const actions = sources.flatMap((s) => s());
+
+  expect(actions.some((action) => action.id === "ws:generate-title")).toBe(false);
+});
+
+test("minion generate title command dispatches a title-generation request event", async () => {
+  const testWindow = new GlobalWindow();
+  const originalWindow = globalThis.window;
+  const originalDocument = globalThis.document;
+  const originalCustomEvent = globalThis.CustomEvent;
+
+  globalThis.window = testWindow as unknown as Window & typeof globalThis;
+  globalThis.document = testWindow.document as unknown as Document;
+  globalThis.CustomEvent = testWindow.CustomEvent as unknown as typeof CustomEvent;
+
+  const receivedMinionIds: string[] = [];
+  const handleRequest = (event: Event) => {
+    const detail = (event as CustomEvent<{ minionId: string }>).detail;
+    receivedMinionIds.push(detail.minionId);
+  };
+
+  window.addEventListener(CUSTOM_EVENTS.MINION_GENERATE_TITLE_REQUESTED, handleRequest);
+
+  try {
+    const sources = mk();
+    const actions = sources.flatMap((s) => s());
+    const generateTitleAction = actions.find((a) => a.id === "ws:generate-title");
+
+    expect(generateTitleAction).toBeDefined();
+
+    await generateTitleAction!.run();
+
+    expect(receivedMinionIds).toEqual(["w1"]);
+  } finally {
+    window.removeEventListener(CUSTOM_EVENTS.MINION_GENERATE_TITLE_REQUESTED, handleRequest);
+    globalThis.window = originalWindow;
+    globalThis.document = originalDocument;
+    globalThis.CustomEvent = originalCustomEvent;
+  }
 });

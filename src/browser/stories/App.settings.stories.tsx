@@ -1,21 +1,23 @@
 /**
  * Settings modal stories
  *
- * Shows different sections and states of the Settings modal:
+ * Shows different crews and states of the Settings modal:
  * - General (theme toggle)
  * - Agents (task parallelism / nesting)
- * - Providers (provider detection & install)
+ * - Providers (API key configuration)
+ * - Models (custom model management)
+ * - Modes (per-mode default model / reasoning)
  * - Experiments
  *
- * NOTE: Headquarters/MCP stories live in App.mcp.stories.tsx
+ * NOTE: Projects/MCP stories live in App.mcp.stories.tsx
  *
- * Uses play functions to open the settings modal and navigate to sections.
+ * Uses play functions to open the settings modal and navigate to crews.
  */
 
 import type { APIClient } from "@/browser/contexts/API";
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
-import { createWorkspace, groupWorkspacesByProject } from "./mockFactory";
-import { selectWorkspace } from "./storyHelpers";
+import { createMinion, groupMinionsByProject } from "./mockFactory";
+import { selectMinion } from "./storyHelpers";
 import { createMockORPCClient } from "@/browser/stories/mocks/orpc";
 import { within, userEvent, waitFor } from "@storybook/test";
 import {
@@ -25,6 +27,7 @@ import {
 } from "@/common/constants/experiments";
 import type { AgentAiDefaults } from "@/common/types/agentAiDefaults";
 import type { TaskSettings } from "@/common/types/tasks";
+import type { ServerAuthSession } from "@/common/orpc/types";
 import type { LayoutPresetsConfig } from "@/common/types/uiLayouts";
 
 export default {
@@ -36,22 +39,30 @@ export default {
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Setup basic workspace for settings stories */
+/** Setup basic minion for settings stories */
 function setupSettingsStory(options: {
   layoutPresets?: LayoutPresetsConfig;
   providersConfig?: Record<
     string,
-    { apiKeySet: boolean; isConfigured: boolean; baseUrl?: string; models?: string[] }
+    {
+      apiKeySet: boolean;
+      isEnabled: boolean;
+      isConfigured: boolean;
+      baseUrl?: string;
+      models?: string[];
+    }
   >;
   providersList?: string[];
   agentAiDefaults?: AgentAiDefaults;
   taskSettings?: Partial<TaskSettings>;
+  /** Sessions shown in Settings → Server Access. */
+  serverAuthSessions?: ServerAuthSession[];
   /** Pre-set experiment states in localStorage before render */
   experiments?: Partial<Record<string, boolean>>;
 }): APIClient {
-  const workspaces = [createWorkspace({ id: "ws-1", name: "main", projectName: "my-app" })];
+  const minions = [createMinion({ id: "ws-1", name: "main", projectName: "my-app" })];
 
-  selectWorkspace(workspaces[0]);
+  selectMinion(minions[0]);
 
   // Pre-set experiment states if provided
   if (options.experiments) {
@@ -62,61 +73,89 @@ function setupSettingsStory(options: {
   }
 
   return createMockORPCClient({
-    projects: groupWorkspacesByProject(workspaces),
-    workspaces,
+    projects: groupMinionsByProject(minions),
+    minions,
     providersConfig: options.providersConfig ?? {},
     agentAiDefaults: options.agentAiDefaults,
     providersList: options.providersList ?? ["anthropic", "openai", "xai"],
     taskSettings: options.taskSettings,
+    serverAuthSessions: options.serverAuthSessions,
     layoutPresets: options.layoutPresets,
   });
 }
 
-/** Open settings modal and optionally navigate to a section */
+/** Open settings route page and optionally navigate to a crew. */
 async function openSettingsToSection(canvasElement: HTMLElement, section?: string): Promise<void> {
   const canvas = within(canvasElement);
-  // Use ownerDocument.body to scope to iframe, not parent Storybook UI
-  const body = within(canvasElement.ownerDocument.body);
 
-  // Wait for app to fully load (sidebar with settings button should appear)
+  // Wait for app to fully load (sidebar with settings button should appear).
   const settingsButton = await canvas.findByTestId("settings-button", {}, { timeout: 10000 });
   await userEvent.click(settingsButton);
 
-  // Wait for dialog to appear (portal renders outside canvasElement but inside iframe body)
-  await body.findByRole("dialog");
+  // Settings now render in the main pane (route-based), not in a modal dialog.
+  const generalSectionButtons = await canvas.findAllByRole("button", { name: /^General$/i });
+  if (generalSectionButtons.length === 0) {
+    throw new Error("Settings page did not render the section navigation");
+  }
 
-  // Navigate to specific section if requested
+  // Navigate to specific crew if requested.
   if (section && section !== "general") {
-    // Capitalize first letter to match the button text (e.g., "experiments" -> "Experiments")
+    // Capitalize first letter to match nav labels (e.g., "experiments" -> "Experiments").
     const sectionLabel = section.charAt(0).toUpperCase() + section.slice(1);
-    const sectionButton = await body.findByRole("button", {
+    const sectionButtons = await canvas.findAllByRole("button", {
       name: new RegExp(sectionLabel, "i"),
     });
+    const sectionButton = sectionButtons[0];
+    if (!sectionButton) {
+      throw new Error(`Settings section button not found for ${sectionLabel}`);
+    }
     await userEvent.click(sectionButton);
   }
 }
+
+const MOCK_SERVER_AUTH_SESSIONS: ServerAuthSession[] = [
+  {
+    id: "session-current",
+    label: "Safari on iPhone",
+    createdAtMs: 1_735_689_600_000,
+    lastUsedAtMs: 4_102_444_800_000,
+    isCurrent: true,
+  },
+  {
+    id: "session-macbook",
+    label: "Chrome on Mac",
+    createdAtMs: 1_735_776_000_000,
+    lastUsedAtMs: 4_102_444_800_000,
+    isCurrent: false,
+  },
+  {
+    id: "session-tablet",
+    label: "Firefox on Android",
+    createdAtMs: 1_735_862_400_000,
+    lastUsedAtMs: 4_102_444_800_000,
+    isCurrent: false,
+  },
+];
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STORIES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** General settings section */
+/** General settings crew */
 export const General: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await openSettingsToSection(canvasElement, "general");
 
-    const body = within(canvasElement.ownerDocument.body);
-    const dialog = await body.findByRole("dialog");
-    const dialogCanvas = within(dialog);
+    const settingsCanvas = within(canvasElement);
 
-    await dialogCanvas.findByText(/^Theme$/i);
-    await dialogCanvas.findByText(/^Terminal Font$/i);
-    await dialogCanvas.findByText(/^Terminal Font Size$/i);
+    await settingsCanvas.findByText(/^Theme$/i);
+    await settingsCanvas.findByText(/^Terminal Font$/i);
+    await settingsCanvas.findByText(/^Terminal Font Size$/i);
   },
 };
 
-/** Agents settings section - task parallelism and nesting controls */
+/** Agents settings crew - task parallelism and nesting controls */
 export const Tasks: AppStory = {
   render: () => (
     <AppWithMocks
@@ -130,28 +169,26 @@ export const Tasks: AppStory = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await openSettingsToSection(canvasElement, "agents");
 
-    const body = within(canvasElement.ownerDocument.body);
-    const dialog = await body.findByRole("dialog");
-    const dialogCanvas = within(dialog);
+    const settingsCanvas = within(canvasElement);
 
-    await dialogCanvas.findByText(/Max Parallel Agent Tasks/i);
-    await dialogCanvas.findByText(/Max Task Nesting Depth/i);
-    await dialogCanvas.findByText(/Agent Defaults/i);
-    await dialogCanvas.findByRole("heading", { name: /UI agents/i });
-    await dialogCanvas.findByRole("heading", { name: /Sub-agents/i });
-    await dialogCanvas.findByRole("heading", { name: /Internal/i });
+    await settingsCanvas.findByText(/Max Parallel Agent Tasks/i);
+    await settingsCanvas.findByText(/Max Task Nesting Depth/i);
+    await settingsCanvas.findByText(/Agent Defaults/i);
+    await settingsCanvas.findByRole("heading", { name: /UI agents/i });
+    await settingsCanvas.findByRole("heading", { name: /Sub-agents/i });
+    await settingsCanvas.findByRole("heading", { name: /Internal/i });
 
-    await dialogCanvas.findByText(/^Plan$/i);
-    await dialogCanvas.findByText(/^Exec$/i);
-    await dialogCanvas.findByText(/^Explore$/i);
-    await dialogCanvas.findByText(/^Compact$/i);
+    await settingsCanvas.findAllByText(/^Plan$/i);
+    await settingsCanvas.findAllByText(/^Exec$/i);
+    await settingsCanvas.findAllByText(/^Explore$/i);
+    await settingsCanvas.findAllByText(/^Compact$/i);
 
-    const inputs = await dialogCanvas.findAllByRole("spinbutton");
-    if (inputs.length !== 2) {
-      throw new Error(`Expected 2 task settings inputs, got ${inputs.length}`);
-    }
-
+    // Re-query spinbuttons inside waitFor to avoid stale DOM refs after React re-renders.
     await waitFor(() => {
+      const inputs = settingsCanvas.queryAllByRole("spinbutton");
+      if (inputs.length !== 2) {
+        throw new Error(`Expected 2 task settings inputs, got ${inputs.length}`);
+      }
       const maxParallelAgentTasks = (inputs[0] as HTMLInputElement).value;
       const maxTaskNestingDepth = (inputs[1] as HTMLInputElement).value;
       if (maxParallelAgentTasks !== "2") {
@@ -168,9 +205,34 @@ export const Tasks: AppStory = {
   },
 };
 
-/** Providers section */
-export const Providers: AppStory = {
-  render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
+/** Providers crew - no providers configured */
+export const ProvidersEmpty: AppStory = {
+  render: () => <AppWithMocks setup={() => setupSettingsStory({ providersConfig: {} })} />,
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openSettingsToSection(canvasElement, "providers");
+  },
+};
+
+/** Providers crew - some providers configured */
+export const ProvidersConfigured: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSettingsStory({
+          providersConfig: {
+            anthropic: { apiKeySet: true, isEnabled: true, isConfigured: true, baseUrl: "" },
+            openai: {
+              apiKeySet: true,
+              isEnabled: true,
+              isConfigured: true,
+              baseUrl: "https://custom.openai.com/v1",
+            },
+            xai: { apiKeySet: false, isEnabled: true, isConfigured: false, baseUrl: "" },
+          },
+        })
+      }
+    />
+  ),
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await openSettingsToSection(canvasElement, "providers");
   },
@@ -180,7 +242,7 @@ export const Providers: AppStory = {
 // Layouts
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Layouts section - empty state (no layouts configured) */
+/** Layouts crew - empty state (no layouts configured) */
 export const LayoutsEmpty: AppStory = {
   render: () => (
     <AppWithMocks
@@ -197,21 +259,19 @@ export const LayoutsEmpty: AppStory = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await openSettingsToSection(canvasElement, "layouts");
 
-    const body = within(canvasElement.ownerDocument.body);
-    const dialog = await body.findByRole("dialog");
-    const dialogCanvas = within(dialog);
+    const settingsCanvas = within(canvasElement);
 
-    await dialogCanvas.findByRole("heading", { name: /layout slots/i });
+    await settingsCanvas.findByRole("heading", { name: /layout slots/i });
 
     // Empty state should render no slot rows.
-    await dialogCanvas.findByText(/^Add layout$/i);
-    if (dialogCanvas.queryByText(/Slot 1/i)) {
+    await settingsCanvas.findByText(/^Add layout$/i);
+    if (settingsCanvas.queryByText(/Slot 1/i)) {
       throw new Error("Expected no slot rows to be rendered in the empty state");
     }
   },
 };
 
-/** Layouts section - with a preset assigned to a slot */
+/** Layouts crew - with a preset assigned to a slot */
 export const LayoutsConfigured: AppStory = {
   render: () => (
     <AppWithMocks
@@ -226,7 +286,7 @@ export const LayoutsConfigured: AppStory = {
                   id: "preset-1",
                   name: "My Layout",
                   leftSidebarCollapsed: false,
-                  rightSidebar: {
+                  workbenchPanel: {
                     collapsed: false,
                     width: { mode: "px", value: 420 },
                     layout: {
@@ -249,7 +309,7 @@ export const LayoutsConfigured: AppStory = {
                   id: "preset-10",
                   name: "Extra Layout",
                   leftSidebarCollapsed: false,
-                  rightSidebar: {
+                  workbenchPanel: {
                     collapsed: true,
                     width: { mode: "px", value: 400 },
                     layout: {
@@ -275,26 +335,126 @@ export const LayoutsConfigured: AppStory = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await openSettingsToSection(canvasElement, "layouts");
 
-    const body = within(canvasElement.ownerDocument.body);
-    const dialog = await body.findByRole("dialog");
-    const dialogCanvas = within(dialog);
+    const settingsCanvas = within(canvasElement);
 
-    await dialogCanvas.findByRole("heading", { name: /layout slots/i });
+    await settingsCanvas.findByRole("heading", { name: /layout slots/i });
 
     // Wait for the async config load from the UILayoutsProvider.
-    await dialogCanvas.findByText(/My Layout/i);
-    await dialogCanvas.findByText(/Extra Layout/i);
-    await dialogCanvas.findByText(/^Slot 1$/i);
-    await dialogCanvas.findByText(/^Slot 10$/i);
-    await dialogCanvas.findByText(/^Add layout$/i);
+    await settingsCanvas.findByText(/My Layout/i);
+    await settingsCanvas.findByText(/Extra Layout/i);
+    await settingsCanvas.findByText(/^Slot 1$/i);
+    await settingsCanvas.findByText(/^Slot 10$/i);
+    await settingsCanvas.findByText(/^Add layout$/i);
 
-    if (dialogCanvas.queryByText(/Slot 2/i)) {
+    if (settingsCanvas.queryByText(/Slot 2/i)) {
       throw new Error("Expected only configured layouts to render");
     }
   },
 };
+/** Providers crew - expanded to show quick links (docs + get API key) */
+export const ProvidersExpanded: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSettingsStory({
+          providersConfig: {
+            anthropic: { apiKeySet: true, isEnabled: true, isConfigured: true, baseUrl: "" },
+            openai: { apiKeySet: false, isEnabled: true, isConfigured: false, baseUrl: "" },
+            xai: { apiKeySet: false, isEnabled: true, isConfigured: false, baseUrl: "" },
+          },
+        })
+      }
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openSettingsToSection(canvasElement, "providers");
 
-/** System 1 section - experiment gated */
+    const settingsCanvas = within(canvasElement);
+
+    // Click on a provider to expand it and reveal the API key link.
+    const openaiButton = await settingsCanvas.findByRole("button", { name: /openai/i });
+    await userEvent.click(openaiButton);
+
+    // Verify "Get API Key" link is visible.
+    await settingsCanvas.findByRole("link", { name: /get api key/i });
+  },
+};
+
+/** Models crew - no custom models */
+export const ModelsEmpty: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSettingsStory({
+          providersConfig: {
+            anthropic: {
+              apiKeySet: true,
+              isEnabled: true,
+              isConfigured: true,
+              baseUrl: "",
+              models: [],
+            },
+            openai: {
+              apiKeySet: true,
+              isEnabled: true,
+              isConfigured: true,
+              baseUrl: "",
+              models: [],
+            },
+          },
+        })
+      }
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openSettingsToSection(canvasElement, "models");
+  },
+};
+
+/** Models crew - with custom models configured */
+export const ModelsConfigured: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() => {
+        // Pre-set 1M context enabled for Opus 4.6 so the story shows the toggle active
+        window.localStorage.setItem(
+          "provider_options_anthropic",
+          JSON.stringify({ use1MContextModels: ["anthropic:claude-opus-4-6"] })
+        );
+        return setupSettingsStory({
+          providersConfig: {
+            anthropic: {
+              apiKeySet: true,
+              isEnabled: true,
+              isConfigured: true,
+              baseUrl: "",
+              models: ["claude-sonnet-4-20250514", "claude-opus-4-6"],
+            },
+            openai: {
+              apiKeySet: true,
+              isEnabled: true,
+              isConfigured: true,
+              baseUrl: "",
+              models: ["gpt-4o", "gpt-4o-mini", "o1-preview"],
+            },
+            xai: {
+              apiKeySet: false,
+              isEnabled: true,
+              isConfigured: false,
+              baseUrl: "",
+              models: ["grok-beta"],
+            },
+          },
+        });
+      }}
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openSettingsToSection(canvasElement, "models");
+  },
+};
+
+/** System 1 crew - experiment gated */
 export const System1: AppStory = {
   render: () => (
     <AppWithMocks
@@ -310,12 +470,14 @@ export const System1: AppStory = {
           providersConfig: {
             anthropic: {
               apiKeySet: true,
+              isEnabled: true,
               isConfigured: true,
               baseUrl: "",
               models: ["claude-sonnet-4-20250514", "claude-opus-4-20250514"],
             },
             openai: {
               apiKeySet: true,
+              isEnabled: true,
               isConfigured: true,
               baseUrl: "",
               models: ["gpt-4o", "gpt-4o-mini", "o1-preview"],
@@ -328,20 +490,18 @@ export const System1: AppStory = {
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
     await openSettingsToSection(canvasElement, "system 1");
 
-    const body = within(canvasElement.ownerDocument.body);
-    const dialog = await body.findByRole("dialog");
-    const dialogCanvas = within(dialog);
+    const settingsCanvas = within(canvasElement);
 
-    await dialogCanvas.findByText(/System 1 Model/i);
-    await dialogCanvas.findByText(/System 1 Reasoning/i);
-    await dialogCanvas.findByRole("heading", { name: /bash output compaction/i });
+    await settingsCanvas.findByText(/System 1 Model/i);
+    await settingsCanvas.findByText(/System 1 Reasoning/i);
+    await settingsCanvas.findByRole("heading", { name: /bash output compaction/i });
 
-    const inputs = await dialogCanvas.findAllByRole("spinbutton");
-    if (inputs.length !== 4) {
-      throw new Error(`Expected 4 System 1 inputs, got ${inputs.length}`);
-    }
-
+    // Re-query spinbuttons inside waitFor to avoid stale DOM refs after React re-renders.
     await waitFor(() => {
+      const inputs = settingsCanvas.queryAllByRole("spinbutton");
+      if (inputs.length !== 4) {
+        throw new Error(`Expected 4 System 1 inputs, got ${inputs.length}`);
+      }
       const minLines = (inputs[0] as HTMLInputElement).value;
       const minTotalKb = (inputs[1] as HTMLInputElement).value;
       const maxKeptLines = (inputs[2] as HTMLInputElement).value;
@@ -363,7 +523,32 @@ export const System1: AppStory = {
   },
 };
 
-/** Experiments section - shows available experiments */
+/** Server Access crew - active device sessions */
+export const ServerAccess: AppStory = {
+  render: () => (
+    <AppWithMocks
+      setup={() =>
+        setupSettingsStory({
+          serverAuthSessions: MOCK_SERVER_AUTH_SESSIONS,
+        })
+      }
+    />
+  ),
+  play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+    await openSettingsToSection(canvasElement, "server access");
+
+    const settingsCanvas = within(canvasElement);
+
+    await settingsCanvas.findByText(/Server access sessions/i);
+    await settingsCanvas.findByText(/Safari on iPhone \(Current\)/i);
+    await settingsCanvas.findByText(/Chrome on Mac/i);
+    await settingsCanvas.findByText(/Firefox on Android/i);
+    await settingsCanvas.findByRole("button", { name: /^Refresh$/i });
+    await settingsCanvas.findByRole("button", { name: /Revoke other sessions/i });
+  },
+};
+
+/** Experiments crew - shows available experiments */
 export const Experiments: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -371,7 +556,7 @@ export const Experiments: AppStory = {
   },
 };
 
-/** Experiments section - shows experiment in ON state (pre-enabled via localStorage) */
+/** Experiments crew - shows experiment in ON state (pre-enabled via localStorage) */
 export const ExperimentsToggleOn: AppStory = {
   render: () => (
     <AppWithMocks
@@ -387,7 +572,7 @@ export const ExperimentsToggleOn: AppStory = {
   },
 };
 
-/** Experiments section - shows experiment in OFF state (default) */
+/** Experiments crew - shows experiment in OFF state (default) */
 export const ExperimentsToggleOff: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -396,7 +581,7 @@ export const ExperimentsToggleOff: AppStory = {
   },
 };
 
-/** Keybinds section - shows keyboard shortcuts reference */
+/** Keybinds crew - shows keyboard shortcuts reference */
 export const Keybinds: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -404,4 +589,4 @@ export const Keybinds: AppStory = {
   },
 };
 
-// NOTE: Headquarters section stories live in App.projectSettings.stories.tsx
+// NOTE: Projects crew stories live in App.projectSettings.stories.tsx

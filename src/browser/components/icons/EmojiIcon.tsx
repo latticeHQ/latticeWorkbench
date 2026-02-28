@@ -1,4 +1,3 @@
-import React from "react";
 import { cn } from "@/common/lib/utils";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -49,6 +48,8 @@ const EMOJI_TO_ICON: Record<string, LucideIcon> = {
   "🔗": Link,
   "🔄": RefreshCw,
   "🧪": Beaker,
+  // Used by auto-handoff routing status while selecting the executor.
+  "🤔": CircleHelp,
 
   // Directions
   "➡": ArrowRight,

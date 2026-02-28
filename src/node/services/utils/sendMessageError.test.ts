@@ -16,8 +16,23 @@ describe("buildStreamErrorEventData", () => {
     });
 
     expect(result.errorType).toBe("authentication");
-    expect(result.error).toContain("openai");
+    expect(result.error).toContain("OpenAI");
     expect(result.messageId).toMatch(/^assistant-/);
+    expect(result.acpPromptId).toBeUndefined();
+  });
+
+  test("preserves ACP prompt correlation id when provided", () => {
+    const result = buildStreamErrorEventData(
+      {
+        type: "unknown",
+        raw: "network failure",
+      },
+      {
+        acpPromptId: "acp-prompt-123",
+      }
+    );
+
+    expect(result.acpPromptId).toBe("acp-prompt-123");
   });
 });
 describe("createStreamErrorMessage", () => {
@@ -35,7 +50,7 @@ describe("createStreamErrorMessage", () => {
 
 describe("createErrorEvent", () => {
   test("builds an error event payload", () => {
-    const result = createErrorEvent("workspace-1", {
+    const result = createErrorEvent("minion-1", {
       messageId: "assistant-123",
       error: "something broke",
       errorType: "unknown",
@@ -43,7 +58,7 @@ describe("createErrorEvent", () => {
 
     expect(result).toEqual({
       type: "error",
-      workspaceId: "workspace-1",
+      minionId: "minion-1",
       messageId: "assistant-123",
       error: "something broke",
       errorType: "unknown",
@@ -73,7 +88,7 @@ describe("formatSendMessageError", () => {
     });
 
     expect(result.errorType).toBe("authentication");
-    expect(result.message).toContain("anthropic");
+    expect(result.message).toContain("Anthropic");
     expect(result.message).toContain("API key");
   });
 
@@ -88,6 +103,17 @@ describe("formatSendMessageError", () => {
     expect(result.message).toContain("not supported");
   });
 
+  test("formats provider_disabled as authentication", () => {
+    const result = formatSendMessageError({
+      type: "provider_disabled",
+      provider: "openai",
+    });
+
+    expect(result.errorType).toBe("authentication");
+    expect(result.message).toContain("OpenAI");
+    expect(result.message).toContain("disabled");
+  });
+
   test("formats invalid_model_string with model_not_found errorType", () => {
     const result = formatSendMessageError({
       type: "invalid_model_string",
@@ -98,14 +124,14 @@ describe("formatSendMessageError", () => {
     expect(result.message).toBe("Invalid model format: foo");
   });
 
-  test("formats incompatible_workspace", () => {
+  test("formats incompatible_minion", () => {
     const result = formatSendMessageError({
-      type: "incompatible_workspace",
-      message: "Workspace is incompatible",
+      type: "incompatible_minion",
+      message: "Minion is incompatible",
     });
 
     expect(result.errorType).toBe("unknown");
-    expect(result.message).toBe("Workspace is incompatible");
+    expect(result.message).toBe("Minion is incompatible");
   });
 
   test("formats unknown errors", () => {

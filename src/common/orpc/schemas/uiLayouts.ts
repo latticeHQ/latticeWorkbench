@@ -1,6 +1,6 @@
 import type {
-  RightSidebarLayoutPresetNode,
-  RightSidebarPresetTabType,
+  WorkbenchPanelLayoutPresetNode,
+  WorkbenchPanelPresetTabType,
 } from "@/common/types/uiLayouts";
 import { z } from "zod";
 
@@ -18,24 +18,24 @@ export const KeybindSchema = z
   })
   .strict();
 
-const RightSidebarPresetBaseTabSchema = z.enum(["costs", "review", "explorer", "stats"]);
+const WorkbenchPanelPresetBaseTabSchema = z.enum(["costs", "review", "explorer", "stats"]);
 
-export const RightSidebarPresetTabSchema: z.ZodType<RightSidebarPresetTabType> = z.union([
-  RightSidebarPresetBaseTabSchema,
+export const WorkbenchPanelPresetTabSchema: z.ZodType<WorkbenchPanelPresetTabType> = z.union([
+  WorkbenchPanelPresetBaseTabSchema,
   z
     .string()
     .min("terminal_new:".length + 1)
     .regex(/^terminal_new:.+$/),
-]) as z.ZodType<RightSidebarPresetTabType>;
+]) as z.ZodType<WorkbenchPanelPresetTabType>;
 
-export const RightSidebarLayoutPresetNodeSchema: z.ZodType<RightSidebarLayoutPresetNode> = z.lazy(
+export const WorkbenchPanelLayoutPresetNodeSchema: z.ZodType<WorkbenchPanelLayoutPresetNode> = z.lazy(
   () => {
     const tabset = z
       .object({
         type: z.literal("tabset"),
         id: z.string().min(1),
-        tabs: z.array(RightSidebarPresetTabSchema),
-        activeTab: RightSidebarPresetTabSchema,
+        tabs: z.array(WorkbenchPanelPresetTabSchema),
+        activeTab: WorkbenchPanelPresetTabSchema,
       })
       .strict();
 
@@ -45,7 +45,7 @@ export const RightSidebarLayoutPresetNodeSchema: z.ZodType<RightSidebarLayoutPre
         id: z.string().min(1),
         direction: z.enum(["horizontal", "vertical"]),
         sizes: z.tuple([z.number(), z.number()]),
-        children: z.tuple([RightSidebarLayoutPresetNodeSchema, RightSidebarLayoutPresetNodeSchema]),
+        children: z.tuple([WorkbenchPanelLayoutPresetNodeSchema, WorkbenchPanelLayoutPresetNodeSchema]),
       })
       .strict();
 
@@ -53,16 +53,16 @@ export const RightSidebarLayoutPresetNodeSchema: z.ZodType<RightSidebarLayoutPre
   }
 );
 
-export const RightSidebarLayoutPresetStateSchema = z
+export const WorkbenchPanelLayoutPresetStateSchema = z
   .object({
     version: z.literal(1),
     nextId: z.number().int(),
     focusedTabsetId: z.string().min(1),
-    root: RightSidebarLayoutPresetNodeSchema,
+    root: WorkbenchPanelLayoutPresetNodeSchema,
   })
   .strict();
 
-export const RightSidebarWidthPresetSchema = z.discriminatedUnion("mode", [
+export const WorkbenchPanelWidthPresetSchema = z.discriminatedUnion("mode", [
   z
     .object({
       mode: z.literal("px"),
@@ -82,11 +82,12 @@ export const LayoutPresetSchema = z
     id: z.string().min(1),
     name: z.string().min(1),
     leftSidebarCollapsed: z.boolean(),
-    rightSidebar: z
+    leftSidebarWidthPx: z.number().int().optional(),
+    workbenchPanel: z
       .object({
         collapsed: z.boolean(),
-        width: RightSidebarWidthPresetSchema,
-        layout: RightSidebarLayoutPresetStateSchema,
+        width: WorkbenchPanelWidthPresetSchema,
+        layout: WorkbenchPanelLayoutPresetStateSchema,
       })
       .strict(),
   })

@@ -8,9 +8,14 @@ import {
   PREFERRED_COMPACTION_MODEL_KEY,
 } from "@/common/constants/storage";
 import { readPersistedState, readPersistedString } from "@/browser/hooks/usePersistedState";
-import { useWorkspaceState, useWorkspaceAggregator } from "@/browser/stores/WorkspaceStore";
+import {
+  useMinionState,
+  useMinionAggregator,
+  useMinionStoreRaw,
+} from "@/browser/stores/MinionStore";
 import { getDefaultModel } from "@/browser/hooks/useModelsFromSettings";
 import { useSettings } from "@/browser/contexts/SettingsContext";
+import { useAPI } from "@/browser/contexts/API";
 
 type StreamingPhase =
   | "starting" // Message sent, waiting for stream-start
@@ -20,18 +25,35 @@ type StreamingPhase =
   | "awaiting-input"; // ask_user_question waiting for response
 
 interface StreamingBarrierProps {
-  workspaceId: string;
+  minionId: string;
   className?: string;
+  /**
+   * Optional vim state from parent subscription.
+   * Falls back to persisted value when omitted.
+   */
+  vimEnabled?: boolean;
+  /**
+   * Optional compaction-specific cancel hook.
+   * When provided, this path should preserve compaction edit state + follow-up content.
+   */
+  onCancelCompaction?: () => void;
 }
 
 /**
  * Self-contained streaming status barrier.
- * Computes all state internally from workspaceId - no props drilling needed.
+ * Computes streaming state internally from minionId.
  * Returns null when there's nothing to show.
  */
-export const StreamingBarrier: React.FC<StreamingBarrierProps> = ({ workspaceId, className }) => {
-  const workspaceState = useWorkspaceState(workspaceId);
-  const aggregator = useWorkspaceAggregator(workspaceId);
+export const StreamingBarrier: React.FC<StreamingBarrierProps> = ({
+  minionId,
+  className,
+  vimEnabled: vimEnabledFromParent,
+  onCancelCompaction,
+}) => {
+  const minionState = useMinionState(minionId);
+  const aggregator = useMinionAggregator(minionId);
+  const storeRaw = useMinionStoreRaw();
+  const { api } = useAPI();
   const { open: openSettings } = useSettings();
 
   const {
@@ -40,9 +62,9 @@ export const StreamingBarrier: React.FC<StreamingBarrierProps> = ({ workspaceId,
     awaitingUserQuestion,
     currentModel,
     pendingStreamStartTime,
-    pendingCompactionModel,
+    pendingStreamModel,
     runtimeStatus,
-  } = workspaceState;
+  } = minionState;
 
   // Determine if we're in "starting" phase (message sent, waiting for stream-start)
   const isStarting = pendingStreamStartTime !== null && !canInterrupt;
@@ -60,39 +82,38 @@ export const StreamingBarrier: React.FC<StreamingBarrierProps> = ({ workspaceId,
   // Only show token count during active streaming/compacting
   const showTokenCount = phase === "streaming" || phase === "compacting";
 
-  // Get live streaming stats from workspace state (updated on each stream-delta)
-  const tokenCount = showTokenCount ? workspaceState.streamingTokenCount : undefined;
-  const tps = showTokenCount ? workspaceState.streamingTPS : undefined;
+  // Get live streaming stats from minion state (updated on each stream-delta)
+  const tokenCount = showTokenCount ? minionState.streamingTokenCount : undefined;
+  const tps = showTokenCount ? minionState.streamingTPS : undefined;
 
   // Nothing to show
   if (!phase) return null;
 
   // Model to display:
-  // - "starting" phase with pending compaction: use the compaction model from the request
-  // - "starting" phase without compaction: read chat model from localStorage
+  // - "starting" phase: prefer pendingStreamModel (from latticeMetadata), then localStorage
   // - Otherwise: use currentModel from active stream
   const model =
     phase === "starting"
-      ? (pendingCompactionModel ??
-        readPersistedState<string | null>(getModelKey(workspaceId), null) ??
+      ? (pendingStreamModel ??
+        readPersistedState<string | null>(getModelKey(minionId), null) ??
         getDefaultModel())
       : currentModel;
   const modelName = model ? getModelName(model) : null;
 
-  // Vim mode affects cancel keybind hint (read once per render, no subscription needed)
-  const vimEnabled = readPersistedState(VIM_ENABLED_KEY, false);
+  // Prefer parent vim state (subscribed in ChatPane) so the hint updates immediately.
+  const vimEnabled = vimEnabledFromParent ?? readPersistedState(VIM_ENABLED_KEY, false);
   const interruptKeybind = formatKeybind(
     vimEnabled ? KEYBINDS.INTERRUPT_STREAM_VIM : KEYBINDS.INTERRUPT_STREAM_NORMAL
-  );
+  ).replace("Escape", "Esc");
   const interruptHint = `hit ${interruptKeybind} to cancel`;
 
   // Compute status text based on phase
   const statusText = (() => {
     switch (phase) {
       case "starting":
-        // Show a runtime-specific message if the workspace is still booting (e.g., Lattice/devcontainers).
+        // Show a runtime-specific message if the minion is still booting (e.g., Lattice/devcontainers).
         if (runtimeStatus?.phase === "starting" || runtimeStatus?.phase === "waiting") {
-          return runtimeStatus.detail ?? "Starting workspace...";
+          return runtimeStatus.detail ?? "Starting minion...";
         }
         return modelName ? `${modelName} starting...` : "starting...";
       case "interrupting":
@@ -120,6 +141,40 @@ export const StreamingBarrier: React.FC<StreamingBarrierProps> = ({ workspaceId,
     }
   })();
 
+  const canTapCancel = phase === "starting" || phase === "streaming" || phase === "compacting";
+  const handleCancelClick = () => {
+    if (!api) {
+      return;
+    }
+
+    if (phase !== "starting" && phase !== "streaming" && phase !== "compacting") {
+      return;
+    }
+
+    void api.minion.setAutoRetryEnabled?.({ minionId, enabled: false });
+
+    if (phase === "compacting") {
+      // Reuse the established compaction-cancel flow from keyboard shortcuts so we keep
+      // edit restoration + follow-up content behavior consistent across input methods.
+      if (onCancelCompaction) {
+        onCancelCompaction();
+        return;
+      }
+
+      void api.minion.interruptStream({
+        minionId,
+        options: { abandonPartial: true },
+      });
+      return;
+    }
+
+    if (phase === "streaming") {
+      storeRaw.setInterrupting(minionId);
+    }
+
+    void api.minion.interruptStream({ minionId });
+  };
+
   // Show settings hint during compaction if no custom compaction model is configured
   const showCompactionHint =
     phase === "compacting" && !readPersistedString(PREFERRED_COMPACTION_MODEL_KEY);
@@ -130,6 +185,8 @@ export const StreamingBarrier: React.FC<StreamingBarrierProps> = ({ workspaceId,
       tokenCount={tokenCount}
       tps={tps}
       cancelText={cancelText}
+      onCancel={canTapCancel ? handleCancelClick : undefined}
+      cancelShortcutText={canTapCancel ? interruptKeybind : undefined}
       className={className}
       hintElement={
         showCompactionHint ? (

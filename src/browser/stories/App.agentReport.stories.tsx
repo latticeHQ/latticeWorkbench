@@ -1,7 +1,7 @@
 /**
  * Storybook stories for the agent_report tool UI.
  *
- * This tool is primarily used inside sub-agents to report back a final markdown summary.
+ * This tool is primarily used inside sidekicks to report back a final markdown summary.
  */
 
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
@@ -26,15 +26,15 @@ export default {
 /**
  * Renders an agent_report tool call as a proper tool card with markdown.
  *
- * This is what you should see inside a sub-agent when it emits its final report.
+ * This is what you should see inside a sidekick when it emits its final report.
  */
 export const AgentReportToolCall: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() =>
         setupSimpleChatStory({
-          workspaceId: "ws-agent-report",
-          workspaceName: "subagent/explore",
+          minionId: "ws-agent-report",
+          minionName: "sidekick/explore",
           messages: [
             createUserMessage("u1", "Investigate the tool rendering issue", {
               historySequence: 1,

@@ -1,4 +1,4 @@
-import React, {
+import {
   useCallback,
   createContext,
   useContext,
@@ -17,8 +17,8 @@ import {
   type LayoutSlotNumber,
 } from "@/common/types/uiLayouts";
 import {
-  applyLayoutPresetToWorkspace,
-  createPresetFromCurrentWorkspace,
+  applyLayoutPresetToMinion,
+  createPresetFromCurrentMinion,
   deleteSlotAndShiftFollowingSlots,
   getLayoutsConfigOrDefault,
   getPresetForSlot,
@@ -34,11 +34,11 @@ interface UILayoutsContextValue {
   refresh: () => Promise<void>;
   saveAll: (next: LayoutPresetsConfig) => Promise<void>;
 
-  applySlotToWorkspace: (workspaceId: string, slot: LayoutSlotNumber) => Promise<void>;
+  applySlotToMinion: (minionId: string, slot: LayoutSlotNumber) => Promise<void>;
 
-  /** Capture the currently-selected workspace's layout into the given slot. */
-  saveCurrentWorkspaceToSlot: (
-    workspaceId: string,
+  /** Capture the currently-selected minion's layout into the given slot. */
+  saveCurrentMinionToSlot: (
+    minionId: string,
     slot: LayoutSlotNumber,
     name?: string | null
   ) => Promise<LayoutPreset>;
@@ -129,27 +129,27 @@ export function UILayoutsProvider(props: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  const applySlotToWorkspace = useCallback(
-    async (workspaceId: string, slot: LayoutSlotNumber): Promise<void> => {
+  const applySlotToMinion = useCallback(
+    async (minionId: string, slot: LayoutSlotNumber): Promise<void> => {
       const preset = getPresetForSlot(layoutPresets, slot);
       if (!preset) {
         return;
       }
 
-      await applyLayoutPresetToWorkspace(api ?? null, workspaceId, preset);
+      await applyLayoutPresetToMinion(api ?? null, minionId, preset);
     },
     [api, layoutPresets]
   );
 
-  const saveCurrentWorkspaceToSlot = useCallback(
+  const saveCurrentMinionToSlot = useCallback(
     async (
-      workspaceId: string,
+      minionId: string,
       slot: LayoutSlotNumber,
       name?: string | null
     ): Promise<LayoutPreset> => {
       assert(
-        typeof workspaceId === "string" && workspaceId.length > 0,
-        "workspaceId must be non-empty"
+        typeof minionId === "string" && minionId.length > 0,
+        "minionId must be non-empty"
       );
 
       const base = await getConfigForWrite();
@@ -161,8 +161,8 @@ export function UILayoutsProvider(props: { children: ReactNode }) {
           ? trimmedName
           : (existingPreset?.name ?? `Slot ${slot}`);
 
-      const preset = createPresetFromCurrentWorkspace(
-        workspaceId,
+      const preset = createPresetFromCurrentMinion(
+        minionId,
         resolvedName,
         existingPreset?.id
       );
@@ -213,8 +213,8 @@ export function UILayoutsProvider(props: { children: ReactNode }) {
       loadFailed,
       refresh,
       saveAll,
-      applySlotToWorkspace,
-      saveCurrentWorkspaceToSlot,
+      applySlotToMinion,
+      saveCurrentMinionToSlot,
       renameSlot,
       deleteSlot,
       setSlotKeybindOverride,
@@ -225,8 +225,8 @@ export function UILayoutsProvider(props: { children: ReactNode }) {
       loadFailed,
       refresh,
       saveAll,
-      applySlotToWorkspace,
-      saveCurrentWorkspaceToSlot,
+      applySlotToMinion,
+      saveCurrentMinionToSlot,
       renameSlot,
       deleteSlot,
       setSlotKeybindOverride,

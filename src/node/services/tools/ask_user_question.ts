@@ -27,11 +27,11 @@ export const createAskUserQuestionTool: ToolFactory = (config: ToolConfiguration
         };
       }
 
-      assert(config.workspaceId, "ask_user_question requires a workspaceId");
+      assert(config.minionId, "ask_user_question requires a minionId");
       assert(toolCallId, "ask_user_question requires toolCallId");
 
       const pendingPromise = askUserQuestionManager.registerPending(
-        config.workspaceId,
+        config.minionId,
         toolCallId,
         args.questions
       );
@@ -52,7 +52,7 @@ export const createAskUserQuestionTool: ToolFactory = (config: ToolConfiguration
       if (abortSignal.aborted) {
         // Ensure we don't leak a pending prompt entry.
         try {
-          askUserQuestionManager.cancel(config.workspaceId, toolCallId, "Interrupted");
+          askUserQuestionManager.cancel(config.minionId, toolCallId, "Interrupted");
         } catch {
           // ignore
         }
@@ -64,7 +64,7 @@ export const createAskUserQuestionTool: ToolFactory = (config: ToolConfiguration
           "abort",
           () => {
             try {
-              askUserQuestionManager.cancel(config.workspaceId!, toolCallId, "Interrupted");
+              askUserQuestionManager.cancel(config.minionId!, toolCallId, "Interrupted");
             } catch {
               // ignore
             }

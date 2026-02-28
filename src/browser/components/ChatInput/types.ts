@@ -1,31 +1,34 @@
-import type { FilePart } from "@/common/orpc/types";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type { TelemetryRuntimeType } from "@/common/telemetry/payload";
-import type { AutoCompactionCheckResult } from "@/browser/utils/compaction/autoCompactionCheck";
 import type { Review } from "@/common/types/review";
+import type { EditingMessageState, PendingUserMessage } from "@/browser/utils/chatEditing";
 
 export interface ChatInputAPI {
   focus: () => void;
   send: () => Promise<void>;
   restoreText: (text: string) => void;
+  restoreDraft: (pending: PendingUserMessage) => void;
   appendText: (text: string) => void;
   prependText: (text: string) => void;
-  restoreAttachments: (fileParts: FilePart[]) => void;
 }
 
-// Workspace variant: full functionality for existing workspaces
-export interface ChatInputWorkspaceVariant {
-  variant: "workspace";
-  workspaceId: string;
-  /** Runtime type for the workspace (for telemetry) - no sensitive details like SSH host */
+export interface MinionCreatedOptions {
+  /** When false, register metadata without navigating to the new minion. */
+  autoNavigate?: boolean;
+}
+
+// Minion variant: full functionality for existing minions
+export interface ChatInputMinionVariant {
+  variant: "minion";
+  minionId: string;
+  /** Runtime type for the minion (for telemetry) - no sensitive details like SSH host */
   runtimeType?: TelemetryRuntimeType;
   onMessageSent?: () => void;
   onTruncateHistory: (percentage?: number) => Promise<void>;
-  onProviderConfig?: (provider: string, keyPath: string[], value: string) => Promise<void>;
   onModelChange?: (model: string) => void;
   isCompacting?: boolean;
   isStreamStarting?: boolean;
-  editingMessage?: { id: string; content: string; fileParts?: FilePart[] };
+  editingMessage?: EditingMessageState;
   onCancelEdit?: () => void;
   onEditLastUserMessage?: () => void;
   canInterrupt?: boolean;
@@ -33,9 +36,6 @@ export interface ChatInputWorkspaceVariant {
   /** Optional explanation displayed when input is disabled */
   disabledReason?: string;
   onReady?: (api: ChatInputAPI) => void;
-  autoCompactionCheck?: AutoCompactionCheckResult; // Computed in parent (AIView) to avoid duplicate calculation
-  /** True if there's already a compaction request queued (prevents double-compaction) */
-  hasQueuedCompaction?: boolean;
   /** Reviews currently attached to chat (from useReviews hook) */
   attachedReviews?: Review[];
   /** Detach a review from chat input (sets status to pending) */
@@ -52,18 +52,22 @@ export interface ChatInputWorkspaceVariant {
   onUpdateReviewNote?: (reviewId: string, newNote: string) => void;
 }
 
-// Creation variant: simplified for first message / workspace creation
+// Creation variant: simplified for first message / minion creation
 export interface ChatInputCreationVariant {
   variant: "creation";
   projectPath: string;
   projectName: string;
-  /** Section ID to pre-select (from sidebar section "+" button) */
+  /** Crew ID to pre-select (from sidebar crew "+" button) */
   pendingSectionId?: string | null;
-  onWorkspaceCreated: (metadata: FrontendWorkspaceMetadata) => void;
-  onProviderConfig?: (provider: string, keyPath: string[], value: string) => Promise<void>;
+  /** Draft ID for UI-only minion creation drafts (from URL) */
+  pendingDraftId?: string | null;
+  onMinionCreated: (
+    metadata: FrontendMinionMetadata,
+    options?: MinionCreatedOptions
+  ) => void;
   onModelChange?: (model: string) => void;
   disabled?: boolean;
   onReady?: (api: ChatInputAPI) => void;
 }
 
-export type ChatInputProps = ChatInputWorkspaceVariant | ChatInputCreationVariant;
+export type ChatInputProps = ChatInputMinionVariant | ChatInputCreationVariant;

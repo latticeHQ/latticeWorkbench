@@ -1,21 +1,21 @@
 /**
  * PR status badge stories
  *
- * Shows various PR status states in the workspace header.
- * PR is detected from the workspace's current branch via `gh pr view`.
+ * Shows various PR status states in the minion header.
+ * PR is detected from the minion's current branch via `gh pr view`.
  */
 
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
 import {
   NOW,
   STABLE_TIMESTAMP,
-  createWorkspace,
+  createMinion,
   createUserMessage,
   createAssistantMessage,
   createStaticChatHandler,
-  groupWorkspacesByProject,
+  groupMinionsByProject,
 } from "./mockFactory";
-import { createOnChatAdapter, selectWorkspace as selectWorkspaceHelper } from "./storyHelpers";
+import { createOnChatAdapter, selectMinion as selectMinionHelper } from "./storyHelpers";
 import { createMockORPCClient } from "@/browser/stories/mocks/orpc";
 
 export default {
@@ -51,10 +51,10 @@ interface PRStatusFixture {
  * Creates an executeBash function that returns PR status for gh pr view commands.
  */
 function createPRStatusExecutor(prStatuses: Map<string, PRStatusFixture | "no_pr" | "error">) {
-  return (workspaceId: string, script: string) => {
+  return (minionId: string, script: string) => {
     // Handle gh pr view commands
     if (script.includes("gh pr view")) {
-      const status = prStatuses.get(workspaceId);
+      const status = prStatuses.get(minionId);
 
       if (!status || status === "error") {
         return Promise.resolve({
@@ -107,65 +107,65 @@ export const PRStatusBadges: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaces = [
+        const minions = [
           // Ready to merge
-          createWorkspace({
+          createMinion({
             id: "ws-ready",
             name: "feature/ready-to-merge",
             projectName: "my-app",
             createdAt: new Date(NOW - 3600000).toISOString(),
           }),
           // Checks pending
-          createWorkspace({
+          createMinion({
             id: "ws-blocked",
             name: "feature/checks-pending",
             projectName: "my-app",
             createdAt: new Date(NOW - 7200000).toISOString(),
           }),
           // Checks failing
-          createWorkspace({
+          createMinion({
             id: "ws-failed-checks",
             name: "feature/checks-failing",
             projectName: "my-app",
             createdAt: new Date(NOW - 9000000).toISOString(),
           }),
           // Behind base branch
-          createWorkspace({
+          createMinion({
             id: "ws-behind",
             name: "feature/needs-rebase",
             projectName: "my-app",
             createdAt: new Date(NOW - 10800000).toISOString(),
           }),
           // Has conflicts
-          createWorkspace({
+          createMinion({
             id: "ws-conflicts",
             name: "feature/has-conflicts",
             projectName: "my-app",
             createdAt: new Date(NOW - 14400000).toISOString(),
           }),
           // Draft PR
-          createWorkspace({
+          createMinion({
             id: "ws-draft",
             name: "feature/work-in-progress",
             projectName: "my-app",
             createdAt: new Date(NOW - 18000000).toISOString(),
           }),
           // Merged
-          createWorkspace({
+          createMinion({
             id: "ws-merged",
             name: "feature/already-merged",
             projectName: "my-app",
             createdAt: new Date(NOW - 21600000).toISOString(),
           }),
           // Closed
-          createWorkspace({
+          createMinion({
             id: "ws-closed",
             name: "feature/abandoned",
             projectName: "my-app",
             createdAt: new Date(NOW - 25200000).toISOString(),
           }),
           // No PR
-          createWorkspace({
+          createMinion({
             id: "ws-no-pr",
             name: "main",
             projectName: "my-app",
@@ -178,7 +178,7 @@ export const PRStatusBadges: AppStory = {
             "ws-ready",
             {
               number: 1623,
-              url: "https://github.com/example/project/pull/1623",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1623",
               state: "OPEN",
               mergeable: "MERGEABLE",
               mergeStateStatus: "CLEAN",
@@ -192,7 +192,7 @@ export const PRStatusBadges: AppStory = {
             "ws-blocked",
             {
               number: 1624,
-              url: "https://github.com/example/project/pull/1624",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1624",
               state: "OPEN",
               mergeable: "MERGEABLE",
               mergeStateStatus: "BLOCKED",
@@ -207,7 +207,7 @@ export const PRStatusBadges: AppStory = {
             "ws-failed-checks",
             {
               number: 1628,
-              url: "https://github.com/example/project/pull/1628",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1628",
               state: "OPEN",
               mergeable: "MERGEABLE",
               mergeStateStatus: "BLOCKED",
@@ -222,7 +222,7 @@ export const PRStatusBadges: AppStory = {
             "ws-behind",
             {
               number: 1625,
-              url: "https://github.com/example/project/pull/1625",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1625",
               state: "OPEN",
               mergeable: "MERGEABLE",
               mergeStateStatus: "BEHIND",
@@ -236,7 +236,7 @@ export const PRStatusBadges: AppStory = {
             "ws-conflicts",
             {
               number: 1626,
-              url: "https://github.com/example/project/pull/1626",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1626",
               state: "OPEN",
               mergeable: "CONFLICTING",
               mergeStateStatus: "DIRTY",
@@ -250,7 +250,7 @@ export const PRStatusBadges: AppStory = {
             "ws-draft",
             {
               number: 1627,
-              url: "https://github.com/example/project/pull/1627",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1627",
               state: "OPEN",
               mergeable: "UNKNOWN",
               mergeStateStatus: "UNKNOWN",
@@ -264,7 +264,7 @@ export const PRStatusBadges: AppStory = {
             "ws-merged",
             {
               number: 1620,
-              url: "https://github.com/example/project/pull/1620",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1620",
               state: "MERGED",
               mergeable: "UNKNOWN",
               mergeStateStatus: "UNKNOWN",
@@ -278,7 +278,7 @@ export const PRStatusBadges: AppStory = {
             "ws-closed",
             {
               number: 1618,
-              url: "https://github.com/example/project/pull/1618",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1618",
               state: "CLOSED",
               mergeable: "UNKNOWN",
               mergeStateStatus: "UNKNOWN",
@@ -293,7 +293,7 @@ export const PRStatusBadges: AppStory = {
 
         // Simple chat handler - just show messages
         const chatHandlers = new Map<string, ReturnType<typeof createStaticChatHandler>>();
-        for (const ws of workspaces) {
+        for (const ws of minions) {
           chatHandlers.set(
             ws.id,
             createStaticChatHandler([
@@ -301,7 +301,7 @@ export const PRStatusBadges: AppStory = {
                 historySequence: 1,
                 timestamp: STABLE_TIMESTAMP - 60000,
               }),
-              createAssistantMessage("msg-2", "Here's the PR status for this workspace.", {
+              createAssistantMessage("msg-2", "Here's the PR status for this minion.", {
                 historySequence: 2,
                 timestamp: STABLE_TIMESTAMP,
               }),
@@ -309,12 +309,12 @@ export const PRStatusBadges: AppStory = {
           );
         }
 
-        // Select the first workspace
-        selectWorkspaceHelper(workspaces[0]);
+        // Select the first minion
+        selectMinionHelper(minions[0]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           onChat: createOnChatAdapter(chatHandlers),
           executeBash: createPRStatusExecutor(prStatuses),
         });
@@ -330,8 +330,8 @@ export const LinksDropdown: AppStory = {
   render: () => (
     <AppWithMocks
       setup={() => {
-        const workspaces = [
-          createWorkspace({
+        const minions = [
+          createMinion({
             id: "ws-with-links",
             name: "feature/links",
             projectName: "my-app",
@@ -344,7 +344,7 @@ export const LinksDropdown: AppStory = {
             "ws-with-links",
             {
               number: 1623,
-              url: "https://github.com/example/project/pull/1623",
+              url: "https://github.com/latticeHQ/latticeWorkbench/pull/1623",
               state: "OPEN",
               mergeable: "MERGEABLE",
               mergeStateStatus: "CLEAN",
@@ -371,9 +371,9 @@ export const LinksDropdown: AppStory = {
 
 - Documentation: https://docs.example.com/links
 - API Reference: https://api.example.com/v1/docs
-- Related issue: https://github.com/example/project/issues/1500
+- Related issue: https://github.com/latticeHQ/latticeWorkbench/issues/1500
 
-Let me check the implementation at https://github.com/example/project/blob/main/src/links.ts`,
+Let me check the implementation at https://github.com/latticeHQ/latticeWorkbench/blob/main/src/links.ts`,
               {
                 historySequence: 2,
                 timestamp: STABLE_TIMESTAMP - 60000,
@@ -385,9 +385,9 @@ Let me check the implementation at https://github.com/example/project/blob/main/
             }),
             createAssistantMessage(
               "msg-4",
-              `Found the tests at https://github.com/example/project/blob/main/src/links.test.ts
+              `Found the tests at https://github.com/latticeHQ/latticeWorkbench/blob/main/src/links.test.ts
 
-Also see the CI workflow: https://github.com/example/project/actions/runs/12345`,
+Also see the CI workflow: https://github.com/latticeHQ/latticeWorkbench/actions/runs/12345`,
               {
                 historySequence: 4,
                 timestamp: STABLE_TIMESTAMP,
@@ -396,11 +396,11 @@ Also see the CI workflow: https://github.com/example/project/actions/runs/12345`
           ])
         );
 
-        selectWorkspaceHelper(workspaces[0]);
+        selectMinionHelper(minions[0]);
 
         return createMockORPCClient({
-          projects: groupWorkspacesByProject(workspaces),
-          workspaces,
+          projects: groupMinionsByProject(minions),
+          minions,
           onChat: createOnChatAdapter(chatHandlers),
           executeBash: createPRStatusExecutor(prStatuses),
         });

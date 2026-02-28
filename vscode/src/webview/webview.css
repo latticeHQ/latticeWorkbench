@@ -27,41 +27,43 @@
   font-synthesis: style;
 
   @theme {
-    /* Mode Colors */
-    --color-plan-mode: hsl(210 70% 40%);
-    --color-plan-mode-hover: hsl(210 70% 52%);
-    --color-plan-mode-light: hsl(210 70% 68%);
-    --color-plan-mode-alpha: hsla(210 70% 40% / 0.1);
+    /* Lattice Theme — warm orange palette (VS Code webview) */
 
-    --color-exec-mode: hsl(268.56 94.04% 55.19%);
-    --color-exec-mode-hover: hsl(268.56 94.04% 67%);
-    --color-exec-mode-light: hsl(268.56 94.04% 78%);
+    /* Mode Colors — orange-shifted */
+    --color-plan-mode: hsl(24 80% 45%);
+    --color-plan-mode-hover: hsl(24 80% 55%);
+    --color-plan-mode-light: hsl(24 80% 68%);
+    --color-plan-mode-alpha: hsla(24 80% 45% / 0.1);
+
+    --color-exec-mode: hsl(18 95% 52%);
+    --color-exec-mode-hover: hsl(18 95% 62%);
+    --color-exec-mode-light: hsl(18 95% 74%);
 
     /* Edit mode: amber/gold for editing warnings and barriers */
     --color-edit-mode: hsl(38 80% 45%);
     --color-edit-mode-hover: hsl(38 80% 55%);
     --color-edit-mode-light: hsl(38 80% 65%);
 
-    --color-read: hsl(210 70% 40%);
+    --color-read: hsl(24 80% 45%);
     /* Editing state: subtle amber border when editing a message */
     --color-editing-mode: hsl(38 70% 50%);
     --color-editing-mode-alpha: hsla(38 70% 50% / 0.08);
     --color-pending: hsl(30 100% 70%);
 
-    --color-debug-mode: hsl(214 100% 64%);
-    --color-debug-light: hsl(214 100% 76%);
-    --color-debug-text: hsl(214 100% 80%);
+    --color-debug-mode: hsl(24 90% 58%);
+    --color-debug-light: hsl(24 90% 70%);
+    --color-debug-text: hsl(24 90% 76%);
 
-    --color-thinking-mode: hsl(271 76% 53%);
-    --color-thinking-mode-light: hsl(271 76% 65%);
-    --color-thinking-border: hsl(271 76% 53%);
+    --color-thinking-mode: hsl(15 70% 50%);
+    --color-thinking-mode-light: hsl(15 70% 62%);
+    --color-thinking-border: hsl(15 70% 50%);
 
-    /* Runtime icon colors (matches Tailwind blue-500/purple-500) */
-    --color-runtime-ssh: #3b82f6;
-    --color-runtime-ssh-text: #60a5fa; /* blue-400 */
-    --color-runtime-worktree: #a855f7;
-    --color-runtime-worktree-text: #c084fc; /* purple-400 */
-    --color-runtime-local: hsl(0 0% 60%); /* matches --color-muted-foreground */
+    /* Runtime icon colors — warm Lattice palette */
+    --color-runtime-ssh: #e67e22;
+    --color-runtime-ssh-text: #f0a050;
+    --color-runtime-worktree: #c47a2a;
+    --color-runtime-worktree-text: #d4944a;
+    --color-runtime-local: hsl(0 0% 60%);
 
     /* Background & Layout */
     --color-background: hsl(0 0% 12%);
@@ -95,7 +97,7 @@
     --color-line-number-bg: rgba(0, 0, 0, 0.2);
     --color-line-number-text: rgba(255, 255, 255, 0.4);
     --color-line-number-border: rgba(255, 255, 255, 0.1);
-    --color-assistant-border: hsl(207 45% 40%);
+    --color-assistant-border: hsl(24 70% 45%);
     --color-hover-foreground: hsl(0 0% 96%);
     --color-command-surface: hsl(0 0% 15%);
     --color-command-border: hsl(240 2% 25%);
@@ -104,26 +106,22 @@
     --color-command-foreground: hsl(0 0% 83%);
     --color-command-subdued: hsl(0 0% 63%);
     --color-sidebar-tab-active: hsl(0 0% 100%);
-    --color-assistant-border-hover: hsl(207 45% 50%);
+    --color-assistant-border-hover: hsl(24 70% 55%);
     --color-message-header: hsl(0 0% 80%);
 
     /* Tokens */
     --color-token-prompt: hsl(0 0% 40%);
-    --color-token-completion: hsl(207 100% 40%);
-    --color-token-variable: hsl(207 100% 40%);
+    --color-token-completion: #FF6600;
+    --color-token-variable: #FF6600;
     --color-token-fixed: hsl(0 0% 40%);
-    /*
-     * VS Code already defines accessible chart colors (var(--vscode-charts-*)).
-     * Use them when available so the tiny context meter stays readable across themes.
-     */
-    --color-token-input: var(--vscode-charts-green, hsl(120 40% 35%));
-    --color-token-output: var(--vscode-charts-blue, hsl(207 100% 40%));
+    --color-token-input: hsl(30 55% 45%);
+    --color-token-output: #FF6600;
     --color-token-cached: hsl(0 0% 50%);
-    --color-token-cache-create: hsl(140 20% 55%);
+    --color-token-cache-create: hsl(35 40% 55%);
 
-    /* Task/subagent surfaces - teal/cyan theme for parallel work */
-    --color-task-mode: hsl(175 60% 42%);
-    --color-task-mode-light: hsl(175 60% 55%);
+    /* Task/subagent surfaces — orange-tinted for parallel work */
+    --color-task-mode: hsl(20 70% 48%);
+    --color-task-mode-light: hsl(20 70% 60%);
     --surface-task-gradient: linear-gradient(
       135deg,
       color-mix(in srgb, var(--color-task-mode), transparent 92%) 0%,
@@ -168,9 +166,9 @@
     --color-toggle-text-hover: hsl(0 0% 66.7%);
 
     /* Status */
-    --color-interrupted: hsl(38 92% 50%);
-    --color-backgrounded: hsl(200 70% 55%); /* cyan-ish blue for backgrounded processes */
-    --color-review-accent: hsl(48 70% 50%);
+    --color-interrupted: hsl(0 0% 53%);
+    --color-backgrounded: hsl(24 80% 55%);
+    --color-review-accent: hsl(30 80% 50%);
     --color-git-dirty: hsl(38 92% 50%);
     --color-error: hsl(0 70% 50%);
     --color-error-bg: hsl(0 32% 18%);
@@ -178,8 +176,8 @@
     /* Input */
     --color-input-bg: hsl(0 0% 12%);
     --color-input-text: hsl(0 0% 80%);
-    --color-input-border: hsl(207 51% 59%);
-    --color-input-border-focus: hsl(193 91% 64%);
+    --color-input-border: #FF6600;
+    --color-input-border-focus: #FF8533;
 
     /* Scrollbar */
     --color-scrollbar-track: hsl(0 0% 18%);
@@ -208,27 +206,27 @@
     --color-border-subtle: hsl(0 0% 40%); /* #666 - subtle border */
     --color-border-gray: hsl(240 1% 31%); /* #4e4e52 - gray border */
 
-    --color-dark: #1d1d1d; /* dark backgrounds */
-    --color-darker: hsl(0 0% 8.6%); /* #161616 - darker backgrounds */
+    --color-dark: #111111;
+    --color-darker: #090909;
     --color-hover: hsl(0 0% 16.5%); /* #2a2a2b - hover states */
     --color-bg-medium: hsl(0 0% 27%); /* #454545 - medium bg */
     --color-bg-light: hsl(0 0% 30%); /* #4c4c4c - light bg */
     --color-bg-subtle: hsl(240 3% 22%); /* #37373d - subtle bg */
 
-    --color-sidebar: #171717; /* neutral-900 - sidebar background */
+    --color-sidebar: #111111;
     --color-separator: #262626; /* neutral-800 - dividers/separators */
     --color-separator-light: hsl(0 0% 27%); /* #464647 - lighter separator */
     --color-modal-bg: hsl(0 0% 18%); /* #2d2d30 - modal backgrounds */
     --color-inline-code-dark-bg: hsl(0 0% 18%);
 
-    --color-accent: hsl(207 100% 40%); /* #007acc - VS Code blue */
-    --color-accent-hover: hsl(207 100% 45%);
-    --color-accent-dark: hsl(207 100% 37%);
-    --color-accent-darker: hsl(202 100% 23%);
-    --color-accent-light: hsl(198 100% 65%);
+    --color-accent: #FF6600;
+    --color-accent-hover: #FF8533;
+    --color-accent-dark: #CC5200;
+    --color-accent-darker: #993D00;
+    --color-accent-light: #FFB380;
 
-    --color-success: hsl(122 39% 49%);
-    --color-success-light: hsl(123 46% 64%);
+    --color-success: hsl(38 80% 50%);
+    --color-success-light: hsl(38 80% 64%);
     --color-on-success: hsl(0 0% 100%);
 
     --color-danger: hsl(4 90% 58%);
@@ -236,12 +234,12 @@
     --color-danger-soft: hsl(6 93% 71%);
     --color-on-danger: hsl(0 0% 100%);
 
-    --color-warning: hsl(45 100% 51%);
-    --color-warning-light: hsl(0 91% 71%);
+    --color-warning: hsl(40 95% 52%);
+    --color-warning-light: hsl(40 90% 68%);
 
     /* Code syntax highlighting */
-    --color-code-type: hsl(197 71% 73%);
-    --color-code-keyword: hsl(210 59% 63%);
+    --color-code-type: hsl(24 60% 72%);
+    --color-code-keyword: hsl(24 80% 60%);
     --color-code-string: hsl(40 53% 67%);
     --color-syntax-error: hsl(355 65% 65%);
 
@@ -249,18 +247,18 @@
     --color-terminal-bg: hsl(0 0% 12%);
     --color-terminal-fg: hsl(0 0% 83%);
 
-    /* Info (blue accent for in-progress states) */
-    --color-info: hsl(207 90% 54%);
+    /* Info (orange accent for in-progress states) */
+    --color-info: hsl(24 90% 54%);
 
     /* Init message surfaces */
-    --color-init-bg: hsl(210 33% 17%);
-    --color-init-border: hsl(210 27% 25%);
+    --color-init-bg: hsl(24 25% 14%);
+    --color-init-border: hsl(24 20% 22%);
     --color-init-error-bg: hsl(0 33% 17%);
     --color-init-error-border: hsl(0 28% 30%);
 
     /* Toast and notification backgrounds */
-    --color-toast-success-bg: hsl(207 100% 37% / 0.13);
-    --color-toast-success-text: hsl(207 100% 60%);
+    --color-toast-success-bg: hsl(24 40% 14%);
+    --color-toast-success-text: #FF8533;
     --color-toast-error-bg: hsl(5 89% 60% / 0.15);
     --color-toast-error-text: hsl(5 89% 60%);
     --color-toast-error-border: hsl(5 89% 60%);
@@ -273,18 +271,18 @@
     --color-gray-overlay: hsl(0 0% 39% / 0.05);
     --color-white-overlay-light: hsl(0 0% 100% / 0.05);
     --color-white-overlay: hsl(0 0% 100% / 0.1);
-    --color-selection: hsl(204 100% 60% / 0.5);
+    --color-selection: hsl(24 100% 50% / 0.5);
     --color-vim-status: hsl(0 0% 83% / 0.6);
-    --color-code-keyword-overlay-light: hsl(210 100% 70% / 0.05);
-    --color-code-keyword-overlay: hsl(210 100% 70% / 0.2);
+    --color-code-keyword-overlay-light: hsl(24 100% 60% / 0.05);
+    --color-code-keyword-overlay: hsl(24 100% 60% / 0.2);
 
     /* Info/status colors */
-    --color-info-light: hsl(5 100% 75%);
+    --color-info-light: hsl(24 100% 75%);
     --color-info-yellow: hsl(38 100% 64%);
 
     /* Review/diff backgrounds */
-    --color-review-bg-blue: hsl(201 31% 22%);
-    --color-review-bg-info: hsl(202 33% 24%);
+    --color-review-bg-blue: hsl(24 25% 16%);
+    --color-review-bg-info: hsl(24 28% 18%);
     --color-review-bg-warning: hsl(40 100% 12%);
     --color-review-warning: hsl(38 100% 25%);
     --color-review-warning-medium: hsl(38 100% 32%);
@@ -297,7 +295,7 @@
     --radius: 0.5rem;
   }
 
-  --plan-mode-rgb: 31, 107, 184;
+  --plan-mode-rgb: 184, 92, 23;
 
   /* Prefer VS Code fonts, but fall back to lattice defaults. */
   --font-primary: var(
@@ -530,18 +528,8 @@ body {
   border-radius: 3px;
   font-family: var(--font-monospace);
   font-size: 11px;
-  color: #4fc3f7;
+  color: #ffb380;
   border: 1px solid color-mix(in srgb, var(--color-plan-mode), transparent 80%);
-}
-
-:root[data-theme="flexoki-light"] .plan-content p > code,
-:root[data-theme="flexoki-light"] .plan-content li > code,
-:root[data-theme="flexoki-light"] .plan-content h1 > code,
-:root[data-theme="flexoki-light"] .plan-content h2 > code,
-:root[data-theme="flexoki-light"] .plan-content h3 > code,
-:root[data-theme="flexoki-light"] .plan-content h4 > code,
-:root[data-theme="flexoki-light"] .plan-content td > code {
-  color: color-mix(in srgb, var(--color-plan-mode) 65%, var(--color-foreground) 35%);
 }
 
 .plan-content blockquote {
@@ -623,7 +611,7 @@ body {
   border-radius: 3px;
   font-family: var(--font-monospace);
   font-size: 12px;
-  color: #d19a66;
+  color: #e0874a;
 }
 
 .markdown-content pre {
@@ -771,7 +759,7 @@ body {
 /* Search highlighting */
 mark.search-highlight,
 span.search-highlight {
-  background: rgba(255, 215, 0, 0.3);
+  background: rgba(255, 102, 0, 0.25);
   color: inherit;
   padding: 0;
   border-radius: 2px;

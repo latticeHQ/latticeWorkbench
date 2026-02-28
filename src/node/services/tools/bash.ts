@@ -20,7 +20,471 @@ import type { ToolConfiguration, ToolFactory } from "@/common/utils/tools/tools"
 import { TOOL_DEFINITIONS } from "@/common/utils/tools/toolDefinitions";
 import { toBashTaskId } from "./taskId";
 import { migrateToBackground } from "@/node/services/backgroundProcessExecutor";
+import { LocalBaseRuntime } from "@/node/runtime/LocalBaseRuntime";
 import { getToolEnvPath } from "@/node/services/hooks";
+import { getErrorMessage } from "@/common/utils/errors";
+
+const CAT_FILE_READ_NOTICE =
+  "[IMPORTANT]\n\nDO NOT use `cat`, `rg`, or `grep` to read files. Use the `file_read` tool instead (supports offset/limit paging). Bash output may be truncated or auto-filtered, which can hide parts of the file.";
+
+function prependToolNote(existing: string | undefined, extra: string): string {
+  if (!existing) {
+    return extra;
+  }
+
+  return `${extra}\n\n${existing}`;
+}
+
+function isCatToken(token: string): boolean {
+  const normalized = token.trim().startsWith("\\") ? token.trim().slice(1) : token.trim();
+  return normalized === "cat";
+}
+
+function getCatCommandTokenIndex(tokens: string[]): number | null {
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  if (isCatToken(tokens[0])) {
+    return 0;
+  }
+
+  if (tokens[0] === "command" && tokens[1] && isCatToken(tokens[1])) {
+    return 1;
+  }
+
+  // Handle common patterns like: sudo cat file, sudo -n cat file, sudo -u user cat file
+  if (tokens[0] === "sudo") {
+    for (let i = 1; i < tokens.length && i < 8; i++) {
+      if (isCatToken(tokens[i])) {
+        return i;
+      }
+    }
+  }
+
+  return null;
+}
+
+function detectCatFileRead(script: string): boolean {
+  // Fast-path: avoid doing any work if "cat" doesn't appear at all.
+  if (!script.includes("cat")) {
+    return false;
+  }
+
+  // Split on common statement separators and pipelines.
+  // Note: this is intentionally not a full shell parser; we aim to catch the common
+  // "cat <path>" pattern without false positives like "echo foo | cat".
+  const segments = script.split(/\n|&&|\|\||;|\|/);
+
+  for (const segment of segments) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    const catIndex = getCatCommandTokenIndex(tokens);
+    if (catIndex === null) continue;
+
+    const args = tokens.slice(catIndex + 1);
+    if (args.length === 0) continue; // "cat" (stdin passthrough)
+
+    // Ignore heredocs / here-strings (not a file read).
+    if (args.some((t) => t.startsWith("<<") || t.startsWith("<<<"))) {
+      continue;
+    }
+
+    let expectInputFile = false;
+    let skipNextOutputTarget = false;
+
+    for (const token of args) {
+      if (expectInputFile) {
+        expectInputFile = false;
+        if (token !== "-" && token.length > 0) {
+          return true;
+        }
+        continue;
+      }
+
+      if (skipNextOutputTarget) {
+        skipNextOutputTarget = false;
+        continue;
+      }
+
+      // Input redirection: cat < file OR cat <file
+      if (token === "<" || token === "0<") {
+        expectInputFile = true;
+        continue;
+      }
+      const inputMatch = /^(?:0)?<(.+)$/.exec(token);
+      if (inputMatch && !token.startsWith("<<") && !token.startsWith("<<<")) {
+        const inputFile = inputMatch[1];
+        if (inputFile !== "-" && inputFile.length > 0) {
+          return true;
+        }
+        continue;
+      }
+
+      // Output redirection: ignore output targets (doesn't indicate reading a file).
+      if (
+        token === ">" ||
+        token === ">>" ||
+        token === "1>" ||
+        token === "1>>" ||
+        token === "2>" ||
+        token === "2>>" ||
+        token === "&>" ||
+        token === "&>>"
+      ) {
+        skipNextOutputTarget = true;
+        continue;
+      }
+
+      // Output redirection with attached target (e.g. ">out", "2>/dev/null", "2>&1")
+      if (/^(?:\d+|&)?>>?/.test(token)) {
+        continue;
+      }
+
+      // Flags and stdin
+      if (token === "-" || token.startsWith("-")) {
+        continue;
+      }
+
+      // Remaining non-flag tokens look like file operands (e.g. "cat file").
+      return true;
+    }
+  }
+
+  return false;
+}
+
+type SearchCommand = "rg" | "grep";
+
+function stripOuterQuotes(token: string): string {
+  const trimmed = token.trim();
+  if (trimmed.length < 2) {
+    return trimmed;
+  }
+
+  const first = trimmed[0];
+  const last = trimmed[trimmed.length - 1];
+  if ((first === "'" && last === "'") || (first === '"' && last === '"')) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+function isMatchAllSearchPattern(pattern: string): boolean {
+  // Intentionally narrow: we only want to warn on obvious whole-file dump patterns
+  // (avoid warning on normal search).
+  const normalized = pattern.trim();
+  return normalized === "" || normalized === "^" || normalized === ".*";
+}
+
+function isRipgrepToken(token: string): boolean {
+  const trimmed = token.trim();
+  const normalized = trimmed.startsWith("\\") ? trimmed.slice(1) : trimmed;
+  return normalized === "rg";
+}
+
+function isGrepToken(token: string): boolean {
+  const trimmed = token.trim();
+  const normalized = trimmed.startsWith("\\") ? trimmed.slice(1) : trimmed;
+  return normalized === "grep";
+}
+
+function getRipgrepCommandTokenIndex(tokens: string[]): number | null {
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  if (isRipgrepToken(tokens[0])) {
+    return 0;
+  }
+
+  if (tokens[0] === "command" && tokens[1] && isRipgrepToken(tokens[1])) {
+    return 1;
+  }
+
+  // Handle common patterns like: sudo rg file, sudo -n rg file, sudo -u user rg file
+  if (tokens[0] === "sudo") {
+    for (let i = 1; i < tokens.length && i < 8; i++) {
+      if (isRipgrepToken(tokens[i])) {
+        return i;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getGrepCommandTokenIndex(tokens: string[]): number | null {
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  if (isGrepToken(tokens[0])) {
+    return 0;
+  }
+
+  if (tokens[0] === "command" && tokens[1] && isGrepToken(tokens[1])) {
+    return 1;
+  }
+
+  // Handle common patterns like: sudo grep file, sudo -n grep file, sudo -u user grep file
+  if (tokens[0] === "sudo") {
+    for (let i = 1; i < tokens.length && i < 8; i++) {
+      if (isGrepToken(tokens[i])) {
+        return i;
+      }
+    }
+  }
+
+  return null;
+}
+
+function parseSearchCommandArgs(
+  command: SearchCommand,
+  args: string[]
+): { pattern: string | null; tokensAfterPattern: string[] } {
+  let pattern: string | null = null;
+  const tokensAfterPattern: string[] = [];
+  let afterDoubleDash = false;
+
+  const rgConsumesNextArg = new Set([
+    "-g",
+    "--glob",
+    "--iglob",
+    "-t",
+    "--type",
+    "--type-add",
+    "--type-clear",
+  ]);
+  const grepConsumesNextArg = new Set([
+    "-f",
+    "--file",
+    "--include",
+    "--exclude",
+    "--exclude-dir",
+    "-m",
+    "--max-count",
+    "-A",
+    "-B",
+    "-C",
+  ]);
+
+  for (let i = 0; i < args.length; i++) {
+    const token = args[i];
+
+    if (token === "--") {
+      afterDoubleDash = true;
+      continue;
+    }
+
+    if (pattern === null) {
+      const isFlag = !afterDoubleDash && token.startsWith("-");
+      if (isFlag) {
+        const patternFlagInline =
+          command === "rg" && token.startsWith("--regexp=")
+            ? token.slice("--regexp=".length)
+            : command === "grep" && token.startsWith("--regexp=")
+              ? token.slice("--regexp=".length)
+              : null;
+
+        if (patternFlagInline !== null) {
+          pattern = patternFlagInline;
+          continue;
+        }
+
+        const isExplicitPatternFlag =
+          (command === "rg" && (token === "-e" || token === "--regexp")) ||
+          (command === "grep" && token === "-e");
+
+        if (isExplicitPatternFlag) {
+          const nextToken = args[i + 1];
+          if (nextToken !== undefined) {
+            pattern = nextToken;
+            i++;
+          }
+          continue;
+        }
+
+        // Support the compact form: -ePATTERN
+        if (token.startsWith("-e") && token.length > 2) {
+          pattern = token.slice(2);
+          continue;
+        }
+
+        const consumesNextArg =
+          (command === "rg" && rgConsumesNextArg.has(token)) ||
+          (command === "grep" && grepConsumesNextArg.has(token));
+        if (consumesNextArg) {
+          i++; // skip the flag value
+          continue;
+        }
+
+        continue; // other flags
+      }
+
+      pattern = token;
+      continue;
+    }
+
+    tokensAfterPattern.push(token);
+  }
+
+  return { pattern, tokensAfterPattern };
+}
+
+function hasFileReadTargetToken(tokensAfterPattern: string[]): boolean {
+  let expectInputFile = false;
+  let skipNextOutputTarget = false;
+
+  for (const token of tokensAfterPattern) {
+    if (expectInputFile) {
+      expectInputFile = false;
+      if (token !== "-" && token.length > 0) {
+        return true;
+      }
+      continue;
+    }
+
+    if (skipNextOutputTarget) {
+      skipNextOutputTarget = false;
+      continue;
+    }
+
+    // Input redirection: ... < file OR ... <file
+    if (token === "<" || token === "0<") {
+      expectInputFile = true;
+      continue;
+    }
+    const inputMatch = /^(?:0)?<(.+)$/.exec(token);
+    if (inputMatch && !token.startsWith("<<") && !token.startsWith("<<<")) {
+      const inputFile = inputMatch[1];
+      if (inputFile !== "-" && inputFile.length > 0) {
+        return true;
+      }
+      continue;
+    }
+
+    // Output redirection: ignore output targets.
+    if (
+      token === ">" ||
+      token === ">>" ||
+      token === "1>" ||
+      token === "1>>" ||
+      token === "2>" ||
+      token === "2>>" ||
+      token === "&>" ||
+      token === "&>>"
+    ) {
+      skipNextOutputTarget = true;
+      continue;
+    }
+
+    // Output redirection with attached target (e.g. ">out", "2>/dev/null", "2>&1")
+    if (/^(?:\d+|&)?>>?/.test(token)) {
+      continue;
+    }
+
+    // Flags and stdin
+    if (token === "-" || token === "--" || token.startsWith("-")) {
+      continue;
+    }
+
+    // Remaining non-flag tokens look like file/path operands.
+    return true;
+  }
+
+  return false;
+}
+
+function detectRipgrepFileDump(script: string): boolean {
+  // Fast-path: avoid doing any work if "rg" doesn't appear at all.
+  if (!script.includes("rg")) {
+    return false;
+  }
+
+  const segments = script.split(/\n|&&|\|\||;|\|/);
+  for (const segment of segments) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    const rgIndex = getRipgrepCommandTokenIndex(tokens);
+    if (rgIndex === null) continue;
+
+    const args = tokens.slice(rgIndex + 1);
+    if (args.length === 0) continue;
+
+    // Ignore heredocs / here-strings (not a file read).
+    if (args.some((t) => t.startsWith("<<") || t.startsWith("<<<"))) {
+      continue;
+    }
+
+    const { pattern, tokensAfterPattern } = parseSearchCommandArgs("rg", args);
+    if (!pattern) continue;
+
+    if (!isMatchAllSearchPattern(stripOuterQuotes(pattern))) {
+      continue;
+    }
+
+    if (hasFileReadTargetToken(tokensAfterPattern)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function detectGrepFileDump(script: string): boolean {
+  // Fast-path: avoid doing any work if "grep" doesn't appear at all.
+  if (!script.includes("grep")) {
+    return false;
+  }
+
+  const segments = script.split(/\n|&&|\|\||;|\|/);
+  for (const segment of segments) {
+    const tokens = segment.trim().split(/\s+/).filter(Boolean);
+    const grepIndex = getGrepCommandTokenIndex(tokens);
+    if (grepIndex === null) continue;
+
+    const args = tokens.slice(grepIndex + 1);
+    if (args.length === 0) continue;
+
+    // Ignore heredocs / here-strings (not a file read).
+    if (args.some((t) => t.startsWith("<<") || t.startsWith("<<<"))) {
+      continue;
+    }
+
+    const { pattern, tokensAfterPattern } = parseSearchCommandArgs("grep", args);
+    if (!pattern) continue;
+
+    if (!isMatchAllSearchPattern(stripOuterQuotes(pattern))) {
+      continue;
+    }
+
+    if (hasFileReadTargetToken(tokensAfterPattern)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+type BashToolForegroundResult = Exclude<BashToolResult, { backgroundProcessId: string }>;
+
+function isForegroundBashToolResult(result: BashToolResult): result is BashToolForegroundResult {
+  return !("backgroundProcessId" in result);
+}
+
+function addNoticeToBashToolResult(
+  result: BashToolResult,
+  notice: string | undefined
+): BashToolResult {
+  if (!notice || !isForegroundBashToolResult(result)) {
+    return result;
+  }
+
+  return {
+    ...result,
+    note: prependToolNote(result.note, notice),
+  };
+}
 
 /**
  * Validates bash script input for common issues
@@ -56,6 +520,147 @@ function validateScript(script: string, config: ToolConfiguration): BashToolResu
   }
 
   return null; // Valid
+}
+
+/**
+ * Rewrite cmd.exe-style null-device redirects (e.g. `>nul`, `2>nul`) into `/dev/null`.
+ *
+ * Why: lattice executes commands via bash (Git Bash on Windows). In bash, `nul` is a normal filename,
+ * so scripts that try to discard output with `>nul` end up creating a file named `nul` in the
+ * minion root.
+ *
+ * This is intentionally narrow: only the *redirection target token* `nul`/`NUL` (optionally quoted,
+ * optionally with a trailing `:`) is rewritten.
+ */
+function rewriteWindowsNullRedirects(script: string): { script: string; didRewrite: boolean } {
+  let didRewrite = false;
+
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+
+  const isEscaped = (index: number): boolean => {
+    // Count consecutive backslashes immediately preceding `index`.
+    let backslashes = 0;
+    for (let i = index - 1; i >= 0 && script[i] === "\\"; i--) {
+      backslashes++;
+    }
+    return backslashes % 2 === 1;
+  };
+
+  let out = "";
+  let i = 0;
+
+  while (i < script.length) {
+    const ch = script[i];
+
+    // Track basic quoting to avoid rewriting inside strings.
+    if (!inDoubleQuote && ch === "'" && !isEscaped(i)) {
+      inSingleQuote = !inSingleQuote;
+      out += ch;
+      i++;
+      continue;
+    }
+
+    if (!inSingleQuote && ch === '"' && !isEscaped(i)) {
+      inDoubleQuote = !inDoubleQuote;
+      out += ch;
+      i++;
+      continue;
+    }
+
+    // Only rewrite when not inside quotes.
+    if (!inSingleQuote && !inDoubleQuote) {
+      // Skip escaped operators like `\>nul`.
+      if (ch === ">" && isEscaped(i)) {
+        out += ch;
+        i++;
+        continue;
+      }
+
+      // Parse an output redirection operator at `i`:
+      //   >, >>, 1>, 2>>, &>, etc.
+      const redirectStart = i;
+      let redirectPos = i;
+
+      // Optional fd specifier (digits) or `&`.
+      if (script[redirectPos] === "&") {
+        redirectPos++;
+      } else if (/[0-9]/.test(script[redirectPos] ?? "")) {
+        const fdStart = redirectPos;
+        while (/[0-9]/.test(script[redirectPos] ?? "")) {
+          redirectPos++;
+        }
+
+        // If the digits aren't directly followed by `>`, this isn't a redirection.
+        if (script[redirectPos] !== ">") {
+          redirectPos = fdStart;
+        }
+      }
+
+      if (script[redirectPos] === ">" && !isEscaped(redirectPos)) {
+        // Read `>` or `>>`.
+        redirectPos++;
+        if (script[redirectPos] === ">") {
+          redirectPos++;
+        }
+
+        // Consume whitespace after the operator.
+        let targetStart = redirectPos;
+        while (targetStart < script.length && /\s/.test(script[targetStart] ?? "")) {
+          targetStart++;
+        }
+
+        // Parse target token (quoted or unquoted).
+        if (targetStart < script.length) {
+          const quote = script[targetStart];
+          let token: string | null = null;
+          let tokenEnd = targetStart;
+
+          if (quote === "'" || quote === '"') {
+            const quotedStart = targetStart + 1;
+            tokenEnd = quotedStart;
+
+            while (tokenEnd < script.length) {
+              const c = script[tokenEnd];
+              if (c === quote && !(quote === '"' && isEscaped(tokenEnd))) {
+                break;
+              }
+              tokenEnd++;
+            }
+
+            if (tokenEnd < script.length && script[tokenEnd] === quote) {
+              token = script.slice(quotedStart, tokenEnd);
+              tokenEnd++; // include closing quote
+            }
+          } else {
+            while (tokenEnd < script.length) {
+              const c = script[tokenEnd];
+              if (/\s/.test(c) || /[;&|()<>]/.test(c)) {
+                break;
+              }
+              tokenEnd++;
+            }
+
+            token = script.slice(targetStart, tokenEnd);
+          }
+
+          const lower = token?.toLowerCase();
+          if (lower === "nul" || lower === "nul:") {
+            // Replace the token with /dev/null, preserving operator + whitespace.
+            out += script.slice(redirectStart, targetStart) + "/dev/null";
+            didRewrite = true;
+            i = tokenEnd;
+            continue;
+          }
+        }
+      }
+    }
+
+    out += ch;
+    i++;
+  }
+
+  return { script: out, didRewrite };
 }
 
 /**
@@ -256,27 +861,54 @@ export const createBashTool: ToolFactory = (config: ToolConfiguration) => {
       const validationError = validateScript(script, config);
       if (validationError) return validationError;
 
+      // Warn when the model appears to be reading files via bash output (cat/rg/grep).
+      // Reading files via bash output is fragile (may be truncated or auto-filtered);
+      // file_read supports paging and avoids silent context loss.
+      const fileReadNotice =
+        detectCatFileRead(script) || detectRipgrepFileDump(script) || detectGrepFileDump(script)
+          ? CAT_FILE_READ_NOTICE
+          : undefined;
+
       // Look up .lattice/tool_env to source before script (for direnv, nvm, venv, etc.)
       const toolEnvPath = config.runtime ? await getToolEnvPath(config.runtime, config.cwd) : null;
       const toolEnvPrelude = buildToolEnvPrelude(toolEnvPath);
-      const scriptWithEnv = toolEnvPrelude + script;
+
+      // On Windows, models sometimes emit cmd.exe-style `>nul` / `2>nul` redirections.
+      // Since the bash tool runs via bash, `nul` becomes a real file in the minion.
+      // Only rewrite for local Windows runtimes so non-Windows scripts keep their semantics.
+      const shouldRewriteNullRedirects =
+        process.platform === "win32" && config.runtime instanceof LocalBaseRuntime;
+      const nulRedirectRewrite = shouldRewriteNullRedirects
+        ? rewriteWindowsNullRedirects(script)
+        : { script, didRewrite: false };
+      const scriptWithEnv = toolEnvPrelude + nulRedirectRewrite.script;
+
+      const nulRedirectNote = nulRedirectRewrite.didRewrite
+        ? "Rewrote `>nul`/`2>nul` → `/dev/null` (bash tool runs in bash; use `/dev/null` to discard output)."
+        : undefined;
 
       // Handle explicit background execution (run_in_background=true)
+      const withNotice = (result: BashToolResult): BashToolResult =>
+        addNoticeToBashToolResult(
+          addNoticeToBashToolResult(result, nulRedirectNote),
+          fileReadNotice
+        );
+
       if (run_in_background) {
-        if (!config.workspaceId || !config.backgroundProcessManager || !config.runtime) {
-          return {
+        if (!config.minionId || !config.backgroundProcessManager || !config.runtime) {
+          return withNotice({
             success: false,
             error:
               "Background execution is only available for AI tool calls, not direct IPC invocation",
             exitCode: -1,
             wall_duration_ms: 0,
-          };
+          });
         }
 
         const startTime = performance.now();
         const spawnResult = await config.backgroundProcessManager.spawn(
           config.runtime,
-          config.workspaceId,
+          config.minionId,
           scriptWithEnv,
           {
             cwd: config.cwd,
@@ -289,22 +921,22 @@ export const createBashTool: ToolFactory = (config: ToolConfiguration) => {
         );
 
         if (!spawnResult.success) {
-          return {
+          return withNotice({
             success: false,
             error: spawnResult.error,
             exitCode: -1,
             wall_duration_ms: Math.round(performance.now() - startTime),
-          };
+          });
         }
 
-        return {
+        return withNotice({
           success: true,
           output: `Background process started with ID: ${spawnResult.processId}`,
           exitCode: 0,
           wall_duration_ms: Math.round(performance.now() - startTime),
           taskId: toBashTaskId(spawnResult.processId),
           backgroundProcessId: spawnResult.processId,
-        };
+        });
       }
 
       // Setup execution parameters
@@ -337,9 +969,9 @@ export const createBashTool: ToolFactory = (config: ToolConfiguration) => {
       // Register foreground process for "send to background" feature
       // Only if manager is available (AI tool calls, not IPC)
       const fgRegistration =
-        config.backgroundProcessManager && config.workspaceId && toolCallId
+        config.backgroundProcessManager && config.minionId && toolCallId
           ? config.backgroundProcessManager.registerForegroundProcess(
-              config.workspaceId,
+              config.minionId,
               toolCallId,
               script,
               safeDisplayName,
@@ -423,7 +1055,7 @@ ${scriptWithEnv}`;
         triggerFileTruncation
       );
 
-      // UI-only incremental output streaming over workspace.onChat (not sent to the model).
+      // UI-only incremental output streaming over minion.onChat (not sent to the model).
       // We flush chunked text rather than per-line to keep overhead low.
       let liveOutputStopped = false;
       let liveStdoutBuffer = "";
@@ -434,13 +1066,13 @@ ${scriptWithEnv}`;
       const MAX_LIVE_EVENT_CHARS = 32_768;
 
       const emitBashOutput = (isError: boolean, text: string): void => {
-        if (!config.emitChatEvent || !config.workspaceId || !toolCallId) return;
+        if (!config.emitChatEvent || !config.minionId || !toolCallId) return;
         if (liveOutputStopped) return;
         if (text.length === 0) return;
 
         config.emitChatEvent({
           type: "bash-output",
-          workspaceId: config.workspaceId,
+          minionId: config.minionId,
           toolCallId,
           text,
           isError,
@@ -486,12 +1118,12 @@ ${scriptWithEnv}`;
         liveStderrBuffer = "";
       };
 
-      if (config.emitChatEvent && config.workspaceId && toolCallId) {
+      if (config.emitChatEvent && config.minionId && toolCallId) {
         liveOutputTimer = setInterval(flushLiveOutput, LIVE_FLUSH_INTERVAL_MS);
       }
 
       const appendLiveOutput = (isError: boolean, text: string): void => {
-        if (!config.emitChatEvent || !config.workspaceId || !toolCallId) return;
+        if (!config.emitChatEvent || !config.minionId || !toolCallId) return;
         if (liveOutputStopped) return;
         if (text.length === 0) return;
 
@@ -672,7 +1304,7 @@ ${scriptWithEnv}`;
             const wall_duration_ms = Math.round(performance.now() - startTime);
 
             // Migrate to background tracking if manager is available
-            if (config.backgroundProcessManager && config.workspaceId) {
+            if (config.backgroundProcessManager && config.minionId) {
               const processId =
                 config.backgroundProcessManager.generateUniqueProcessId(safeDisplayName);
 
@@ -690,7 +1322,7 @@ ${scriptWithEnv}`;
                 migrationStream,
                 {
                   cwd: config.cwd,
-                  workspaceId: config.workspaceId,
+                  minionId: config.minionId,
                   processId,
                   script,
                   existingOutput: lines,
@@ -703,31 +1335,31 @@ ${scriptWithEnv}`;
                 config.backgroundProcessManager.registerMigratedProcess(
                   migrateResult.handle,
                   processId,
-                  config.workspaceId,
+                  config.minionId,
                   script,
                   migrateResult.outputDir,
                   safeDisplayName
                 );
 
-                return {
+                return withNotice({
                   success: true,
                   output: `Process sent to background with ID: ${processId}\n\nOutput so far (${lines.length} lines):\n${lines.slice(-20).join("\n")}${lines.length > 20 ? "\n...(showing last 20 lines)" : ""}`,
                   exitCode: 0,
                   wall_duration_ms,
                   taskId: toBashTaskId(processId),
                   backgroundProcessId: processId,
-                };
+                });
               }
               // Migration failed, fall through to simple return
             }
 
             // Fallback: return without process ID (no manager or migration failed)
-            return {
+            return withNotice({
               success: true,
               output: `Process sent to background. It will continue running.\n\nOutput so far (${lines.length} lines):\n${lines.slice(-20).join("\n")}${lines.length > 20 ? "\n...(showing last 20 lines)" : ""}`,
               exitCode: 0,
               wall_duration_ms,
-            };
+            });
           }
         } else {
           // Normal completion - extract exit code
@@ -739,19 +1371,19 @@ ${scriptWithEnv}`;
 
         // Check if this was an abort
         if (abortSignal?.aborted) {
-          return {
+          return withNotice({
             success: false,
             error: "Command execution was aborted",
             exitCode: -1,
             wall_duration_ms: Math.round(performance.now() - startTime),
-          };
+          });
         }
-        return {
+        return withNotice({
           success: false,
-          error: `Failed to execute command: ${err instanceof Error ? err.message : String(err)}`,
+          error: `Failed to execute command: ${getErrorMessage(err)}`,
           exitCode: -1,
           wall_duration_ms: Math.round(performance.now() - startTime),
-        };
+        });
       } finally {
         stopLiveOutput(true);
       }
@@ -762,12 +1394,12 @@ ${scriptWithEnv}`;
       // Check if command was aborted (exitCode will be EXIT_CODE_ABORTED = -997)
       // This can happen if abort signal fired after Promise.all resolved but before we check
       if (abortSignal?.aborted) {
-        return {
+        return withNotice({
           success: false,
           error: "Command execution was aborted",
           exitCode: -1,
           wall_duration_ms: Math.round(performance.now() - startTime),
-        };
+        });
       }
 
       // Round to integer to preserve tokens
@@ -799,7 +1431,7 @@ ${scriptWithEnv}`;
           await writerInstance.write(encoder.encode(fullOutput));
           await writerInstance.close();
 
-          const notice = `[OUTPUT OVERFLOW - ${overflowReason ?? "unknown reason"}]
+          const noticeBase = `[OUTPUT OVERFLOW - ${overflowReason ?? "unknown reason"}]
 
 Full output (${lines.length} lines) saved to ${overflowPath}
 
@@ -807,34 +1439,36 @@ Use selective filtering tools (e.g. grep) to extract relevant information and co
 
 File will be automatically cleaned up when stream ends.`;
 
-          return {
+          return withNotice({
             success: true,
             output: "",
-            note: notice,
+            note: noticeBase,
             exitCode: 0,
             wall_duration_ms,
             truncated: truncationInfo,
-          };
+          });
         } catch (err) {
           // If temp file creation fails, fall back to original error
-          return {
+          return withNotice({
             success: false,
             error: `Command output overflow: ${overflowReason ?? "unknown reason"}. Failed to save overflow to temp file: ${String(err)}`,
             exitCode: -1,
             wall_duration_ms,
-          };
+          });
         }
       }
 
       // Format result based on exit code and truncation state
-      return formatResult(
-        exitCode,
-        lines,
-        truncated,
-        overflowReason,
-        wall_duration_ms,
-        config.overflow_policy ?? "tmpfile",
-        effectiveTimeout
+      return withNotice(
+        formatResult(
+          exitCode,
+          lines,
+          truncated,
+          overflowReason,
+          wall_duration_ms,
+          config.overflow_policy ?? "tmpfile",
+          effectiveTimeout
+        )
       );
     },
   });

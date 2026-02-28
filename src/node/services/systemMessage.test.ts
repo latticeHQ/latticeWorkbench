@@ -2,8 +2,8 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import { buildSystemMessage, extractToolInstructions } from "./systemMessage";
-import type { WorkspaceMetadata } from "@/common/types/workspace";
-import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/workspace";
+import type { MinionMetadata } from "@/common/types/minion";
+import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/minion";
 
 const extractTagContent = (message: string, tagName: string): string | null => {
   const pattern = new RegExp(`<${tagName}>\\s*([\\s\\S]*?)\\s*</${tagName}>`, "i");
@@ -82,7 +82,7 @@ From global: Use rg for searching.
 describe("buildSystemMessage", () => {
   let tempDir: string;
   let projectDir: string;
-  let workspaceDir: string;
+  let minionDir: string;
   let globalDir: string;
   let mockHomedir: Mock<typeof os.homedir>;
   let runtime: LocalRuntime;
@@ -95,10 +95,10 @@ describe("buildSystemMessage", () => {
     // Create temp directory for test
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "systemMessage-test-"));
     projectDir = path.join(tempDir, "project");
-    workspaceDir = path.join(tempDir, "workspace");
+    minionDir = path.join(tempDir, "minion");
     globalDir = path.join(tempDir, ".lattice");
     await fs.mkdir(projectDir, { recursive: true });
-    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(minionDir, { recursive: true });
     await fs.mkdir(globalDir, { recursive: true });
 
     // Mock homedir to return our test directory (getSystemDirectory will append .lattice)
@@ -136,15 +136,15 @@ Use clear examples.
 `
     );
 
-    const metadata: WorkspaceMetadata = {
-      id: "test-workspace",
-      name: "test-workspace",
+    const metadata: MinionMetadata = {
+      id: "test-minion",
+      name: "test-minion",
       projectName: "test-project",
       projectPath: projectDir,
       runtimeConfig: DEFAULT_RUNTIME_CONFIG,
     };
 
-    const systemMessage = await buildSystemMessage(metadata, runtime, workspaceDir);
+    const systemMessage = await buildSystemMessage(metadata, runtime, minionDir);
 
     const customInstructions = extractTagContent(systemMessage, "custom-instructions") ?? "";
     expect(customInstructions).toContain("Always be helpful.");
@@ -160,9 +160,9 @@ Respond to Sonnet tickets in two sentences max.
 `
     );
 
-    const metadata: WorkspaceMetadata = {
-      id: "test-workspace",
-      name: "test-workspace",
+    const metadata: MinionMetadata = {
+      id: "test-minion",
+      name: "test-minion",
       projectName: "test-project",
       projectPath: projectDir,
       runtimeConfig: DEFAULT_RUNTIME_CONFIG,
@@ -171,7 +171,7 @@ Respond to Sonnet tickets in two sentences max.
     const systemMessage = await buildSystemMessage(
       metadata,
       runtime,
-      workspaceDir,
+      minionDir,
       undefined,
       "anthropic:claude-3.5-sonnet"
     );
@@ -195,14 +195,14 @@ OpenAI's GPT-5.1 Codex models already default to terse replies.
 
     await fs.writeFile(
       path.join(projectDir, "AGENTS.md"),
-      `# Headquarter Instructions
+      `# Project Instructions
 General details only.
 `
     );
 
-    const metadata: WorkspaceMetadata = {
-      id: "test-workspace",
-      name: "test-workspace",
+    const metadata: MinionMetadata = {
+      id: "test-minion",
+      name: "test-minion",
       projectName: "test-project",
       projectPath: projectDir,
       runtimeConfig: DEFAULT_RUNTIME_CONFIG,
@@ -211,7 +211,7 @@ General details only.
     const systemMessage = await buildSystemMessage(
       metadata,
       runtime,
-      workspaceDir,
+      minionDir,
       undefined,
       "openai:gpt-5.1-codex"
     );
@@ -236,9 +236,9 @@ General details only.
 Be extra concise when using Sonnet.
 `;
 
-      const metadata: WorkspaceMetadata = {
-        id: "test-workspace",
-        name: "test-workspace",
+      const metadata: MinionMetadata = {
+        id: "test-minion",
+        name: "test-minion",
         projectName: "test-project",
         projectPath: projectDir,
         runtimeConfig: DEFAULT_RUNTIME_CONFIG,
@@ -247,19 +247,19 @@ Be extra concise when using Sonnet.
       const systemMessage = await buildSystemMessage(
         metadata,
         runtime,
-        workspaceDir,
+        minionDir,
         undefined,
         "anthropic:claude-3.5-sonnet",
         undefined,
         { agentSystemPrompt }
       );
 
-      // Agent instructions should have scoped sections stripped
+      // Agent instructions should have scoped crews stripped
       const agentInstructions = extractTagContent(systemMessage, "agent-instructions") ?? "";
       expect(agentInstructions).toContain("You are a helpful agent.");
       expect(agentInstructions).not.toContain("Be extra concise when using Sonnet.");
 
-      // Model section should be extracted and injected
+      // Model crew should be extracted and injected
       expect(systemMessage).toContain("<model-anthropic-claude-3-5-sonnet>");
       expect(systemMessage).toContain("Be extra concise when using Sonnet.");
     });
@@ -276,9 +276,9 @@ From AGENTS.md: Be verbose.
 From agent: Be terse.
 `;
 
-      const metadata: WorkspaceMetadata = {
-        id: "test-workspace",
-        name: "test-workspace",
+      const metadata: MinionMetadata = {
+        id: "test-minion",
+        name: "test-minion",
         projectName: "test-project",
         projectPath: projectDir,
         runtimeConfig: DEFAULT_RUNTIME_CONFIG,
@@ -287,14 +287,14 @@ From agent: Be terse.
       const systemMessage = await buildSystemMessage(
         metadata,
         runtime,
-        workspaceDir,
+        minionDir,
         undefined,
         "anthropic:claude-3.5-sonnet",
         undefined,
         { agentSystemPrompt }
       );
 
-      // Agent definition's model section wins
+      // Agent definition's model crew wins
       expect(systemMessage).toContain("From agent: Be terse.");
       expect(systemMessage).not.toContain("From AGENTS.md: Be verbose.");
     });
@@ -311,9 +311,9 @@ From AGENTS.md: Sonnet instructions.
 From agent: Opus instructions.
 `;
 
-      const metadata: WorkspaceMetadata = {
-        id: "test-workspace",
-        name: "test-workspace",
+      const metadata: MinionMetadata = {
+        id: "test-minion",
+        name: "test-minion",
         projectName: "test-project",
         projectPath: projectDir,
         runtimeConfig: DEFAULT_RUNTIME_CONFIG,
@@ -322,14 +322,14 @@ From agent: Opus instructions.
       const systemMessage = await buildSystemMessage(
         metadata,
         runtime,
-        workspaceDir,
+        minionDir,
         undefined,
         "anthropic:claude-3.5-sonnet",
         undefined,
         { agentSystemPrompt }
       );
 
-      // Falls back to AGENTS.md since agent has no sonnet section
+      // Falls back to AGENTS.md since agent has no sonnet crew
       expect(systemMessage).toContain("From AGENTS.md: Sonnet instructions.");
       expect(systemMessage).not.toContain("From agent: Opus instructions.");
     });
@@ -388,9 +388,9 @@ OpenAI-only instructions.
       test(scenario.name, async () => {
         await fs.writeFile(path.join(projectDir, "AGENTS.md"), scenario.mdContent);
 
-        const metadata: WorkspaceMetadata = {
-          id: "test-workspace",
-          name: "test-workspace",
+        const metadata: MinionMetadata = {
+          id: "test-minion",
+          name: "test-minion",
           projectName: "test-project",
           projectPath: projectDir,
           runtimeConfig: DEFAULT_RUNTIME_CONFIG,
@@ -399,7 +399,7 @@ OpenAI-only instructions.
         const systemMessage = await buildSystemMessage(
           metadata,
           runtime,
-          workspaceDir,
+          minionDir,
           undefined,
           scenario.model
         );
@@ -407,5 +407,23 @@ OpenAI-only instructions.
         scenario.assert(systemMessage);
       });
     }
+  });
+
+  // NOTE: Available sidekicks are now injected into the task tool description
+  // (see tools.ts ToolConfiguration.availableSidekicks) rather than the system prompt.
+  // This change follows Anthropic's best practices for tool description placement.
+  test("does not include available-sidekicks section (moved to tool description)", async () => {
+    const metadata: MinionMetadata = {
+      id: "test-minion",
+      name: "test-minion",
+      projectName: "test-project",
+      projectPath: projectDir,
+      runtimeConfig: DEFAULT_RUNTIME_CONFIG,
+    };
+
+    const systemMessage = await buildSystemMessage(metadata, runtime, minionDir);
+
+    // Sidekicks are now listed in the task tool description, not system prompt
+    expect(systemMessage).not.toContain("<available-sidekicks>");
   });
 });

@@ -6,7 +6,6 @@ import * as path from "path";
 import { Config } from "@/node/config";
 import { SessionTimingService } from "./sessionTimingService";
 import type { TelemetryService } from "./telemetryService";
-import { normalizeGatewayModel } from "@/common/utils/ai/models";
 
 function createMockTelemetryService(): Pick<TelemetryService, "capture" | "getFeatureFlag"> {
   return {
@@ -14,6 +13,8 @@ function createMockTelemetryService(): Pick<TelemetryService, "capture" | "getFe
     getFeatureFlag: mock(() => Promise.resolve(undefined)),
   };
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("SessionTimingService", () => {
   let tempDir: string;
@@ -38,14 +39,14 @@ describe("SessionTimingService", () => {
     const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
     service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
 
-    const workspaceId = "test-workspace";
+    const minionId = "test-minion";
     const messageId = "m1";
     const model = "openai:gpt-4o";
     const startTime = 1_000_000;
 
     service.handleStreamStart({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model,
       historySequence: 1,
@@ -55,7 +56,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamDelta({
       type: "stream-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "hi",
       tokens: 5,
@@ -64,7 +65,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -75,7 +76,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -85,7 +86,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamAbort({
       type: "stream-abort",
-      workspaceId,
+      minionId,
       messageId,
       metadata: {
         duration: 5000,
@@ -100,9 +101,9 @@ describe("SessionTimingService", () => {
       abandonPartial: true,
     });
 
-    await service.waitForIdle(workspaceId);
+    await service.waitForIdle(minionId);
 
-    const snapshot = await service.getSnapshot(workspaceId);
+    const snapshot = await service.getSnapshot(minionId);
     expect(snapshot.lastRequest?.messageId).toBe(messageId);
     expect(snapshot.lastRequest?.totalDurationMs).toBe(5000);
     expect(snapshot.lastRequest?.toolExecutionMs).toBe(1000);
@@ -118,14 +119,14 @@ describe("SessionTimingService", () => {
     const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
     service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
 
-    const workspaceId = "test-workspace";
+    const minionId = "test-minion";
     const messageId = "m1";
     const model = "openai:gpt-4o";
     const startTime = 1_000_000;
 
     service.handleStreamStart({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model,
       historySequence: 1,
@@ -135,16 +136,16 @@ describe("SessionTimingService", () => {
 
     service.handleStreamAbort({
       type: "stream-abort",
-      workspaceId,
+      minionId,
       messageId,
       metadata: { duration: 1000 },
       abortReason: "user",
       abandonPartial: true,
     });
 
-    await service.waitForIdle(workspaceId);
+    await service.waitForIdle(minionId);
 
-    const snapshot = await service.getSnapshot(workspaceId);
+    const snapshot = await service.getSnapshot(minionId);
     expect(snapshot.lastRequest).toBeUndefined();
     expect(snapshot.session?.responseCount).toBe(0);
   });
@@ -158,23 +159,23 @@ describe("SessionTimingService", () => {
       const projectPath = "/tmp/lattice-session-timing-rollup-test-project";
       const model = "openai:gpt-4o";
 
-      const parentWorkspaceId = "parent-workspace";
-      const childWorkspaceId = "child-workspace";
+      const parentMinionId = "parent-minion";
+      const childMinionId = "child-minion";
 
-      await config.addWorkspace(projectPath, {
-        id: parentWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: parentMinionId,
         name: "parent-branch",
         projectName: "test-project",
         projectPath,
         runtimeConfig: { type: "local" },
       });
-      await config.addWorkspace(projectPath, {
-        id: childWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: childMinionId,
         name: "child-branch",
         projectName: "test-project",
         projectPath,
         runtimeConfig: { type: "local" },
-        parentWorkspaceId: parentWorkspaceId,
+        parentMinionId: parentMinionId,
       });
 
       // Parent stream.
@@ -183,7 +184,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamStart({
         type: "stream-start",
-        workspaceId: parentWorkspaceId,
+        minionId: parentMinionId,
         messageId: parentMessageId,
         model,
         historySequence: 1,
@@ -193,7 +194,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamDelta({
         type: "stream-delta",
-        workspaceId: parentWorkspaceId,
+        minionId: parentMinionId,
         messageId: parentMessageId,
         delta: "hi",
         tokens: 5,
@@ -202,7 +203,7 @@ describe("SessionTimingService", () => {
 
       service.handleToolCallStart({
         type: "tool-call-start",
-        workspaceId: parentWorkspaceId,
+        minionId: parentMinionId,
         messageId: parentMessageId,
         toolCallId: "t1",
         toolName: "bash",
@@ -213,7 +214,7 @@ describe("SessionTimingService", () => {
 
       service.handleToolCallEnd({
         type: "tool-call-end",
-        workspaceId: parentWorkspaceId,
+        minionId: parentMinionId,
         messageId: parentMessageId,
         toolCallId: "t1",
         toolName: "bash",
@@ -223,7 +224,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamEnd({
         type: "stream-end",
-        workspaceId: parentWorkspaceId,
+        minionId: parentMinionId,
         messageId: parentMessageId,
         metadata: {
           model,
@@ -244,7 +245,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamStart({
         type: "stream-start",
-        workspaceId: childWorkspaceId,
+        minionId: childMinionId,
         messageId: childMessageId,
         model,
         historySequence: 1,
@@ -254,7 +255,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamDelta({
         type: "stream-delta",
-        workspaceId: childWorkspaceId,
+        minionId: childMinionId,
         messageId: childMessageId,
         delta: "hi",
         tokens: 5,
@@ -263,7 +264,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamEnd({
         type: "stream-end",
-        workspaceId: childWorkspaceId,
+        minionId: childMinionId,
         messageId: childMessageId,
         metadata: {
           model,
@@ -277,21 +278,21 @@ describe("SessionTimingService", () => {
         parts: [],
       });
 
-      await service.waitForIdle(parentWorkspaceId);
-      await service.waitForIdle(childWorkspaceId);
+      await service.waitForIdle(parentMinionId);
+      await service.waitForIdle(childMinionId);
 
-      const before = await service.getSnapshot(parentWorkspaceId);
+      const before = await service.getSnapshot(parentMinionId);
       expect(before.lastRequest?.messageId).toBe(parentMessageId);
 
       const beforeLastRequest = before.lastRequest!;
 
       const rollupResult = await service.rollUpTimingIntoParent(
-        parentWorkspaceId,
-        childWorkspaceId
+        parentMinionId,
+        childMinionId
       );
       expect(rollupResult.didRollUp).toBe(true);
 
-      const after = await service.getSnapshot(parentWorkspaceId);
+      const after = await service.getSnapshot(parentMinionId);
 
       // lastRequest is preserved
       expect(after.lastRequest).toEqual(beforeLastRequest);
@@ -305,12 +306,12 @@ describe("SessionTimingService", () => {
       expect(after.session?.totalOutputTokens).toBe(15);
       expect(after.session?.totalReasoningTokens).toBe(2);
 
-      const normalizedModel = normalizeGatewayModel(model);
+      const normalizedModel = model;
       const key = `${normalizedModel}:exec`;
       expect(after.session?.byModel[key]?.responseCount).toBe(2);
     });
 
-    it("should be idempotent for the same child workspace", async () => {
+    it("should be idempotent for the same child minion", async () => {
       const telemetry = createMockTelemetryService();
       const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
       service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
@@ -318,11 +319,11 @@ describe("SessionTimingService", () => {
       const projectPath = "/tmp/lattice-session-timing-rollup-test-project";
       const model = "openai:gpt-4o";
 
-      const parentWorkspaceId = "parent-workspace";
-      const childWorkspaceId = "child-workspace";
+      const parentMinionId = "parent-minion";
+      const childMinionId = "child-minion";
 
-      await config.addWorkspace(projectPath, {
-        id: parentWorkspaceId,
+      await config.addMinion(projectPath, {
+        id: parentMinionId,
         name: "parent-branch",
         projectName: "test-project",
         projectPath,
@@ -335,7 +336,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamStart({
         type: "stream-start",
-        workspaceId: childWorkspaceId,
+        minionId: childMinionId,
         messageId: childMessageId,
         model,
         historySequence: 1,
@@ -345,7 +346,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamDelta({
         type: "stream-delta",
-        workspaceId: childWorkspaceId,
+        minionId: childMinionId,
         messageId: childMessageId,
         delta: "hi",
         tokens: 5,
@@ -354,7 +355,7 @@ describe("SessionTimingService", () => {
 
       service.handleStreamEnd({
         type: "stream-end",
-        workspaceId: childWorkspaceId,
+        minionId: childMinionId,
         messageId: childMessageId,
         metadata: {
           model,
@@ -368,24 +369,24 @@ describe("SessionTimingService", () => {
         parts: [],
       });
 
-      await service.waitForIdle(childWorkspaceId);
+      await service.waitForIdle(childMinionId);
 
-      const first = await service.rollUpTimingIntoParent(parentWorkspaceId, childWorkspaceId);
+      const first = await service.rollUpTimingIntoParent(parentMinionId, childMinionId);
       expect(first.didRollUp).toBe(true);
 
-      const second = await service.rollUpTimingIntoParent(parentWorkspaceId, childWorkspaceId);
+      const second = await service.rollUpTimingIntoParent(parentMinionId, childMinionId);
       expect(second.didRollUp).toBe(false);
 
-      const result = await service.getSnapshot(parentWorkspaceId);
+      const result = await service.getSnapshot(parentMinionId);
       expect(result.session?.responseCount).toBe(1);
 
       const timingFilePath = path.join(
-        config.getSessionDir(parentWorkspaceId),
+        config.getSessionDir(parentMinionId),
         "session-timing.json"
       );
       const raw = await fs.readFile(timingFilePath, "utf-8");
       const parsed = JSON.parse(raw) as { rolledUpFrom?: Record<string, true> };
-      expect(parsed.rolledUpFrom?.[childWorkspaceId]).toBe(true);
+      expect(parsed.rolledUpFrom?.[childMinionId]).toBe(true);
     });
   });
   it("persists completed stream stats to session-timing.json", async () => {
@@ -393,14 +394,14 @@ describe("SessionTimingService", () => {
     const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
     service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
 
-    const workspaceId = "test-workspace";
+    const minionId = "test-minion";
     const messageId = "m1";
     const model = "openai:gpt-4o";
     const startTime = 1_000_000;
 
     service.handleStreamStart({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model,
       historySequence: 1,
@@ -410,7 +411,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamDelta({
       type: "stream-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "hi",
       tokens: 5,
@@ -419,7 +420,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -430,7 +431,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -440,7 +441,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamEnd({
       type: "stream-end",
-      workspaceId,
+      minionId,
       messageId,
       metadata: {
         model,
@@ -455,15 +456,15 @@ describe("SessionTimingService", () => {
       parts: [],
     });
 
-    await service.waitForIdle(workspaceId);
+    await service.waitForIdle(minionId);
 
-    const filePath = path.join(config.getSessionDir(workspaceId), "session-timing.json");
+    const filePath = path.join(config.getSessionDir(minionId), "session-timing.json");
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
     expect(typeof parsed).toBe("object");
     expect(parsed).not.toBeNull();
 
-    const file = await service.getSnapshot(workspaceId);
+    const file = await service.getSnapshot(minionId);
     expect(file.lastRequest?.messageId).toBe(messageId);
     expect(file.lastRequest?.totalDurationMs).toBe(5000);
     expect(file.lastRequest?.toolExecutionMs).toBe(1000);
@@ -478,10 +479,71 @@ describe("SessionTimingService", () => {
     expect(file.session?.totalOutputTokens).toBe(10);
     expect(file.session?.totalReasoningTokens).toBe(2);
 
-    const normalizedModel = normalizeGatewayModel(model);
+    const normalizedModel = model;
     const key = `${normalizedModel}:exec`;
     expect(file.session?.byModel[key]).toBeDefined();
     expect(file.session?.byModel[key]?.responseCount).toBe(1);
+  });
+
+  it("uses agentId for the per-model breakdown when available", async () => {
+    const telemetry = createMockTelemetryService();
+    const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
+    service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
+
+    const minionId = "test-minion";
+    const messageId = "m1";
+    const model = "openai:gpt-4o";
+    const startTime = 1_000_000;
+
+    service.handleStreamStart({
+      type: "stream-start",
+      minionId,
+      messageId,
+      model,
+      historySequence: 1,
+      startTime,
+      mode: "exec",
+      agentId: "explore",
+    });
+
+    service.handleStreamDelta({
+      type: "stream-delta",
+      minionId,
+      messageId,
+      delta: "hi",
+      tokens: 5,
+      timestamp: startTime + 100,
+    });
+
+    service.handleStreamEnd({
+      type: "stream-end",
+      minionId,
+      messageId,
+      metadata: {
+        model,
+        duration: 500,
+        usage: {
+          inputTokens: 1,
+          outputTokens: 10,
+          totalTokens: 11,
+        },
+      },
+      parts: [],
+    });
+
+    await service.waitForIdle(minionId);
+
+    const snapshot = await service.getSnapshot(minionId);
+
+    const normalizedModel = model;
+    const key = `${normalizedModel}:explore`;
+
+    expect(snapshot.session?.byModel[key]).toBeDefined();
+    expect(snapshot.session?.byModel[key]?.agentId).toBe("explore");
+    expect(snapshot.session?.byModel[key]?.mode).toBe("exec");
+
+    // Regression: splitting should not label explore traffic as plain exec.
+    expect(snapshot.session?.byModel[`${normalizedModel}:exec`]).toBeUndefined();
   });
 
   it("ignores replayed events so timing stats aren't double-counted", async () => {
@@ -489,7 +551,7 @@ describe("SessionTimingService", () => {
     const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
     service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
 
-    const workspaceId = "test-workspace";
+    const minionId = "test-minion";
     const messageId = "m1";
     const model = "openai:gpt-4o";
     const startTime = 4_000_000;
@@ -497,7 +559,7 @@ describe("SessionTimingService", () => {
     // Normal completed stream
     service.handleStreamStart({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model,
       historySequence: 1,
@@ -507,7 +569,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamDelta({
       type: "stream-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "hi",
       tokens: 5,
@@ -516,7 +578,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -527,7 +589,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -537,7 +599,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamEnd({
       type: "stream-end",
-      workspaceId,
+      minionId,
       messageId,
       metadata: {
         model,
@@ -551,11 +613,11 @@ describe("SessionTimingService", () => {
       parts: [],
     });
 
-    await service.waitForIdle(workspaceId);
+    await service.waitForIdle(minionId);
 
-    const timingFilePath = path.join(config.getSessionDir(workspaceId), "session-timing.json");
+    const timingFilePath = path.join(config.getSessionDir(minionId), "session-timing.json");
     const beforeRaw = await fs.readFile(timingFilePath, "utf-8");
-    const beforeSnapshot = await service.getSnapshot(workspaceId);
+    const beforeSnapshot = await service.getSnapshot(minionId);
 
     expect(beforeSnapshot.active).toBeUndefined();
     expect(beforeSnapshot.lastRequest?.messageId).toBe(messageId);
@@ -563,7 +625,7 @@ describe("SessionTimingService", () => {
     // Replay the same events (e.g., reconnect)
     service.handleStreamStart({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       replay: true,
       model,
@@ -574,7 +636,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamDelta({
       type: "stream-delta",
-      workspaceId,
+      minionId,
       messageId,
       replay: true,
       delta: "hi",
@@ -584,7 +646,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId,
+      minionId,
       messageId,
       replay: true,
       toolCallId: "t1",
@@ -596,7 +658,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId,
+      minionId,
       messageId,
       replay: true,
       toolCallId: "t1",
@@ -605,10 +667,10 @@ describe("SessionTimingService", () => {
       timestamp: startTime + 3000,
     });
 
-    await service.waitForIdle(workspaceId);
+    await service.waitForIdle(minionId);
 
     const afterRaw = await fs.readFile(timingFilePath, "utf-8");
-    const afterSnapshot = await service.getSnapshot(workspaceId);
+    const afterSnapshot = await service.getSnapshot(minionId);
 
     expect(afterRaw).toBe(beforeRaw);
 
@@ -622,14 +684,14 @@ describe("SessionTimingService", () => {
     const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
     service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
 
-    const workspaceId = "test-workspace";
+    const minionId = "test-minion";
     const messageId = "m1";
     const model = "openai:gpt-4o";
     const startTime = 3_000_000;
 
     service.handleStreamStart({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model,
       historySequence: 1,
@@ -640,7 +702,7 @@ describe("SessionTimingService", () => {
     // First token arrives quickly.
     service.handleStreamDelta({
       type: "stream-delta",
-      workspaceId,
+      minionId,
       messageId,
       delta: "hi",
       tokens: 2,
@@ -650,7 +712,7 @@ describe("SessionTimingService", () => {
     // Two tools overlap: [1000, 3000] and [1500, 4000]
     service.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -661,7 +723,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t2",
       toolName: "bash",
@@ -672,7 +734,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -682,7 +744,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t2",
       toolName: "bash",
@@ -692,7 +754,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamEnd({
       type: "stream-end",
-      workspaceId,
+      minionId,
       messageId,
       metadata: {
         model,
@@ -706,9 +768,9 @@ describe("SessionTimingService", () => {
       parts: [],
     });
 
-    await service.waitForIdle(workspaceId);
+    await service.waitForIdle(minionId);
 
-    const snapshot = await service.getSnapshot(workspaceId);
+    const snapshot = await service.getSnapshot(minionId);
     expect(snapshot.lastRequest?.totalDurationMs).toBe(5000);
 
     // Tool wall-time should be the union: [1000, 4000] = 3000ms.
@@ -727,14 +789,14 @@ describe("SessionTimingService", () => {
     const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
     service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
 
-    const workspaceId = "test-workspace";
+    const minionId = "test-minion";
     const messageId = "m1";
     const model = "openai:gpt-4o";
     const startTime = 2_000_000;
 
     service.handleStreamStart({
       type: "stream-start",
-      workspaceId,
+      minionId,
       messageId,
       model,
       historySequence: 1,
@@ -744,7 +806,7 @@ describe("SessionTimingService", () => {
     // Tool runs 10s, but we lie in metadata.duration=1s.
     service.handleToolCallStart({
       type: "tool-call-start",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -755,7 +817,7 @@ describe("SessionTimingService", () => {
 
     service.handleToolCallEnd({
       type: "tool-call-end",
-      workspaceId,
+      minionId,
       messageId,
       toolCallId: "t1",
       toolName: "bash",
@@ -765,7 +827,7 @@ describe("SessionTimingService", () => {
 
     service.handleStreamEnd({
       type: "stream-end",
-      workspaceId,
+      minionId,
       messageId,
       metadata: {
         model,
@@ -779,7 +841,7 @@ describe("SessionTimingService", () => {
       parts: [],
     });
 
-    await service.waitForIdle(workspaceId);
+    await service.waitForIdle(minionId);
 
     expect(telemetry.capture).toHaveBeenCalled();
 
@@ -800,5 +862,136 @@ describe("SessionTimingService", () => {
     });
 
     expect(invalidCalls.length).toBeGreaterThan(0);
+  });
+
+  it("throttles delta-driven change events per minion", async () => {
+    const telemetry = createMockTelemetryService();
+    const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
+    service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
+
+    const minionId = "test-minion";
+    const messageId = "m1";
+    const model = "openai:gpt-4o";
+    const startTime = 5_000_000;
+
+    const onChange = mock<(minionId: string) => void>(() => undefined);
+
+    service.onStatsChange(onChange);
+    service.addSubscriber(minionId);
+
+    try {
+      service.handleStreamStart({
+        type: "stream-start",
+        minionId,
+        messageId,
+        model,
+        historySequence: 1,
+        startTime,
+        mode: "exec",
+      });
+
+      expect(onChange).toHaveBeenCalledTimes(1);
+
+      // First token should be emitted immediately so TTFT updates promptly.
+      service.handleStreamDelta({
+        type: "stream-delta",
+        minionId,
+        messageId,
+        delta: "hi",
+        tokens: 1,
+        timestamp: startTime + 100,
+      });
+
+      expect(onChange).toHaveBeenCalledTimes(2);
+
+      // Burst of deltas should coalesce into a single trailing emit.
+      for (let i = 0; i < 25; i++) {
+        service.handleStreamDelta({
+          type: "stream-delta",
+          minionId,
+          messageId,
+          delta: "x",
+          tokens: 1,
+          timestamp: startTime + 200 + i,
+        });
+      }
+
+      // Still only the immediate start + first token emits.
+      expect(onChange).toHaveBeenCalledTimes(2);
+
+      await sleep(250);
+      expect(onChange).toHaveBeenCalledTimes(3);
+
+      // Without new deltas, we shouldn't keep emitting.
+      await sleep(250);
+      expect(onChange).toHaveBeenCalledTimes(3);
+    } finally {
+      service.offStatsChange(onChange);
+      service.removeSubscriber(minionId);
+    }
+  });
+
+  it("clears scheduled delta emits when the last subscriber disconnects", async () => {
+    const telemetry = createMockTelemetryService();
+    const service = new SessionTimingService(config, telemetry as unknown as TelemetryService);
+    service.setStatsTabState({ enabled: true, variant: "stats", override: "default" });
+
+    const minionId = "test-minion";
+    const messageId = "m1";
+    const model = "openai:gpt-4o";
+    const startTime = 6_000_000;
+
+    const onChange = mock<(minionId: string) => void>(() => undefined);
+
+    service.onStatsChange(onChange);
+    service.addSubscriber(minionId);
+
+    try {
+      service.handleStreamStart({
+        type: "stream-start",
+        minionId,
+        messageId,
+        model,
+        historySequence: 1,
+        startTime,
+        mode: "exec",
+      });
+
+      service.handleStreamDelta({
+        type: "stream-delta",
+        minionId,
+        messageId,
+        delta: "hi",
+        tokens: 1,
+        timestamp: startTime + 100,
+      });
+
+      expect(onChange).toHaveBeenCalledTimes(2);
+
+      // Schedule a throttled emit.
+      service.handleStreamDelta({
+        type: "stream-delta",
+        minionId,
+        messageId,
+        delta: "x",
+        tokens: 1,
+        timestamp: startTime + 200,
+      });
+
+      const deltaEmitState = (
+        service as unknown as { deltaEmitState: Map<string, { timer?: unknown }> }
+      ).deltaEmitState;
+      expect(deltaEmitState.get(minionId)?.timer).toBeDefined();
+
+      // Unsubscribe before the throttle window elapses; timer should be cleared.
+      service.removeSubscriber(minionId);
+      expect(deltaEmitState.has(minionId)).toBe(false);
+
+      await sleep(250);
+      expect(onChange).toHaveBeenCalledTimes(2);
+    } finally {
+      service.offStatsChange(onChange);
+      service.removeSubscriber(minionId);
+    }
   });
 });

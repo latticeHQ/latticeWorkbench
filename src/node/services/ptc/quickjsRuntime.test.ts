@@ -144,8 +144,8 @@ describe("QuickJSRuntime", () => {
 
       // No await needed - asyncified methods appear sync
       const result = await runtime.eval(`
-        const file =lattice.fileRead("test.txt");
-        const bash =lattice.bash("ls");
+        const file = lattice.fileRead("test.txt");
+        const bash = lattice.bash("ls");
         return { file, bash };
       `);
 

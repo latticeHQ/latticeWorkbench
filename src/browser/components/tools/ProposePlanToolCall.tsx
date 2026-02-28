@@ -16,6 +16,7 @@ import {
 import { useToolExpansion, getStatusDisplay, type ToolStatus } from "./shared/toolUtils";
 import { MarkdownRenderer } from "../Messages/MarkdownRenderer";
 import { Button } from "../ui/button";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import { IconActionButton, type ButtonConfig } from "../Messages/MessageWindow";
 import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
 import { useStartHere } from "@/browser/hooks/useStartHere";
@@ -24,12 +25,27 @@ import { useCopyToClipboard } from "@/browser/hooks/useCopyToClipboard";
 import { cn } from "@/common/lib/utils";
 import { useAPI } from "@/browser/contexts/API";
 import { useOpenInEditor } from "@/browser/hooks/useOpenInEditor";
-import { useOptionalWorkspaceContext } from "@/browser/contexts/WorkspaceContext";
+import { useOptionalMinionContext } from "@/browser/contexts/MinionContext";
 import { usePopoverError } from "@/browser/hooks/usePopoverError";
 import { PopoverError } from "../PopoverError";
-import { getAgentIdKey, getPlanContentKey } from "@/common/constants/storage";
+import {
+  AGENT_AI_DEFAULTS_KEY,
+  getAgentIdKey,
+  getModelKey,
+  getPlanContentKey,
+  getThinkingLevelKey,
+  getMinionAISettingsByAgentKey,
+} from "@/common/constants/storage";
+import { getDefaultModel } from "@/browser/hooks/useModelsFromSettings";
 import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
-import { buildSendMessageOptions } from "@/browser/hooks/useSendMessageOptions";
+import { getSendOptionsFromStorage } from "@/browser/utils/messages/sendOptions";
+import { setMinionModelWithOrigin } from "@/browser/utils/modelChange";
+import {
+  resolveMinionAiSettingsForAgent,
+  type MinionAISettingsCache,
+} from "@/browser/utils/minionModeAi";
+import type { AgentAiDefaults } from "@/common/types/agentAiDefaults";
+import type { ThinkingLevel } from "@/common/types/thinking";
 import {
   Clipboard,
   ClipboardCheck,
@@ -38,9 +54,11 @@ import {
   ListStart,
   Pencil,
   Play,
+  Workflow,
   X,
 } from "lucide-react";
 import { ShareMessagePopover } from "../ShareMessagePopover";
+import { getErrorMessage } from "@/common/utils/errors";
 
 /**
  * Check if the result is a successful file-based propose_plan result.
@@ -101,7 +119,7 @@ interface ProposePlanToolCallProps {
   args: Record<string, unknown>;
   result?: unknown;
   status?: ToolStatus;
-  workspaceId?: string;
+  minionId?: string;
   /** Whether this is the latest propose_plan in the conversation */
   isLatest?: boolean;
   /** When true, renders as ephemeral preview (no tool wrapper, shows close button) */
@@ -121,7 +139,7 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
     args,
     result,
     status = "pending",
-    workspaceId,
+    minionId,
     isLatest,
     isEphemeralPreview,
     onClose,
@@ -131,28 +149,38 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
   } = props;
   const { expanded, toggleExpanded } = useToolExpansion(true); // Expand by default
   const [showRaw, setShowRaw] = useState(false);
+  const [isStartingOrchestrator, setIsStartingOrchestrator] = useState(false);
   const [isImplementing, setIsImplementing] = useState(false);
   const [implementReplacesChatHistory, setImplementReplacesChatHistory] = useState(false);
+
+  // On small screens, render the primary plan actions (Implement / Start Orchestrator)
+  // as shortcut icons alongside the other action buttons to avoid right-side overflow.
+  const [isNarrowScreen, setIsNarrowScreen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.innerWidth <= 768;
+  });
+
+  const isStartingOrchestratorRef = useRef(false);
   const isImplementingRef = useRef(false);
   const isMountedRef = useRef(true);
   const { api } = useAPI();
   const openInEditor = useOpenInEditor();
-  const workspaceContext = useOptionalWorkspaceContext();
+  const minionContext = useOptionalMinionContext();
   const editorError = usePopoverError();
   const editButtonRef = useRef<HTMLDivElement>(null);
 
-  // Get runtimeConfig and name for the workspace (needed for SSH-aware editor opening and share filename)
-  const workspaceMetadata = workspaceId
-    ? workspaceContext?.workspaceMetadata.get(workspaceId)
+  // Get runtimeConfig and name for the minion (needed for SSH-aware editor opening and share filename)
+  const minionMetadata = minionId
+    ? minionContext?.minionMetadata.get(minionId)
     : undefined;
-  const runtimeConfig = workspaceMetadata?.runtimeConfig;
-  const workspaceName = workspaceMetadata?.name;
+  const runtimeConfig = minionMetadata?.runtimeConfig;
+  const minionName = minionMetadata?.name;
 
   // Fresh content from disk for the latest plan (external edit detection)
   // Only use cache for completed tools (page reload case) - not for in-flight tools
   // which may have stale cache from a previous propose_plan call
-  const cacheKey = workspaceId ? getPlanContentKey(workspaceId) : "";
-  const shouldUseCache = workspaceId && isLatest && !isEphemeralPreview && status === "completed";
+  const cacheKey = minionId ? getPlanContentKey(minionId) : "";
+  const shouldUseCache = minionId && isLatest && !isEphemeralPreview && status === "completed";
   const cached = shouldUseCache
     ? readPersistedState<{ content: string; path: string } | null>(cacheKey, null)
     : null;
@@ -164,6 +192,17 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
     return () => {
       isMountedRef.current = false;
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleResize = () => {
+      setIsNarrowScreen(window.innerWidth <= 768);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
   useEffect(() => {
@@ -194,11 +233,11 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
   // Fetch fresh plan content for the latest plan
   // Re-fetches on mount, when window regains focus, and when tool completes
   useEffect(() => {
-    if (isEphemeralPreview || !isLatest || !workspaceId || !api) return;
+    if (isEphemeralPreview || !isLatest || !minionId || !api) return;
 
     const fetchPlan = async () => {
       try {
-        const res = await api.workspace.getPlanContent({ workspaceId });
+        const res = await api.minion.getPlanContent({ minionId });
         if (res.success) {
           setFreshContent(res.data.content);
           setFreshPath(res.data.path);
@@ -218,7 +257,7 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
     window.addEventListener("focus", handleFocus);
     return () => window.removeEventListener("focus", handleFocus);
     // status in deps ensures refetch when tool completes (captures final file state)
-  }, [api, workspaceId, isLatest, isEphemeralPreview, cacheKey, status]);
+  }, [api, minionId, isLatest, isEphemeralPreview, cacheKey, status]);
 
   // Determine plan content and title based on result type
   // For ephemeral previews, use direct content/path props
@@ -298,14 +337,143 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
     buttonLabel,
     disabled: startHereDisabled,
     modal,
-  } = useStartHere(workspaceId, startHereContent, false, {
+  } = useStartHere(minionId, startHereContent, false, {
     // Preserve the source agent so exec can detect a plan→exec transition
     // even after replacing chat history.
     sourceAgentId: "plan",
   });
 
+  const replaceChatHistoryWithPlan = async (args: { idPrefix: string; errorContext: string }) => {
+    if (!minionId || !api) return;
+
+    try {
+      const summaryMessage = createLatticeMessage(
+        `${args.idPrefix}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+        "assistant",
+        startHereContent,
+        {
+          timestamp: Date.now(),
+          compacted: "user",
+          // Preserve the source agent so plan-origin compactions can be detected.
+          agentId: "plan",
+        }
+      );
+
+      const result = await api.minion.replaceChatHistory({
+        minionId,
+        summaryMessage,
+        mode: "append-compaction-boundary",
+        deletePlanFile: false,
+      });
+
+      if (!result.success) {
+        console.error(args.errorContext, result.error);
+      }
+    } catch (err) {
+      console.error(args.errorContext, err);
+    }
+  };
+
+  // User request: propose_plan primary actions send immediately after agent switch.
+  // Resolve and persist model/thinking synchronously here so the follow-up message
+  // uses the target agent defaults instead of stale planning-mode preferences.
+  const resolveAndPersistTargetAgentSettings = (args: {
+    minionId: string;
+    targetAgentId: "exec" | "orchestrator";
+  }): { resolvedModel: string; resolvedThinking: ThinkingLevel } => {
+    const modelKey = getModelKey(args.minionId);
+    const thinkingKey = getThinkingLevelKey(args.minionId);
+    const fallbackModel = getDefaultModel();
+
+    const existingModel = readPersistedState<string>(modelKey, fallbackModel);
+    const existingThinking = readPersistedState<ThinkingLevel>(thinkingKey, "off");
+    const agentAiDefaults = readPersistedState<AgentAiDefaults>(AGENT_AI_DEFAULTS_KEY, {});
+    const minionByAgent = readPersistedState<MinionAISettingsCache>(
+      getMinionAISettingsByAgentKey(args.minionId),
+      {}
+    );
+
+    const { resolvedModel, resolvedThinking } = resolveMinionAiSettingsForAgent({
+      agentId: args.targetAgentId,
+      agentAiDefaults,
+      // Propose-plan actions are explicit mode switches; honor any per-agent
+      // minion override before inheriting the previously active plan settings.
+      minionByAgent,
+      useMinionByAgentFallback: true,
+      fallbackModel,
+      existingModel,
+      existingThinking,
+    });
+
+    updatePersistedState(getAgentIdKey(args.minionId), args.targetAgentId);
+
+    if (existingModel !== resolvedModel) {
+      setMinionModelWithOrigin(args.minionId, resolvedModel, "agent");
+    }
+    if (existingThinking !== resolvedThinking) {
+      updatePersistedState(thinkingKey, resolvedThinking);
+    }
+
+    return { resolvedModel, resolvedThinking };
+  };
+
+  const handleStartOrchestrator = async () => {
+    if (!minionId || !api) return;
+    if (isStartingOrchestratorRef.current) return;
+
+    isStartingOrchestratorRef.current = true;
+    if (isMountedRef.current) {
+      setIsStartingOrchestrator(true);
+    }
+
+    try {
+      let shouldReplaceChatHistory = false;
+
+      try {
+        const cfg = await api.config.getConfig();
+        shouldReplaceChatHistory =
+          cfg.taskSettings.proposePlanImplementReplacesChatHistory ?? false;
+      } catch {
+        // Ignore config read errors (we'll default to old behavior).
+      }
+
+      if (shouldReplaceChatHistory) {
+        await replaceChatHistoryWithPlan({
+          idPrefix: "start-orchestrator",
+          errorContext: "Failed to replace chat history before starting orchestrator:",
+        });
+      }
+
+      const targetAgentId = "orchestrator";
+      const { resolvedModel, resolvedThinking } = resolveAndPersistTargetAgentSettings({
+        minionId,
+        targetAgentId,
+      });
+
+      const sendMessageOptions = getSendOptionsFromStorage(minionId);
+
+      await api.minion.sendMessage({
+        minionId,
+        message: "Start orchestrating the implementation of this plan.",
+        options: {
+          ...sendMessageOptions,
+          agentId: targetAgentId,
+          model: resolvedModel,
+          thinkingLevel: resolvedThinking,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to start orchestrator:", err);
+    } finally {
+      isStartingOrchestratorRef.current = false;
+      if (isMountedRef.current) {
+        setIsStartingOrchestrator(false);
+      }
+    }
+  };
+
   const handleImplement = async () => {
-    if (!workspaceId || !api) return;
+    if (!minionId || !api) return;
     if (isImplementingRef.current) return;
 
     isImplementingRef.current = true;
@@ -325,40 +493,28 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
       }
 
       if (shouldReplaceChatHistory) {
-        try {
-          const summaryMessage = createLatticeMessage(
-            `start-here-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-            "assistant",
-            startHereContent,
-            {
-              timestamp: Date.now(),
-              compacted: "user",
-              // Preserve the source agent so exec can detect a plan→exec transition.
-              agentId: "plan",
-            }
-          );
-
-          const result = await api.workspace.replaceChatHistory({
-            workspaceId,
-            summaryMessage,
-            deletePlanFile: false,
-          });
-
-          if (!result.success) {
-            console.error("Failed to replace chat history before implementing:", result.error);
-          }
-        } catch (err) {
-          console.error("Failed to replace chat history before implementing:", err);
-        }
+        await replaceChatHistoryWithPlan({
+          idPrefix: "start-here",
+          errorContext: "Failed to replace chat history before implementing:",
+        });
       }
 
-      // Switch to exec before sending so send options (agentId/mode) match.
-      updatePersistedState(getAgentIdKey(workspaceId), "exec");
+      const targetAgentId = "exec";
+      const { resolvedModel, resolvedThinking } = resolveAndPersistTargetAgentSettings({
+        minionId,
+        targetAgentId,
+      });
+      const sendMessageOptions = getSendOptionsFromStorage(minionId);
 
-      await api.workspace.sendMessage({
-        workspaceId,
+      await api.minion.sendMessage({
+        minionId,
         message: "Implement the plan",
-        options: buildSendMessageOptions(workspaceId),
+        options: {
+          ...sendMessageOptions,
+          agentId: targetAgentId,
+          model: resolvedModel,
+          thinkingLevel: resolvedThinking,
+        },
       });
     } catch {
       // Best-effort: user can retry manually if sending fails.
@@ -373,7 +529,7 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
   const { copied, copyToClipboard } = useCopyToClipboard();
 
   const handleOpenInEditor = async () => {
-    if (!planPath || !workspaceId) return;
+    if (!planPath || !minionId) return;
 
     // Capture positioning from the ref for error popover placement
     const anchorPosition = editButtonRef.current
@@ -384,12 +540,12 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
       : { top: 100, left: 100 };
 
     try {
-      const result = await openInEditor(workspaceId, planPath, runtimeConfig, { isFile: true });
+      const result = await openInEditor(minionId, planPath, runtimeConfig, { isFile: true });
       if (!result.success && result.error) {
         editorError.showError("plan-editor", result.error, anchorPosition);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = getErrorMessage(error);
       editorError.showError("plan-editor", message, anchorPosition);
     }
   };
@@ -411,14 +567,14 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
         <ShareMessagePopover
           content={planContent}
           disabled={!planContent}
-          workspaceName={workspaceName}
+          minionName={minionName}
         />
       ),
     },
   ];
 
   // Edit button config (rendered separately with ref for error positioning)
-  const showEditButton = (isEphemeralPreview ?? isLatest) && planPath && workspaceId;
+  const showEditButton = (isEphemeralPreview ?? isLatest) && planPath && minionId;
   const editButton: ButtonConfig | null = showEditButton
     ? {
         label: "Edit",
@@ -428,8 +584,36 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
       }
     : null;
 
+  const shouldShowPrimaryActions = Boolean(
+    status === "completed" && !errorMessage && isLatest && !isEphemeralPreview && minionId
+  );
+
+  const implementButton: ButtonConfig | null = shouldShowPrimaryActions
+    ? {
+        label: "Implement",
+        onClick: () => void handleImplement(),
+        disabled: !api || isImplementing || isStartingOrchestrator,
+        icon: <Play className="size-4" />,
+        tooltip: implementReplacesChatHistory
+          ? "Replace chat history with this plan, switch to Exec, and start implementing"
+          : "Switch to Exec and start implementing",
+      }
+    : null;
+
+  const orchestratorButton: ButtonConfig | null = shouldShowPrimaryActions
+    ? {
+        label: "Start Orchestrator",
+        onClick: () => void handleStartOrchestrator(),
+        disabled: !api || isStartingOrchestrator || isImplementing,
+        icon: <Workflow className="size-4" />,
+        tooltip: implementReplacesChatHistory
+          ? "Replace chat history with this plan, switch to Orchestrator, and start delegating"
+          : "Switch to Orchestrator and start delegating",
+      }
+    : null;
+
   // Start Here button: only for tool calls, not ephemeral previews
-  if (!isEphemeralPreview && workspaceId) {
+  if (!isEphemeralPreview && minionId) {
     actionButtons.push({
       label: buttonLabel,
       onClick: openModal,
@@ -437,18 +621,6 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
       icon: <ListStart />,
       tooltip: "Replace all chat history with this plan",
     });
-
-    if (status === "completed" && !errorMessage && isLatest) {
-      actionButtons.push({
-        label: "Implement",
-        onClick: () => void handleImplement(),
-        disabled: !api || isImplementing,
-        icon: <Play />,
-        tooltip: implementReplacesChatHistory
-          ? "Replace chat history with this plan, switch to Exec, and start implementing"
-          : "Switch to Exec and start implementing",
-      });
-    }
   }
 
   // Show raw toggle
@@ -519,13 +691,69 @@ export const ProposePlanToolCall: React.FC<ProposePlanToolCallProps> = (props) =
 
       {/* Actions row at the bottom (matching MessageWindow style) */}
       <div className="mt-3 flex items-center gap-0.5">
-        {actionButtons.map((button, index) => (
-          <IconActionButton key={index} button={button} />
-        ))}
-        {/* Edit button rendered with ref for error popover positioning */}
-        {editButton && (
-          <div ref={editButtonRef}>
-            <IconActionButton button={editButton} />
+        <div className="flex min-w-0 flex-1 items-center gap-0.5">
+          {actionButtons.map((button, index) => (
+            <IconActionButton key={index} button={button} />
+          ))}
+
+          {isNarrowScreen && (implementButton ?? orchestratorButton) && (
+            <>
+              {implementButton && <IconActionButton button={implementButton} />}
+              {orchestratorButton && <IconActionButton button={orchestratorButton} />}
+            </>
+          )}
+
+          {/* Edit button rendered with ref for error popover positioning */}
+          {editButton && (
+            <div ref={editButtonRef}>
+              <IconActionButton button={editButton} />
+            </div>
+          )}
+        </div>
+
+        {!isNarrowScreen && (implementButton ?? orchestratorButton) && (
+          <div className="ml-auto flex items-center gap-1">
+            {implementButton && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1"
+                    onClick={implementButton.onClick}
+                    disabled={implementButton.disabled}
+                  >
+                    {implementButton.icon}
+                    <span className="leading-none">{implementButton.label}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="center">
+                  {implementButton.tooltip ?? implementButton.label}
+                </TooltipContent>
+              </Tooltip>
+            )}
+
+            {orchestratorButton && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1"
+                    onClick={orchestratorButton.onClick}
+                    disabled={orchestratorButton.disabled}
+                  >
+                    {orchestratorButton.icon}
+                    <span className="leading-none">{orchestratorButton.label}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent align="center">
+                  {orchestratorButton.tooltip ?? orchestratorButton.label}
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
         )}
       </div>

@@ -24,14 +24,11 @@ fi
 
 ESLINT_PATTERN='src/**/*.{ts,tsx}'
 
-RUN="npx"
-command -v bun >/dev/null 2>&1 && RUN="bun x"
-
 if [ "$1" = "--fix" ]; then
-  echo "Running eslint with --fix..."
-  $RUN eslint --cache --max-warnings 0 "$ESLINT_PATTERN" --fix
+  echo "Running bun x eslint with --fix..."
+  bun x eslint --cache --cache-strategy content --max-warnings 0 "$ESLINT_PATTERN" --fix
 else
   echo "Running eslint..."
-  $RUN eslint --cache --max-warnings 0 "$ESLINT_PATTERN"
+  bun x eslint --cache --cache-strategy content --max-warnings 0 "$ESLINT_PATTERN"
   echo "ESLint checks passed!"
 fi

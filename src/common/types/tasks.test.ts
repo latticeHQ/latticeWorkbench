@@ -52,4 +52,37 @@ describe("normalizeTaskSettings", () => {
 
     expect(normalized).toEqual(DEFAULT_TASK_SETTINGS);
   });
+
+  test("preserves explicit planSidekickExecutorRouting values", () => {
+    const normalized = normalizeTaskSettings({
+      planSidekickExecutorRouting: "auto",
+    });
+
+    expect(normalized.planSidekickExecutorRouting).toBe("auto");
+    expect(normalized.planSidekickDefaultsToOrchestrator).toBe(false);
+  });
+
+  test("migrates deprecated planSidekickDefaultsToOrchestrator when routing is unset", () => {
+    expect(
+      normalizeTaskSettings({
+        planSidekickDefaultsToOrchestrator: true,
+      }).planSidekickExecutorRouting
+    ).toBe("orchestrator");
+
+    expect(
+      normalizeTaskSettings({
+        planSidekickDefaultsToOrchestrator: false,
+      }).planSidekickExecutorRouting
+    ).toBe("exec");
+  });
+
+  test("prefers planSidekickExecutorRouting when both new and deprecated fields are set", () => {
+    const normalized = normalizeTaskSettings({
+      planSidekickExecutorRouting: "exec",
+      planSidekickDefaultsToOrchestrator: true,
+    });
+
+    expect(normalized.planSidekickExecutorRouting).toBe("exec");
+    expect(normalized.planSidekickDefaultsToOrchestrator).toBe(false);
+  });
 });

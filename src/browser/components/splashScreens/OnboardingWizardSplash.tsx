@@ -1,20 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bot,
   Boxes,
   Briefcase,
   Command as CommandIcon,
-  ExternalLink,
-  Loader2,
-  RefreshCw,
   Server,
-  Settings,
   Sparkles,
 } from "lucide-react";
 import { SplashScreen } from "./SplashScreen";
+import { useOnboardingPause } from "./SplashScreenProvider";
 import { DocsLink } from "@/browser/components/DocsLink";
-import { CliAgentWithIcon } from "@/browser/components/CliAgentIcon";
+import { ProviderWithIcon } from "@/browser/components/ProviderIcon";
 import {
   LatticeIcon,
   DockerIcon,
@@ -22,17 +19,18 @@ import {
   SSHIcon,
   WorktreeIcon,
 } from "@/browser/components/icons/RuntimeIcons";
-import {
-  ProjectCreateForm,
-  type ProjectCreateFormHandle,
-} from "@/browser/components/ProjectCreateModal";
+import { ProjectAddForm, type ProjectAddFormHandle } from "@/browser/components/ProjectCreateModal";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
 import { Button } from "@/browser/components/ui/button";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { updatePersistedState } from "@/browser/hooks/usePersistedState";
-import { useCliAgentDetection } from "@/browser/hooks/useCliAgentDetection";
+import { useProvidersConfig } from "@/browser/hooks/useProvidersConfig";
 import { KEYBINDS, formatKeybind } from "@/browser/utils/ui/keybinds";
 import { getAgentsInitNudgeKey } from "@/common/constants/storage";
+import { PROVIDER_DISPLAY_NAMES } from "@/common/constants/providers";
+import { usePolicy } from "@/browser/contexts/PolicyContext";
+import { getAllowedProvidersForUi } from "@/browser/utils/policyUi";
+
 
 const KBD_CLASSNAME =
   "bg-background-secondary text-foreground border-border-medium rounded border px-2 py-0.5 font-mono text-xs";
@@ -77,35 +75,22 @@ function WizardHeader(props: { stepIndex: number; totalSteps: number }) {
 function Card(props: {
   icon: React.ReactNode;
   title: string;
-  children?: React.ReactNode;
+  children: React.ReactNode;
   className?: string;
-  compact?: boolean;
 }) {
   return (
     <div
-      className={`bg-background-secondary border-border-medium rounded-lg border ${
-        props.compact ? "p-2.5" : "p-3"
-      } ${props.className ?? ""}`}
+      className={`bg-background-secondary border-border-medium rounded-lg border p-3 ${
+        props.className ?? ""
+      }`}
     >
-      <div
-        className={`text-foreground flex items-center gap-2 font-medium ${
-          props.compact ? "text-xs" : "text-sm"
-        }`}
-      >
-        <span
-          className={`bg-accent/10 text-accent inline-flex items-center justify-center rounded-md ${
-            props.compact ? "h-6 w-6" : "h-7 w-7"
-          }`}
-        >
+      <div className="text-foreground flex items-center gap-2 text-sm font-medium">
+        <span className="bg-accent/10 text-accent inline-flex h-7 w-7 items-center justify-center rounded-md">
           {props.icon}
         </span>
         {props.title}
       </div>
-      {props.children && (
-        <div className={`text-muted ${props.compact ? "mt-1.5 text-xs" : "mt-2 text-sm"}`}>
-          {props.children}
-        </div>
-      )}
+      <div className="text-muted mt-2 text-sm">{props.children}</div>
     </div>
   );
 }
@@ -118,7 +103,7 @@ function CommandPalettePreview(props: { shortcut: string }) {
     >
       <div className="border-b border-[var(--color-command-input-border)] bg-[var(--color-command-input)] px-3.5 py-3 text-sm">
         <span className="text-[var(--color-command-subdued)]">
-          Switch workspaces or type <span className="font-mono">&gt;</span> for all commands…
+          Switch minions or type <span className="font-mono">&gt;</span> for all commands…
         </span>
       </div>
 
@@ -129,10 +114,10 @@ function CommandPalettePreview(props: { shortcut: string }) {
 
         <div className="hover:bg-hover mx-1 my-0.5 grid grid-cols-[1fr_auto] items-center gap-2 rounded-md px-3 py-2 text-[13px]">
           <div>
-            Create New Workspace…
+            Summon New Minion…
             <br />
             <span className="text-xs text-[var(--color-command-subdued)]">
-              Start a new workspace (Local / Worktree / SSH / Docker)
+              Summon a new minion (Local / Worktree / SSH / Docker)
             </span>
           </div>
           <span className="font-monospace text-[11px] text-[var(--color-command-subdued)]">
@@ -171,44 +156,70 @@ function CommandPalettePreview(props: { shortcut: string }) {
 }
 
 export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
-  const [stepIndex, setStepIndex] = useState(0);
+  const onboardingPause = useOnboardingPause();
+  const [stepIndex, setStepIndex] = useState(onboardingPause.paused?.stepIndex ?? 0);
 
   const { open: openSettings } = useSettings();
-  const {
-    agents,
-    detectedAgents,
-    loading: agentsLoading,
-    refresh: refreshAgents,
-  } = useCliAgentDetection();
+  // Pause onboarding (not dismiss) so users can configure providers in full settings, then resume.
+  const openProvidersSettings = useCallback(
+    (provider?: string) => {
+      onboardingPause.pause({ stepIndex, reason: "providers-settings" });
+      openSettings("providers", provider ? { expandProvider: provider } : undefined);
+    },
+    [onboardingPause, openSettings, stepIndex]
+  );
+
+  const policyState = usePolicy();
+  const effectivePolicy =
+    policyState.status.state === "enforced" ? (policyState.policy ?? null) : null;
+  const visibleProviders = useMemo(
+    () => getAllowedProvidersForUi(effectivePolicy),
+    [effectivePolicy]
+  );
+  const { config: providersConfig, loading: providersLoading } = useProvidersConfig();
   const { addProject, projects } = useProjectContext();
 
-  const projectCreateFormRef = useRef<ProjectCreateFormHandle | null>(null);
+  const projectAddFormRef = useRef<ProjectAddFormHandle | null>(null);
   const [isProjectCreating, setIsProjectCreating] = useState(false);
-  const [isRescanning, setIsRescanning] = useState(false);
 
   const [direction, setDirection] = useState<Direction>("forward");
 
-  const [hasLoadedInitially, setHasLoadedInitially] = useState(false);
+  const configuredProviders = useMemo(
+    () => visibleProviders.filter((provider) => providersConfig?.[provider]?.isConfigured === true),
+    [providersConfig, visibleProviders]
+  );
+
+  const configuredProvidersSummary = useMemo(() => {
+    if (configuredProviders.length === 0) {
+      return null;
+    }
+
+    return configuredProviders.map((p) => PROVIDER_DISPLAY_NAMES[p]).join(", ");
+  }, [configuredProviders]);
+
+  const [hasConfiguredProvidersAtStart, setHasConfiguredProvidersAtStart] = useState<
+    boolean | null
+  >(null);
 
   useEffect(() => {
-    if (hasLoadedInitially) return;
-    if (!agentsLoading) {
-      setHasLoadedInitially(true);
+    if (hasConfiguredProvidersAtStart !== null) {
+      return;
     }
-  }, [agentsLoading, hasLoadedInitially]);
+
+    if (providersLoading) {
+      return;
+    }
+
+    setHasConfiguredProvidersAtStart(configuredProviders.length > 0);
+  }, [configuredProviders.length, hasConfiguredProvidersAtStart, providersLoading]);
 
   const commandPaletteShortcut = formatKeybind(KEYBINDS.OPEN_COMMAND_PALETTE);
+  const commandPaletteActionsShortcut = formatKeybind(KEYBINDS.OPEN_COMMAND_PALETTE_ACTIONS);
   const agentPickerShortcut = formatKeybind(KEYBINDS.TOGGLE_AGENT);
   const cycleAgentShortcut = formatKeybind(KEYBINDS.CYCLE_AGENT);
 
-  const handleRescan = async () => {
-    setIsRescanning(true);
-    await refreshAgents();
-    setIsRescanning(false);
-  };
-
   const steps = useMemo((): WizardStep[] => {
-    if (!hasLoadedInitially) {
+    if (hasConfiguredProvidersAtStart === null) {
       return [
         {
           key: "loading",
@@ -216,7 +227,7 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
           icon: <Sparkles className="h-4 w-4" />,
           body: (
             <>
-              <p>Scanning for installed providers…</p>
+              <p>Checking your provider configuration…</p>
             </>
           ),
         },
@@ -225,111 +236,69 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
 
     const nextSteps: WizardStep[] = [];
 
-    // Step 1: Provider Detection
     nextSteps.push({
       key: "providers",
-      title: "Your Providers",
-      icon: <Bot className="h-4 w-4" />,
+      title: "Choose your own AI providers",
+      icon: <Sparkles className="h-4 w-4" />,
       body: (
         <>
           <p>
-            Lattice orchestrates your existing coding agents. Detected agents are automatically
-            enabled — every model they support is available to you instantly.
+            Lattice is provider-agnostic: bring your own keys, mix and match models, or run locally.
           </p>
 
-          {detectedAgents.length > 0 && (
-            <p className="mt-2 text-xs">
-              <span className="text-green-500 font-medium">
-                {detectedAgents.length} agent{detectedAgents.length === 1 ? "" : "s"} detected
-              </span>
-              {" — "}
-              <span className="text-muted">auto-enabled, no setup needed</span>
+          {configuredProviders.length > 0 && configuredProvidersSummary ? (
+            <p className="mt-3 text-xs">
+              <span className="text-foreground font-medium">Configured:</span>{" "}
+              {configuredProvidersSummary}
             </p>
+          ) : (
+            <p className="mt-3 text-xs">No providers configured yet.</p>
           )}
 
-          {/* Agent list */}
-          <div className="mt-3 max-h-[280px] overflow-y-auto">
-            <div className="space-y-1">
-              {(agents ?? []).map((agent) => (
-                <div
-                  key={agent.slug}
-                  className={`flex items-center justify-between rounded-md px-2.5 py-2 text-xs ${
-                    agent.detected
-                      ? "bg-background-secondary border-border-medium border"
-                      : "hover:bg-background-secondary/50"
-                  }`}
-                >
-                  <CliAgentWithIcon
-                    slug={agent.slug}
-                    displayName={agent.displayName}
-                    className={`text-xs font-medium ${agent.detected ? "text-foreground" : "text-muted"}`}
-                  />
+          <div className="mt-3">
+            <div className="text-foreground mb-2 text-xs font-medium">Available providers</div>
+            <div className="grid grid-cols-2 gap-2">
+              {visibleProviders.map((provider) => {
+                const configured = providersConfig?.[provider]?.isConfigured === true;
 
-                  <div className="flex items-center gap-2">
-                    {agent.detected ? (
-                      <>
-                        <span className="flex items-center gap-1.5 text-[11px] text-green-500">
-                          <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
-                          Detected
-                        </span>
-                        <button
-                          type="button"
-                          className="text-muted hover:text-accent p-0.5 transition-colors"
-                          onClick={() => openSettings("providers")}
-                          title="Configure"
-                        >
-                          <Settings className="h-3 w-3" />
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        {agent.installUrl && (
-                          <a
-                            href={agent.installUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted hover:text-accent flex items-center gap-1 p-0.5 text-[11px] transition-colors"
-                            title={`Install ${agent.displayName}`}
-                          >
-                            <ExternalLink className="h-3 w-3" />
-                          </a>
-                        )}
-                        <span className="flex items-center gap-1.5 text-[11px] text-muted">
-                          <span className="bg-border-medium h-1.5 w-1.5 rounded-full" />
-                          Not detected
-                        </span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
+                return (
+                  <button
+                    key={provider}
+                    type="button"
+                    className="bg-background-secondary border-border-medium text-foreground hover:bg-hover flex w-full cursor-pointer items-center justify-between rounded-md border px-2 py-1 text-left text-xs"
+                    title={configured ? "Configured" : "Not configured"}
+                    onClick={() => openProvidersSettings(provider)}
+                  >
+                    <ProviderWithIcon provider={provider} displayName iconClassName="text-accent" />
+                    <span
+                      className={`h-2 w-2 rounded-full ${
+                        configured ? "bg-green-500" : "bg-border-medium"
+                      }`}
+                    />
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="text-muted mt-2 flex items-center gap-2 text-xs">
+              <span className="h-2 w-2 rounded-full bg-green-500" />
+              <span>Configured</span>
+              <span className="bg-border-medium h-2 w-2 rounded-full" />
+              <span>Not configured</span>
             </div>
           </div>
 
-          {/* Rescan + Provider link */}
-          <div className="mt-3 flex items-center justify-between">
+          <p className="mt-3">
+            Configure keys and endpoints in{" "}
             <button
               type="button"
-              className="text-muted hover:text-accent flex items-center gap-1.5 text-xs transition-colors"
-              onClick={() => void handleRescan()}
-              disabled={isRescanning}
+              className="text-accent hover:underline"
+              onClick={() => openProvidersSettings()}
             >
-              {isRescanning ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <RefreshCw className="h-3 w-3" />
-              )}
-              {isRescanning ? "Scanning..." : "Rescan"}
+              Settings → Providers
             </button>
-
-            <button
-              type="button"
-              className="text-muted hover:text-accent text-xs transition-colors"
-              onClick={() => openSettings("providers")}
-            >
-              Manual API keys →
-            </button>
-          </div>
+            .
+          </p>
         </>
       ),
     });
@@ -343,8 +312,8 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
       body: (
         <>
           <p>
-            Headquarters are the folders you want Lattice to work in. Choose one now, then click Next to
-            add it.
+            Projects are the folders or repos you want Lattice to work in. Add a local folder or clone
+            from GitHub, then click Next.
           </p>
 
           {projects.size > 0 ? (
@@ -358,8 +327,9 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
           )}
 
           <div className="mt-3">
-            <ProjectCreateForm
-              ref={projectCreateFormRef}
+            <ProjectAddForm
+              ref={projectAddFormRef}
+              isOpen
               autoFocus={projects.size === 0}
               hideFooter
               onIsCreatingChange={setIsProjectCreating}
@@ -374,8 +344,8 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
 
           <p className="mt-2 text-xs">
             {projects.size > 0
-              ? "Pick another folder to add, or leave this blank and click Next to continue."
-              : "Click Next to add the project."}
+              ? "Add another folder or repo, or leave this blank and click Next to continue."
+              : "Click Next to add this project."}
           </p>
         </>
       ),
@@ -389,8 +359,8 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
         <>
           <p>
             Agents are file-based definitions (system prompt + tool policy). You can create
-            project-local agents in <code className="text-accent">.lattice/agents/*.md</code> or
-            global agents in <code className="text-accent">~/.lattice/agents/*.md</code>.
+            project-local agents in <code className="text-accent">.lattice/agents/*.md</code> or global
+            agents in <code className="text-accent">~/.lattice/agents/*.md</code>.
           </p>
 
           <div className="mt-3 grid gap-2">
@@ -400,15 +370,12 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
             </Card>
 
             <Card icon={<Bot className="h-4 w-4" />} title="Quick shortcuts">
-              <div className="mt-1.5 flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <span>Agent picker</span>
-                  <kbd className={KBD_CLASSNAME}>{agentPickerShortcut}</kbd>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Cycle agent</span>
-                  <kbd className={KBD_CLASSNAME}>{cycleAgentShortcut}</kbd>
-                </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <span>Agent picker</span>
+                <kbd className={KBD_CLASSNAME}>{agentPickerShortcut}</kbd>
+                <span className="text-muted mx-1">•</span>
+                <span>Cycle agent</span>
+                <kbd className={KBD_CLASSNAME}>{cycleAgentShortcut}</kbd>
               </div>
             </Card>
           </div>
@@ -428,32 +395,29 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
       body: (
         <>
           <p>
-            Each workspace can run in the environment that fits the job: keep it local, isolate with
-            a git worktree, run remotely over SSH, or use a per-workspace Docker container.
+            Each minion can run in the environment that fits the job: keep it local, isolate with
+            a git worktree, run remotely over SSH, or use a per-minion Docker container.
           </p>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Card compact icon={<LocalIcon size={12} />} title="Local">
+          <div className="mt-3 grid gap-2">
+            <Card icon={<LocalIcon size={14} />} title="Local">
               Work directly in your project directory.
             </Card>
-            <Card compact icon={<WorktreeIcon size={12} />} title="Worktree">
-              Isolated git worktree under{" "}
-              <code className="text-accent">~/.lattice/src</code>.
+            <Card icon={<WorktreeIcon size={14} />} title="Worktree">
+              Isolated git worktree under <code className="text-accent">~/.lattice/src</code>.
             </Card>
-            <Card compact icon={<SSHIcon size={12} />} title="SSH">
+            <Card icon={<SSHIcon size={14} />} title="SSH">
               Remote clone and commands run on an SSH host.
             </Card>
-            <Card compact icon={<LatticeIcon size={12} />} title="Lattice (SSH)">
-              Managed remote dev environment over SSH.
+            <Card icon={<LatticeIcon size={14} />} title="Lattice (SSH)">
+              Use Lattice minions over SSH for a managed remote dev environment.
             </Card>
-            <Card compact icon={<DockerIcon size={12} />} title="Docker" className="col-span-2">
-              Isolated container per workspace — sandboxed by default.
+            <Card icon={<DockerIcon size={14} />} title="Docker">
+              Isolated container per minion.
             </Card>
           </div>
 
-          <p className="mt-3 text-xs">
-            Set a project default runtime in the workspace controls.
-          </p>
+          <p className="mt-3">You can set a project default runtime in the minion controls.</p>
         </>
       ),
     });
@@ -466,22 +430,23 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
         <>
           <p>
             MCP servers extend Lattice with tools (memory, ticketing, databases, internal APIs).
-            Configure them per project and optionally override per workspace.
+            Configure them globally, with optional repo overrides and per-minion overrides.
           </p>
 
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <Card compact icon={<Server className="h-3.5 w-3.5" />} title="Headquarter config">
-              <code className="text-accent text-[11px]">.lattice/mcp.jsonc</code>
+          <div className="mt-3 grid gap-2">
+            <Card icon={<Server className="h-4 w-4" />} title="Global config">
+              <code className="text-accent">~/.lattice/mcp.jsonc</code>
             </Card>
-            <Card compact icon={<Server className="h-3.5 w-3.5" />} title="Workspace overrides">
-              <code className="text-accent text-[11px]">.lattice/mcp.local.jsonc</code>
+            <Card icon={<Server className="h-4 w-4" />} title="Repo overrides">
+              <code className="text-accent">./.lattice/mcp.jsonc</code>
+            </Card>
+            <Card icon={<Server className="h-4 w-4" />} title="Minion overrides">
+              <code className="text-accent">.lattice/mcp.local.jsonc</code>
             </Card>
           </div>
 
-          <p className="mt-3 text-xs">
-            Manage servers in{" "}
-            <span className="text-foreground font-medium">Settings → Headquarters</span> or via{" "}
-            <code className="text-accent">/mcp</code>.
+          <p className="mt-3">
+            Manage servers in <span className="text-foreground">Settings → MCP</span>.
           </p>
         </>
       ),
@@ -494,12 +459,12 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
       body: (
         <>
           <p>
-            The command palette is the fastest way to navigate, create workspaces, and discover
+            The command palette is the fastest way to navigate, create minions, and discover
             features.
           </p>
 
-          <div className="mt-3 flex items-center justify-between rounded-lg border border-border-medium bg-background-secondary px-3 py-2">
-            <span className="text-sm">Open command palette</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-muted text-sm">Open command palette</span>
             <kbd className={KBD_CLASSNAME}>{commandPaletteShortcut}</kbd>
           </div>
 
@@ -508,8 +473,9 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
           </div>
 
           <p className="mt-3">
-            Tip: type <code className="text-accent">&gt;</code> for commands and{" "}
-            <code className="text-accent">/</code> for slash commands.
+            Tip: type <code className="text-accent">&gt;</code> for commands, press{" "}
+            <kbd className={KBD_CLASSNAME}>{commandPaletteActionsShortcut}</kbd> to open command
+            mode directly, and use <code className="text-accent">/</code> for slash commands.
           </p>
         </>
       ),
@@ -519,19 +485,26 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
   }, [
     addProject,
     agentPickerShortcut,
-    agents,
+    commandPaletteActionsShortcut,
     commandPaletteShortcut,
+    configuredProviders.length,
+    configuredProvidersSummary,
     cycleAgentShortcut,
-    detectedAgents.length,
-    hasLoadedInitially,
-    isRescanning,
-    openSettings,
+    hasConfiguredProvidersAtStart,
+    openProvidersSettings,
     projects.size,
+    providersConfig,
+    visibleProviders,
   ]);
 
+  // Clamp stepIndex to valid range when the step list changes. Skip while still
+  // loading provider config — the temporary single-item "loading" array would
+  // reset a restored stepIndex (e.g. after resuming from paused onboarding).
+  const isLoading = hasConfiguredProvidersAtStart === null;
   useEffect(() => {
+    if (isLoading) return;
     setStepIndex((index) => Math.min(index, steps.length - 1));
-  }, [steps.length]);
+  }, [isLoading, steps.length]);
 
   const totalSteps = steps.length;
   const currentStep = steps[stepIndex] ?? steps[0];
@@ -540,7 +513,6 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
     return null;
   }
 
-  const isLoading = !hasLoadedInitially;
   const canGoBack = !isLoading && stepIndex > 0;
   const canGoForward = !isLoading && stepIndex < totalSteps - 1;
 
@@ -592,14 +564,14 @@ export function OnboardingWizardSplash(props: { onDismiss: () => void }) {
                 }
 
                 if (isProjectStep) {
-                  const form = projectCreateFormRef.current;
+                  const form = projectAddFormRef.current;
                   if (!form) {
                     goForward();
                     return;
                   }
 
-                  const trimmedPath = form.getTrimmedPath();
-                  if (!trimmedPath && projects.size > 0) {
+                  const trimmedInput = form.getTrimmedInput();
+                  if (!trimmedInput && projects.size > 0) {
                     goForward();
                     return;
                   }

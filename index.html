@@ -7,23 +7,23 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="description" content="Parallel agentic development with Electron + React" />
-    <meta name="theme-color" content="#FAF9F6" />
+    <meta name="theme-color" content="#1e1e1e" />
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" vite-ignore />
-    <link rel="icon" href="/favicon.ico" vite-ignore />
-    <link rel="apple-touch-icon" href="/icon.png" vite-ignore />
-    <title>Lattice</title>
+    <link rel="icon" href="/favicon.ico" data-theme-icon vite-ignore />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" vite-ignore />
+    <title>Lattice Workbench</title>
     <style>
       body {
         margin: 0;
         padding: 0;
         overflow: hidden;
-        background: var(--color-background, #FAF9F6);
-        color: var(--color-foreground, #191816);
+        background: var(--color-background, #1e1e1e);
+        color: var(--color-foreground, #d4d4d4);
         font-family: var(
           --font-primary,
-          "Inter",
           -apple-system,
           BlinkMacSystemFont,
+          "Geist",
           system-ui,
           "Segoe UI",
           "Roboto",
@@ -38,16 +38,11 @@
       }
 
       :root[data-theme="light"] body {
-        background: #FAF9F6;
-      }
-
-      :root[data-theme="dark"] body {
-        background: #1A1917;
+        background: #f5f6f8;
       }
 
       #root {
-        height: 100vh; /* fallback for older browsers */
-        height: 100dvh;
+        height: 100%;
         overflow: hidden;
       }
 
@@ -68,41 +63,75 @@
         gap: 16px;
       }
 
+      /* Lattice hexagon spinner — replaces the old circular spinner */
       .boot-loader__spinner {
-        height: 48px;
         width: 48px;
-        box-sizing: border-box;
-        border-radius: 9999px;
-        border: 4px solid var(--color-border-light, #3A3835);
-        border-top-color: transparent;
-        animation: boot-loader-spin 1s linear infinite;
+        height: 48px;
+        animation: boot-hex-rotate 4s linear infinite;
       }
 
-      :root[data-theme="light"] .boot-loader__spinner {
-        border-color: var(--color-border-light, #D8D5CC);
-        border-top-color: transparent;
+      .boot-loader__hex {
+        animation: boot-hex-pulse 2s ease-in-out infinite;
+        stroke-dasharray: 280;
+        stroke-dashoffset: 0;
+      }
+
+      .boot-loader__node {
+        animation: boot-hex-node 2s ease-in-out infinite;
+        transform-origin: 78px 78.5px;
+      }
+
+      .boot-loader__link {
+        animation: boot-hex-link 2s ease-in-out infinite;
       }
 
       .boot-loader__text {
         margin: 0;
         font-size: 14px;
-        color: var(--color-text-secondary, #8A8880);
+        color: var(--color-text-secondary, #6b6b6b);
       }
 
-      :root[data-theme="light"] .boot-loader__text {
-        color: var(--color-text-secondary, #686560);
+      :root[data-theme="light"] .boot-loader__text,
+      :root[data-theme$="-light"] .boot-loader__text {
+        color: var(--color-text-secondary, #607081);
+      }
+
+      :root[data-theme="light"] .boot-loader__spinner path,
+      :root[data-theme="light"] .boot-loader__spinner circle,
+      :root[data-theme="light"] .boot-loader__spinner line,
+      :root[data-theme$="-light"] .boot-loader__spinner path,
+      :root[data-theme$="-light"] .boot-loader__spinner circle,
+      :root[data-theme$="-light"] .boot-loader__spinner line {
+        stroke: #374151;
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .boot-loader__spinner {
+        .boot-loader__spinner,
+        .boot-loader__hex,
+        .boot-loader__node,
+        .boot-loader__link {
           animation: none;
         }
       }
 
-      @keyframes boot-loader-spin {
-        to {
-          transform: rotate(360deg);
-        }
+      @keyframes boot-hex-rotate {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes boot-hex-pulse {
+        0%, 100% { opacity: 0.4; stroke-dashoffset: 0; }
+        50% { opacity: 1; stroke-dashoffset: 56; }
+      }
+
+      @keyframes boot-hex-node {
+        0%, 100% { transform: scale(1); opacity: 0.6; }
+        50% { transform: scale(1.4); opacity: 1; }
+      }
+
+      @keyframes boot-hex-link {
+        0%, 100% { opacity: 0.3; }
+        50% { opacity: 1; }
       }
     </style>
     <script>
@@ -111,8 +140,8 @@
         const VALID_THEMES = new Set(["light", "dark"]);
 
         const THEME_COLORS = {
-          light: "#FAF9F6",
-          dark: "#1A1917",
+          dark: "#0D0D0D",
+          light: "#FAFAF7",
         };
 
         function getColorScheme(theme) {
@@ -142,10 +171,9 @@
           if (typeof parsed === "string") {
             if (VALID_THEMES.has(parsed)) {
               theme = parsed;
-            } else if (parsed.endsWith("-light") || parsed === "anthropic") {
-              // Migrate legacy themes
+            } else if (parsed.endsWith("-light")) {
               theme = "light";
-            } else if (parsed.endsWith("-dark") || parsed === "anthropic-dark") {
+            } else if (parsed.endsWith("-dark")) {
               theme = "dark";
             }
           }
@@ -157,12 +185,15 @@
 
           const metaThemeColor = document.querySelector('meta[name="theme-color"]');
           if (metaThemeColor) {
-            metaThemeColor.setAttribute("content", THEME_COLORS[theme] ?? "#FAF9F6");
+            metaThemeColor.setAttribute(
+              "content",
+              THEME_COLORS[theme] ?? THEME_COLORS[colorScheme] ?? "#1e1e1e"
+            );
           }
         } catch (error) {
           console.warn("Failed to apply preferred theme early", error);
-          document.documentElement.dataset.theme = "light";
-          document.documentElement.style.colorScheme = "light";
+          document.documentElement.dataset.theme = "dark";
+          document.documentElement.style.colorScheme = "dark";
         }
       })();
     </script>
@@ -171,8 +202,12 @@
     <div id="root">
       <div class="boot-loader" role="status" aria-live="polite" aria-busy="true">
         <div class="boot-loader__inner">
-          <div class="boot-loader__spinner" aria-hidden="true"></div>
-          <p class="boot-loader__text">Loading workspaces...</p>
+          <svg class="boot-loader__spinner" viewBox="0 0 156 157" xmlns="http://www.w3.org/2000/svg" overflow="hidden" aria-hidden="true">
+            <path class="boot-loader__hex" d="M39 58.5 78 39 117 58.5 117 97.5 78 117 39 97.5Z" stroke="#d4d4d4" stroke-width="2.4375" fill="none"/>
+            <circle class="boot-loader__node" cx="78" cy="78.5" r="4.875" stroke="#d4d4d4" stroke-width="2.4375" fill="none"/>
+            <line class="boot-loader__link" x1="58.5" y1="78.5" x2="97.5" y2="78.5" stroke="#d4d4d4" stroke-width="2.4375"/>
+          </svg>
+          <p class="boot-loader__text">Loading minions...</p>
         </div>
       </div>
     </div>

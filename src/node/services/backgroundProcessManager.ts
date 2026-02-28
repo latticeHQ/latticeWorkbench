@@ -45,7 +45,7 @@ export interface BackgroundProcessMeta {
 export interface BackgroundProcess {
   id: string; // Process ID (display_name from the bash tool call)
   pid: number; // OS process ID
-  workspaceId: string; // Owning workspace
+  minionId: string; // Owning minion
   outputDir: string; // Directory containing stdout.log, stderr.log, meta.json
   script: string; // Original command
   startTime: number; // Timestamp when started
@@ -73,8 +73,8 @@ export interface BackgroundProcess {
  * so users can click "Background" to stop waiting for them.
  */
 export interface ForegroundProcess {
-  /** Workspace ID */
-  workspaceId: string;
+  /** Minion ID */
+  minionId: string;
   /** Tool call ID that started this process (for UI to match) */
   toolCallId: string;
   /** Script being executed */
@@ -88,7 +88,7 @@ export interface ForegroundProcess {
 }
 
 /**
- * Manages bash processes for workspaces.
+ * Manages bash processes for minions.
  *
  * ALL bash commands are spawned through this manager with background-style
  * infrastructure (nohup, file output, exit code trap). This enables:
@@ -100,10 +100,10 @@ export interface ForegroundProcess {
  */
 /**
  * Event types emitted by BackgroundProcessManager.
- * The 'change' event is emitted whenever the state changes for a workspace.
+ * The 'change' event is emitted whenever the state changes for a minion.
  */
 export interface BackgroundProcessManagerEvents {
-  change: [workspaceId: string];
+  change: [minionId: string];
 }
 
 export class BackgroundProcessManager extends EventEmitter<BackgroundProcessManagerEvents> {
@@ -117,41 +117,41 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
   // Base directory for process output files
   private readonly bgOutputDir: string;
   // Tracks foreground processes (started via runtime.exec) that can be backgrounded
-  // Key is toolCallId to support multiple parallel foreground processes per workspace
+  // Key is toolCallId to support multiple parallel foreground processes per minion
   private foregroundProcesses = new Map<string, ForegroundProcess>();
-  // Tracks workspaces with queued messages (for bash_output to return early)
-  private queuedMessageWorkspaces = new Set<string>();
+  // Tracks minions with queued messages (for bash_output to return early)
+  private queuedMessageMinions = new Set<string>();
 
   constructor(bgOutputDir: string) {
     super();
-    // Background bash status can have many concurrent subscribers (e.g. multiple workspaces).
+    // Background bash status can have many concurrent subscribers (e.g. multiple minions).
     // Raise the default listener cap to avoid noisy MaxListenersExceededWarning.
-    this.setMaxListeners(500);
+    this.setMaxListeners(50);
     this.bgOutputDir = bgOutputDir;
   }
 
   /**
-   * Mark whether a workspace has a queued user message.
+   * Mark whether a minion has a queued user message.
    * Used by bash_output to return early when user has sent a new message.
    */
-  setMessageQueued(workspaceId: string, queued: boolean): void {
+  setMessageQueued(minionId: string, queued: boolean): void {
     if (queued) {
-      this.queuedMessageWorkspaces.add(workspaceId);
+      this.queuedMessageMinions.add(minionId);
     } else {
-      this.queuedMessageWorkspaces.delete(workspaceId);
+      this.queuedMessageMinions.delete(minionId);
     }
   }
 
   /**
-   * Check if a workspace has a queued user message.
+   * Check if a minion has a queued user message.
    */
-  hasQueuedMessage(workspaceId: string): boolean {
-    return this.queuedMessageWorkspaces.has(workspaceId);
+  hasQueuedMessage(minionId: string): boolean {
+    return this.queuedMessageMinions.has(minionId);
   }
 
-  /** Emit a change event for a workspace */
-  private emitChange(workspaceId: string): void {
-    this.emit("change", workspaceId);
+  /** Emit a change event for a minion */
+  private emitChange(minionId: string): void {
+    this.emit("change", minionId);
   }
 
   /**
@@ -192,13 +192,13 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
    * enabling seamless fg→bg transition via sendToBackground().
    *
    * @param runtime Runtime to spawn the process on
-   * @param workspaceId Workspace ID for tracking/filtering
+   * @param minionId Minion ID for tracking/filtering
    * @param script Bash script to execute
    * @param config Execution configuration
    */
   async spawn(
     runtime: Runtime,
-    workspaceId: string,
+    minionId: string,
     script: string,
     config: {
       cwd: string;
@@ -214,7 +214,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     | { success: true; processId: string; outputDir: string; pid: number }
     | { success: false; error: string }
   > {
-    log.debug(`BackgroundProcessManager.spawn() called for workspace ${workspaceId}`);
+    log.debug(`BackgroundProcessManager.spawn() called for minion ${minionId}`);
 
     const processId = this.generateUniqueProcessId(config.displayName);
 
@@ -222,7 +222,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     // spawnProcess uses runtime.tempDir() internally for output directory
     const result = await spawnProcess(runtime, script, {
       cwd: config.cwd,
-      workspaceId,
+      minionId,
       processId,
       env: config.env,
     });
@@ -249,7 +249,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     const proc: BackgroundProcess = {
       id: processId,
       pid,
-      workspaceId,
+      minionId,
       outputDir,
       script,
       startTime,
@@ -284,7 +284,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
 
     // Emit change event (only if background - foreground processes don't show in list)
     if (!proc.isForeground) {
-      this.emitChange(workspaceId);
+      this.emitChange(minionId);
     }
 
     return { success: true, processId, outputDir, pid };
@@ -294,21 +294,21 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
    * Register a foreground process that can be sent to background.
    * Called by bash tool when starting foreground execution.
    *
-   * @param workspaceId Workspace the process belongs to
+   * @param minionId Minion the process belongs to
    * @param toolCallId Tool call ID (for UI to identify which bash row)
    * @param script Script being executed
    * @param onBackground Callback invoked when user requests backgrounding
    * @returns Cleanup function to call when process completes
    */
   registerForegroundProcess(
-    workspaceId: string,
+    minionId: string,
     toolCallId: string,
     script: string,
     displayName: string,
     onBackground: () => void
   ): { unregister: () => void; addOutput: (line: string) => void } {
     const proc: ForegroundProcess = {
-      workspaceId,
+      minionId,
       toolCallId,
       script,
       displayName,
@@ -317,15 +317,15 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     };
     this.foregroundProcesses.set(toolCallId, proc);
     log.debug(
-      `Registered foreground process for workspace ${workspaceId}, toolCallId ${toolCallId}`
+      `Registered foreground process for minion ${minionId}, toolCallId ${toolCallId}`
     );
-    this.emitChange(workspaceId);
+    this.emitChange(minionId);
 
     return {
       unregister: () => {
         this.foregroundProcesses.delete(toolCallId);
         log.debug(`Unregistered foreground process toolCallId ${toolCallId}`);
-        this.emitChange(workspaceId);
+        this.emitChange(minionId);
       },
       addOutput: (line: string) => {
         proc.output.push(line);
@@ -341,7 +341,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
    *
    * @param handle The BackgroundHandle from migrateToBackground()
    * @param processId The generated process ID
-   * @param workspaceId Workspace the process belongs to
+   * @param minionId Minion the process belongs to
    * @param script Original script being executed
    * @param outputDir Directory containing output files
    * @param displayName Optional human-readable name
@@ -349,7 +349,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
   registerMigratedProcess(
     handle: BackgroundHandle,
     processId: string,
-    workspaceId: string,
+    minionId: string,
     script: string,
     outputDir: string,
     displayName?: string
@@ -359,7 +359,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     const proc: BackgroundProcess = {
       id: processId,
       pid: 0, // Unknown for migrated processes (could be remote)
-      workspaceId,
+      minionId,
       outputDir,
       script,
       startTime,
@@ -387,8 +387,8 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     };
     void handle.writeMeta(JSON.stringify(meta, null, 2));
 
-    log.debug(`Migrated process ${processId} registered for workspace ${workspaceId}`);
-    this.emitChange(workspaceId);
+    log.debug(`Migrated process ${processId} registered for minion ${minionId}`);
+    this.emitChange(minionId);
   }
 
   /**
@@ -417,14 +417,14 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
   }
 
   /**
-   * Get all foreground tool call IDs for a workspace.
+   * Get all foreground tool call IDs for a minion.
    * Returns empty array if no foreground processes are running.
    */
-  getForegroundToolCallIds(workspaceId: string): string[] {
+  getForegroundToolCallIds(minionId: string): string[] {
     const ids: string[] = [];
     // Check exec-based foreground processes
     for (const [toolCallId, proc] of this.foregroundProcesses) {
-      if (proc.workspaceId === workspaceId) {
+      if (proc.minionId === minionId) {
         ids.push(toolCallId);
       }
     }
@@ -471,7 +471,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
             `BackgroundProcessManager: Failed to update meta.json: ${getErrorMessage(err)}`
           );
         });
-        this.emitChange(proc.workspaceId);
+        this.emitChange(proc.minionId);
       }
     }
 
@@ -486,7 +486,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
    * @param filterExclude When true, invert filter to exclude matching lines instead of keeping them
    * @param timeout Seconds to wait for output if none available (default 0 = non-blocking)
    * @param abortSignal Optional signal to abort waiting early (e.g., when stream is cancelled)
-   * @param workspaceId Optional workspace ID to check for queued messages (return early to process them)
+   * @param minionId Optional minion ID to check for queued messages (return early to process them)
    * @param noteToolName Optional tool name to use in polling guidance notes
    */
   async getOutput(
@@ -495,7 +495,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
     filterExclude?: boolean,
     timeout?: number,
     abortSignal?: AbortSignal,
-    workspaceId?: string,
+    minionId?: string,
     noteToolName?: string
   ): Promise<
     | {
@@ -624,7 +624,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
         break;
       }
 
-      if (abortSignal?.aborted || (workspaceId && this.hasQueuedMessage(workspaceId))) {
+      if (abortSignal?.aborted || (minionId && this.hasQueuedMessage(minionId))) {
         const elapsed_ms = Date.now() - startTime;
         return {
           success: true,
@@ -804,16 +804,16 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
 
   /**
    * List background processes (not including foreground ones being waited on).
-   * Optionally filtered by workspace.
+   * Optionally filtered by minion.
    * Refreshes status of running processes before returning.
    */
-  async list(workspaceId?: string): Promise<BackgroundProcess[]> {
-    log.debug(`BackgroundProcessManager.list(${workspaceId ?? "all"}) called`);
+  async list(minionId?: string): Promise<BackgroundProcess[]> {
+    log.debug(`BackgroundProcessManager.list(${minionId ?? "all"}) called`);
     await this.refreshRunningStatuses();
     // Only return background processes (not foreground ones being waited on)
     const backgroundProcesses = Array.from(this.processes.values()).filter((p) => !p.isForeground);
-    return workspaceId
-      ? backgroundProcesses.filter((p) => p.workspaceId === workspaceId)
+    return minionId
+      ? backgroundProcesses.filter((p) => p.minionId === minionId)
       : backgroundProcesses;
   }
 
@@ -838,7 +838,7 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
             `BackgroundProcessManager: Failed to update meta.json: ${getErrorMessage(err)}`
           );
         });
-        this.emitChange(proc.workspaceId);
+        this.emitChange(proc.minionId);
       }
     }
   }
@@ -880,10 +880,10 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
       await proc.handle.dispose();
 
       log.debug(`Process ${processId} terminated successfully`);
-      this.emitChange(proc.workspaceId);
+      this.emitChange(proc.minionId);
       return { success: true };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = getErrorMessage(error);
       log.debug(`Error terminating process ${processId}: ${errorMessage}`);
       // Mark as killed even if there was an error (process likely already dead)
       proc.status = "killed";
@@ -894,13 +894,13 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
       });
       // Ensure handle is cleaned up even on error
       await proc.handle.dispose();
-      this.emitChange(proc.workspaceId);
+      this.emitChange(proc.minionId);
       return { success: true };
     }
   }
 
   /**
-   * Terminate all background processes across all workspaces.
+   * Terminate all background processes across all minions.
    * Called during app shutdown to prevent orphaned processes.
    */
   async terminateAll(): Promise<void> {
@@ -912,26 +912,26 @@ export class BackgroundProcessManager extends EventEmitter<BackgroundProcessMana
   }
 
   /**
-   * Clean up all processes for a workspace.
+   * Clean up all processes for a minion.
    * Terminates running processes and removes from memory.
-   * Output directories are left on disk (cleaned by OS for /tmp, or on workspace deletion for local).
+   * Output directories are left on disk (cleaned by OS for /tmp, or on minion deletion for local).
    */
-  async cleanup(workspaceId: string): Promise<void> {
-    log.debug(`BackgroundProcessManager.cleanup(${workspaceId}) called`);
+  async cleanup(minionId: string): Promise<void> {
+    log.debug(`BackgroundProcessManager.cleanup(${minionId}) called`);
     const matching = Array.from(this.processes.values()).filter(
-      (p) => p.workspaceId === workspaceId
+      (p) => p.minionId === minionId
     );
 
     // Terminate all running processes
     await Promise.all(matching.map((p) => this.terminate(p.id)));
 
-    // Remove from memory (output dirs left on disk for OS/workspace cleanup)
+    // Remove from memory (output dirs left on disk for OS/minion cleanup)
     // All per-process state (outputBytesRead, outputLock) is stored in the
     // BackgroundProcess object, so cleanup is automatic when we delete here.
     for (const p of matching) {
       this.processes.delete(p.id);
     }
 
-    log.debug(`Cleaned up ${matching.length} process(es) for workspace ${workspaceId}`);
+    log.debug(`Cleaned up ${matching.length} process(es) for minion ${minionId}`);
   }
 }

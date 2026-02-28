@@ -34,16 +34,16 @@ function getFrontendPlatform(): FrontendPlatformInfo {
 // =============================================================================
 
 /**
- * Track workspace creation
+ * Track minion creation
  */
-export function trackWorkspaceCreated(
-  workspaceId: string,
+export function trackMinionCreated(
+  minionId: string,
   runtimeType: TelemetryRuntimeType
 ): void {
   trackEvent({
-    event: "workspace_created",
+    event: "minion_created",
     properties: {
-      workspaceId,
+      minionId,
       runtimeType,
       frontendPlatform: getFrontendPlatform(),
     },
@@ -51,12 +51,12 @@ export function trackWorkspaceCreated(
 }
 
 /**
- * Track workspace switch
+ * Track minion switch
  */
-export function trackWorkspaceSwitched(fromWorkspaceId: string, toWorkspaceId: string): void {
+export function trackMinionSwitched(fromMinionId: string, toMinionId: string): void {
   trackEvent({
-    event: "workspace_switched",
-    properties: { fromWorkspaceId, toWorkspaceId },
+    event: "minion_switched",
+    properties: { fromMinionId, toMinionId },
   });
 }
 
@@ -65,7 +65,7 @@ export function trackWorkspaceSwitched(fromWorkspaceId: string, toWorkspaceId: s
  * @param messageLength - Raw character count (will be rounded to base-2)
  */
 export function trackMessageSent(
-  workspaceId: string,
+  minionId: string,
   model: string,
   agentId: string,
   messageLength: number,
@@ -75,7 +75,7 @@ export function trackMessageSent(
   trackEvent({
     event: "message_sent",
     properties: {
-      workspaceId,
+      minionId,
       model,
       agentId,
       message_length_b2: roundToBase2(messageLength),
@@ -161,9 +161,9 @@ export function trackVoiceTranscription(audioDurationSecs: number, success: bool
 export function trackErrorOccurred(
   errorType: string,
   context:
-    | "workspace-creation"
-    | "workspace-deletion"
-    | "workspace-switch"
+    | "minion-creation"
+    | "minion-deletion"
+    | "minion-switch"
     | "message-send"
     | "message-stream"
     | "project-add"

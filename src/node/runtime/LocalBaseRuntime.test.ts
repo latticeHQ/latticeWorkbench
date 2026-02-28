@@ -3,49 +3,49 @@ import * as os from "os";
 import * as path from "path";
 import { LocalBaseRuntime } from "./LocalBaseRuntime";
 import type {
-  WorkspaceCreationParams,
-  WorkspaceCreationResult,
-  WorkspaceInitParams,
-  WorkspaceInitResult,
-  WorkspaceForkParams,
-  WorkspaceForkResult,
+  MinionCreationParams,
+  MinionCreationResult,
+  MinionInitParams,
+  MinionInitResult,
+  MinionForkParams,
+  MinionForkResult,
 } from "./Runtime";
 
 class TestLocalRuntime extends LocalBaseRuntime {
-  getWorkspacePath(_projectPath: string, _workspaceName: string): string {
-    return "/tmp/workspace";
+  getMinionPath(_projectPath: string, _minionName: string): string {
+    return "/tmp/minion";
   }
 
-  createWorkspace(_params: WorkspaceCreationParams): Promise<WorkspaceCreationResult> {
-    return Promise.resolve({ success: true, workspacePath: "/tmp/workspace" });
+  createMinion(_params: MinionCreationParams): Promise<MinionCreationResult> {
+    return Promise.resolve({ success: true, minionPath: "/tmp/minion" });
   }
 
-  initWorkspace(_params: WorkspaceInitParams): Promise<WorkspaceInitResult> {
+  initMinion(_params: MinionInitParams): Promise<MinionInitResult> {
     return Promise.resolve({ success: true });
   }
 
-  renameWorkspace(
+  renameMinion(
     _projectPath: string,
     _oldName: string,
     _newName: string
   ): Promise<
     { success: true; oldPath: string; newPath: string } | { success: false; error: string }
   > {
-    return Promise.resolve({ success: true, oldPath: "/tmp/workspace", newPath: "/tmp/workspace" });
+    return Promise.resolve({ success: true, oldPath: "/tmp/minion", newPath: "/tmp/minion" });
   }
 
-  deleteWorkspace(
+  deleteMinion(
     _projectPath: string,
-    _workspaceName: string,
+    _minionName: string,
     _force: boolean
   ): Promise<{ success: true; deletedPath: string } | { success: false; error: string }> {
-    return Promise.resolve({ success: true, deletedPath: "/tmp/workspace" });
+    return Promise.resolve({ success: true, deletedPath: "/tmp/minion" });
   }
 
-  forkWorkspace(_params: WorkspaceForkParams): Promise<WorkspaceForkResult> {
+  forkMinion(_params: MinionForkParams): Promise<MinionForkResult> {
     return Promise.resolve({
       success: true,
-      workspacePath: "/tmp/workspace",
+      minionPath: "/tmp/minion",
       sourceBranch: "main",
     });
   }

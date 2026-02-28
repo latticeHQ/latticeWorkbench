@@ -8,6 +8,7 @@ import type { LatticeMessage } from "@/common/types/message";
 import type { EditedFileAttachment } from "@/node/services/agentSession";
 import type { PostCompactionAttachment } from "@/common/types/attachment";
 import { MAX_POST_COMPACTION_INJECTION_CHARS } from "@/common/constants/attachments";
+import { findLatestCompactionBoundaryIndex } from "@/common/utils/messages/compactionBoundary";
 import { renderAttachmentsToContentWithBudget } from "./attachmentRenderer";
 
 /**
@@ -52,10 +53,10 @@ export function filterEmptyAssistantMessages(
     // That means *incomplete* tool calls (state: "input-available") will be dropped.
     // If we treat them as content here, we can end up sending an assistant message that
     // becomes empty after conversion, which the AI SDK rejects ("all messages must have
-    // non-empty content...") and can brick a workspace after a crash.
+    // non-empty content...") and can brick a minion after a crash.
     const hasContent = msg.parts.some((part) => {
       if (part.type === "text") {
-        return part.text.length > 0;
+        return part.text.trim().length > 0;
       }
 
       // Reasoning-only messages are handled below (provider-dependent).
@@ -142,14 +143,14 @@ export function addInterruptedSentinel(messages: LatticeMessage[]): LatticeMessa
  * Inserts a synthetic user message before the final user message to signal the agent switch.
  * This provides temporal context that helps models understand they should follow new agent instructions.
  *
- * When transitioning from plan → exec with plan content, includes the plan so the model
+ * When transitioning from plan → exec/orchestrator with plan content, includes the plan so the model
  * can evaluate its relevance to the current request.
  *
  * @param messages The conversation history
  * @param currentAgentId The agent id for the upcoming assistant response
  * @param toolNames Optional list of available tool names to include in transition message
- * @param planContent Optional plan content to include when transitioning plan → exec
- * @param planFilePath Optional plan file path to include when transitioning plan → exec
+ * @param planContent Optional plan content to include when transitioning plan → exec/orchestrator
+ * @param planFilePath Optional plan file path to include when transitioning plan → exec/orchestrator
  * @returns Messages with agent transition context injected if needed
  */
 export function injectAgentTransition(
@@ -212,15 +213,25 @@ export function injectAgentTransition(
     transitionText += "]";
   }
 
-  // When transitioning from a plan-like agent to an exec-like agent, include the plan for context
-  // Only include plan content when moving FROM plan TO non-plan (not the other way)
+  // When transitioning from the plan agent to exec/orchestrator, include the plan for context.
+  // This avoids wasting tokens on tool calls just to re-read the plan file.
   const transitioningFromPlan = lastAgentId === "plan";
-  const transitioningToPlan = currentAgentId === "plan";
-  if (planContent && transitioningFromPlan && !transitioningToPlan) {
+  const transitioningToExecOrOrchestrator =
+    currentAgentId === "exec" || currentAgentId === "orchestrator";
+  if (planContent && transitioningFromPlan && transitioningToExecOrOrchestrator) {
     const planFilePathText = planFilePath ? `Plan file path: ${planFilePath}\n\n` : "";
+    const nextStepText =
+      currentAgentId === "orchestrator"
+        ? "orchestrate its implementation (do not re-plan)."
+        : "implement it directly (do not re-plan).";
+    const followupText =
+      currentAgentId === "orchestrator"
+        ? "Only do extra exploration if the plan is missing critical details or conflicts with the repo:"
+        : "Only do extra exploration or spawn sub-agents if the plan is missing critical details or conflicts with the repo:";
     transitionText += `
 
-${planFilePathText}The following plan was developed in the plan agent. Based on the user's message, determine if they have accepted the plan. If accepted and relevant, use it to guide your implementation:
+${planFilePathText}The following plan was developed in the plan agent. Based on the user's message, determine if they have accepted the plan. If accepted and relevant, ${nextStepText}
+${followupText}
 
 <plan>
 ${planContent}
@@ -290,6 +301,24 @@ export function injectFileChangeNotifications(
   return [...messages, syntheticMessage];
 }
 
+function findLatestLegacyCompactionSummaryIndex(messages: LatticeMessage[]): number {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (message.role !== "assistant") {
+      continue;
+    }
+
+    const compacted = message.metadata?.compacted;
+    if (compacted === undefined || compacted === false) {
+      continue;
+    }
+
+    return i;
+  }
+
+  return -1;
+}
+
 /**
  * Inject post-compaction attachments as a synthetic user message.
  * When compaction occurs, this injects a message containing plan file content
@@ -310,8 +339,13 @@ export function injectPostCompactionAttachments(
     return messages;
   }
 
-  // Find the compaction summary message (marked with metadata.compacted)
-  const compactionIndex = messages.findIndex((msg) => msg.metadata?.compacted);
+  const durableCompactionIndex = findLatestCompactionBoundaryIndex(messages);
+  // Durable boundaries are authoritative for current histories. Legacy histories
+  // only have metadata.compacted, so fall back to that marker when needed.
+  const compactionIndex =
+    durableCompactionIndex !== -1
+      ? durableCompactionIndex
+      : findLatestLegacyCompactionSummaryIndex(messages);
 
   if (compactionIndex === -1) {
     // No compaction message found - this shouldn't happen if attachments are provided,
@@ -671,6 +705,211 @@ export function stripOrphanedToolCalls(messages: ModelMessage[]): ModelMessage[]
 }
 
 /**
+ * Coalesce consecutive no-progress `task_await` tool-call/tool-result message pairs.
+ *
+ * `task_await` is commonly polled in a loop while waiting on sidekick tasks.
+ * When there's no new output, those polls add near-duplicate tool messages to
+ * provider context, increasing tokens without adding information.
+ *
+ * This pass removes consecutive *identical* no-progress pairs (same tool input
+ * fingerprint), keeping only the last pair in each run.
+ *
+ * IMPORTANT: To preserve Anthropic tool_use/tool_result adjacency rules, we only
+ * remove messages in (assistant + immediately following tool) pairs.
+ *
+ * Self-healing: If we see anything unexpected (shape mismatch, unstringifiable
+ * inputs, unparseable outputs), we leave messages unchanged.
+ */
+function coalesceConsecutiveNoProgressTaskAwaitPairs(messages: ModelMessage[]): ModelMessage[] {
+  function tryJsonStringify(value: unknown): string | undefined {
+    try {
+      const result = JSON.stringify(value);
+      if (typeof result !== "string") {
+        return undefined;
+      }
+      return result;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function getToolCallInputFingerprint(
+    part: { input?: unknown } | { args?: unknown }
+  ): string | undefined {
+    const input = (part as { input?: unknown }).input ?? (part as { args?: unknown }).args;
+    return tryJsonStringify(input);
+  }
+
+  function extractToolResultValue(part: { output?: unknown } | { result?: unknown }): unknown {
+    const raw = (part as { result?: unknown }).result ?? (part as { output?: unknown }).output;
+
+    // The AI SDK wraps tool results as `{ type: 'json' | 'text', value: unknown }`.
+    if (raw && typeof raw === "object" && "type" in raw && "value" in raw) {
+      return (raw as { value?: unknown }).value;
+    }
+
+    return raw;
+  }
+
+  function isNoProgressTaskAwaitResultValue(value: unknown): boolean {
+    if (!value || typeof value !== "object") {
+      return false;
+    }
+
+    const results = (value as { results?: unknown }).results;
+    if (!Array.isArray(results)) {
+      return false;
+    }
+
+    for (const entry of results) {
+      if (!entry || typeof entry !== "object") {
+        return false;
+      }
+
+      const status = (entry as { status?: unknown }).status;
+      if (status !== "queued" && status !== "running" && status !== "awaiting_report") {
+        return false;
+      }
+
+      // Treat any non-empty output/report as progress.
+      const output = (entry as { output?: unknown }).output;
+      if (output !== undefined) {
+        if (typeof output !== "string") {
+          return false;
+        }
+        if (output.length > 0) {
+          return false;
+        }
+      }
+
+      const reportMarkdown = (entry as { reportMarkdown?: unknown }).reportMarkdown;
+      if (typeof reportMarkdown === "string" && reportMarkdown.length > 0) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function getTaskAwaitPairInfo(
+    allMessages: ModelMessage[],
+    index: number
+  ):
+    | {
+        fingerprint: string;
+        noProgress: boolean;
+      }
+    | undefined {
+    const assistantMsg = allMessages[index];
+    const toolMsg = allMessages[index + 1];
+
+    if (!assistantMsg || !toolMsg) {
+      return undefined;
+    }
+
+    if (assistantMsg.role !== "assistant" || toolMsg.role !== "tool") {
+      return undefined;
+    }
+
+    const assistant = assistantMsg;
+    if (typeof assistant.content === "string") {
+      return undefined;
+    }
+
+    if (assistant.content.length !== 1) {
+      return undefined;
+    }
+
+    const toolCallPart = assistant.content[0];
+    if (toolCallPart?.type !== "tool-call") {
+      return undefined;
+    }
+
+    if (toolCallPart.toolName !== "task_await") {
+      return undefined;
+    }
+
+    const fingerprint = getToolCallInputFingerprint(toolCallPart);
+    if (!fingerprint) {
+      return undefined;
+    }
+
+    if (!Array.isArray(toolMsg.content) || toolMsg.content.length !== 1) {
+      return undefined;
+    }
+
+    const toolResultPart = toolMsg.content[0];
+    if (toolResultPart?.type !== "tool-result") {
+      return undefined;
+    }
+
+    if (toolResultPart.toolName !== "task_await") {
+      return undefined;
+    }
+
+    // Only coalesce when the tool-result matches the immediately preceding tool-call.
+    if (toolResultPart.toolCallId !== toolCallPart.toolCallId) {
+      return undefined;
+    }
+
+    const toolResultValue = extractToolResultValue(toolResultPart);
+
+    return {
+      fingerprint,
+      noProgress: isNoProgressTaskAwaitResultValue(toolResultValue),
+    };
+  }
+
+  try {
+    let changed = false;
+    const result: ModelMessage[] = [];
+
+    for (let i = 0; i < messages.length; ) {
+      const info = getTaskAwaitPairInfo(messages, i);
+      if (!info) {
+        result.push(messages[i]);
+        i++;
+        continue;
+      }
+
+      // Not a no-progress poll, keep it.
+      if (!info.noProgress) {
+        result.push(messages[i], messages[i + 1]);
+        i += 2;
+        continue;
+      }
+
+      // Scan ahead for a run of consecutive identical no-progress polls.
+      let runEnd = i;
+      for (let j = i + 2; j < messages.length; j += 2) {
+        const nextInfo = getTaskAwaitPairInfo(messages, j);
+        if (!nextInfo) {
+          break;
+        }
+        if (!nextInfo.noProgress) {
+          break;
+        }
+        if (nextInfo.fingerprint !== info.fingerprint) {
+          break;
+        }
+        runEnd = j;
+      }
+
+      if (runEnd !== i) {
+        changed = true;
+      }
+
+      result.push(messages[runEnd], messages[runEnd + 1]);
+      i = runEnd + 2;
+    }
+
+    return changed ? result : messages;
+  } catch {
+    // Self-healing: request-time transforms should never brick a minion.
+    return messages;
+  }
+}
+/**
  * Strip Anthropic reasoning parts that lack a valid signature.
  *
  * Anthropic's Extended Thinking API requires thinking blocks to include a signature
@@ -714,15 +953,21 @@ function stripUnsignedAnthropicReasoning(messages: ModelMessage[]): ModelMessage
     return result;
   });
 
-  // Filter out messages that became empty after stripping reasoning
+  // Filter out messages that became empty after stripping reasoning.
+  //
+  // Important: Anthropic rejects whitespace-only text content blocks (e.g. "\n\n").
+  // If we strip unsigned reasoning from an interrupted message, we can be left with
+  // only whitespace text, which would otherwise survive a simple `content.length > 0` check.
   return stripped.filter((msg) => {
     if (msg.role !== "assistant") {
       return true;
     }
+
     if (typeof msg.content === "string") {
-      return msg.content.length > 0;
+      return msg.content.trim().length > 0;
     }
-    return msg.content.length > 0;
+
+    return msg.content.some((part) => part.type !== "text" || part.text.trim().length > 0);
   });
 }
 
@@ -904,7 +1149,7 @@ function ensureAnthropicThinkingBeforeToolCalls(messages: ModelMessage[]): Model
 
   // Anthropic extended thinking also requires the *final* assistant message in the request
   // to start with a thinking block. If the last assistant message is text-only (common for
-  // synthetic messages like sub-agent reports), insert an empty reasoning part as a minimal
+  // synthetic messages like sidekick reports), insert an empty reasoning part as a minimal
   // placeholder. This transformation affects only the provider request, not stored history/UI.
   for (let i = result.length - 1; i >= 0; i--) {
     const msg = result[i];
@@ -953,10 +1198,11 @@ function ensureAnthropicThinkingBeforeToolCalls(messages: ModelMessage[]): Model
  * 0. Coalesce consecutive parts (text/reasoning) - all providers, reduces JSON overhead
  * 1. Split mixed content messages (text + tool calls) - all providers
  * 2. Drop orphaned tool calls/results (self-healing)
- * 3. Filter reasoning-only messages:
+ * 3. Coalesce consecutive no-progress `task_await` polls - all providers
+ * 4. Filter reasoning-only messages:
  *    - OpenAI: Keep reasoning parts (managed via previousResponseId), filter reasoning-only messages
  *    - Anthropic: Filter out reasoning-only messages (API rejects them)
- * 4. Merge consecutive user messages - all providers
+ * 5. Merge consecutive user messages - all providers
  *
  * Note: encryptedContent stripping happens earlier in streamManager when tool results
  * are first stored, not during message transformation.
@@ -967,7 +1213,9 @@ function ensureAnthropicThinkingBeforeToolCalls(messages: ModelMessage[]): Model
 export function transformModelMessages(
   messages: ModelMessage[],
   provider: string,
-  options?: { anthropicThinkingEnabled?: boolean }
+  options?: {
+    anthropicThinkingEnabled?: boolean;
+  }
 ): ModelMessage[] {
   // Pass 0: Coalesce consecutive parts to reduce JSON overhead from streaming (applies to all providers)
   const coalesced = coalesceConsecutiveParts(messages);
@@ -978,28 +1226,31 @@ export function transformModelMessages(
   // Pass 2: Drop orphaned tool-call/tool-result pairs (applies to all providers)
   const toolPaired = stripOrphanedToolCalls(split);
 
-  // Pass 3: Provider-specific reasoning handling
+  // Pass 3: Coalesce consecutive no-progress task_await polls (applies to all providers)
+  const taskAwaitCoalesced = coalesceConsecutiveNoProgressTaskAwaitPairs(toolPaired);
+
+  // Pass 4: Provider-specific reasoning handling
   let reasoningHandled: ModelMessage[];
   if (provider === "openai") {
     // OpenAI: Keep reasoning parts - managed via previousResponseId
     // Only filter out reasoning-only messages (messages with no text/tool-call content)
-    reasoningHandled = filterReasoningOnlyMessages(toolPaired);
+    reasoningHandled = filterReasoningOnlyMessages(taskAwaitCoalesced);
   } else if (provider === "anthropic") {
     // Anthropic: When extended thinking is enabled, preserve reasoning-only messages and ensure
     // tool-call messages start with reasoning. When it's disabled, filter reasoning-only messages.
     if (options?.anthropicThinkingEnabled) {
       // First strip reasoning without signatures (SDK will drop them anyway, causing empty messages)
-      const signedReasoning = stripUnsignedAnthropicReasoning(toolPaired);
+      const signedReasoning = stripUnsignedAnthropicReasoning(taskAwaitCoalesced);
       reasoningHandled = ensureAnthropicThinkingBeforeToolCalls(signedReasoning);
     } else {
-      reasoningHandled = filterReasoningOnlyMessages(toolPaired);
+      reasoningHandled = filterReasoningOnlyMessages(taskAwaitCoalesced);
     }
   } else {
     // Unknown provider: no reasoning handling
-    reasoningHandled = toolPaired;
+    reasoningHandled = taskAwaitCoalesced;
   }
 
-  // Pass 4: Merge consecutive user messages (applies to all providers)
+  // Pass 5: Merge consecutive user messages (applies to all providers)
   const merged = mergeConsecutiveUserMessages(reasoningHandled);
 
   return merged;

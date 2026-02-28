@@ -8,10 +8,10 @@ import type {
   BashBackgroundTerminateResult,
 } from "@/common/types/tools";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 import * as fs from "fs/promises";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -21,16 +21,14 @@ function createTestRuntime(): Runtime {
   return new LocalRuntime(process.cwd());
 }
 
-// Workspace IDs used in tests - need cleanup after each test
-const TEST_WORKSPACES = ["test-workspace", "workspace-a", "workspace-b"];
+// Minion IDs used in tests - need cleanup after each test
+const TEST_MINIONS = ["test-minion", "minion-a", "minion-b"];
 
 describe("bash_background_terminate tool", () => {
   afterEach(async () => {
     // Clean up output directories from /tmp/lattice-bashes/ to prevent test pollution
-    for (const ws of TEST_WORKSPACES) {
-      await fs
-        .rm(`/tmp/lattice-bashes/${ws}`, { recursive: true, force: true })
-        .catch(() => undefined);
+    for (const ws of TEST_MINIONS) {
+      await fs.rm(`/tmp/lattice-bashes/${ws}`, { recursive: true, force: true }).catch(() => undefined);
     }
   });
   it("should return error when manager not available", async () => {
@@ -85,7 +83,7 @@ describe("bash_background_terminate tool", () => {
     config.backgroundProcessManager = manager;
 
     // Spawn a long-running process
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 10", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 10", {
       cwd: process.cwd(),
       displayName: "test",
     });
@@ -113,7 +111,7 @@ describe("bash_background_terminate tool", () => {
     const bgProcess = await manager.getProcess(spawnResult.processId);
     expect(bgProcess?.status).not.toBe("running");
 
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
@@ -126,7 +124,7 @@ describe("bash_background_terminate tool", () => {
     config.backgroundProcessManager = manager;
 
     // Spawn a process
-    const spawnResult = await manager.spawn(runtime, "test-workspace", "sleep 10", {
+    const spawnResult = await manager.spawn(runtime, "test-minion", "sleep 10", {
       cwd: process.cwd(),
       displayName: "test",
     });
@@ -154,25 +152,25 @@ describe("bash_background_terminate tool", () => {
     )) as BashBackgroundTerminateResult;
     expect(result2.success).toBe(true);
 
-    await manager.cleanup("test-workspace");
+    await manager.cleanup("test-minion");
     tempDir[Symbol.dispose]();
   });
 
-  it("should not terminate processes from other workspaces", async () => {
+  it("should not terminate processes from other minions", async () => {
     const tempDir = new TestTempDir("test-bash-bg-term");
     const manager = new BackgroundProcessManager(tempDir.path);
     const runtime = createTestRuntime();
 
-    // Config is for workspace-a
+    // Config is for minion-a
     const config = createTestToolConfig(process.cwd(), {
-      workspaceId: "workspace-a",
+      minionId: "minion-a",
       sessionsDir: tempDir.path,
     });
     config.runtimeTempDir = tempDir.path;
     config.backgroundProcessManager = manager;
 
-    // Spawn process in workspace-b
-    const spawnResult = await manager.spawn(runtime, "workspace-b", "sleep 10", {
+    // Spawn process in minion-b
+    const spawnResult = await manager.spawn(runtime, "minion-b", "sleep 10", {
       cwd: process.cwd(),
       displayName: "test",
     });
@@ -181,7 +179,7 @@ describe("bash_background_terminate tool", () => {
       throw new Error("Failed to spawn process");
     }
 
-    // Try to terminate from workspace-a (should fail)
+    // Try to terminate from minion-a (should fail)
     const tool = createBashBackgroundTerminateTool(config);
     const args: BashBackgroundTerminateArgs = {
       process_id: spawnResult.processId,
@@ -202,7 +200,7 @@ describe("bash_background_terminate tool", () => {
     expect(proc?.status).toBe("running");
 
     // Cleanup
-    await manager.cleanup("workspace-b");
+    await manager.cleanup("minion-b");
     tempDir[Symbol.dispose]();
   });
 });

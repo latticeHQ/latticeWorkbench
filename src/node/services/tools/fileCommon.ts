@@ -3,6 +3,7 @@ import assert from "@/common/utils/assert";
 import { createPatch } from "diff";
 import type { FileStat, Runtime } from "@/node/runtime/Runtime";
 import { SSHRuntime } from "@/node/runtime/SSHRuntime";
+import { expandTilde } from "@/node/runtime/tildeExpansion";
 import type { ToolConfiguration } from "@/common/utils/tools/tools";
 
 /**
@@ -53,16 +54,7 @@ export async function validatePlanModeAccess(
         error: `In the plan agent, only the plan file can be edited. You must use the exact plan file path: ${config.planFilePath} (attempted: ${filePath})`,
       };
     }
-    // Skip cwd validation for plan file - it may be outside workspace
-  } else {
-    // Standard cwd validation for non-plan-mode edits
-    const pathValidation = validatePathInCwd(filePath, config.cwd, config.runtime);
-    if (pathValidation) {
-      return {
-        success: false,
-        error: pathValidation.error,
-      };
-    }
+    // Skip cwd validation for plan file - it may be outside minion
   }
 
   return null;
@@ -133,7 +125,7 @@ export function validateFileSize(stats: FileStat): { error: string } | null {
 }
 
 /**
- * Validates that a file path doesn't contain redundant workspace prefix.
+ * Validates that a file path doesn't contain redundant minion prefix.
  * If the path contains the cwd prefix, returns the corrected relative path and a warning.
  * This helps save tokens by encouraging relative paths.
  *
@@ -151,7 +143,7 @@ export function validateNoRedundantPrefix(
   runtime: Runtime
 ): { correctedPath: string; warning: string } | null {
   // Only check absolute paths (start with /) - relative paths are fine
-  // This works for both local and SSH since both use Lattice-style paths
+  // This works for both local and SSH since both use Unix-style paths
   if (!filePath.startsWith("/")) {
     return null;
   }
@@ -167,7 +159,7 @@ export function validateNoRedundantPrefix(
 
   // Check if the absolute path starts with the cwd
   // Use startsWith + check for path separator to avoid partial matches
-  // e.g., /workspace/project should match /workspace/project/src but not /workspace/project2
+  // e.g., /minion/project should match /minion/project/src but not /minion/project2
   if (normalizedPath === cleanCwd || normalizedPath.startsWith(cleanCwd + "/")) {
     // Calculate what the relative path would be
     const relativePath =
@@ -216,13 +208,19 @@ export function validatePathInCwd(
     assert(path.isAbsolute(dir), `extraAllowedDir must be an absolute path: '${dir}'`);
   }
 
-  const filePathIsAbsolute = path.isAbsolute(filePath);
+  // Expand tildes FIRST so we validate the actual destination path.
+  // Without this, ~/outside/file.ts would be treated as a relative path
+  // (path.isAbsolute('~/...') returns false) and incorrectly pass validation.
+  const expandedPath = expandTilde(filePath);
+  const filePathIsAbsolute = path.isAbsolute(expandedPath);
 
   // Only allow extraAllowedDirs when the caller provides an absolute path.
   // This prevents relative-path escapes (e.g., ../...) from bypassing cwd restrictions.
 
   // Resolve the path (handles relative paths and normalizes)
-  const resolvedPath = filePathIsAbsolute ? path.resolve(filePath) : path.resolve(cwd, filePath);
+  const resolvedPath = filePathIsAbsolute
+    ? path.resolve(expandedPath)
+    : path.resolve(cwd, expandedPath);
 
   const allowedRoots = [cwd, ...(filePathIsAbsolute ? trimmedExtraAllowedDirs : [])].map((dir) =>
     path.resolve(dir)
@@ -237,7 +235,7 @@ export function validatePathInCwd(
 
   if (!isWithinAllowedRoot) {
     return {
-      error: `File operations are restricted to the workspace directory (${cwd}). The path '${filePath}' resolves outside this directory. If you need to modify files outside the workspace, please ask the user for permission first.`,
+      error: `File operations are restricted to the minion directory (${cwd}). The path '${filePath}' resolves outside this directory. If you need to modify files outside the minion, please ask the user for permission first.`,
     };
   }
 

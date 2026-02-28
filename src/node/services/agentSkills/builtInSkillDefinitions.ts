@@ -9,13 +9,9 @@ import { BUILTIN_SKILL_FILES } from "./builtInSkillContent.generated";
  *
  * Source of truth is:
  * - src/node/builtinSkills/*.md (SKILL.md content)
- * - src/node/builtinPlugins/ (plugin-provided skills)
  * - docs/ (embedded for lattice-docs)
  *
  * Content is generated into builtInSkillContent.generated.ts via scripts/gen_builtin_skills.ts.
- *
- * Plugin skills have `metadata.plugin` in their frontmatter. These are only included
- * when the corresponding plugin pack is enabled (via `enabledPlugins` parameter).
  */
 
 interface BuiltInSource {
@@ -51,36 +47,22 @@ function parseBuiltIns(): AgentSkillPackage[] {
   });
 }
 
-function filterByEnabledPlugins(
-  packages: AgentSkillPackage[],
-  enabledPlugins?: Set<string>
-): AgentSkillPackage[] {
-  if (!enabledPlugins) return packages;
-  return packages.filter((pkg) => {
-    const plugin = pkg.frontmatter.metadata?.plugin;
-    if (!plugin) return true; // Non-plugin built-in skills always included
-    return enabledPlugins.has(plugin);
-  });
-}
-
-export function getBuiltInSkillDefinitions(enabledPlugins?: Set<string>): AgentSkillPackage[] {
+export function getBuiltInSkillDefinitions(): AgentSkillPackage[] {
   cachedPackages ??= parseBuiltIns();
-  return filterByEnabledPlugins(cachedPackages, enabledPlugins);
+  return cachedPackages;
 }
 
-export function getBuiltInSkillDescriptors(enabledPlugins?: Set<string>): AgentSkillDescriptor[] {
-  return getBuiltInSkillDefinitions(enabledPlugins).map((pkg) => ({
+export function getBuiltInSkillDescriptors(): AgentSkillDescriptor[] {
+  return getBuiltInSkillDefinitions().map((pkg) => ({
     name: pkg.frontmatter.name,
     description: pkg.frontmatter.description,
     scope: pkg.scope,
+    advertise: pkg.frontmatter.advertise,
   }));
 }
 
-export function getBuiltInSkillByName(
-  name: SkillName,
-  enabledPlugins?: Set<string>
-): AgentSkillPackage | undefined {
-  return getBuiltInSkillDefinitions(enabledPlugins).find((pkg) => pkg.frontmatter.name === name);
+export function getBuiltInSkillByName(name: SkillName): AgentSkillPackage | undefined {
+  return getBuiltInSkillDefinitions().find((pkg) => pkg.frontmatter.name === name);
 }
 
 function isAbsolutePathAny(filePath: string): boolean {

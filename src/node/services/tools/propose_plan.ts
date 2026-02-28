@@ -33,7 +33,7 @@ export const createProposePlanTool: ToolFactory = (config) => {
         };
       }
 
-      // Read plan file using workspace runtime (works for both local and SSH)
+      // Read plan file using minion runtime (works for both local and SSH)
       let planContent: string;
       try {
         planContent = await readFileString(config.runtime, planPath);

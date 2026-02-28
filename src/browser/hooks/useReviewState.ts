@@ -9,7 +9,7 @@ import type { ReviewState, HunkReadState } from "@/common/types/review";
 import { getReviewStateKey } from "@/common/constants/storage";
 
 /**
- * Maximum number of read states to keep per workspace (LRU eviction)
+ * Maximum number of read states to keep per minion (LRU eviction)
  */
 const MAX_READ_STATES = 1024;
 
@@ -48,14 +48,14 @@ export interface UseReviewStateReturn {
 }
 
 /**
- * Hook for managing hunk read state for a workspace
+ * Hook for managing hunk read state for a minion
  * Persists read states to localStorage with automatic LRU eviction
  */
-export function useReviewState(workspaceId: string): UseReviewStateReturn {
+export function useReviewState(minionId: string): UseReviewStateReturn {
   const [reviewState, setReviewState] = usePersistedState<ReviewState>(
-    getReviewStateKey(workspaceId),
+    getReviewStateKey(minionId),
     {
-      workspaceId,
+      minionId,
       readState: {},
       lastUpdated: Date.now(),
     }

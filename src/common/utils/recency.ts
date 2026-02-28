@@ -3,7 +3,7 @@ import type { LatticeMessage } from "@/common/types/message";
 /**
  * Check if a message is an idle compaction request.
  * Used to exclude these from recency calculation since they shouldn't affect
- * when the workspace was "last used" by the user.
+ * when the minion was "last used" by the user.
  */
 function isIdleCompactionRequest(msg: LatticeMessage): boolean {
   const latticeMeta = msg.metadata?.latticeMetadata;
@@ -13,12 +13,12 @@ function isIdleCompactionRequest(msg: LatticeMessage): boolean {
 /**
  * Compute recency timestamp from messages.
  * Returns max of: createdAt, unarchivedAt, last user message timestamp, last compacted message timestamp.
- * This is the single source of truth for workspace recency.
+ * This is the single source of truth for minion recency.
  *
- * Excludes idle compaction requests since they shouldn't hoist the workspace
+ * Excludes idle compaction requests since they shouldn't hoist the minion
  * in the sidebar (they're background operations, not user activity).
  *
- * @param unarchivedAt - When workspace was last unarchived (bumps to top of recency)
+ * @param unarchivedAt - When minion was last unarchived (bumps to top of recency)
  */
 export function computeRecencyFromMessages(
   messages: LatticeMessage[],

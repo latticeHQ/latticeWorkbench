@@ -1,15 +1,21 @@
 import { THEME_OPTIONS, type ThemeMode } from "@/browser/contexts/ThemeContext";
 import type { CommandAction } from "@/browser/contexts/CommandRegistryContext";
 import type { APIClient } from "@/browser/contexts/API";
+import type { ConfirmDialogOptions } from "@/browser/contexts/ConfirmDialogContext";
 import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
 import { THINKING_LEVELS, type ThinkingLevel } from "@/common/types/thinking";
+import { getThinkingPolicyForModel } from "@/common/utils/thinking/policy";
 import assert from "@/common/utils/assert";
 import { CUSTOM_EVENTS, createCustomEvent } from "@/common/constants/events";
-import { getRightSidebarLayoutKey, RIGHT_SIDEBAR_TAB_KEY } from "@/common/constants/storage";
+import {
+  getWorkbenchPanelLayoutKey,
+  WORKBENCH_PANEL_COLLAPSED_KEY,
+  WORKBENCH_PANEL_TAB_KEY,
+} from "@/common/constants/storage";
 import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
-import { disableAutoRetryPreference } from "@/browser/utils/messages/autoRetryPreference";
+import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import { CommandIds } from "@/browser/utils/commandIds";
-import { isTabType, type TabType } from "@/browser/types/rightSidebar";
+import { isTabType, type TabType } from "@/browser/types/workbenchPanel";
 import {
   getEffectiveSlotKeybind,
   getLayoutsConfigOrDefault,
@@ -18,89 +24,95 @@ import {
 import type { LayoutPresetsConfig, LayoutSlotNumber } from "@/common/types/uiLayouts";
 import {
   addToolToFocusedTabset,
-  getDefaultRightSidebarLayoutState,
-  parseRightSidebarLayoutState,
+  getDefaultWorkbenchPanelLayoutState,
+  hasTab,
+  parseWorkbenchPanelLayoutState,
   selectTabInTabset,
   setFocusedTabset,
   splitFocusedTabset,
-} from "@/browser/utils/rightSidebarLayout";
+  toggleTab,
+} from "@/browser/utils/workbenchPanelLayout";
 
 import type { ProjectConfig } from "@/node/config";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type { BranchListResult } from "@/common/orpc/types";
-import type { WorkspaceState } from "@/browser/stores/WorkspaceStore";
+import type { MinionState } from "@/browser/stores/MinionStore";
 import type { RuntimeConfig } from "@/common/types/runtime";
+import { getErrorMessage } from "@/common/utils/errors";
 
 export interface BuildSourcesParams {
   api: APIClient | null;
   projects: Map<string, ProjectConfig>;
-  /** Map of workspace ID to workspace metadata (keyed by metadata.id, not path) */
-  workspaceMetadata: Map<string, FrontendWorkspaceMetadata>;
+  /** Map of minion ID to minion metadata (keyed by metadata.id, not path) */
+  minionMetadata: Map<string, FrontendMinionMetadata>;
+  /** In-app confirmation dialog (replaces window.confirm) */
+  confirmDialog: (opts: ConfirmDialogOptions) => Promise<boolean>;
   theme: ThemeMode;
-  selectedWorkspaceState?: WorkspaceState | null;
-  selectedWorkspace: {
+  selectedMinionState?: MinionState | null;
+  selectedMinion: {
     projectPath: string;
     projectName: string;
-    namedWorkspacePath: string;
-    workspaceId: string;
+    namedMinionPath: string;
+    minionId: string;
   } | null;
   streamingModels?: Map<string, string>;
   // UI actions
-  getThinkingLevel: (workspaceId: string) => ThinkingLevel;
-  onSetThinkingLevel: (workspaceId: string, level: ThinkingLevel) => void;
+  getThinkingLevel: (minionId: string) => ThinkingLevel;
+  onSetThinkingLevel: (minionId: string, level: ThinkingLevel) => void;
 
-  onStartWorkspaceCreation: (projectPath: string) => void;
+  onStartMinionCreation: (projectPath: string) => void;
+  onArchiveMergedMinionsInProject: (projectPath: string) => Promise<void>;
   getBranchesForProject: (projectPath: string) => Promise<BranchListResult>;
-  onSelectWorkspace: (sel: {
+  onSelectMinion: (sel: {
     projectPath: string;
     projectName: string;
-    namedWorkspacePath: string;
-    workspaceId: string;
+    namedMinionPath: string;
+    minionId: string;
   }) => void;
-  onRemoveWorkspace: (workspaceId: string) => Promise<{ success: boolean; error?: string }>;
-  onRenameWorkspace: (
-    workspaceId: string,
+  onRemoveMinion: (minionId: string) => Promise<{ success: boolean; error?: string }>;
+  onUpdateTitle: (
+    minionId: string,
     newName: string
   ) => Promise<{ success: boolean; error?: string }>;
   onAddProject: () => void;
   onRemoveProject: (path: string) => void;
   onToggleSidebar: () => void;
-  onNavigateWorkspace: (dir: "next" | "prev") => void;
-  onOpenWorkspaceInTerminal: (workspaceId: string, runtimeConfig?: RuntimeConfig) => void;
+  onNavigateMinion: (dir: "next" | "prev") => void;
+  onOpenMinionInTerminal: (minionId: string, runtimeConfig?: RuntimeConfig) => void;
   onToggleTheme: () => void;
   onSetTheme: (theme: ThemeMode) => void;
   onOpenSettings?: (section?: string) => void;
 
   // Layout slots
   layoutPresets?: LayoutPresetsConfig | null;
-  onApplyLayoutSlot?: (workspaceId: string, slot: LayoutSlotNumber) => void;
+  onApplyLayoutSlot?: (minionId: string, slot: LayoutSlotNumber) => void;
   onCaptureLayoutSlot?: (
-    workspaceId: string,
+    minionId: string,
     slot: LayoutSlotNumber,
     name: string
   ) => Promise<void>;
-  onClearTimingStats?: (workspaceId: string) => void;
+  onClearTimingStats?: (minionId: string) => void;
 }
 
 /**
- * Command palette section names
+ * Command palette crew names
  * Exported for use in filtering and command organization
  */
 export const COMMAND_SECTIONS = {
-  WORKSPACES: "Workspaces",
+  MINIONS: "Minions",
   LAYOUTS: "Layouts",
   NAVIGATION: "Navigation",
   CHAT: "Chat",
   MODE: "Modes & Model",
   HELP: "Help",
-  PROJECTS: "Headquarters",
+  PROJECTS: "Projects",
   APPEARANCE: "Appearance",
   SETTINGS: "Settings",
 } as const;
 
 const section = {
   layouts: COMMAND_SECTIONS.LAYOUTS,
-  workspaces: COMMAND_SECTIONS.WORKSPACES,
+  minions: COMMAND_SECTIONS.MINIONS,
   navigation: COMMAND_SECTIONS.NAVIGATION,
   chat: COMMAND_SECTIONS.CHAT,
   appearance: COMMAND_SECTIONS.APPEARANCE,
@@ -110,156 +122,266 @@ const section = {
   settings: COMMAND_SECTIONS.SETTINGS,
 };
 
-const getRightSidebarTabFallback = (): TabType => {
-  const raw = readPersistedState<string>(RIGHT_SIDEBAR_TAB_KEY, "costs");
+const getWorkbenchPanelTabFallback = (): TabType => {
+  const raw = readPersistedState<string>(WORKBENCH_PANEL_TAB_KEY, "costs");
   return isTabType(raw) ? raw : "costs";
 };
 
-const updateRightSidebarLayout = (
-  workspaceId: string,
-  updater: (
-    state: ReturnType<typeof parseRightSidebarLayoutState>
-  ) => ReturnType<typeof parseRightSidebarLayoutState>
-) => {
-  const fallback = getRightSidebarTabFallback();
-  const defaultLayout = getDefaultRightSidebarLayoutState(fallback);
+const readWorkbenchPanelLayout = (minionId: string) => {
+  const fallback = getWorkbenchPanelTabFallback();
+  const raw = readPersistedState(
+    getWorkbenchPanelLayoutKey(minionId),
+    getDefaultWorkbenchPanelLayoutState(fallback)
+  );
+  return parseWorkbenchPanelLayoutState(raw, fallback);
+};
 
-  updatePersistedState<ReturnType<typeof parseRightSidebarLayoutState>>(
-    getRightSidebarLayoutKey(workspaceId),
-    (prev) => updater(parseRightSidebarLayoutState(prev, fallback)),
+const updateWorkbenchPanelLayout = (
+  minionId: string,
+  updater: (
+    state: ReturnType<typeof parseWorkbenchPanelLayoutState>
+  ) => ReturnType<typeof parseWorkbenchPanelLayoutState>
+) => {
+  const fallback = getWorkbenchPanelTabFallback();
+  const defaultLayout = getDefaultWorkbenchPanelLayoutState(fallback);
+
+  updatePersistedState<ReturnType<typeof parseWorkbenchPanelLayoutState>>(
+    getWorkbenchPanelLayoutKey(minionId),
+    (prev) => updater(parseWorkbenchPanelLayoutState(prev, fallback)),
     defaultLayout
   );
 };
 
+function toFileUrl(filePath: string): string {
+  const normalized = filePath.replace(/\\/g, "/");
+
+  // Windows drive letter paths: C:/...
+  if (/^[A-Za-z]:\//.test(normalized)) {
+    return `file:///${encodeURI(normalized)}`;
+  }
+
+  // POSIX absolute paths: /...
+  if (normalized.startsWith("/")) {
+    return `file://${encodeURI(normalized)}`;
+  }
+
+  // Fall back to treating the string as a path-ish URL segment.
+  return `file://${encodeURI(normalized)}`;
+}
+
+interface AnalyticsRebuildNamespace {
+  rebuildDatabase?: (
+    input: Record<string, never>
+  ) => Promise<{ success: boolean; minionsIngested: number }>;
+}
+
+const getAnalyticsRebuildDatabase = (
+  api: APIClient | null
+): AnalyticsRebuildNamespace["rebuildDatabase"] | null => {
+  const candidate = (api as { analytics?: unknown } | null)?.analytics;
+  if (!candidate || (typeof candidate !== "object" && typeof candidate !== "function")) {
+    return null;
+  }
+
+  const rebuildDatabase = (candidate as AnalyticsRebuildNamespace).rebuildDatabase;
+  return typeof rebuildDatabase === "function" ? rebuildDatabase : null;
+};
+
+const showCommandFeedbackToast = (feedback: {
+  type: "success" | "error";
+  message: string;
+  title?: string;
+}) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  // Analytics view does not mount ChatInput, so keep a basic alert fallback
+  // for command palette actions that need user feedback.
+  const hasChatInputToastHost =
+    typeof document !== "undefined" &&
+    document.querySelector('[data-component="ChatInputSection"]') !== null;
+
+  if (hasChatInputToastHost) {
+    window.dispatchEvent(createCustomEvent(CUSTOM_EVENTS.ANALYTICS_REBUILD_TOAST, feedback));
+    return;
+  }
+
+  const alertMessage = feedback.title
+    ? `${feedback.title}\n\n${feedback.message}`
+    : feedback.message;
+  if (typeof window.alert === "function") {
+    window.alert(alertMessage);
+  }
+};
+
+const findFirstTerminalSessionTab = (
+  node: ReturnType<typeof parseWorkbenchPanelLayoutState>["root"]
+): { tabsetId: string; tab: TabType } | null => {
+  if (node.type === "tabset") {
+    const tab = node.tabs.find((t) => t.startsWith("terminal:") && t !== "terminal");
+    return tab ? { tabsetId: node.id, tab } : null;
+  }
+
+  return (
+    findFirstTerminalSessionTab(node.children[0]) ?? findFirstTerminalSessionTab(node.children[1])
+  );
+};
 export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandAction[]> {
   const actions: Array<() => CommandAction[]> = [];
 
   // NOTE: We intentionally route to the chat-based creation flow instead of
   // building a separate prompt. This keeps `/new`, keybinds, and the command
   // palette perfectly aligned on one experience.
-  const createWorkspaceForSelectedProjectAction = (
-    selected: NonNullable<BuildSourcesParams["selectedWorkspace"]>
+  const createMinionForSelectedProjectAction = (
+    selected: NonNullable<BuildSourcesParams["selectedMinion"]>
   ): CommandAction => {
     return {
-      id: CommandIds.workspaceNew(),
-      title: "Create New Mission…",
+      id: CommandIds.minionNew(),
+      title: "Summon New Minion…",
       subtitle: `for ${selected.projectName}`,
-      section: section.workspaces,
-      shortcutHint: formatKeybind(KEYBINDS.NEW_WORKSPACE),
-      run: () => p.onStartWorkspaceCreation(selected.projectPath),
+      section: section.minions,
+      shortcutHint: formatKeybind(KEYBINDS.NEW_MINION),
+      run: () => p.onStartMinionCreation(selected.projectPath),
     };
   };
 
-  // Workspaces
+  // Minions
   actions.push(() => {
     const list: CommandAction[] = [];
 
-    const selected = p.selectedWorkspace;
+    const selected = p.selectedMinion;
     if (selected) {
-      list.push(createWorkspaceForSelectedProjectAction(selected));
+      list.push(createMinionForSelectedProjectAction(selected));
     }
 
-    // Switch to workspace
-    // Iterate through all workspace metadata (now keyed by workspace ID)
-    for (const meta of p.workspaceMetadata.values()) {
-      const isCurrent = selected?.workspaceId === meta.id;
+    // Switch to minion
+    // Iterate through all minion metadata (now keyed by minion ID)
+    for (const meta of p.minionMetadata.values()) {
+      const isCurrent = selected?.minionId === meta.id;
       const isStreaming = p.streamingModels?.has(meta.id) ?? false;
       // Title is primary (if set), name is secondary identifier
       const primaryLabel = meta.title ?? meta.name;
       const secondaryParts = [meta.name, meta.projectName];
       if (isStreaming) secondaryParts.push("streaming");
       list.push({
-        id: CommandIds.workspaceSwitch(meta.id),
+        id: CommandIds.minionSwitch(meta.id),
         title: `${isCurrent ? "• " : ""}${primaryLabel}`,
         subtitle: secondaryParts.join(" · "),
-        section: section.workspaces,
-        keywords: [meta.name, meta.projectName, meta.namedWorkspacePath, meta.title].filter(
+        section: section.minions,
+        keywords: [meta.name, meta.projectName, meta.namedMinionPath, meta.title].filter(
           (k): k is string => !!k
         ),
         run: () =>
-          p.onSelectWorkspace({
+          p.onSelectMinion({
             projectPath: meta.projectPath,
             projectName: meta.projectName,
-            namedWorkspacePath: meta.namedWorkspacePath,
-            workspaceId: meta.id,
+            namedMinionPath: meta.namedMinionPath,
+            minionId: meta.id,
           }),
       });
     }
 
-    // Remove current workspace (rename action intentionally omitted until we add a proper modal)
-    if (selected?.namedWorkspacePath) {
-      const workspaceDisplayName = `${selected.projectName}/${selected.namedWorkspacePath.split("/").pop() ?? selected.namedWorkspacePath}`;
-      const selectedMeta = p.workspaceMetadata.get(selected.workspaceId);
+    // Remove current minion (rename action intentionally omitted until we add a proper modal)
+    if (selected?.namedMinionPath) {
+      const minionDisplayName = `${selected.projectName}/${selected.namedMinionPath.split("/").pop() ?? selected.namedMinionPath}`;
+      const selectedMeta = p.minionMetadata.get(selected.minionId);
       list.push({
-        id: CommandIds.workspaceOpenTerminalCurrent(),
+        id: CommandIds.minionOpenTerminalCurrent(),
         title: "New Terminal Window",
-        subtitle: workspaceDisplayName,
-        section: section.workspaces,
+        subtitle: minionDisplayName,
+        section: section.minions,
         // Note: Cmd/Ctrl+T opens integrated terminal in sidebar (not shown here since this opens a popout)
         run: () => {
-          p.onOpenWorkspaceInTerminal(selected.workspaceId, selectedMeta?.runtimeConfig);
+          p.onOpenMinionInTerminal(selected.minionId, selectedMeta?.runtimeConfig);
         },
       });
       list.push({
-        id: CommandIds.workspaceRemove(),
-        title: "Remove Current Mission…",
-        subtitle: workspaceDisplayName,
-        section: section.workspaces,
+        id: CommandIds.minionRemove(),
+        title: "Remove Current Minion…",
+        subtitle: minionDisplayName,
+        section: section.minions,
         run: async () => {
           const branchName =
             selectedMeta?.name ??
-            selected.namedWorkspacePath.split("/").pop() ??
-            selected.namedWorkspacePath;
-          const ok = confirm(
-            `Remove current mission? This will delete the worktree and local branch "${branchName}". This cannot be undone.`
-          );
-          if (ok) await p.onRemoveWorkspace(selected.workspaceId);
+            selected.namedMinionPath.split("/").pop() ??
+            selected.namedMinionPath;
+          const ok = await p.confirmDialog({
+            title: "Remove current minion?",
+            description: `This will delete the worktree and local branch "${branchName}".`,
+            warning: "This cannot be undone.",
+            confirmLabel: "Remove",
+            confirmVariant: "destructive",
+          });
+          if (ok) await p.onRemoveMinion(selected.minionId);
         },
       });
       list.push({
-        id: CommandIds.workspaceRename(),
-        title: "Rename Current Mission…",
-        subtitle: workspaceDisplayName,
-        section: section.workspaces,
+        id: CommandIds.minionEditTitle(),
+        title: "Edit Current Minion Title…",
+        subtitle: minionDisplayName,
+        shortcutHint: formatKeybind(KEYBINDS.EDIT_MINION_TITLE),
+        section: section.minions,
         run: () => undefined,
         prompt: {
-          title: "Rename Mission",
+          title: "Edit Minion Title",
           fields: [
             {
               type: "text",
-              name: "newName",
-              label: "New name",
-              placeholder: "Enter new mission name",
-              // Use workspace metadata name (not path) for initial value
-              initialValue: p.workspaceMetadata.get(selected.workspaceId)?.name ?? "",
-              getInitialValue: () => p.workspaceMetadata.get(selected.workspaceId)?.name ?? "",
-              validate: (v) => (!v.trim() ? "Name is required" : null),
+              name: "newTitle",
+              label: "New title",
+              placeholder: "Enter new minion title",
+              initialValue:
+                p.minionMetadata.get(selected.minionId)?.title ??
+                p.minionMetadata.get(selected.minionId)?.name ??
+                "",
+              getInitialValue: () => {
+                const current = p.minionMetadata.get(selected.minionId);
+                return current?.title ?? current?.name ?? "";
+              },
+              validate: (v) => (!v.trim() ? "Title is required" : null),
             },
           ],
           onSubmit: async (vals) => {
-            await p.onRenameWorkspace(selected.workspaceId, vals.newName.trim());
+            await p.onUpdateTitle(selected.minionId, vals.newTitle.trim());
           },
         },
       });
+      if (selected.minionId !== LATTICE_HELP_CHAT_MINION_ID) {
+        list.push({
+          id: CommandIds.minionGenerateTitle(),
+          title: "Generate New Title for Current Minion",
+          subtitle: minionDisplayName,
+          shortcutHint: formatKeybind(KEYBINDS.GENERATE_MINION_TITLE),
+          section: section.minions,
+          run: () => {
+            window.dispatchEvent(
+              createCustomEvent(CUSTOM_EVENTS.MINION_GENERATE_TITLE_REQUESTED, {
+                minionId: selected.minionId,
+              })
+            );
+          },
+        });
+      }
     }
 
-    if (p.workspaceMetadata.size > 0) {
+    if (p.minionMetadata.size > 0) {
       list.push({
-        id: CommandIds.workspaceOpenTerminal(),
-        title: "Open Terminal Window for Mission…",
-        section: section.workspaces,
+        id: CommandIds.minionOpenTerminal(),
+        title: "Open Terminal Window for Minion…",
+        section: section.minions,
         run: () => undefined,
         prompt: {
           title: "Open Terminal Window",
           fields: [
             {
               type: "select",
-              name: "workspaceId",
-              label: "Mission",
-              placeholder: "Search missions…",
+              name: "minionId",
+              label: "Minion",
+              placeholder: "Search minions…",
               getOptions: () =>
-                Array.from(p.workspaceMetadata.values()).map((meta) => {
-                  // Use workspace name instead of extracting from path
+                Array.from(p.minionMetadata.values()).map((meta) => {
+                  // Use minion name instead of extracting from path
                   const label = `${meta.projectName} / ${meta.name}`;
                   return {
                     id: meta.id,
@@ -267,7 +389,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
                     keywords: [
                       meta.name,
                       meta.projectName,
-                      meta.namedWorkspacePath,
+                      meta.namedMinionPath,
                       meta.id,
                       meta.title,
                     ].filter((k): k is string => !!k),
@@ -276,26 +398,26 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
             },
           ],
           onSubmit: (vals) => {
-            const meta = p.workspaceMetadata.get(vals.workspaceId);
-            p.onOpenWorkspaceInTerminal(vals.workspaceId, meta?.runtimeConfig);
+            const meta = p.minionMetadata.get(vals.minionId);
+            p.onOpenMinionInTerminal(vals.minionId, meta?.runtimeConfig);
           },
         },
       });
       list.push({
-        id: CommandIds.workspaceRenameAny(),
-        title: "Rename Mission…",
-        section: section.workspaces,
+        id: CommandIds.minionEditTitleAny(),
+        title: "Edit Minion Title…",
+        section: section.minions,
         run: () => undefined,
         prompt: {
-          title: "Rename Mission",
+          title: "Edit Minion Title",
           fields: [
             {
               type: "select",
-              name: "workspaceId",
-              label: "Select mission",
-              placeholder: "Search missions…",
+              name: "minionId",
+              label: "Select minion",
+              placeholder: "Search minions…",
               getOptions: () =>
-                Array.from(p.workspaceMetadata.values()).map((meta) => {
+                Array.from(p.minionMetadata.values()).map((meta) => {
                   const label = `${meta.projectName} / ${meta.name}`;
                   return {
                     id: meta.id,
@@ -303,7 +425,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
                     keywords: [
                       meta.name,
                       meta.projectName,
-                      meta.namedWorkspacePath,
+                      meta.namedMinionPath,
                       meta.id,
                       meta.title,
                     ].filter((k): k is string => !!k),
@@ -312,38 +434,38 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
             },
             {
               type: "text",
-              name: "newName",
-              label: "New name",
-              placeholder: "Enter new mission name",
+              name: "newTitle",
+              label: "New title",
+              placeholder: "Enter new minion title",
               getInitialValue: (values) => {
-                const meta = Array.from(p.workspaceMetadata.values()).find(
-                  (m) => m.id === values.workspaceId
+                const meta = Array.from(p.minionMetadata.values()).find(
+                  (m) => m.id === values.minionId
                 );
-                return meta ? meta.name : "";
+                return meta?.title ?? meta?.name ?? "";
               },
-              validate: (v) => (!v.trim() ? "Name is required" : null),
+              validate: (v) => (!v.trim() ? "Title is required" : null),
             },
           ],
           onSubmit: async (vals) => {
-            await p.onRenameWorkspace(vals.workspaceId, vals.newName.trim());
+            await p.onUpdateTitle(vals.minionId, vals.newTitle.trim());
           },
         },
       });
       list.push({
-        id: CommandIds.workspaceRemoveAny(),
-        title: "Remove Mission…",
-        section: section.workspaces,
+        id: CommandIds.minionRemoveAny(),
+        title: "Remove Minion…",
+        section: section.minions,
         run: () => undefined,
         prompt: {
-          title: "Remove Mission",
+          title: "Remove Minion",
           fields: [
             {
               type: "select",
-              name: "workspaceId",
-              label: "Select mission",
-              placeholder: "Search missions…",
+              name: "minionId",
+              label: "Select minion",
+              placeholder: "Search minions…",
               getOptions: () =>
-                Array.from(p.workspaceMetadata.values()).map((meta) => {
+                Array.from(p.minionMetadata.values()).map((meta) => {
                   const label = `${meta.projectName}/${meta.name}`;
                   return {
                     id: meta.id,
@@ -351,7 +473,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
                     keywords: [
                       meta.name,
                       meta.projectName,
-                      meta.namedWorkspacePath,
+                      meta.namedMinionPath,
                       meta.id,
                       meta.title,
                     ].filter((k): k is string => !!k),
@@ -360,16 +482,20 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
             },
           ],
           onSubmit: async (vals) => {
-            const meta = Array.from(p.workspaceMetadata.values()).find(
-              (m) => m.id === vals.workspaceId
+            const meta = Array.from(p.minionMetadata.values()).find(
+              (m) => m.id === vals.minionId
             );
-            const workspaceName = meta ? `${meta.projectName}/${meta.name}` : vals.workspaceId;
-            const branchName = meta?.name ?? workspaceName.split("/").pop() ?? workspaceName;
-            const ok = confirm(
-              `Remove mission ${workspaceName}? This will delete the worktree and local branch "${branchName}". This cannot be undone.`
-            );
+            const minionName = meta ? `${meta.projectName}/${meta.name}` : vals.minionId;
+            const branchName = meta?.name ?? minionName.split("/").pop() ?? minionName;
+            const ok = await p.confirmDialog({
+              title: `Remove minion ${minionName}?`,
+              description: `This will delete the worktree and local branch "${branchName}".`,
+              warning: "This cannot be undone.",
+              confirmLabel: "Remove",
+              confirmVariant: "destructive",
+            });
             if (ok) {
-              await p.onRemoveWorkspace(vals.workspaceId);
+              await p.onRemoveMinion(vals.minionId);
             }
           },
         },
@@ -384,17 +510,17 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
     const list: CommandAction[] = [
       {
         id: CommandIds.navNext(),
-        title: "Next Mission",
+        title: "Next Minion",
         section: section.navigation,
-        shortcutHint: formatKeybind(KEYBINDS.NEXT_WORKSPACE),
-        run: () => p.onNavigateWorkspace("next"),
+        shortcutHint: formatKeybind(KEYBINDS.NEXT_MINION),
+        run: () => p.onNavigateMinion("next"),
       },
       {
         id: CommandIds.navPrev(),
-        title: "Previous Mission",
+        title: "Previous Minion",
         section: section.navigation,
-        shortcutHint: formatKeybind(KEYBINDS.PREV_WORKSPACE),
-        run: () => p.onNavigateWorkspace("prev"),
+        shortcutHint: formatKeybind(KEYBINDS.PREV_MINION),
+        run: () => p.onNavigateMinion("prev"),
       },
       {
         id: CommandIds.navToggleSidebar(),
@@ -405,29 +531,70 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
       },
     ];
 
-    // Right sidebar layout commands require a selected workspace (layout is per-workspace)
-    const wsId = p.selectedWorkspace?.workspaceId;
+    // workbench panel layout commands require a selected minion (layout is per-minion)
+    const wsId = p.selectedMinion?.minionId;
     if (wsId) {
       list.push(
         {
-          id: CommandIds.navRightSidebarSplitHorizontal(),
-          title: "Right Sidebar: Split Horizontally",
+          id: CommandIds.navToggleOutput(),
+          title: hasTab(readWorkbenchPanelLayout(wsId), "output") ? "Hide Output" : "Show Output",
           section: section.navigation,
-          run: () => updateRightSidebarLayout(wsId, (s) => splitFocusedTabset(s, "horizontal")),
+          keywords: ["log", "logs", "output"],
+          run: () => {
+            const isOutputVisible = hasTab(readWorkbenchPanelLayout(wsId), "output");
+            updateWorkbenchPanelLayout(wsId, (s) => toggleTab(s, "output"));
+            if (!isOutputVisible) {
+              updatePersistedState<boolean>(WORKBENCH_PANEL_COLLAPSED_KEY, false);
+            }
+          },
         },
         {
-          id: CommandIds.navRightSidebarSplitVertical(),
-          title: "Right Sidebar: Split Vertically",
+          id: CommandIds.navOpenLogFile(),
+          title: "Open Log File",
           section: section.navigation,
-          run: () => updateRightSidebarLayout(wsId, (s) => splitFocusedTabset(s, "vertical")),
+          keywords: ["log", "logs"],
+          run: async () => {
+            const result = await p.api?.general.getLogPath();
+            const logPath = result?.path;
+            if (!logPath) return;
+
+            window.open(toFileUrl(logPath), "_blank", "noopener");
+          },
         },
         {
-          id: CommandIds.navRightSidebarAddTool(),
-          title: "Right Sidebar: Add Tool…",
+          id: CommandIds.navWorkbenchPanelFocusTerminal(),
+          title: "Workbench: Focus Terminal",
+          section: section.navigation,
+          run: () =>
+            updateWorkbenchPanelLayout(wsId, (s) => {
+              const found = findFirstTerminalSessionTab(s.root);
+              if (!found) return s;
+              return selectTabInTabset(
+                setFocusedTabset(s, found.tabsetId),
+                found.tabsetId,
+                found.tab
+              );
+            }),
+        },
+        {
+          id: CommandIds.navWorkbenchPanelSplitHorizontal(),
+          title: "Workbench: Split Horizontally",
+          section: section.navigation,
+          run: () => updateWorkbenchPanelLayout(wsId, (s) => splitFocusedTabset(s, "horizontal")),
+        },
+        {
+          id: CommandIds.navWorkbenchPanelSplitVertical(),
+          title: "Workbench: Split Vertically",
+          section: section.navigation,
+          run: () => updateWorkbenchPanelLayout(wsId, (s) => splitFocusedTabset(s, "vertical")),
+        },
+        {
+          id: CommandIds.navWorkbenchPanelAddTool(),
+          title: "Workbench: Add Tool…",
           section: section.navigation,
           run: () => undefined,
           prompt: {
-            title: "Add Right Sidebar Tool",
+            title: "Add Workbench Tool",
             fields: [
               {
                 type: "select",
@@ -435,9 +602,16 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
                 label: "Tool",
                 placeholder: "Select a tool…",
                 getOptions: () =>
-                  (["costs", "review"] as TabType[]).map((tab) => ({
+                  (["costs", "review", "output", "terminal"] as TabType[]).map((tab) => ({
                     id: tab,
-                    label: tab === "costs" ? "Costs" : "Review",
+                    label:
+                      tab === "costs"
+                        ? "Costs"
+                        : tab === "review"
+                          ? "Review"
+                          : tab === "output"
+                            ? "Output"
+                            : "Terminal",
                     keywords: [tab],
                   })),
               },
@@ -446,7 +620,22 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
               const tool = vals.tool;
               if (!isTabType(tool)) return;
 
-              updateRightSidebarLayout(wsId, (s) => addToolToFocusedTabset(s, tool));
+              // "terminal" is now an alias for "focus an existing terminal session tab".
+              // Creating new terminal sessions is handled in the main UI ("+" button).
+              if (tool === "terminal") {
+                updateWorkbenchPanelLayout(wsId, (s) => {
+                  const found = findFirstTerminalSessionTab(s.root);
+                  if (!found) return s;
+                  return selectTabInTabset(
+                    setFocusedTabset(s, found.tabsetId),
+                    found.tabsetId,
+                    found.tab
+                  );
+                });
+                return;
+              }
+
+              updateWorkbenchPanelLayout(wsId, (s) => addToolToFocusedTabset(s, tool));
             },
           },
         }
@@ -459,7 +648,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
   // Layout slots
   actions.push(() => {
     const list: CommandAction[] = [];
-    const selected = p.selectedWorkspace;
+    const selected = p.selectedMinion;
     if (!selected) {
       return list;
     }
@@ -481,7 +670,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
         enabled: () => Boolean(preset) && Boolean(p.onApplyLayoutSlot),
         run: () => {
           if (!preset) return;
-          void p.onApplyLayoutSlot?.(selected.workspaceId, slot);
+          void p.onApplyLayoutSlot?.(selected.minionId, slot);
         },
       });
 
@@ -506,7 +695,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
               },
             ],
             onSubmit: async (vals) => {
-              await p.onCaptureLayoutSlot?.(selected.workspaceId, slot, vals.name.trim());
+              await p.onCaptureLayoutSlot?.(selected.minionId, slot, vals.name.trim());
             },
           },
         });
@@ -545,14 +734,14 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
   // Chat utilities
   actions.push(() => {
     const list: CommandAction[] = [];
-    if (p.selectedWorkspace) {
-      const id = p.selectedWorkspace.workspaceId;
+    if (p.selectedMinion) {
+      const id = p.selectedMinion.minionId;
       list.push({
         id: CommandIds.chatClear(),
         title: "Clear History",
         section: section.chat,
         run: async () => {
-          await p.api?.workspace.truncateHistory({ workspaceId: id, percentage: 1.0 });
+          await p.api?.minion.truncateHistory({ minionId: id, percentage: 1.0 });
         },
       });
       for (const pct of [0.75, 0.5, 0.25]) {
@@ -561,7 +750,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
           title: `Truncate History to ${Math.round((1 - pct) * 100)}%`,
           section: section.chat,
           run: async () => {
-            await p.api?.workspace.truncateHistory({ workspaceId: id, percentage: pct });
+            await p.api?.minion.truncateHistory({ minionId: id, percentage: pct });
           },
         });
       }
@@ -569,12 +758,15 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
         id: CommandIds.chatInterrupt(),
         title: "Interrupt Streaming",
         section: section.chat,
+        // Shows the normal-mode shortcut (Esc). Vim mode uses Ctrl+C instead,
+        // but vim state isn't available here; Esc is the common-case default.
+        shortcutHint: formatKeybind(KEYBINDS.INTERRUPT_STREAM_NORMAL),
         run: async () => {
-          if (p.selectedWorkspaceState?.awaitingUserQuestion) {
+          if (p.selectedMinionState?.awaitingUserQuestion) {
             return;
           }
-          disableAutoRetryPreference(id);
-          await p.api?.workspace.interruptStream({ workspaceId: id });
+          await p.api?.minion.setAutoRetryEnabled?.({ minionId: id, enabled: false });
+          await p.api?.minion.interruptStream({ minionId: id });
         },
       });
       list.push({
@@ -602,7 +794,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
       list.push({
         id: CommandIds.chatClearTimingStats(),
         title: "Clear Timing Stats",
-        subtitle: "Reset session timing data for this workspace",
+        subtitle: "Reset session timing data for this minion",
         section: section.chat,
         run: () => {
           p.onClearTimingStats?.(id);
@@ -638,29 +830,34 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
         id: CommandIds.modelChange(),
         title: "Change Model…",
         section: section.mode,
+        // No shortcutHint: CYCLE_MODEL (⌘/) cycles to next model directly,
+        // but this action opens the model selector picker — different behavior.
         run: () => {
           window.dispatchEvent(createCustomEvent(CUSTOM_EVENTS.OPEN_MODEL_SELECTOR));
         },
       },
     ];
 
-    const selectedWorkspace = p.selectedWorkspace;
-    if (selectedWorkspace) {
-      const { workspaceId } = selectedWorkspace;
+    const selectedMinion = p.selectedMinion;
+    if (selectedMinion) {
+      const { minionId } = selectedMinion;
       const levelDescriptions: Record<ThinkingLevel, string> = {
         off: "Off — fastest responses",
         low: "Low — add a bit of reasoning",
         medium: "Medium — balanced reasoning",
         high: "High — maximum reasoning depth",
-        xhigh: "Extra High — extended deep thinking",
+        xhigh: "Max — deepest possible reasoning",
+        max: "Max — deepest possible reasoning",
       };
-      const currentLevel = p.getThinkingLevel(workspaceId);
+      const currentLevel = p.getThinkingLevel(minionId);
 
       list.push({
         id: CommandIds.thinkingSetLevel(),
         title: "Set Thinking Effort…",
         subtitle: `Current: ${levelDescriptions[currentLevel] ?? currentLevel}`,
         section: section.mode,
+        // No shortcutHint: TOGGLE_THINKING (⌘⇧T) cycles to next level directly,
+        // but this action opens a level selection prompt — different behavior.
         run: () => undefined,
         prompt: {
           title: "Select Thinking Effort",
@@ -670,8 +867,14 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
               name: "thinkingLevel",
               label: "Thinking effort",
               placeholder: "Choose effort level…",
-              getOptions: () =>
-                THINKING_LEVELS.map((level) => ({
+              getOptions: () => {
+                // Filter thinking levels by the active model's policy
+                // so users only see levels valid for the current model
+                const modelString = p.selectedMinionState?.currentModel;
+                const allowedLevels = modelString
+                  ? getThinkingPolicyForModel(modelString)
+                  : THINKING_LEVELS;
+                return allowedLevels.map((level) => ({
                   id: level,
                   label: levelDescriptions[level],
                   keywords: [
@@ -680,7 +883,8 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
                     "thinking",
                     "reasoning",
                   ],
-                })),
+                }));
+              },
             },
           ],
           onSubmit: (vals) => {
@@ -688,7 +892,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
             const level = THINKING_LEVELS.includes(rawLevel as ThinkingLevel)
               ? (rawLevel as ThinkingLevel)
               : "off";
-            p.onSetThinkingLevel(workspaceId, level);
+            p.onSetThinkingLevel(minionId, level);
           },
         },
       });
@@ -704,33 +908,37 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
       title: "Show Keyboard Shortcuts",
       section: section.help,
       run: () => {
-        // No external docs URL configured
+        try {
+          window.open("https://latticeruntime.com/config/keybinds", "_blank");
+        } catch {
+          /* ignore */
+        }
       },
     },
   ]);
 
-  // Headquarters
+  // Projects
   actions.push(() => {
     const list: CommandAction[] = [
       {
         id: CommandIds.projectAdd(),
-        title: "Add HQ…",
+        title: "Add Project…",
         section: section.projects,
         run: () => p.onAddProject(),
       },
       {
-        id: CommandIds.workspaceNewInProject(),
-        title: "Create New Mission in HQ…",
+        id: CommandIds.minionNewInProject(),
+        title: "Summon New Minion in Project…",
         section: section.projects,
         run: () => undefined,
         prompt: {
-          title: "New Mission in HQ",
+          title: "New Minion in Project",
           fields: [
             {
               type: "select",
               name: "projectPath",
-              label: "Select HQ",
-              placeholder: "Search HQs…",
+              label: "Select project",
+              placeholder: "Search projects…",
               getOptions: (_values) =>
                 Array.from(p.projects.keys()).map((projectPath) => ({
                   id: projectPath,
@@ -742,7 +950,45 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
           onSubmit: (vals) => {
             const projectPath = vals.projectPath;
             // Reuse the chat-based creation flow for the selected project
-            p.onStartWorkspaceCreation(projectPath);
+            p.onStartMinionCreation(projectPath);
+          },
+        },
+      },
+      {
+        id: CommandIds.minionArchiveMergedInProject(),
+        title: "Bench Merged Minions in Project…",
+        section: section.projects,
+        keywords: ["archive", "merged", "pr", "github", "gh", "cleanup"],
+        run: () => undefined,
+        prompt: {
+          title: "Bench Merged Minions in Project",
+          fields: [
+            {
+              type: "select",
+              name: "projectPath",
+              label: "Select project",
+              placeholder: "Search projects…",
+              getOptions: (_values) =>
+                Array.from(p.projects.keys()).map((projectPath) => ({
+                  id: projectPath,
+                  label: projectPath.split("/").pop() ?? projectPath,
+                  keywords: [projectPath],
+                })),
+            },
+          ],
+          onSubmit: async (vals) => {
+            const projectPath = vals.projectPath;
+            const projectName = projectPath.split("/").pop() ?? projectPath;
+
+            const ok = await p.confirmDialog({
+              title: `Bench merged minions in ${projectName}?`,
+              description:
+                "This will bench (not delete) minions in this project whose GitHub PR is merged. This is reversible.\n\nThis may start/wake minion runtimes and can take a while.\n\nThis uses GitHub via the gh CLI. Make sure gh is installed and authenticated.",
+              confirmLabel: "Archive",
+            });
+            if (!ok) return;
+
+            await p.onArchiveMergedMinionsInProject(projectPath);
           },
         },
       },
@@ -752,13 +998,61 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
       const projectName = projectPath.split("/").pop() ?? projectPath;
       list.push({
         id: CommandIds.projectRemove(projectPath),
-        title: `Remove HQ ${projectName}…`,
+        title: `Remove Project ${projectName}…`,
         section: section.projects,
         run: () => p.onRemoveProject(projectPath),
       });
     }
     return list;
   });
+
+  // Analytics maintenance
+  actions.push(() => [
+    {
+      id: CommandIds.analyticsRebuildDatabase(),
+      title: "Rebuild Analytics Database",
+      subtitle: "Recompute analytics from minion history",
+      section: section.settings,
+      keywords: ["analytics", "rebuild", "recompute", "database", "stats"],
+      run: async () => {
+        const rebuildDatabase = getAnalyticsRebuildDatabase(p.api);
+        if (!rebuildDatabase) {
+          showCommandFeedbackToast({
+            type: "error",
+            title: "Analytics Unavailable",
+            message: "Analytics backend is not available in this build.",
+          });
+          return;
+        }
+
+        try {
+          const result = await rebuildDatabase({});
+          if (!result.success) {
+            showCommandFeedbackToast({
+              type: "error",
+              title: "Analytics Rebuild Failed",
+              message: "Analytics database rebuild did not complete successfully.",
+            });
+            return;
+          }
+
+          const minionLabel = `${result.minionsIngested} minion${
+            result.minionsIngested === 1 ? "" : "s"
+          }`;
+          showCommandFeedbackToast({
+            type: "success",
+            message: `Analytics database rebuilt successfully (${minionLabel} ingested).`,
+          });
+        } catch (error) {
+          showCommandFeedbackToast({
+            type: "error",
+            title: "Analytics Rebuild Failed",
+            message: getErrorMessage(error),
+          });
+        }
+      },
+    },
+  ]);
 
   // Settings
   if (p.onOpenSettings) {
@@ -769,7 +1063,7 @@ export function buildCoreSources(p: BuildSourcesParams): Array<() => CommandActi
         title: "Open Settings",
         section: section.settings,
         keywords: ["preferences", "config", "configuration"],
-        shortcutHint: "⌘,",
+        shortcutHint: formatKeybind(KEYBINDS.OPEN_SETTINGS),
         run: () => openSettings(),
       },
       {

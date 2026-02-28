@@ -1,4 +1,4 @@
-import type { GitStatus } from "@/common/types/workspace";
+import type { GitStatus } from "@/common/types/minion";
 
 /**
  * Parse the output of `git rev-list --left-right --count HEAD...origin/branch`
@@ -29,8 +29,9 @@ export function parseGitRevList(output: string): GitStatus | null {
     return null;
   }
 
-  // Note: dirty + line deltas are computed separately in the caller
+  // Note: dirty + line deltas + branch are computed separately in the caller
   return {
+    branch: "",
     ahead,
     behind,
     dirty: false,
@@ -44,7 +45,7 @@ export function parseGitRevList(output: string): GitStatus | null {
 /**
  * Parse the output of `git show-branch --sha1-name HEAD origin/branch` to calculate ahead/behind counts.
  *
- * This counts commits shown in the show-branch divergence section, which provides a more
+ * This counts commits shown in the show-branch divergence crew, which provides a more
  * meaningful representation of branch divergence than git rev-list.
  *
  * Expected format:
@@ -110,8 +111,9 @@ export function parseGitShowBranchForStatus(output: string): GitStatus | null {
     }
   }
 
-  // Note: dirty + line deltas are computed separately in the caller
+  // Note: dirty + line deltas + branch are computed separately in the caller
   return {
+    branch: "",
     ahead,
     behind,
     dirty: false,

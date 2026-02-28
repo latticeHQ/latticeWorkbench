@@ -10,9 +10,9 @@ import { RuntimeModeSchema } from "./runtime";
 
 // Error context enum (matches payload.ts)
 const ErrorContextSchema = z.enum([
-  "workspace-creation",
-  "workspace-deletion",
-  "workspace-switch",
+  "minion-creation",
+  "minion-deletion",
+  "minion-switch",
   "message-send",
   "message-stream",
   "project-add",
@@ -30,7 +30,7 @@ const FrontendPlatformInfoSchema = z.object({
 });
 
 // Thinking level enum (matches payload.ts TelemetryThinkingLevel)
-const TelemetryThinkingLevelSchema = z.enum(["off", "low", "medium", "high", "xhigh"]);
+const TelemetryThinkingLevelSchema = z.enum(["off", "low", "medium", "high", "xhigh", "max"]);
 
 // Command type enum (matches payload.ts TelemetryCommandType)
 const TelemetryCommandTypeSchema = z.enum([
@@ -51,19 +51,19 @@ const AppStartedPropertiesSchema = z.object({
   vimModeEnabled: z.boolean(),
 });
 
-const WorkspaceCreatedPropertiesSchema = z.object({
-  workspaceId: z.string(),
+const MinionCreatedPropertiesSchema = z.object({
+  minionId: z.string(),
   runtimeType: TelemetryRuntimeTypeSchema,
   frontendPlatform: FrontendPlatformInfoSchema,
 });
 
-const WorkspaceSwitchedPropertiesSchema = z.object({
-  fromWorkspaceId: z.string(),
-  toWorkspaceId: z.string(),
+const MinionSwitchedPropertiesSchema = z.object({
+  fromMinionId: z.string(),
+  toMinionId: z.string(),
 });
 
 const MessageSentPropertiesSchema = z.object({
-  workspaceId: z.string(),
+  minionId: z.string(),
   model: z.string(),
   agentId: z.string().min(1).optional().catch(undefined),
   message_length_b2: z.number(),
@@ -82,7 +82,7 @@ const TelemetryMCPTransportModeSchema = z.enum([
 ]);
 
 const MCPContextInjectedPropertiesSchema = z.object({
-  workspaceId: z.string(),
+  minionId: z.string(),
   model: z.string(),
   agentId: z.string().min(1).optional().catch(undefined),
   runtimeType: TelemetryRuntimeTypeSchema,
@@ -156,6 +156,35 @@ const MCPServerConfigChangedPropertiesSchema = z.object({
   tool_allowlist_size_b2: z.number().optional(),
 });
 
+const TelemetryMCPOAuthFlowErrorCategorySchema = z.enum([
+  "timeout",
+  "cancelled",
+  "state_mismatch",
+  "provider_error",
+  "unknown",
+]);
+
+const MCPOAuthFlowStartedPropertiesSchema = z.object({
+  transport: TelemetryMCPServerTransportSchema,
+  has_scope_hint: z.boolean(),
+  has_resource_metadata_hint: z.boolean(),
+});
+
+const MCPOAuthFlowCompletedPropertiesSchema = z.object({
+  transport: TelemetryMCPServerTransportSchema,
+  duration_ms_b2: z.number(),
+  has_scope_hint: z.boolean(),
+  has_resource_metadata_hint: z.boolean(),
+});
+
+const MCPOAuthFlowFailedPropertiesSchema = z.object({
+  transport: TelemetryMCPServerTransportSchema,
+  duration_ms_b2: z.number(),
+  has_scope_hint: z.boolean(),
+  has_resource_metadata_hint: z.boolean(),
+  error_category: TelemetryMCPOAuthFlowErrorCategorySchema,
+});
+
 const StreamCompletedPropertiesSchema = z.object({
   model: z.string(),
   wasInterrupted: z.boolean(),
@@ -196,6 +225,9 @@ const ExperimentOverriddenPropertiesSchema = z.object({
   userChoice: z.boolean(),
 });
 
+// Telemetry disabled event (empty properties — base props added by backend)
+const TelemetryDisabledPropertiesSchema = z.object({});
+
 // Union of all telemetry events
 export const TelemetryEventSchema = z.discriminatedUnion("event", [
   z.object({
@@ -203,12 +235,12 @@ export const TelemetryEventSchema = z.discriminatedUnion("event", [
     properties: AppStartedPropertiesSchema,
   }),
   z.object({
-    event: z.literal("workspace_created"),
-    properties: WorkspaceCreatedPropertiesSchema,
+    event: z.literal("minion_created"),
+    properties: MinionCreatedPropertiesSchema,
   }),
   z.object({
-    event: z.literal("workspace_switched"),
-    properties: WorkspaceSwitchedPropertiesSchema,
+    event: z.literal("minion_switched"),
+    properties: MinionSwitchedPropertiesSchema,
   }),
   z.object({
     event: z.literal("mcp_context_injected"),
@@ -233,6 +265,18 @@ export const TelemetryEventSchema = z.discriminatedUnion("event", [
   z.object({
     event: z.literal("mcp_server_config_changed"),
     properties: MCPServerConfigChangedPropertiesSchema,
+  }),
+  z.object({
+    event: z.literal("mcp_oauth_flow_started"),
+    properties: MCPOAuthFlowStartedPropertiesSchema,
+  }),
+  z.object({
+    event: z.literal("mcp_oauth_flow_completed"),
+    properties: MCPOAuthFlowCompletedPropertiesSchema,
+  }),
+  z.object({
+    event: z.literal("mcp_oauth_flow_failed"),
+    properties: MCPOAuthFlowFailedPropertiesSchema,
   }),
   z.object({
     event: z.literal("message_sent"),
@@ -266,6 +310,10 @@ export const TelemetryEventSchema = z.discriminatedUnion("event", [
     event: z.literal("experiment_overridden"),
     properties: ExperimentOverriddenPropertiesSchema,
   }),
+  z.object({
+    event: z.literal("telemetry_disabled"),
+    properties: TelemetryDisabledPropertiesSchema,
+  }),
 ]);
 
 // API schemas - only track endpoint, enabled state controlled by env var
@@ -279,8 +327,21 @@ export const telemetry = {
     output: z.object({
       /** True if telemetry is actively running (false in dev mode) */
       enabled: z.boolean(),
-      /** True only if user explicitly set LATTICE_DISABLE_TELEMETRY=1 */
+      /** True only if user explicitly disabled telemetry (env var or Settings toggle) */
       explicit: z.boolean(),
+      /** True only if disabled via env var (cannot be toggled from UI) */
+      envDisabled: z.boolean(),
+    }),
+  },
+  setEnabled: {
+    input: z.object({ enabled: z.boolean() }),
+    output: z.object({
+      /** Current enabled state after the change */
+      enabled: z.boolean(),
+      /** Whether telemetry is explicitly disabled */
+      explicit: z.boolean(),
+      /** True only if disabled via env var (cannot be toggled from UI) */
+      envDisabled: z.boolean(),
     }),
   },
 };

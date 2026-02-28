@@ -8,10 +8,10 @@
  */
 
 import type { ProjectConfig } from "@/node/config";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
-import type { WorkspaceChatMessage, ChatLatticeMessage } from "@/common/orpc/types";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
+import type { MinionChatMessage, ChatLatticeMessage } from "@/common/orpc/types";
 import type {
-  LatticeFrontendMetadata,
+  LatticeMessageMetadata,
   LatticeTextPart,
   LatticeReasoningPart,
   LatticeFilePart,
@@ -22,7 +22,7 @@ import { DEFAULT_MODEL } from "@/common/constants/knownModels";
 /** Part type for message construction */
 type LatticePart = LatticeTextPart | LatticeReasoningPart | LatticeFilePart | LatticeToolPart;
 import type { RuntimeConfig } from "@/common/types/runtime";
-import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/workspace";
+import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/minion";
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // STABLE TIMESTAMPS
@@ -34,10 +34,10 @@ export const NOW = 1700000000000;
 export const STABLE_TIMESTAMP = NOW - 60000;
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// WORKSPACE FACTORY
+// MINION FACTORY
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export interface WorkspaceFixture {
+export interface MinionFixture {
   id: string;
   name: string;
   projectPath: string;
@@ -47,10 +47,10 @@ export interface WorkspaceFixture {
   title?: string;
 }
 
-/** Create a workspace with sensible defaults */
-export function createWorkspace(
-  opts: Partial<WorkspaceFixture> & { id: string; name: string; projectName: string }
-): FrontendWorkspaceMetadata {
+/** Create a minion with sensible defaults */
+export function createMinion(
+  opts: Partial<MinionFixture> & { id: string; name: string; projectName: string }
+): FrontendMinionMetadata {
   const projectPath = opts.projectPath ?? `/home/user/projects/${opts.projectName}`;
   const safeName = opts.name.replace(/\//g, "-");
   return {
@@ -58,19 +58,19 @@ export function createWorkspace(
     name: opts.name,
     projectPath,
     projectName: opts.projectName,
-    namedWorkspacePath: `/home/user/.lattice/src/${opts.projectName}/${safeName}`,
+    namedMinionPath: `/home/user/.lattice/src/${opts.projectName}/${safeName}`,
     runtimeConfig: opts.runtimeConfig ?? DEFAULT_RUNTIME_CONFIG,
-    // Default to current time so workspaces aren't filtered as "old" by age-based UI
+    // Default to current time so minions aren't filtered as "old" by age-based UI
     createdAt: opts.createdAt ?? new Date().toISOString(),
     title: opts.title,
   };
 }
 
-/** Create SSH workspace */
-export function createSSHWorkspace(
-  opts: Partial<WorkspaceFixture> & { id: string; name: string; projectName: string; host: string }
-): FrontendWorkspaceMetadata {
-  return createWorkspace({
+/** Create SSH minion */
+export function createSSHMinion(
+  opts: Partial<MinionFixture> & { id: string; name: string; projectName: string; host: string }
+): FrontendMinionMetadata {
+  return createMinion({
     ...opts,
     runtimeConfig: {
       type: "ssh",
@@ -80,44 +80,44 @@ export function createSSHWorkspace(
   });
 }
 
-/** Create local project-dir workspace (no isolation, uses project path directly) */
-export function createLocalWorkspace(
-  opts: Partial<WorkspaceFixture> & { id: string; name: string; projectName: string }
-): FrontendWorkspaceMetadata {
-  return createWorkspace({
+/** Create local project-dir minion (no isolation, uses project path directly) */
+export function createLocalMinion(
+  opts: Partial<MinionFixture> & { id: string; name: string; projectName: string }
+): FrontendMinionMetadata {
+  return createMinion({
     ...opts,
     runtimeConfig: { type: "local" },
   });
 }
 
-/** Create workspace with incompatible runtime (for downgrade testing) */
-export function createIncompatibleWorkspace(
-  opts: Partial<WorkspaceFixture> & {
+/** Create minion with incompatible runtime (for downgrade testing) */
+export function createIncompatibleMinion(
+  opts: Partial<MinionFixture> & {
     id: string;
     name: string;
     projectName: string;
     incompatibleReason?: string;
   }
-): FrontendWorkspaceMetadata {
+): FrontendMinionMetadata {
   return {
-    ...createWorkspace(opts),
+    ...createMinion(opts),
     incompatibleRuntime:
       opts.incompatibleReason ??
-      "This workspace was created with a newer version of lattice.\nPlease upgrade lattice to use this workspace.",
+      "This minion was created with a newer version of lattice.\nPlease upgrade lattice to use this minion.",
   };
 }
 
-/** Create an archived workspace (archived = archivedAt set, no unarchivedAt) */
-export function createArchivedWorkspace(
-  opts: Partial<WorkspaceFixture> & {
+/** Create an archived minion (archived = archivedAt set, no unarchivedAt) */
+export function createArchivedMinion(
+  opts: Partial<MinionFixture> & {
     id: string;
     name: string;
     projectName: string;
     archivedAt?: string;
   }
-): FrontendWorkspaceMetadata {
+): FrontendMinionMetadata {
   return {
-    ...createWorkspace(opts),
+    ...createMinion(opts),
     archivedAt: opts.archivedAt ?? new Date(NOW - 86400000).toISOString(), // 1 day ago
     // No unarchivedAt means it's archived (archivedAt > unarchivedAt where unarchivedAt is undefined)
   };
@@ -129,28 +129,28 @@ export function createArchivedWorkspace(
 
 export interface ProjectFixture {
   path: string;
-  workspaces: FrontendWorkspaceMetadata[];
+  minions: FrontendMinionMetadata[];
 }
 
-/** Create project config from workspaces */
-export function createProjectConfig(workspaces: FrontendWorkspaceMetadata[]): ProjectConfig {
+/** Create project config from minions */
+export function createProjectConfig(minions: FrontendMinionMetadata[]): ProjectConfig {
   return {
-    workspaces: workspaces.map((ws) => ({
-      path: ws.namedWorkspacePath,
+    minions: minions.map((ws) => ({
+      path: ws.namedMinionPath,
       id: ws.id,
       name: ws.name,
     })),
   };
 }
 
-/** Group workspaces into projects Map */
-export function groupWorkspacesByProject(
-  workspaces: FrontendWorkspaceMetadata[]
+/** Group minions into projects Map */
+export function groupMinionsByProject(
+  minions: FrontendMinionMetadata[]
 ): Map<string, ProjectConfig> {
   const projects = new Map<string, ProjectConfig>();
-  const byProject = new Map<string, FrontendWorkspaceMetadata[]>();
+  const byProject = new Map<string, FrontendMinionMetadata[]>();
 
-  for (const ws of workspaces) {
+  for (const ws of minions) {
     const existing = byProject.get(ws.projectPath) ?? [];
     existing.push(ws);
     byProject.set(ws.projectPath, existing);
@@ -174,7 +174,9 @@ export function createUserMessage(
     historySequence: number;
     timestamp?: number;
     images?: string[];
-    latticeMetadata?: LatticeFrontendMetadata;
+    latticeMetadata?: LatticeMessageMetadata;
+    /** Mark as synthetic (auto-generated by system, not user-typed). Shows "AUTO" badge. */
+    synthetic?: boolean;
   }
 ): ChatLatticeMessage {
   const parts: LatticePart[] = [{ type: "text", text }];
@@ -192,6 +194,7 @@ export function createUserMessage(
       historySequence: opts.historySequence,
       timestamp: opts.timestamp ?? STABLE_TIMESTAMP,
       latticeMetadata: opts.latticeMetadata,
+      ...(opts.synthetic && { synthetic: true, uiVisible: true }),
     },
   };
 }
@@ -269,32 +272,24 @@ export function createAssistantMessage(
 // TOOL CALL FACTORY
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export function createFileReadTool(
-  toolCallId: string,
-  filePath: string,
-  content: string
-): LatticePart {
+export function createFileReadTool(toolCallId: string, filePath: string, content: string): LatticePart {
   return {
     type: "dynamic-tool",
     toolCallId,
     toolName: "file_read",
     state: "output-available",
-    input: { file_path: filePath },
+    input: { path: filePath },
     output: { success: true, content },
   };
 }
 
-export function createFileEditTool(
-  toolCallId: string,
-  filePath: string,
-  diff: string
-): LatticePart {
+export function createFileEditTool(toolCallId: string, filePath: string, diff: string): LatticePart {
   return {
     type: "dynamic-tool",
     toolCallId,
     toolName: "file_edit_replace_string",
     state: "output-available",
-    input: { file_path: filePath, old_string: "...", new_string: "..." },
+    input: { path: filePath, old_string: "...", new_string: "..." },
     output: { success: true, diff, edits_applied: 1 },
   };
 }
@@ -758,7 +753,7 @@ export function createGitStatusOutput(fixture: GitStatusFixture): string {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /** Chat handler type for onChat callbacks */
-type ChatHandler = (callback: (event: WorkspaceChatMessage) => void) => () => void;
+type ChatHandler = (callback: (event: MinionChatMessage) => void) => () => void;
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CHAT SCENARIO BUILDERS
@@ -771,7 +766,7 @@ export function createStaticChatHandler(messages: ChatLatticeMessage[]): ChatHan
       for (const msg of messages) {
         callback(msg);
       }
-      callback({ type: "caught-up" });
+      callback({ type: "caught-up", hasOlderHistory: false });
     }, 50);
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     return () => {};
@@ -793,12 +788,12 @@ export function createStreamingChatHandler(opts: {
       for (const msg of opts.messages) {
         callback(msg);
       }
-      callback({ type: "caught-up" });
+      callback({ type: "caught-up", hasOlderHistory: false });
 
       // Start streaming
       callback({
         type: "stream-start",
-        workspaceId: "mock",
+        minionId: "mock",
         messageId: opts.streamingMessageId,
         model: opts.model,
         historySequence: opts.historySequence,
@@ -809,7 +804,7 @@ export function createStreamingChatHandler(opts: {
       if (opts.streamText) {
         callback({
           type: "stream-delta",
-          workspaceId: "mock",
+          minionId: "mock",
           messageId: opts.streamingMessageId,
           delta: opts.streamText,
           tokens: 10,
@@ -821,7 +816,7 @@ export function createStreamingChatHandler(opts: {
       if (opts.pendingTool) {
         callback({
           type: "tool-call-start",
-          workspaceId: "mock",
+          minionId: "mock",
           messageId: opts.streamingMessageId,
           toolCallId: opts.pendingTool.toolCallId,
           toolName: opts.pendingTool.toolName,
@@ -843,11 +838,11 @@ export function createStreamingChatHandler(opts: {
 // TASK TOOL FACTORIES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Create a task tool call (spawn sub-agent) - background/queued */
+/** Create a task tool call (spawn sidekick) - background/queued */
 export function createTaskTool(
   toolCallId: string,
   opts: {
-    subagent_type: "explore" | "exec";
+    sidekick_type: "explore" | "exec";
     prompt: string;
     title: string;
     run_in_background?: boolean;
@@ -861,7 +856,7 @@ export function createTaskTool(
     toolName: "task",
     state: "output-available",
     input: {
-      subagent_type: opts.subagent_type,
+      sidekick_type: opts.sidekick_type,
       prompt: opts.prompt,
       title: opts.title,
       run_in_background: opts.run_in_background ?? false,
@@ -877,7 +872,7 @@ export function createTaskTool(
 export function createCompletedTaskTool(
   toolCallId: string,
   opts: {
-    subagent_type: "explore" | "exec";
+    sidekick_type: "explore" | "exec";
     prompt: string;
     title: string;
     taskId?: string;
@@ -891,7 +886,7 @@ export function createCompletedTaskTool(
     toolName: "task",
     state: "output-available",
     input: {
-      subagent_type: opts.subagent_type,
+      sidekick_type: opts.sidekick_type,
       prompt: opts.prompt,
       title: opts.title,
       run_in_background: false,
@@ -909,7 +904,7 @@ export function createCompletedTaskTool(
 export function createPendingTaskTool(
   toolCallId: string,
   opts: {
-    subagent_type: "explore" | "exec";
+    sidekick_type: "explore" | "exec";
     prompt: string;
     title: string;
     run_in_background?: boolean;
@@ -921,7 +916,7 @@ export function createPendingTaskTool(
     toolName: "task",
     state: "input-available",
     input: {
-      subagent_type: opts.subagent_type,
+      sidekick_type: opts.sidekick_type,
       prompt: opts.prompt,
       title: opts.title,
       run_in_background: opts.run_in_background ?? false,
@@ -933,7 +928,7 @@ export function createPendingTaskTool(
 export function createFailedTaskTool(
   toolCallId: string,
   opts: {
-    subagent_type: string; // Allow invalid values for error testing
+    sidekick_type: string; // Allow invalid values for error testing
     prompt: string;
     title: string;
     run_in_background?: boolean;
@@ -946,7 +941,7 @@ export function createFailedTaskTool(
     toolName: "task",
     state: "output-available",
     input: {
-      subagent_type: opts.subagent_type,
+      sidekick_type: opts.sidekick_type,
       prompt: opts.prompt,
       title: opts.title,
       run_in_background: opts.run_in_background ?? false,
@@ -955,6 +950,58 @@ export function createFailedTaskTool(
       success: false,
       error: opts.error,
     },
+  };
+}
+
+/** Create a task_apply_git_patch tool call */
+export function createTaskApplyGitPatchTool(
+  toolCallId: string,
+  opts: {
+    task_id: string;
+    dry_run?: boolean;
+    three_way?: boolean;
+    force?: boolean;
+    output:
+      | {
+          success: true;
+          appliedCommits: Array<{ subject: string; sha?: string }>;
+          headCommitSha?: string;
+          dryRun?: boolean;
+          note?: string;
+        }
+      | {
+          success: false;
+          error: string;
+          note?: string;
+        };
+  }
+): LatticePart {
+  return {
+    type: "dynamic-tool",
+    toolCallId,
+    toolName: "task_apply_git_patch",
+    state: "output-available",
+    input: {
+      task_id: opts.task_id,
+      dry_run: opts.dry_run,
+      three_way: opts.three_way,
+      force: opts.force,
+    },
+    output: opts.output.success
+      ? {
+          success: true,
+          taskId: opts.task_id,
+          appliedCommits: opts.output.appliedCommits,
+          headCommitSha: opts.output.headCommitSha,
+          dryRun: opts.output.dryRun,
+          note: opts.output.note,
+        }
+      : {
+          success: false,
+          taskId: opts.task_id,
+          error: opts.output.error,
+          note: opts.output.note,
+        },
   };
 }
 
@@ -1025,7 +1072,7 @@ export function createTaskListTool(
     tasks: Array<{
       taskId: string;
       status: "queued" | "running" | "awaiting_report" | "reported";
-      parentWorkspaceId: string;
+      parentMinionId: string;
       agentType?: string;
       title?: string;
       depth: number;

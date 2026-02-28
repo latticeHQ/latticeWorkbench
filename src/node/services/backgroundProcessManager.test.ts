@@ -18,10 +18,10 @@ describe("BackgroundProcessManager", () => {
   let manager: BackgroundProcessManager;
   let runtime: Runtime;
   let bgOutputDir: string;
-  // Use unique workspace IDs per test run to avoid collisions
+  // Use unique minion IDs per test run to avoid collisions
   const testRunId = Date.now().toString(36);
-  const testWorkspaceId = `test-ws1-${testRunId}`;
-  const testWorkspaceId2 = `test-ws2-${testRunId}`;
+  const testMinionId = `test-ws1-${testRunId}`;
+  const testMinionId2 = `test-ws2-${testRunId}`;
 
   beforeEach(async () => {
     // Create isolated temp directory for each test to avoid cross-test pollution
@@ -32,16 +32,16 @@ describe("BackgroundProcessManager", () => {
 
   afterEach(async () => {
     // Cleanup: terminate all processes
-    await manager.cleanup(testWorkspaceId);
-    await manager.cleanup(testWorkspaceId2);
+    await manager.cleanup(testMinionId);
+    await manager.cleanup(testMinionId2);
     // Remove temp sessions directory (legacy)
     await fs.rm(bgOutputDir, { recursive: true, force: true }).catch(() => undefined);
     // Remove actual output directories from /tmp/lattice-bashes (where executor writes)
     await fs
-      .rm(`/tmp/lattice-bashes/${testWorkspaceId}`, { recursive: true, force: true })
+      .rm(`/tmp/lattice-bashes/${testMinionId}`, { recursive: true, force: true })
       .catch(() => undefined);
     await fs
-      .rm(`/tmp/lattice-bashes/${testWorkspaceId2}`, { recursive: true, force: true })
+      .rm(`/tmp/lattice-bashes/${testMinionId2}`, { recursive: true, force: true })
       .catch(() => undefined);
   });
 
@@ -63,7 +63,7 @@ describe("BackgroundProcessManager", () => {
   describe("spawn", () => {
     it("should spawn a background process and return process ID and outputDir", async () => {
       const displayName = `test-${Date.now()}`;
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo hello", {
+      const result = await manager.spawn(runtime, testMinionId, "echo hello", {
         cwd: process.cwd(),
         displayName,
       });
@@ -72,15 +72,15 @@ describe("BackgroundProcessManager", () => {
       if (result.success) {
         // Process ID is now the display name directly
         expect(result.processId).toBe(displayName);
-        // outputDir is now under runtime.tempDir()/lattice-bashes/<workspaceId>/<processId>
+        // outputDir is now under runtime.tempDir()/lattice-bashes/<minionId>/<processId>
         expect(result.outputDir).toContain("lattice-bashes");
-        expect(result.outputDir).toContain(testWorkspaceId);
+        expect(result.outputDir).toContain(testMinionId);
         expect(result.outputDir).toContain(result.processId);
       }
     });
 
     it("should return error on spawn failure", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo test", {
+      const result = await manager.spawn(runtime, testMinionId, "echo test", {
         cwd: "/nonexistent/path/that/does/not/exist",
         displayName: "test",
       });
@@ -89,7 +89,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should write stdout and stderr to unified output file", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo hello; echo world >&2", {
+      const result = await manager.spawn(runtime, testMinionId, "echo hello; echo world >&2", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -109,7 +109,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should write meta.json with process info", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo test", {
+      const result = await manager.spawn(runtime, testMinionId, "echo test", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -131,7 +131,7 @@ describe("BackgroundProcessManager", () => {
 
   describe("getProcess", () => {
     it("should return process by ID", async () => {
-      const spawnResult = await manager.spawn(runtime, testWorkspaceId, "sleep 1", {
+      const spawnResult = await manager.spawn(runtime, testMinionId, "sleep 1", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -153,11 +153,11 @@ describe("BackgroundProcessManager", () => {
   describe("list", () => {
     it("should list all processes", async () => {
       // Use unique display names since they're now used as process IDs
-      await manager.spawn(runtime, testWorkspaceId, "sleep 1", {
+      await manager.spawn(runtime, testMinionId, "sleep 1", {
         cwd: process.cwd(),
         displayName: "test-list-1",
       });
-      await manager.spawn(runtime, testWorkspaceId, "sleep 1", {
+      await manager.spawn(runtime, testMinionId, "sleep 1", {
         cwd: process.cwd(),
         displayName: "test-list-2",
       });
@@ -166,30 +166,30 @@ describe("BackgroundProcessManager", () => {
       expect(processes.length).toBeGreaterThanOrEqual(2);
     });
 
-    it("should filter by workspace ID", async () => {
+    it("should filter by minion ID", async () => {
       // Use unique display names since they're now used as process IDs
-      await manager.spawn(runtime, testWorkspaceId, "sleep 1", {
+      await manager.spawn(runtime, testMinionId, "sleep 1", {
         cwd: process.cwd(),
         displayName: "test-filter-ws1",
       });
-      await manager.spawn(runtime, testWorkspaceId2, "sleep 1", {
+      await manager.spawn(runtime, testMinionId2, "sleep 1", {
         cwd: process.cwd(),
         displayName: "test-filter-ws2",
       });
 
-      const ws1Processes = await manager.list(testWorkspaceId);
-      const ws2Processes = await manager.list(testWorkspaceId2);
+      const ws1Processes = await manager.list(testMinionId);
+      const ws2Processes = await manager.list(testMinionId2);
 
       expect(ws1Processes.length).toBeGreaterThanOrEqual(1);
       expect(ws2Processes.length).toBeGreaterThanOrEqual(1);
-      expect(ws1Processes.every((p) => p.workspaceId === testWorkspaceId)).toBe(true);
-      expect(ws2Processes.every((p) => p.workspaceId === testWorkspaceId2)).toBe(true);
+      expect(ws1Processes.every((p) => p.minionId === testMinionId)).toBe(true);
+      expect(ws2Processes.every((p) => p.minionId === testMinionId2)).toBe(true);
     });
   });
 
   describe("terminate", () => {
     it("should terminate a running process", async () => {
-      const spawnResult = await manager.spawn(runtime, testWorkspaceId, "sleep 10", {
+      const spawnResult = await manager.spawn(runtime, testMinionId, "sleep 10", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -209,7 +209,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should be idempotent (double-terminate succeeds)", async () => {
-      const spawnResult = await manager.spawn(runtime, testWorkspaceId, "sleep 10", {
+      const spawnResult = await manager.spawn(runtime, testMinionId, "sleep 10", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -229,7 +229,7 @@ describe("BackgroundProcessManager", () => {
 
       const spawnResult = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         `trap "echo term > '${sentinelPath}'; exit 0" TERM; sleep 60`,
         {
           cwd: process.cwd(),
@@ -260,27 +260,27 @@ describe("BackgroundProcessManager", () => {
   });
 
   describe("cleanup", () => {
-    it("should kill all processes for a workspace and remove from memory", async () => {
-      await manager.spawn(runtime, testWorkspaceId, "sleep 10", {
+    it("should kill all processes for a minion and remove from memory", async () => {
+      await manager.spawn(runtime, testMinionId, "sleep 10", {
         cwd: process.cwd(),
         displayName: "test",
       });
-      await manager.spawn(runtime, testWorkspaceId, "sleep 10", {
+      await manager.spawn(runtime, testMinionId, "sleep 10", {
         cwd: process.cwd(),
         displayName: "test",
       });
-      await manager.spawn(runtime, testWorkspaceId2, "sleep 10", {
+      await manager.spawn(runtime, testMinionId2, "sleep 10", {
         cwd: process.cwd(),
         displayName: "test",
       });
 
-      await manager.cleanup(testWorkspaceId);
+      await manager.cleanup(testMinionId);
 
-      const ws1Processes = await manager.list(testWorkspaceId);
-      const ws2Processes = await manager.list(testWorkspaceId2);
-      // All testWorkspaceId processes should be removed from memory
+      const ws1Processes = await manager.list(testMinionId);
+      const ws2Processes = await manager.list(testMinionId2);
+      // All testMinionId processes should be removed from memory
       expect(ws1Processes.length).toBe(0);
-      // workspace-2 processes should still exist and be running
+      // minion-2 processes should still exist and be running
       expect(ws2Processes.length).toBeGreaterThanOrEqual(1);
       expect(ws2Processes.some((p) => p.status === "running")).toBe(true);
     });
@@ -288,30 +288,30 @@ describe("BackgroundProcessManager", () => {
 
   describe("terminateAll", () => {
     it(
-      "should kill all processes across all workspaces",
+      "should kill all processes across all minions",
       async () => {
-        // Spawn processes in multiple workspaces (unique display names since they're process IDs)
-        await manager.spawn(runtime, testWorkspaceId, "sleep 10", {
+        // Spawn processes in multiple minions (unique display names since they're process IDs)
+        await manager.spawn(runtime, testMinionId, "sleep 10", {
           cwd: process.cwd(),
           displayName: "test-termall-ws1",
         });
-        await manager.spawn(runtime, testWorkspaceId2, "sleep 10", {
+        await manager.spawn(runtime, testMinionId2, "sleep 10", {
           cwd: process.cwd(),
           displayName: "test-termall-ws2",
         });
 
-        // Verify both workspaces have running processes
-        const beforeWs1 = await manager.list(testWorkspaceId);
-        const beforeWs2 = await manager.list(testWorkspaceId2);
+        // Verify both minions have running processes
+        const beforeWs1 = await manager.list(testMinionId);
+        const beforeWs2 = await manager.list(testMinionId2);
         expect(beforeWs1.length).toBe(1);
         expect(beforeWs2.length).toBe(1);
 
         // Terminate all
         await manager.terminateAll();
 
-        // Both workspaces should have no processes
-        const afterWs1 = await manager.list(testWorkspaceId);
-        const afterWs2 = await manager.list(testWorkspaceId2);
+        // Both minions should have no processes
+        const afterWs1 = await manager.list(testMinionId);
+        const afterWs2 = await manager.list(testMinionId2);
         expect(afterWs1.length).toBe(0);
         expect(afterWs2.length).toBe(0);
 
@@ -332,7 +332,7 @@ describe("BackgroundProcessManager", () => {
 
   describe("process state tracking", () => {
     it("should track process exit and update meta.json", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "exit 42", {
+      const result = await manager.spawn(runtime, testMinionId, "exit 42", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -356,7 +356,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should keep output files after process exits", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo test; exit 0", {
+      const result = await manager.spawn(runtime, testMinionId, "echo test; exit 0", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -376,7 +376,7 @@ describe("BackgroundProcessManager", () => {
 
     it("should preserve killed status after terminate", async () => {
       // Spawn a long-running process
-      const result = await manager.spawn(runtime, testWorkspaceId, "sleep 60", {
+      const result = await manager.spawn(runtime, testMinionId, "sleep 60", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -393,7 +393,7 @@ describe("BackgroundProcessManager", () => {
 
     it("should report non-zero exit code for signal-terminated processes", async () => {
       // Spawn a long-running process
-      const result = await manager.spawn(runtime, testWorkspaceId, "sleep 60", {
+      const result = await manager.spawn(runtime, testMinionId, "sleep 60", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -419,7 +419,7 @@ describe("BackgroundProcessManager", () => {
       // Spawn a parent that creates a child process
       // The parent runs: (sleep 60 &); wait
       // This creates: parent bash -> child sleep
-      const result = await manager.spawn(runtime, testWorkspaceId, "bash -c 'sleep 60 & wait'", {
+      const result = await manager.spawn(runtime, testMinionId, "bash -c 'sleep 60 & wait'", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -461,7 +461,7 @@ describe("BackgroundProcessManager", () => {
 
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         `echo 'line 1'; while [ ! -f ${triggerFile} ]; do sleep 0.05; done; echo 'line 2'`,
         { cwd: process.cwd(), displayName: "test" }
       );
@@ -492,7 +492,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should return stderr from a running process", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo 'error message' >&2", {
+      const result = await manager.spawn(runtime, testMinionId, "echo 'error message' >&2", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -510,7 +510,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should include elapsed_ms in response", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "sleep 0.2; echo done", {
+      const result = await manager.spawn(runtime, testMinionId, "sleep 0.2; echo done", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -536,7 +536,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should return correct status for running vs exited process", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo done; exit 0", {
+      const result = await manager.spawn(runtime, testMinionId, "echo done; exit 0", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -563,7 +563,7 @@ describe("BackgroundProcessManager", () => {
     it("should filter output with regex when provided", async () => {
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "echo 'INFO: message'; echo 'DEBUG: noise'; echo 'INFO: another'",
         { cwd: process.cwd(), displayName: "test" }
       );
@@ -586,7 +586,7 @@ describe("BackgroundProcessManager", () => {
     it("should exclude matching lines when filter_exclude is true", async () => {
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "echo 'INFO: message'; echo 'DEBUG: noise'; echo 'INFO: another'",
         { cwd: process.cwd(), displayName: "test" }
       );
@@ -607,7 +607,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should return error when filter_exclude is true but no filter provided", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo hello", {
+      const result = await manager.spawn(runtime, testMinionId, "echo hello", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -630,7 +630,7 @@ describe("BackgroundProcessManager", () => {
       // is already present by the time we call getOutput.
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         `while [ ! -f "${signalPath}" ]; do echo 'PROGRESS'; sleep 0.1; done; echo 'DONE'`,
         { cwd: process.cwd(), displayName: "test", timeoutSecs: 5 }
       );
@@ -659,7 +659,7 @@ describe("BackgroundProcessManager", () => {
       // Script outputs ONLY excluded lines then exits
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "echo 'PROGRESS'; echo 'PROGRESS'; exit 0",
         { cwd: process.cwd(), displayName: "test" }
       );
@@ -684,7 +684,7 @@ describe("BackgroundProcessManager", () => {
       // Script outputs progress indefinitely
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "while true; do echo 'PROGRESS'; sleep 0.1; done",
         { cwd: process.cwd(), displayName: "test", timeoutSecs: 10 }
       );
@@ -710,7 +710,7 @@ describe("BackgroundProcessManager", () => {
       // Without serialization, both calls would return the same output.
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "echo 'line1'; echo 'line2'; echo 'line3'",
         { cwd: process.cwd(), displayName: "test" }
       );
@@ -751,7 +751,7 @@ describe("BackgroundProcessManager", () => {
 
   describe("peekOutput", () => {
     it("should not advance the output cursor used by getOutput", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo hello; sleep 0.2", {
+      const result = await manager.spawn(runtime, testMinionId, "echo hello; sleep 0.2", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -781,7 +781,7 @@ describe("BackgroundProcessManager", () => {
       // Both must use the SAME manager instance
 
       // Spawn process that produces output
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo 'hello from bg'", {
+      const result = await manager.spawn(runtime, testMinionId, "echo 'hello from bg'", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -799,7 +799,7 @@ describe("BackgroundProcessManager", () => {
 
     it("should read from offset 0 on first call even if file already has content", async () => {
       // Spawn a process that writes output immediately
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo 'initial output'", {
+      const result = await manager.spawn(runtime, testMinionId, "echo 'initial output'", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -826,7 +826,7 @@ describe("BackgroundProcessManager", () => {
 
     it("DEBUG: verifies outputDir from spawn matches getProcess", async () => {
       // Verify that outputDir returned from spawn is the same as what getProcess returns
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo 'verify test'", {
+      const result = await manager.spawn(runtime, testMinionId, "echo 'verify test'", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -865,7 +865,7 @@ describe("BackgroundProcessManager", () => {
 
       // Create shared config with the SAME manager instance
       const config = createTestToolConfig(tempDir.path, {
-        workspaceId: testWorkspaceId,
+        minionId: testMinionId,
         sessionsDir: tempDir.path,
       });
       config.backgroundProcessManager = manager;
@@ -919,7 +919,7 @@ describe("BackgroundProcessManager", () => {
       // (which would be a bug in the real system)
 
       // Spawn with first manager
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo 'test'", {
+      const result = await manager.spawn(runtime, testMinionId, "echo 'test'", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -942,7 +942,7 @@ describe("BackgroundProcessManager", () => {
 
   describe("exit_code file", () => {
     it("should write exit_code file when process exits", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "exit 42", {
+      const result = await manager.spawn(runtime, testMinionId, "exit 42", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -965,7 +965,7 @@ describe("BackgroundProcessManager", () => {
       // Process that outputs lines that should be filtered and one that shouldn't
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         // Output lines: some with 'progress', one without
         "echo 'progress 1'; echo 'progress 2'; echo 'FINAL RESULT'",
         { cwd: process.cwd(), displayName: "test" }
@@ -989,7 +989,7 @@ describe("BackgroundProcessManager", () => {
       // Process that outputs progress lines
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "echo 'progress: 50%'; sleep 0.1; echo 'progress: 100%'; echo 'DONE'",
         { cwd: process.cwd(), displayName: "test" }
       );
@@ -1010,7 +1010,7 @@ describe("BackgroundProcessManager", () => {
 
     it("should include incomplete line on process exit", async () => {
       // Process that exits without final newline
-      const result = await manager.spawn(runtime, testWorkspaceId, "printf 'no newline at end'", {
+      const result = await manager.spawn(runtime, testMinionId, "printf 'no newline at end'", {
         cwd: process.cwd(),
         displayName: "test",
       });
@@ -1034,7 +1034,7 @@ describe("BackgroundProcessManager", () => {
       // Long-running process
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "while true; do echo 'tick'; sleep 0.5; done",
         { cwd: process.cwd(), displayName: "test", timeoutSecs: 30 }
       );
@@ -1064,7 +1064,7 @@ describe("BackgroundProcessManager", () => {
     it("should return better pattern note when filter_exclude is used but still polling", async () => {
       const result = await manager.spawn(
         runtime,
-        testWorkspaceId,
+        testMinionId,
         "while true; do echo 'tick'; sleep 0.5; done",
         { cwd: process.cwd(), displayName: "test", timeoutSecs: 30 }
       );
@@ -1086,7 +1086,7 @@ describe("BackgroundProcessManager", () => {
     });
 
     it("should NOT return note when process has exited", async () => {
-      const result = await manager.spawn(runtime, testWorkspaceId, "echo done; exit 0", {
+      const result = await manager.spawn(runtime, testMinionId, "echo done; exit 0", {
         cwd: process.cwd(),
         displayName: "test",
       });

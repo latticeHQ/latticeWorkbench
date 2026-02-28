@@ -57,7 +57,7 @@ export interface WorkspaceUI {
     close(): Promise<void>;
     expectOpen(): Promise<void>;
     expectClosed(): Promise<void>;
-    selectSection(section: string): Promise<void>;
+    selectSection(section: "General" | "Providers" | "Models"): Promise<void>;
     expandProvider(providerName: string): Promise<void>;
   };
   readonly context: DemoProjectConfig;
@@ -90,8 +90,17 @@ function sanitizeMode(mode: ChatMode): ChatMode {
   }
 }
 
-function sliderLocator(page: Page): Locator {
-  return page.getByRole("slider", { name: "Thinking level" });
+// Thinking level paddle controls (replaced old slider UI)
+function thinkingDecreasePaddle(page: Page): Locator {
+  return page.getByRole("button", { name: "Decrease thinking level" });
+}
+
+function thinkingIncreasePaddle(page: Page): Locator {
+  return page.getByRole("button", { name: "Increase thinking level" });
+}
+
+function thinkingLevelLabel(page: Page): Locator {
+  return page.getByLabel(/Thinking level:/);
 }
 
 function transcriptLocator(page: Page): Locator {
@@ -101,7 +110,7 @@ function transcriptLocator(page: Page): Locator {
 export function createWorkspaceUI(page: Page, context: DemoProjectConfig): WorkspaceUI {
   const projects = {
     async openFirstWorkspace(): Promise<void> {
-      const navigation = page.getByRole("navigation", { name: "Headquarters" });
+      const navigation = page.getByRole("navigation", { name: "Projects" });
       await expect(navigation).toBeVisible();
 
       const projectItems = navigation.locator('[role="button"][aria-controls]');
@@ -110,7 +119,7 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
 
       const workspaceListId = await projectItem.getAttribute("aria-controls");
       if (!workspaceListId) {
-        throw new Error("Headquarter item is missing aria-controls attribute");
+        throw new Error("Project item is missing aria-controls attribute");
       }
 
       const workspaceItems = page.locator(`#${workspaceListId} > div[role="button"]`);
@@ -129,7 +138,7 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
       // a transcript immediately. Waiting on the transcript alone is no longer sufficient to
       // confirm that the click actually navigated to the demo workspace.
       const expectedProjectName = path.basename(context.projectPath);
-      await expect(page.getByTestId("workspace-header")).toContainText(expectedProjectName, {
+      await expect(page.getByTestId("workspace-menu-bar")).toContainText(expectedProjectName, {
         timeout: 20_000,
       });
 
@@ -164,24 +173,53 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
       await expect(agentPickerTrigger).toContainText(normalizedMode);
     },
 
-    async setThinkingLevel(value: number): Promise<void> {
-      if (!Number.isInteger(value)) {
-        throw new Error("Slider value must be an integer");
+    /**
+     * Set the thinking level using paddle controls.
+     * Values map to: 0=OFF, 1=LOW, 2=MED, 3=HIGH, 4=XHIGH
+     */
+    async setThinkingLevel(targetLevel: number): Promise<void> {
+      if (!Number.isInteger(targetLevel)) {
+        throw new Error("Thinking level must be an integer");
       }
-      if (value < 0 || value > 10) {
-        throw new Error(`Slider value ${value} is outside expected range 0-10`);
+      if (targetLevel < 0 || targetLevel > 4) {
+        throw new Error(`Thinking level ${targetLevel} is outside expected range 0-4`);
       }
 
-      const slider = sliderLocator(page);
-      await expect(slider).toBeVisible();
-      await slider.evaluate((element, desiredValue) => {
-        const input = element as HTMLInputElement;
-        input.value = String(desiredValue);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-      }, value);
+      const levelLabels = ["OFF", "LOW", "MED", "HIGH", "XHIGH"];
+      const targetLabel = levelLabels[targetLevel];
 
-      await expect(slider).toHaveValue(String(value));
+      const label = thinkingLevelLabel(page);
+      const decreasePaddle = thinkingDecreasePaddle(page);
+      const increasePaddle = thinkingIncreasePaddle(page);
+
+      // Wait for thinking controls to be visible
+      await expect(label).toBeVisible();
+
+      // Get current level by reading the label text
+      const getCurrentLevel = async (): Promise<number> => {
+        const text = await label.textContent();
+        const normalized = text?.trim().toUpperCase() ?? "";
+
+        // Note: XHIGH contains HIGH as a substring, so we must avoid includes()-based matching here.
+        const labelIndex = levelLabels.findIndex((l) => normalized === l);
+        return labelIndex === -1 ? 0 : labelIndex;
+      };
+
+      // Click paddles until we reach the target level (max 10 clicks to prevent infinite loop)
+      for (let i = 0; i < 10; i++) {
+        const currentLevel = await getCurrentLevel();
+        if (currentLevel === targetLevel) {
+          break;
+        }
+        if (currentLevel < targetLevel) {
+          await increasePaddle.click();
+        } else {
+          await decreasePaddle.click();
+        }
+      }
+
+      // Verify we reached the target
+      await expect(label).toContainText(targetLabel);
     },
 
     async sendMessage(message: string): Promise<void> {
@@ -282,12 +320,12 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
         };
 
         const win = window as unknown as {
-          __muxStreamCapture?: Record<string, StreamCapture>;
+          __latticeStreamCapture?: Record<string, StreamCapture>;
         };
 
         const store =
-          win.__muxStreamCapture ??
-          (win.__muxStreamCapture = Object.create(null) as Record<string, StreamCapture>);
+          win.__latticeStreamCapture ??
+          (win.__latticeStreamCapture = Object.create(null) as Record<string, StreamCapture>);
         const existing = store[id];
         if (existing) {
           existing.unsubscribe();
@@ -393,9 +431,9 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
             type StreamCaptureEvent = { type: string };
             type StreamCapture = { events: StreamCaptureEvent[] };
             const win = window as unknown as {
-              __muxStreamCapture?: Record<string, StreamCapture>;
+              __latticeStreamCapture?: Record<string, StreamCapture>;
             };
-            const capture = win.__muxStreamCapture?.[id];
+            const capture = win.__latticeStreamCapture?.[id];
             if (!capture) {
               return false;
             }
@@ -428,9 +466,9 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
           unsubscribe: () => void;
         };
         const win = window as unknown as {
-          __muxStreamCapture?: Record<string, StreamCapture>;
+          __latticeStreamCapture?: Record<string, StreamCapture>;
         };
-        const store = win.__muxStreamCapture;
+        const store = win.__latticeStreamCapture;
         const capture = store?.[id];
         if (!capture) {
           return [] as StreamCaptureEvent[];
@@ -560,7 +598,7 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
      * Since ghostty uses canvas rendering, we can't directly query DOM text.
      * This method runs a command that echoes a marker and waits for it to complete.
      */
-    async expectTerminalOutput(expectedText: string, timeoutMs = 10000): Promise<void> {
+    async expectTerminalOutput(_expectedText: string, _timeoutMs = 10000): Promise<void> {
       // ghostty renders to canvas, so we need to use Playwright's built-in
       // accessibility/text detection or rely on behavioral verification.
       // For now, we verify by running echo commands and checking they don't error.
@@ -583,30 +621,50 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
 
   const settings = {
     async open(): Promise<void> {
-      // Click the settings gear button in the title bar
-      const settingsButton = page.getByRole("button", { name: /settings/i });
+      // Click the settings gear button in the title bar.
+      const settingsButton = page.getByTestId("settings-button");
       await expect(settingsButton).toBeVisible();
       await settingsButton.click();
       await settings.expectOpen();
     },
 
     async close(): Promise<void> {
-      // Press Escape to close
-      await page.keyboard.press("Escape");
+      const closeControl = page
+        .getByRole("button", { name: /Close settings|Back to previous page/i })
+        .first();
+
+      await expect(closeControl).toBeVisible({ timeout: 5000 });
+      await closeControl.click();
       await settings.expectClosed();
     },
 
     async expectOpen(): Promise<void> {
       const dialog = page.getByRole("dialog", { name: "Settings" });
-      await expect(dialog).toBeVisible({ timeout: 5000 });
+      const routeCloseControl = page
+        .getByRole("button", { name: /Close settings|Back to previous page/i })
+        .first();
+
+      await expect
+        .poll(async () => (await dialog.isVisible()) || (await routeCloseControl.isVisible()), {
+          timeout: 5000,
+        })
+        .toBe(true);
     },
 
     async expectClosed(): Promise<void> {
       const dialog = page.getByRole("dialog", { name: "Settings" });
-      await expect(dialog).not.toBeVisible({ timeout: 5000 });
+      const routeCloseControl = page
+        .getByRole("button", { name: /Close settings|Back to previous page/i })
+        .first();
+
+      await expect
+        .poll(async () => !(await dialog.isVisible()) && !(await routeCloseControl.isVisible()), {
+          timeout: 5000,
+        })
+        .toBe(true);
     },
 
-    async selectSection(section: string): Promise<void> {
+    async selectSection(section: "General" | "Providers" | "Models"): Promise<void> {
       const sectionButton = page.getByRole("button", { name: section, exact: true });
       await expect(sectionButton).toBeVisible();
       await sectionButton.click();

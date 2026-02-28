@@ -1,134 +1,137 @@
 /**
  * Lattice Chat Components CSS Variables
- * 
- * These variables define the color scheme and styling tokens for chat components.
- * Import this file and set a theme class on the root element (dark, light, solarized-light, solarized-dark).
+ *
+ * Brand: orange accent (#FF6600) on dark carbon backgrounds.
+ * Each semantic role has a distinct hue for instant recognition:
+ *   accent    → orange  #FF6600  (brand identity)
+ *   success   → emerald #10B981  (go / done)
+ *   warning   → amber   #FBBF24  (caution)
+ *   danger    → red     #EF4444  (error / destructive)
+ *   info      → sky     #38BDF8  (neutral informational)
+ *
+ * Agent mode indicators — unique hues:
+ *   thinking  → indigo  #818CF8  (contemplation / processing)
+ *   plan      → violet  #A78BFA  (architecture / design)
+ *   exec      → teal    #2DD4BF  (execution / action)
+ *   ask       → blue    #60A5FA  (questions / interaction)
+ *   edit      → amber   #FBBF24  (modification)
+ *   debug     → rose    #F472B6  (debugging)
+ *   task      → emerald #34D399  (parallel work)
+ *
+ * Two themes: dark (default) and light.
+ * Import this file and set a theme class on the root element (dark or light).
  */
 
 :root {
-  /* Base colors - dark theme default */
-  --color-background: #1e1e1e;
-  --color-foreground: #e4e4e7;
-  --color-text: #e4e4e7;
-  --color-muted: #a1a1aa;
-  --color-border: #27272a;
-  --color-card: #27272a;
-  --color-accent: #3f3f46;
+  /* ── Base surfaces — dark carbon ────────────────────────────────── */
+  --color-background: #0D0D0D;
+  --color-foreground: #E0E0E0;
+  --color-text: #E0E0E0;
+  --color-muted: #737373;
+  --color-border: #1F1F1F;
+  --color-card: #141414;
+  --color-accent: #FF6600;
 
-  /* Code blocks */
-  --color-code-bg: #0d0d0d;
-  --color-code-border: #27272a;
+  /* ── Code blocks ────────────────────────────────────────────────── */
+  --color-code-bg: #090909;
+  --color-code-border: #1F1F1F;
 
-  /* User messages */
-  --color-user-surface: #27272a;
-  --color-user-border: #3f3f46;
+  /* ── User messages ──────────────────────────────────────────────── */
+  --color-user-surface: hsla(0 0% 100% / 0.06);
+  --color-user-border: hsla(0 0% 100% / 0.1);
 
-  /* Message debug view */
-  --color-message-debug-bg: #18181b;
-  --color-message-debug-border: #3f3f46;
-  --color-message-debug-text: #a1a1aa;
+  /* ── Message debug view ─────────────────────────────────────────── */
+  --color-message-debug-bg: rgba(0, 0, 0, 0.3);
+  --color-message-debug-border: rgba(255, 255, 255, 0.1);
+  --color-message-debug-text: rgba(255, 255, 255, 0.7);
 
-  /* Mode colors */
-  --color-thinking-mode: #f59e0b;
-  --color-plan-mode: #8b5cf6;
-  --color-exec-mode: #10b981;
+  /* ── Agent mode colors — distinct hues ──────────────────────────── */
+  --color-thinking-mode: #818CF8;       /* indigo-400  — contemplation */
+  --color-plan-mode: #A78BFA;           /* violet-400  — architecture */
+  --color-exec-mode: #2DD4BF;           /* teal-400    — execution */
+  --color-ask-mode: #60A5FA;            /* blue-400    — interaction */
+  --color-edit-mode: #FBBF24;           /* amber-400   — modification */
+  --color-debug-mode: #F472B6;          /* rose-400    — debugging */
+  --color-task-mode: #34D399;           /* emerald-400 — parallel work */
 
-  /* Status colors */
-  --color-success: #10b981;
-  --color-warning: #f59e0b;
-  --color-danger: #ef4444;
-  --color-info: #3b82f6;
+  /* ── Status colors — universally distinct ───────────────────────── */
+  --color-success: #10B981;             /* emerald-500 */
+  --color-warning: #FBBF24;             /* amber-400   */
+  --color-danger: #EF4444;              /* red-500     */
+  --color-info: #38BDF8;                /* sky-400     */
 
-  /* Diff colors */
-  --color-diff-add-bg: rgba(16, 185, 129, 0.1);
-  --color-diff-remove-bg: rgba(239, 68, 68, 0.1);
+  /* ── Diff colors ────────────────────────────────────────────────── */
+  --color-diff-add-bg: rgba(16, 185, 129, 0.1);   /* emerald tint */
+  --color-diff-remove-bg: rgba(239, 68, 68, 0.1);  /* red tint */
 }
 
-/* Light theme */
+/* ══════════════════════════════════════════════════════════════════════
+   Light theme
+   ══════════════════════════════════════════════════════════════════════ */
 .light {
-  --color-background: #f5f6f8;
-  --color-foreground: #18181b;
-  --color-text: #18181b;
-  --color-muted: #71717a;
-  --color-border: #e4e4e7;
-  --color-card: #ffffff;
-  --color-accent: #f4f4f5;
+  --color-background: #FAFAF7;
+  --color-foreground: #1A1A1A;
+  --color-text: #1A1A1A;
+  --color-muted: #78716C;
+  --color-border: #E0DDD5;
+  --color-card: #F5F3EE;
+  --color-accent: #E65C00;
 
-  --color-code-bg: #f4f4f5;
-  --color-code-border: #e4e4e7;
+  --color-code-bg: #F5F3EE;
+  --color-code-border: #E0DDD5;
 
-  --color-user-surface: #f4f4f5;
-  --color-user-border: #e4e4e7;
+  --color-user-surface: #F0EDE6;
+  --color-user-border: #D8D5CC;
 
-  --color-message-debug-bg: #fafafa;
-  --color-message-debug-border: #e4e4e7;
-  --color-message-debug-text: #71717a;
+  --color-message-debug-bg: #F5F3EE;
+  --color-message-debug-border: #E0DDD5;
+  --color-message-debug-text: #57534E;
+
+  /* Mode colors — darker for light-bg readability */
+  --color-thinking-mode: #4F46E5;       /* indigo-600 */
+  --color-plan-mode: #7C3AED;           /* violet-600 */
+  --color-exec-mode: #0D9488;           /* teal-600   */
+  --color-ask-mode: #2563EB;            /* blue-600   */
+  --color-edit-mode: #CA8A04;           /* amber-600  */
+  --color-debug-mode: #DB2777;          /* rose-600   */
+  --color-task-mode: #059669;           /* emerald-600 */
+
+  /* Status colors — darker variants */
+  --color-success: #059669;             /* emerald-600 */
+  --color-warning: #D97706;             /* amber-600   */
+  --color-danger: #DC2626;              /* red-600     */
+  --color-info: #0284C7;                /* sky-600     */
+
+  --color-diff-add-bg: rgba(5, 150, 105, 0.08);
+  --color-diff-remove-bg: rgba(220, 38, 38, 0.08);
 }
 
-/* Dark theme (explicit) */
+/* ══════════════════════════════════════════════════════════════════════
+   Dark theme (explicit class — mirrors :root)
+   ══════════════════════════════════════════════════════════════════════ */
 .dark {
-  --color-background: #1e1e1e;
-  --color-foreground: #e4e4e7;
-  --color-text: #e4e4e7;
-  --color-muted: #a1a1aa;
-  --color-border: #27272a;
-  --color-card: #27272a;
-  --color-accent: #3f3f46;
+  --color-background: #0D0D0D;
+  --color-foreground: #E0E0E0;
+  --color-text: #E0E0E0;
+  --color-muted: #737373;
+  --color-border: #1F1F1F;
+  --color-card: #141414;
+  --color-accent: #FF6600;
 
-  --color-code-bg: #0d0d0d;
-  --color-code-border: #27272a;
+  --color-code-bg: #090909;
+  --color-code-border: #1F1F1F;
 
-  --color-user-surface: #27272a;
-  --color-user-border: #3f3f46;
+  --color-user-surface: hsla(0 0% 100% / 0.06);
+  --color-user-border: hsla(0 0% 100% / 0.1);
 
-  --color-message-debug-bg: #18181b;
-  --color-message-debug-border: #3f3f46;
-  --color-message-debug-text: #a1a1aa;
+  --color-message-debug-bg: rgba(0, 0, 0, 0.3);
+  --color-message-debug-border: rgba(255, 255, 255, 0.1);
+  --color-message-debug-text: rgba(255, 255, 255, 0.7);
 }
 
-/* Solarized Light */
-.solarized-light {
-  --color-background: #fdf6e3;
-  --color-foreground: #073642;
-  --color-text: #657b83;
-  --color-muted: #93a1a1;
-  --color-border: #eee8d5;
-  --color-card: #eee8d5;
-  --color-accent: #e4ddc6;
-
-  --color-code-bg: #eee8d5;
-  --color-code-border: #d6d0bb;
-
-  --color-user-surface: #eee8d5;
-  --color-user-border: #d6d0bb;
-
-  --color-thinking-mode: #b58900;
-  --color-plan-mode: #6c71c4;
-  --color-exec-mode: #859900;
-}
-
-/* Solarized Dark */
-.solarized-dark {
-  --color-background: #002b36;
-  --color-foreground: #839496;
-  --color-text: #839496;
-  --color-muted: #586e75;
-  --color-border: #073642;
-  --color-card: #073642;
-  --color-accent: #094857;
-
-  --color-code-bg: #073642;
-  --color-code-border: #094857;
-
-  --color-user-surface: #073642;
-  --color-user-border: #094857;
-
-  --color-thinking-mode: #b58900;
-  --color-plan-mode: #6c71c4;
-  --color-exec-mode: #859900;
-}
-
-/* Base reset styles for chat components */
+/* ══════════════════════════════════════════════════════════════════════
+   Base reset for chat components
+   ══════════════════════════════════════════════════════════════════════ */
 .lattice-chat-components {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   color: var(--color-foreground);
@@ -142,7 +145,9 @@
   box-sizing: border-box;
 }
 
-/* Typography utility classes */
+/* ══════════════════════════════════════════════════════════════════════
+   Typography & surface utilities
+   ══════════════════════════════════════════════════════════════════════ */
 .text-foreground { color: var(--color-foreground); }
 .text-muted { color: var(--color-muted); }
 .text-thinking-mode { color: var(--color-thinking-mode); }

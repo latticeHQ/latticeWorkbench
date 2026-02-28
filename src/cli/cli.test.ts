@@ -60,7 +60,11 @@ async function createTestServer(authToken?: string): Promise<TestServerHandle> {
     config: services.config,
     aiService: services.aiService,
     projectService: services.projectService,
-    workspaceService: services.workspaceService,
+    minionService: services.minionService,
+    latticeGovernorOauthService: services.latticeGovernorOauthService,
+    codexOauthService: services.codexOauthService,
+    copilotOauthService: services.copilotOauthService,
+    anthropicOauthService: services.anthropicOauthService,
     taskService: services.taskService,
     providerService: services.providerService,
     terminalService: services.terminalService,
@@ -69,28 +73,28 @@ async function createTestServer(authToken?: string): Promise<TestServerHandle> {
     updateService: services.updateService,
     tokenizerService: services.tokenizerService,
     serverService: services.serverService,
-    workspaceMcpOverridesService: services.workspaceMcpOverridesService,
+    minionMcpOverridesService: services.minionMcpOverridesService,
     mcpConfigService: services.mcpConfigService,
+    mcpOauthService: services.mcpOauthService,
     featureFlagService: services.featureFlagService,
     sessionTimingService: services.sessionTimingService,
     mcpServerManager: services.mcpServerManager,
     experimentsService: services.experimentsService,
     menuEventService: services.menuEventService,
     voiceService: services.voiceService,
+    policyService: services.policyService,
     telemetryService: services.telemetryService,
     sessionUsageService: services.sessionUsageService,
     signingService: services.signingService,
     latticeService: services.latticeService,
-    inferenceService: services.inferenceService,
-    inferenceSetupService: services.inferenceSetupService,
-    channelService: services.channelService,
-    channelSessionRouter: services.channelSessionRouter,
-    browserSessionManager: services.browserSessionManager,
-    pluginPackService: services.pluginPackService,
-    cliAgentDetectionService: services.cliAgentDetectionService,
-    cliAgentOrchestrationService: services.cliAgentOrchestrationService,
-    cliAgentPreferencesService: services.cliAgentPreferencesService,
-    terminalScrollbackService: services.terminalScrollbackService,
+    serverAuthService: services.serverAuthService,
+    sshPromptService: services.sshPromptService,
+    analyticsService: services.analyticsService,
+    kanbanService: services.kanbanService,
+    exoService: services.exoService,
+    schedulerService: services.schedulerService,
+    syncService: services.syncService,
+    inboxService: services.inboxService,
   };
 
   // Use the actual createOrpcServer function
@@ -162,16 +166,15 @@ describe("CLI via HTTP", () => {
     // These tests verify the fix in proxifyOrpc.ts that transforms {} to undefined
     // for z.void() inputs. Without the fix, these would fail with BAD_REQUEST.
 
-    test("workspace list works with void input", async () => {
-      const result = await runCli(["workspace", "list"]);
+    test("minion list works with void input", async () => {
+      const result = await runCli(["minion", "list"]);
       expect(Array.isArray(result)).toBe(true);
     });
 
     test("providers list works with void input", async () => {
       const result = (await runCli(["providers", "list"])) as string[];
       expect(Array.isArray(result)).toBe(true);
-      // Providers are now CLI agent slugs (agent-only architecture)
-      expect(result).toContain("claude-code");
+      expect(result).toContain("anthropic");
     });
 
     test("projects list works with void input", async () => {
@@ -185,8 +188,8 @@ describe("CLI via HTTP", () => {
       expect(result).not.toBeNull();
     });
 
-    test("workspace activity list works with void input", async () => {
-      const result = await runCli(["workspace", "activity", "list"]);
+    test("minion activity list works with void input", async () => {
+      const result = await runCli(["minion", "activity", "list"]);
       expect(typeof result).toBe("object");
       expect(result).not.toBeNull();
     });
@@ -210,9 +213,9 @@ describe("CLI via HTTP", () => {
   });
 
   describe("object input schemas", () => {
-    test("workspace get-info with workspace-id option", async () => {
-      const result = await runCli(["workspace", "get-info", "--workspace-id", "nonexistent"]);
-      expect(result).toBeNull(); // Non-existent workspace returns null
+    test("minion get-info with minion-id option", async () => {
+      const result = await runCli(["minion", "get-info", "--minion-id", "nonexistent"]);
+      expect(result).toBeNull(); // Non-existent minion returns null
     });
 
     test("general tick with object options", async () => {
@@ -230,7 +233,7 @@ describe("CLI Authentication", () => {
     const runCli = createCliRunner(serverHandle.server.baseUrl, authToken);
 
     try {
-      const result = await runCli(["workspace", "list"]);
+      const result = await runCli(["minion", "list"]);
       expect(Array.isArray(result)).toBe(true);
     } finally {
       await serverHandle.close();
@@ -245,7 +248,7 @@ describe("CLI Authentication", () => {
     try {
       let threw = false;
       try {
-        await runCli(["workspace", "list"]);
+        await runCli(["minion", "list"]);
       } catch {
         threw = true;
       }
@@ -263,7 +266,7 @@ describe("CLI Authentication", () => {
     try {
       let threw = false;
       try {
-        await runCli(["workspace", "list"]);
+        await runCli(["minion", "list"]);
       } catch {
         threw = true;
       }
@@ -278,7 +281,7 @@ describe("CLI Authentication", () => {
     const runCli = createCliRunner(serverHandle.server.baseUrl); // No token
 
     try {
-      const result = await runCli(["workspace", "list"]);
+      const result = await runCli(["minion", "list"]);
       expect(Array.isArray(result)).toBe(true);
     } finally {
       await serverHandle.close();

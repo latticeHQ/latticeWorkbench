@@ -10,7 +10,7 @@ if [ -z "$1" ]; then
   echo "Usage: $0 <filename>"
   echo "Example: $0 command-palette"
   echo ""
-  echo "This will find the latest screenshot, convert it to WebP, and save as docs/img/<filename>.webp"
+  echo "This will find the latest screenshot, convert it to WebP, and save as static/img/<filename>.webp"
   exit 1
 fi
 
@@ -32,10 +32,10 @@ fi
 
 echo "Found screenshot: $LATEST_SCREENSHOT"
 
-# Ensure docs/img directory exists
-mkdir -p "$PROJECT_ROOT/docs/img"
+# Ensure static/img directory exists
+mkdir -p "$PROJECT_ROOT/static/img"
 
-OUTPUT_FILE="$PROJECT_ROOT/docs/img/$FILENAME.webp"
+OUTPUT_FILE="$PROJECT_ROOT/static/img/$FILENAME.webp"
 
 # Check if the screenshot is already WebP
 if [[ "$LATEST_SCREENSHOT" == *.webp ]]; then
@@ -54,5 +54,5 @@ fi
 # Remove the original screenshot
 rm "$LATEST_SCREENSHOT"
 
-echo "✅ Screenshot saved as: docs/img/$FILENAME.webp"
+echo "✅ Screenshot saved as: static/img/$FILENAME.webp"
 echo "   Original screenshot removed"

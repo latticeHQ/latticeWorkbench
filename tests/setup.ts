@@ -17,6 +17,48 @@ if (process.env.LATTICE_FORCE_REAL_TOKENIZER !== "1") {
   process.env.LATTICE_APPROX_TOKENIZER ??= "1";
 }
 
+// @react-dnd/asap eagerly calls document.createTextNode + MutationObserver at
+// import time. When a non-browser test transitively loads react-dnd the module
+// crashes because `document` is undefined. Mock the entire module with a safe
+// timer-based fallback so it never touches the DOM.
+import { mock } from "bun:test";
+void mock.module("@react-dnd/asap", () => {
+  function makeRequestCallFromTimer(callback: () => void) {
+    return function requestCall() {
+      setTimeout(callback, 0);
+    };
+  }
+  class AsapQueue {
+    pendingErrors: unknown[] = [];
+    registerPendingError = (err: unknown) => { this.pendingErrors.push(err); };
+    enqueueTask(task: { call: () => void }) {
+      setTimeout(() => {
+        try { task.call(); } catch (e) { this.pendingErrors.push(e); }
+      }, 0);
+    }
+  }
+  class TaskFactory {
+    onError: (e: unknown) => void;
+    constructor(onError: (e: unknown) => void) { this.onError = onError; }
+    create(task: () => void) {
+      return { call: task, onError: this.onError };
+    }
+  }
+  const asapQueue = new AsapQueue();
+  const taskFactory = new TaskFactory(asapQueue.registerPendingError);
+  function asap(task: () => void) {
+    asapQueue.enqueueTask(taskFactory.create(task));
+  }
+  return {
+    asap,
+    AsapQueue,
+    TaskFactory,
+    makeRequestCall: makeRequestCallFromTimer,
+    makeRequestCallFromTimer,
+    makeRequestCallFromMutationObserver: makeRequestCallFromTimer,
+  };
+});
+
 // Some deps (e.g. json-schema-ref-parser) treat `window` existence as "browser"
 // and then read from the global `location` object. Some Happy DOM-based tests
 // attach `globalThis.window` without defining global `location`, which can crash
@@ -55,13 +97,13 @@ if (typeof globalThis.File === "undefined") {
 // This eliminates ~10s initialization delay on first use
 if (process.env.TEST_INTEGRATION === "1") {
   // Store promise globally to ensure it blocks subsequent test execution
-  (globalThis as any).__muxPreloadPromise = (async () => {
+  (globalThis as any).__latticePreloadPromise = (async () => {
     const { preloadTestModules } = await import("./ipc/setup");
     await preloadTestModules();
   })();
 
   // Add a global beforeAll to block until preload completes
   beforeAll(async () => {
-    await (globalThis as any).__muxPreloadPromise;
+    await (globalThis as any).__latticePreloadPromise;
   }, 30000); // 30s timeout for preload
 }

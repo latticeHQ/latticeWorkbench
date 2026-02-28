@@ -31,10 +31,12 @@ function parseModelString(modelString: string): {
  * Uses standard inline layout for natural text alignment.
  * Icon is 1em (matches font size) with vertical-align: middle.
  */
-export const ModelDisplay: React.FC<ModelDisplayProps> = ({ modelString, showTooltip = true }) => {
+export const ModelDisplay: React.FC<ModelDisplayProps> = ({
+  modelString,
+  showTooltip = true,
+}) => {
   const { provider, modelName } = parseModelString(modelString);
 
-  const iconProvider = provider;
   const displayName = formatModelDisplayName(modelName);
 
   const iconClass =
@@ -42,8 +44,10 @@ export const ModelDisplay: React.FC<ModelDisplayProps> = ({ modelString, showToo
 
   const content = (
     <span className="inline normal-case" data-model-display>
-      <ProviderIcon provider={iconProvider} className={iconClass} data-model-icon />
-      <span className="inline">{displayName}</span>
+      <ProviderIcon provider={provider} className={iconClass} data-model-icon />
+      <span className="inline">
+        {displayName}
+      </span>
     </span>
   );
 

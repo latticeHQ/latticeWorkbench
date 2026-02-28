@@ -1,3 +1,4 @@
+import { getCompactionFollowUpContent } from "@/common/types/message";
 import type { CompactionFollowUpRequest, LatticeMessage } from "@/common/types/message";
 import type { StreamErrorType } from "@/common/types/errors";
 import type { LanguageModelV2Usage } from "@ai-sdk/provider";
@@ -92,7 +93,7 @@ function readCompactionRequest(
   if (!latticeMeta || latticeMeta.type !== "compaction-request") {
     return undefined;
   }
-  return { followUpContent: latticeMeta.parsed.followUpContent };
+  return { followUpContent: getCompactionFollowUpContent(latticeMeta) };
 }
 
 function buildUsage(inputTokens: number, outputTokens: number): LanguageModelV2Usage {
@@ -357,7 +358,7 @@ function buildReviewShowDocReply(): MockAiRouterReply {
 
 function buildModelStatusReply(): MockAiRouterReply {
   return {
-    assistantText: "Claude Sonnet 4.5 is now responding with standard reasoning capacity.",
+    assistantText: "Claude Sonnet 4.6 is now responding with standard reasoning capacity.",
   };
 }
 

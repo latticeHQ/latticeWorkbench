@@ -3,20 +3,18 @@
  *
  * ALL stages always visible in a 12-col grid (col-span-4 each → 3 per row).
  * Empty stages show as lightweight placeholder boxes.
- * Animated dashed SVG lines connect every consecutive stage in order.
- * Active connections glow + have a fast-moving dot.
  */
-import React, {
-  useMemo, useCallback, useState, useEffect, useRef, useLayoutEffect,
+import {
+  useMemo, useCallback, useState, useEffect,
 } from "react";
 import { cn } from "@/common/lib/utils";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
-import { useWorkspaceContext, toWorkspaceSelection } from "@/browser/contexts/WorkspaceContext";
-import { useWorkspaceSidebarState, useWorkspaceUsage, useWorkspaceStoreRaw } from "@/browser/stores/WorkspaceStore";
-import { resolveSectionColor } from "@/common/constants/ui";
-import { sortSectionsByLinkedList } from "@/common/utils/sections";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
-import type { SectionConfig } from "@/common/types/project";
+import { useMinionContext, toMinionSelection } from "@/browser/contexts/MinionContext";
+import { useMinionSidebarState, useMinionUsage, useMinionStoreRaw } from "@/browser/stores/MinionStore";
+import { resolveCrewColor } from "@/common/constants/ui";
+import { sortCrewsByLinkedList } from "@/common/utils/crews";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
+import type { CrewConfig } from "@/common/types/project";
 import {
   CheckCircle2, Clock, DollarSign, Zap, Users,
   ChevronDown, ChevronRight, Activity, Layers, ArrowRight,
@@ -37,7 +35,7 @@ function classifyStep(agentId?: string): StepMeta {
   if (id.includes("research"))return { order: 0, icon: "📚", label: "Researcher"  };
   if (id.includes("plan"))    return { order: 1, icon: "📐", label: "Planner"     };
   if (id.includes("arch"))    return { order: 1, icon: "🏗️",  label: "Architect"   };
-  if (id.includes("cod"))     return { order: 2, icon: "✍️",  label: "Coder"       };
+  if (id.includes("cod"))     return { order: 2, icon: "✍️",  label: "Lattice"       };
   if (id.includes("build"))   return { order: 2, icon: "🔨", label: "Builder"     };
   if (id.includes("exec"))    return { order: 2, icon: "⚡", label: "Executor"    };
   if (id.includes("impl"))    return { order: 2, icon: "⚙️",  label: "Implementer" };
@@ -54,108 +52,6 @@ function classifyStep(agentId?: string): StepMeta {
 const KNOWN_CLI = new Set(["claude-code","codex","gemini","github-copilot","kiro"]);
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Animated dashed connection canvas (SVG overlay)
-// ─────────────────────────────────────────────────────────────────────────────
-interface EdgeData {
-  id: string; x1: number; y1: number; x2: number; y2: number;
-  color: string; active: boolean; sameRow: boolean;
-  bothEmpty: boolean; // true when both endpoints have no workspaces
-}
-
-function ConnectionCanvas({ edges, width, height }: { edges: EdgeData[]; width: number; height: number }) {
-  if (!width || !height || edges.length === 0) return null;
-  return (
-    <svg
-      className="absolute inset-0 pointer-events-none"
-      width={width} height={height}
-      style={{ zIndex: 0, overflow: "visible" }}
-    >
-      <defs>
-        <style>{`
-          @keyframes hqActive { to { stroke-dashoffset: -13; } }
-          .hq-active { animation: hqActive 0.7s linear infinite; }
-        `}</style>
-
-        {/* Arrowhead — idle */}
-        <marker id="arr-idle"
-          markerWidth="8" markerHeight="8" refX="7" refY="4"
-          orient="auto-start-reverse">
-          <path d="M1,1 L7,4 L1,7 Z"
-            fill="rgba(150,150,158,0.55)" stroke="none" />
-        </marker>
-
-        {/* Arrowhead — per active edge (section color) */}
-        {edges.filter(e => e.active).map(e => (
-          <marker key={`arr-${e.id}`} id={`arr-${e.id}`}
-            markerWidth="8" markerHeight="8" refX="7" refY="4"
-            orient="auto-start-reverse">
-            <path d="M1,1 L7,4 L1,7 Z"
-              fill={e.color} stroke="none" />
-          </marker>
-        ))}
-      </defs>
-
-      {edges.map(edge => {
-        const { x1, y1, x2, y2, active, color, sameRow, bothEmpty } = edge;
-        const dy = y2 - y1;
-        const dx = x2 - x1;
-
-        const isWrapAround = !sameRow && (x1 - x2) > width * 0.15;
-        let d: string;
-        if (sameRow) {
-          d = `M ${x1} ${y1} C ${x1 + dx * 0.4} ${y1}, ${x2 - dx * 0.4} ${y2}, ${x2} ${y2}`;
-        } else if (isWrapAround) {
-          const rx = x1 + 60; // tight hook — 60px past source box, not canvas edge
-          const midY = (y1 + y2) / 2;
-          d = `M ${x1} ${y1}` +
-              ` C ${rx} ${y1}, ${rx} ${midY - dy * 0.2}, ${rx} ${midY}` +
-              ` C ${rx} ${midY + dy * 0.2}, ${x2 - 20} ${y2}, ${x2} ${y2}`;
-        } else {
-          d = `M ${x1} ${y1} C ${x1} ${y1 + dy * 0.5}, ${x2} ${y2 - dy * 0.5}, ${x2} ${y2}`;
-        }
-
-        // Ghost — both endpoints empty: barely visible, no arrow
-        if (bothEmpty) {
-          return (
-            <path key={edge.id} d={d} fill="none"
-              stroke="rgba(150,150,158,0.12)"
-              strokeWidth={1}
-              strokeLinecap="round"
-            />
-          );
-        }
-
-        return (
-          <g key={edge.id}>
-            {/* Active glow */}
-            {active && (
-              <path d={d} fill="none" stroke={color} strokeWidth={10} strokeOpacity={0.07} />
-            )}
-
-            {/* Dashed connector line + arrow */}
-            <path d={d} fill="none"
-              stroke={active ? color : "rgba(150,150,158,0.45)"}
-              strokeWidth={active ? 1.75 : 1.25}
-              strokeDasharray={active ? "8 5" : "5 7"}
-              strokeLinecap="round"
-              markerEnd={active ? `url(#arr-${edge.id})` : "url(#arr-idle)"}
-              className={active ? "hq-active" : undefined}
-            />
-
-            {/* Travelling dot — active only */}
-            {active && (
-              <circle r={2.5} fill={color} opacity={0.9}>
-                <animateMotion dur="1.1s" repeatCount="indefinite" path={d} />
-              </circle>
-            )}
-          </g>
-        );
-      })}
-    </svg>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Live pulse dot
 // ─────────────────────────────────────────────────────────────────────────────
 function LiveDot({ size = "md" }: { size?: "sm" | "md" }) {
@@ -169,12 +65,12 @@ function LiveDot({ size = "md" }: { size?: "sm" | "md" }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Sub-agent step row
+// Sidekick step row
 // ─────────────────────────────────────────────────────────────────────────────
 function SubStepRow({ ws, isLast, accent }: {
-  ws: FrontendWorkspaceMetadata; isLast: boolean; accent: string;
+  ws: FrontendMinionMetadata; isLast: boolean; accent: string;
 }) {
-  const state = useWorkspaceSidebarState(ws.id);
+  const state = useMinionSidebarState(ws.id);
   const step  = classifyStep(ws.agentId);
   const live  = state.canInterrupt || state.isStarting;
   const done  = ws.taskStatus === "reported";
@@ -201,20 +97,20 @@ function SubStepRow({ ws, isLast, accent }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage / phase cost rollup badge — subscribes to N workspace usage stores
+// Stage / phase cost rollup badge — subscribes to N minion usage stores
 // ─────────────────────────────────────────────────────────────────────────────
 function StageCostBadge({
-  workspaces, color,
+  minions, color,
 }: {
-  workspaces: FrontendWorkspaceMetadata[];
+  minions: FrontendMinionMetadata[];
   color?: string;
 }) {
-  const store = useWorkspaceStoreRaw();
+  const store = useMinionStoreRaw();
 
   const [costData, setCostData] = useState(() => {
     let cost = 0; let tokens = 0;
-    for (const ws of workspaces) {
-      const u = store.getWorkspaceUsage(ws.id);
+    for (const ws of minions) {
+      const u = store.getMinionUsage(ws.id);
       cost += getTotalCost(u.sessionTotal) ?? 0;
       tokens += u.totalTokens;
     }
@@ -222,11 +118,11 @@ function StageCostBadge({
   });
 
   useEffect(() => {
-    if (workspaces.length === 0) { setCostData({ cost: 0, tokens: 0 }); return; }
+    if (minions.length === 0) { setCostData({ cost: 0, tokens: 0 }); return; }
     const compute = () => {
       let cost = 0; let tokens = 0;
-      for (const ws of workspaces) {
-        const u = store.getWorkspaceUsage(ws.id);
+      for (const ws of minions) {
+        const u = store.getMinionUsage(ws.id);
         cost += getTotalCost(u.sessionTotal) ?? 0;
         tokens += u.totalTokens;
       }
@@ -235,9 +131,9 @@ function StageCostBadge({
       );
     };
     compute();
-    const unsubs = workspaces.map(ws => store.subscribeUsage(ws.id, compute));
+    const unsubs = minions.map(ws => store.subscribeUsage(ws.id, compute));
     return () => { unsubs.forEach(fn => fn()); };
-  }, [store, workspaces]);
+  }, [store, minions]);
 
   if (costData.cost <= 0) return null;
 
@@ -253,14 +149,14 @@ function StageCostBadge({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Workspace service node card
+// Minion service node card
 // ─────────────────────────────────────────────────────────────────────────────
-function ServiceNode({ ws, subAgents, accent, onOpen }: {
-  ws: FrontendWorkspaceMetadata; subAgents: FrontendWorkspaceMetadata[];
-  accent: string; onOpen: (ws: FrontendWorkspaceMetadata) => void;
+function ServiceNode({ ws, sidekicks, accent, onOpen }: {
+  ws: FrontendMinionMetadata; sidekicks: FrontendMinionMetadata[];
+  accent: string; onOpen: (ws: FrontendMinionMetadata) => void;
 }) {
-  const state   = useWorkspaceSidebarState(ws.id);
-  const usage   = useWorkspaceUsage(ws.id);
+  const state   = useMinionSidebarState(ws.id);
+  const usage   = useMinionUsage(ws.id);
   const live    = state.canInterrupt || state.isStarting;
   const waiting = !live && state.awaitingUserQuestion;
   const done    = ws.taskStatus === "reported";
@@ -271,8 +167,8 @@ function ServiceNode({ ws, subAgents, accent, onOpen }: {
   const tok     = usage.totalTokens;
 
   const sorted = useMemo(
-    () => [...subAgents].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
-    [subAgents]
+    () => [...sidekicks].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
+    [sidekicks]
   );
   const activeSubMeta = useMemo(
     () => { const a = sorted.find(s => s.taskStatus === "running"); return a ? classifyStep(a.agentId) : null; },
@@ -368,28 +264,27 @@ function ServiceNode({ ws, subAgents, accent, onOpen }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage box — used for ALL sections (active or empty)
+// Stage box — used for ALL crews (active or empty)
 // ─────────────────────────────────────────────────────────────────────────────
 function StageBox({
-  section, workspaces, childrenByParent, onOpen,
-  stageIdx, collapsed, onToggle, nodeRef,
+  section, minions, childrenByParent, onOpen,
+  stageIdx, collapsed, onToggle,
 }: {
-  section: SectionConfig;
-  workspaces: FrontendWorkspaceMetadata[];
-  childrenByParent: Map<string, FrontendWorkspaceMetadata[]>;
-  onOpen: (ws: FrontendWorkspaceMetadata) => void;
+  section: CrewConfig;
+  minions: FrontendMinionMetadata[];
+  childrenByParent: Map<string, FrontendMinionMetadata[]>;
+  onOpen: (ws: FrontendMinionMetadata) => void;
   stageIdx: number; collapsed: boolean; onToggle: () => void;
-  nodeRef: (el: HTMLDivElement | null) => void;
 }) {
-  const color   = resolveSectionColor(section.color);
-  const active  = workspaces.some(w => w.taskStatus === "running");
-  const isEmpty = workspaces.length === 0;
+  const color   = resolveCrewColor(section.color);
+  const active  = minions.some(w => w.taskStatus === "running");
+  const isEmpty = minions.length === 0;
 
   const cliIds = useMemo(() => {
     const s = new Set<string>();
-    workspaces.forEach(w => { if (w.agentId && KNOWN_CLI.has(w.agentId)) s.add(w.agentId); });
+    minions.forEach(w => { if (w.agentId && KNOWN_CLI.has(w.agentId)) s.add(w.agentId); });
     return [...s].slice(0, 3);
-  }, [workspaces]);
+  }, [minions]);
 
   // Empty stages are fully desaturated / disabled — gray, no color accent
   const borderStyle = isEmpty
@@ -401,7 +296,6 @@ function StageBox({
 
   return (
     <div
-      ref={nodeRef}
       className={cn(
         "relative rounded-xl transition-all duration-200",
         isEmpty && "opacity-35 grayscale"
@@ -410,7 +304,6 @@ function StageBox({
         border: borderStyle,
         background: bgStyle,
         boxShadow: active ? `0 0 0 1px ${color}22, 0 6px 20px ${color}10` : undefined,
-        zIndex: 1,
         pointerEvents: isEmpty ? "none" : undefined,
       }}
     >
@@ -448,10 +341,10 @@ function StageBox({
             className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold tabular-nums"
             style={{ background: `${color}18`, color }}
           >
-            {workspaces.length}
+            {minions.length}
           </span>
         )}
-        {!isEmpty && <StageCostBadge workspaces={workspaces} color={color} />}
+        {!isEmpty && <StageCostBadge minions={minions} color={color} />}
         {!isEmpty && (
           <span className="shrink-0 text-muted/25 group-hover/hdr:text-muted/55 transition-colors">
             {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -459,13 +352,13 @@ function StageBox({
         )}
       </button>
 
-      {/* Content — only shown when has workspaces and not collapsed */}
+      {/* Content — only shown when has minions and not collapsed */}
       {!isEmpty && !collapsed && (
         <div className="p-2 flex flex-col gap-2">
-          {workspaces.map(ws => (
+          {minions.map(ws => (
             <ServiceNode
               key={ws.id} ws={ws}
-              subAgents={childrenByParent.get(ws.id) ?? []}
+              sidekicks={childrenByParent.get(ws.id) ?? []}
               accent={color} onOpen={onOpen}
             />
           ))}
@@ -481,29 +374,28 @@ function StageBox({
 const PHASE_SIZE = 3;
 
 function PhaseGroup({
-  phaseIdx, phaseSections, workspacesBySection, childrenByParent,
-  onOpen, collapsed, toggle, nodeRefs,
+  phaseIdx, phaseSections, minionsBySection, childrenByParent,
+  onOpen, collapsed, toggle,
 }: {
   phaseIdx: number;
-  phaseSections: SectionConfig[];
-  workspacesBySection: Map<string | null, FrontendWorkspaceMetadata[]>;
-  childrenByParent: Map<string, FrontendWorkspaceMetadata[]>;
-  onOpen: (ws: FrontendWorkspaceMetadata) => void;
+  phaseSections: CrewConfig[];
+  minionsBySection: Map<string | null, FrontendMinionMetadata[]>;
+  childrenByParent: Map<string, FrontendMinionMetadata[]>;
+  onOpen: (ws: FrontendMinionMetadata) => void;
   collapsed: Set<string>;
   toggle: (id: string) => void;
-  nodeRefs: React.MutableRefObject<Map<string, HTMLDivElement>>;
 }) {
   const phaseActive = phaseSections.some(
-    s => (workspacesBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
+    s => (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
   );
   const phaseHasContent = phaseSections.some(
-    s => (workspacesBySection.get(s.id) ?? []).length > 0
+    s => (minionsBySection.get(s.id) ?? []).length > 0
   );
-  const phaseWorkspaces = useMemo(
-    () => phaseSections.flatMap(s => workspacesBySection.get(s.id) ?? []),
-    [phaseSections, workspacesBySection]
+  const phaseMinions = useMemo(
+    () => phaseSections.flatMap(s => minionsBySection.get(s.id) ?? []),
+    [phaseSections, minionsBySection]
   );
-  // Derive a phase label from section names
+  // Derive a phase label from crew names
   const phaseNames = phaseSections.map(s => s.name);
   const phaseSubtitle = phaseNames.length <= 2
     ? phaseNames.join(" & ")
@@ -544,10 +436,10 @@ function PhaseGroup({
           <div className="ml-auto flex items-center gap-2">
             {!phaseActive && (
               <span className="text-[8px] text-muted/30">
-                {phaseSections.reduce((sum, s) => sum + (workspacesBySection.get(s.id) ?? []).length, 0)} missions
+                {phaseSections.reduce((sum, s) => sum + (minionsBySection.get(s.id) ?? []).length, 0)} missions
               </span>
             )}
-            <StageCostBadge workspaces={phaseWorkspaces} />
+            <StageCostBadge minions={phaseMinions} />
           </div>
         )}
       </div>
@@ -570,16 +462,12 @@ function PhaseGroup({
             <StageBox
               key={sec.id}
               section={sec}
-              workspaces={workspacesBySection.get(sec.id) ?? []}
+              minions={minionsBySection.get(sec.id) ?? []}
               childrenByParent={childrenByParent}
               onOpen={onOpen}
               stageIdx={globalIdx}
               collapsed={collapsed.has(sec.id)}
               onToggle={() => toggle(sec.id)}
-              nodeRef={el => {
-                if (el) nodeRefs.current.set(sec.id, el);
-                else    nodeRefs.current.delete(sec.id);
-              }}
             />
           );
         })}
@@ -593,10 +481,10 @@ function PhaseGroup({
 // ─────────────────────────────────────────────────────────────────────────────
 // Metrics bar
 // ─────────────────────────────────────────────────────────────────────────────
-function MetricsBar({ totalMissions, activeMissions, totalSubAgents, stageCount, cliIds, workspaces }: {
+function MetricsBar({ totalMissions, activeMissions, totalSidekicks, stageCount, cliIds, minions }: {
   totalMissions: number; activeMissions: number;
-  totalSubAgents: number; stageCount: number; cliIds: string[];
-  workspaces: FrontendWorkspaceMetadata[];
+  totalSidekicks: number; stageCount: number; cliIds: string[];
+  minions: FrontendMinionMetadata[];
 }) {
   return (
     <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 flex-wrap text-[10.5px] w-fit mx-auto">
@@ -619,15 +507,15 @@ function MetricsBar({ totalMissions, activeMissions, totalSubAgents, stageCount,
       <span className="text-muted/45 shrink-0">
         <strong className="text-foreground/65">{totalMissions}</strong> missions
       </span>
-      {totalSubAgents > 0 && (
+      {totalSidekicks > 0 && (
         <span className="text-muted/45 shrink-0">
-          <strong className="text-foreground/65">{totalSubAgents}</strong> sub-agents
+          <strong className="text-foreground/65">{totalSidekicks}</strong> sidekicks
         </span>
       )}
       <span className="text-muted/45 shrink-0">
         <strong className="text-foreground/65">{stageCount}</strong> stages
       </span>
-      <StageCostBadge workspaces={workspaces} />
+      <StageCostBadge minions={minions} />
       {cliIds.length > 0 && (
         <>
           <div className="w-px h-4 bg-border/25 shrink-0 ml-auto" />
@@ -647,63 +535,63 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
   projectPath: string; projectName: string;
 }) {
   const { projects }                              = useProjectContext();
-  const { workspaceMetadata, setSelectedWorkspace } = useWorkspaceContext();
+  const { minionMetadata, setSelectedMinion } = useMinionContext();
 
   const projectConfig = projects.get(projectPath);
   const sections = useMemo(
-    () => sortSectionsByLinkedList(projectConfig?.sections ?? []),
+    () => sortCrewsByLinkedList(projectConfig?.sections ?? []),
     [projectConfig]
   );
 
-  const projectWorkspaces = useMemo(
-    () => Array.from(workspaceMetadata.values()).filter(
+  const projectMinions = useMemo(
+    () => Array.from(minionMetadata.values()).filter(
       ws => ws.projectPath === projectPath && !ws.archivedAt
     ),
-    [workspaceMetadata, projectPath]
+    [minionMetadata, projectPath]
   );
   const projectWsIds = useMemo(
-    () => new Set(projectWorkspaces.map(ws => ws.id)),
-    [projectWorkspaces]
+    () => new Set(projectMinions.map(ws => ws.id)),
+    [projectMinions]
   );
 
-  const { rootWorkspaces, childrenByParent } = useMemo(() => {
-    const roots: FrontendWorkspaceMetadata[] = [];
-    const childMap = new Map<string, FrontendWorkspaceMetadata[]>();
-    for (const ws of projectWorkspaces) {
-      if (ws.parentWorkspaceId && projectWsIds.has(ws.parentWorkspaceId)) {
-        const arr = childMap.get(ws.parentWorkspaceId) ?? [];
-        arr.push(ws); childMap.set(ws.parentWorkspaceId, arr);
+  const { rootMinions, childrenByParent } = useMemo(() => {
+    const roots: FrontendMinionMetadata[] = [];
+    const childMap = new Map<string, FrontendMinionMetadata[]>();
+    for (const ws of projectMinions) {
+      if (ws.parentMinionId && projectWsIds.has(ws.parentMinionId)) {
+        const arr = childMap.get(ws.parentMinionId) ?? [];
+        arr.push(ws); childMap.set(ws.parentMinionId, arr);
       } else roots.push(ws);
     }
-    return { rootWorkspaces: roots, childrenByParent: childMap };
-  }, [projectWorkspaces, projectWsIds]);
+    return { rootMinions: roots, childrenByParent: childMap };
+  }, [projectMinions, projectWsIds]);
 
-  const workspacesBySection = useMemo(() => {
-    const map = new Map<string | null, FrontendWorkspaceMetadata[]>();
-    for (const ws of rootWorkspaces) {
-      const sid = ws.sectionId ?? null;
+  const minionsBySection = useMemo(() => {
+    const map = new Map<string | null, FrontendMinionMetadata[]>();
+    for (const ws of rootMinions) {
+      const sid = ws.crewId ?? null;
       const arr = map.get(sid) ?? [];
       arr.push(ws); map.set(sid, arr);
     }
     return map;
-  }, [rootWorkspaces]);
+  }, [rootMinions]);
 
-  // Group sections into phases of PHASE_SIZE
+  // Group crews into phases of PHASE_SIZE
   const phases = useMemo(() => {
-    const result: SectionConfig[][] = [];
+    const result: CrewConfig[][] = [];
     for (let i = 0; i < sections.length; i += PHASE_SIZE) {
       result.push(sections.slice(i, i + PHASE_SIZE));
     }
     return result;
   }, [sections]);
 
-  const activeMissions = rootWorkspaces.filter(w => w.taskStatus === "running").length;
-  const totalSubAgents = [...childrenByParent.values()].reduce((s, a) => s + a.length, 0);
+  const activeMissions = rootMinions.filter(w => w.taskStatus === "running").length;
+  const totalSidekicks = [...childrenByParent.values()].reduce((s, a) => s + a.length, 0);
   const allCliIds      = useMemo(() => {
     const s = new Set<string>();
-    rootWorkspaces.forEach(w => { if (w.agentId && KNOWN_CLI.has(w.agentId)) s.add(w.agentId); });
+    rootMinions.forEach(w => { if (w.agentId && KNOWN_CLI.has(w.agentId)) s.add(w.agentId); });
     return [...s];
-  }, [rootWorkspaces]);
+  }, [rootMinions]);
 
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const toggle = useCallback((id: string) => {
@@ -711,80 +599,13 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
   }, []);
 
   const handleOpen = useCallback(
-    (ws: FrontendWorkspaceMetadata) => setSelectedWorkspace(toWorkspaceSelection(ws)),
-    [setSelectedWorkspace]
+    (ws: FrontendMinionMetadata) => setSelectedMinion(toMinionSelection(ws)),
+    [setSelectedMinion]
   );
 
-  // ── SVG edge measurement — ALL sections ───────────────────────────────────
-  const canvasRef  = useRef<HTMLDivElement>(null);
-  const nodeRefs   = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [edges, setEdges]           = useState<EdgeData[]>([]);
-  const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+  if (rootMinions.length === 0 && sections.length === 0) return null;
 
-  useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || sections.length < 2) { setEdges([]); return; }
-
-    const measure = () => {
-      const cr = canvas.getBoundingClientRect();
-      setCanvasSize({ w: cr.width, h: cr.height });
-      const newEdges: EdgeData[] = [];
-
-      for (let i = 0; i < sections.length - 1; i++) {
-        const from = sections[i]!;
-        const to   = sections[i + 1]!;
-        const fEl  = nodeRefs.current.get(from.id);
-        const tEl  = nodeRefs.current.get(to.id);
-        if (!fEl || !tEl) continue;
-
-        const fr = fEl.getBoundingClientRect();
-        const tr = tEl.getBoundingClientRect();
-
-        const fromWs = workspacesBySection.get(from.id) ?? [];
-        const toWs   = workspacesBySection.get(to.id)   ?? [];
-        const active = fromWs.some(w => w.taskStatus === "running")
-                    || toWs.some(w => w.taskStatus === "running");
-        const bothEmpty = fromWs.length === 0 && toWs.length === 0;
-
-        // Same row when tops are within half a box height of each other
-        const sameRow = Math.abs(fr.top - tr.top) < Math.max(fr.height, tr.height) * 0.5;
-
-        let x1: number, y1: number, x2: number, y2: number;
-        if (sameRow) {
-          // Pick the GAP-side edges: L→R uses right→left, R→L uses left→right
-          const fromCx = fr.left + fr.width  / 2;
-          const toCx   = tr.left + tr.width  / 2;
-          const ltr    = fromCx < toCx;
-          x1 = (ltr ? fr.right : fr.left)  - cr.left;
-          x2 = (ltr ? tr.left  : tr.right) - cr.left;
-          y1 = fr.top + fr.height / 2 - cr.top;
-          y2 = tr.top + tr.height / 2 - cr.top;
-        } else {
-          x1 = fr.left + fr.width  / 2 - cr.left; y1 = fr.bottom - cr.top;
-          x2 = tr.left + tr.width  / 2 - cr.left; y2 = tr.top    - cr.top;
-        }
-
-        newEdges.push({
-          id: `${from.id}→${to.id}`,
-          x1, y1, x2, y2,
-          color: resolveSectionColor(from.color),
-          active,
-          sameRow,
-          bothEmpty,
-        });
-      }
-      setEdges(newEdges);
-    };
-
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(canvas);
-    return () => ro.disconnect();
-  }, [sections, workspacesBySection, collapsed]);
-
-  if (rootWorkspaces.length === 0 && sections.length === 0) return null;
-
-  const unsectioned = workspacesBySection.get(null) ?? [];
+  const unsectioned = minionsBySection.get(null) ?? [];
 
   return (
     <div
@@ -796,40 +617,33 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
     >
       {/* Metrics bar */}
       <MetricsBar
-        totalMissions={rootWorkspaces.length}
+        totalMissions={rootMinions.length}
         activeMissions={activeMissions}
-        totalSubAgents={totalSubAgents}
+        totalSidekicks={totalSidekicks}
         stageCount={sections.length}
         cliIds={allCliIds}
-        workspaces={rootWorkspaces}
+        minions={rootMinions}
       />
 
-      {/* Full pipeline canvas — Gantt-style phase rows + SVG connections */}
+      {/* Phase rows */}
       {sections.length > 0 && (
-        <div ref={canvasRef} className="relative">
-          {/* SVG animated connections — rendered above everything */}
-          <ConnectionCanvas edges={edges} width={canvasSize.w} height={canvasSize.h} />
-
-          {/* Phase rows */}
-          <div className="flex flex-col gap-4" style={{ position: "relative", zIndex: 1 }}>
-            {phases.map((phaseSections, phaseIdx) => (
-              <PhaseGroup
-                key={phaseIdx}
-                phaseIdx={phaseIdx}
-                phaseSections={phaseSections}
-                workspacesBySection={workspacesBySection}
-                childrenByParent={childrenByParent}
-                onOpen={handleOpen}
-                collapsed={collapsed}
-                toggle={toggle}
-                nodeRefs={nodeRefs}
-              />
-            ))}
-          </div>
+        <div className="flex flex-col gap-4">
+          {phases.map((phaseSections, phaseIdx) => (
+            <PhaseGroup
+              key={phaseIdx}
+              phaseIdx={phaseIdx}
+              phaseSections={phaseSections}
+              minionsBySection={minionsBySection}
+              childrenByParent={childrenByParent}
+              onOpen={handleOpen}
+              collapsed={collapsed}
+              toggle={toggle}
+            />
+          ))}
         </div>
       )}
 
-      {/* Unsectioned workspaces */}
+      {/* Unsectioned minions */}
       {unsectioned.length > 0 && (
         <div className="rounded-xl"
           style={{ border: "2px dashed rgba(107,114,128,0.3)", background: "rgba(107,114,128,0.02)" }}>
@@ -843,14 +657,14 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))" }}>
             {unsectioned.map(ws => (
               <ServiceNode key={ws.id} ws={ws}
-                subAgents={childrenByParent.get(ws.id) ?? []}
+                sidekicks={childrenByParent.get(ws.id) ?? []}
                 accent="#6b7280" onOpen={handleOpen} />
             ))}
           </div>
         </div>
       )}
 
-      {rootWorkspaces.length === 0 && sections.length > 0 && (
+      {rootMinions.length === 0 && sections.length > 0 && (
         <p className="text-center text-[10.5px] text-muted/30 py-2">
           No missions yet — dispatch one with the wizard above ↑
         </p>

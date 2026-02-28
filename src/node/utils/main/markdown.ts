@@ -61,7 +61,7 @@ function extractSectionByHeading(markdown: string, headingMatcher: HeadingMatche
   return slice.length > 0 ? slice : null;
 }
 
-function removeSectionsByHeading(markdown: string, headingMatcher: HeadingMatcher): string {
+function removeCrewsByHeading(markdown: string, headingMatcher: HeadingMatcher): string {
   if (!markdown) return markdown;
 
   const { bounds, lines } = collectSectionBounds(markdown, headingMatcher);
@@ -77,7 +77,7 @@ function removeSectionsByHeading(markdown: string, headingMatcher: HeadingMatche
 }
 
 /**
- * Extract the first section whose heading matches "Model: <regex>" and whose regex matches
+ * Extract the first crew whose heading matches "Model: <regex>" and whose regex matches
  * the provided model identifier. Matching is case-insensitive by default unless the regex
  * heading explicitly specifies flags via /pattern/flags syntax.
  */
@@ -133,7 +133,7 @@ export function extractToolSection(markdown: string, toolName: string): string |
 export function stripScopedInstructionSections(markdown: string): string {
   if (!markdown) return markdown;
 
-  return removeSectionsByHeading(markdown, (headingText) => {
+  return removeCrewsByHeading(markdown, (headingText) => {
     const normalized = headingText.trim().toLowerCase();
     return normalized.startsWith("model:") || normalized.startsWith("tool:");
   });

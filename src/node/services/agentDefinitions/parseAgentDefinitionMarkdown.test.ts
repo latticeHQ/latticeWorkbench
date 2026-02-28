@@ -64,10 +64,28 @@ Body
     expect(result.frontmatter.ui?.selectable).toBe(false);
   });
 
-  test("parses subagent.skip_init_hook", () => {
+  test("parses ui.requires", () => {
+    const content = `---
+name: Requires Plan
+ui:
+  requires:
+    - plan
+---
+Body
+`;
+
+    const result = parseAgentDefinitionMarkdown({
+      content,
+      byteSize: Buffer.byteLength(content, "utf-8"),
+    });
+
+    expect(result.frontmatter.ui?.requires).toEqual(["plan"]);
+  });
+
+  test("parses sidekick.skip_init_hook", () => {
     const content = `---
 name: Skip Init
-subagent:
+sidekick:
   runnable: true
   skip_init_hook: true
 ---
@@ -79,7 +97,7 @@ Body
       byteSize: Buffer.byteLength(content, "utf-8"),
     });
 
-    expect(result.frontmatter.subagent?.skip_init_hook).toBe(true);
+    expect(result.frontmatter.sidekick?.skip_init_hook).toBe(true);
   });
 
   test("throws on missing frontmatter", () => {

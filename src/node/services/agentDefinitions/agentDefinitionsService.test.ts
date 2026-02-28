@@ -10,6 +10,7 @@ import {
   discoverAgentDefinitions,
   readAgentDefinition,
   resolveAgentBody,
+  resolveAgentFrontmatter,
 } from "./agentDefinitionsService";
 
 async function writeAgent(root: string, id: string, name: string): Promise<void> {
@@ -154,7 +155,7 @@ Global foo instructions.
       "utf-8"
     );
 
-    // Headquarter-local "foo" agent that extends the global one via base: foo
+    // Project-local "foo" agent that extends the global one via base: foo
     // This should NOT cause a circular dependency (would previously infinite loop)
     await fs.writeFile(
       path.join(projectAgentsRoot, "foo.md"),
@@ -162,7 +163,7 @@ Global foo instructions.
 name: Foo
 base: foo
 ---
-Headquarter-specific additions.
+Project-specific additions.
 `,
       "utf-8"
     );
@@ -180,7 +181,7 @@ Headquarter-specific additions.
     // Verify body resolution correctly inherits from global (not self)
     const body = await resolveAgentBody(runtime, project.path, "foo", { roots });
     expect(body).toContain("Global foo instructions.");
-    expect(body).toContain("Headquarter-specific additions.");
+    expect(body).toContain("Project-specific additions.");
   });
 
   test("readAgentDefinition with skipScopesAbove skips higher-priority scopes", async () => {
@@ -206,9 +207,9 @@ Global body.
     await fs.writeFile(
       path.join(projectAgentsRoot, "test.md"),
       `---
-name: Test Headquarter
+name: Test Project
 ---
-Headquarter body.
+Project body.
 `,
       "utf-8"
     );
@@ -219,7 +220,7 @@ Headquarter body.
     // Without skip: project takes precedence
     const normalPkg = await readAgentDefinition(runtime, project.path, "test", { roots });
     expect(normalPkg.scope).toBe("project");
-    expect(normalPkg.frontmatter.name).toBe("Test Headquarter");
+    expect(normalPkg.frontmatter.name).toBe("Test Project");
 
     // With skipScopesAbove: "project" → skip project, return global
     const skippedPkg = await readAgentDefinition(runtime, project.path, "test", {
@@ -228,5 +229,194 @@ Headquarter body.
     });
     expect(skippedPkg.scope).toBe("global");
     expect(skippedPkg.frontmatter.name).toBe("Test Global");
+  });
+
+  test("resolveAgentFrontmatter inherits omitted fields from base chain (same-name override)", async () => {
+    using project = new DisposableTempDir("agent-frontmatter-project");
+    using global = new DisposableTempDir("agent-frontmatter-global");
+
+    const projectAgentsRoot = path.join(project.path, ".lattice", "agents");
+    const globalAgentsRoot = global.path;
+
+    await fs.mkdir(projectAgentsRoot, { recursive: true });
+    await fs.mkdir(globalAgentsRoot, { recursive: true });
+
+    await fs.writeFile(
+      path.join(globalAgentsRoot, "foo.md"),
+      `---
+name: Foo Base
+description: Base description
+ui:
+  hidden: true
+  color: red
+  requires:
+    - plan
+sidekick:
+  runnable: true
+  append_prompt: Base sidekick prompt
+  skip_init_hook: true
+ai:
+  model: base-model
+  thinkingLevel: high
+tools:
+  add:
+    - baseAdd
+  remove:
+    - baseRemove
+---
+Base body.
+`,
+      "utf-8"
+    );
+
+    await fs.writeFile(
+      path.join(projectAgentsRoot, "foo.md"),
+      `---
+name: Foo Project
+base: foo
+ui:
+  color: blue
+---
+Project body.
+`,
+      "utf-8"
+    );
+
+    const roots = { projectRoot: projectAgentsRoot, globalRoot: globalAgentsRoot };
+    const runtime = new LocalRuntime(project.path);
+
+    const frontmatter = await resolveAgentFrontmatter(runtime, project.path, "foo", { roots });
+
+    expect(frontmatter.description).toBe("Base description");
+    expect(frontmatter.ui?.hidden).toBe(true);
+    expect(frontmatter.ui?.color).toBe("blue");
+    expect(frontmatter.ui?.requires).toEqual(["plan"]);
+    expect(frontmatter.sidekick?.runnable).toBe(true);
+    expect(frontmatter.sidekick?.append_prompt).toBe("Base sidekick prompt");
+    expect(frontmatter.sidekick?.skip_init_hook).toBe(true);
+    expect(frontmatter.ai?.model).toBe("base-model");
+    expect(frontmatter.ai?.thinkingLevel).toBe("high");
+    expect(frontmatter.tools?.add).toEqual(["baseAdd"]);
+    expect(frontmatter.tools?.remove).toEqual(["baseRemove"]);
+  });
+
+  test("resolveAgentFrontmatter preserves explicit falsy overrides", async () => {
+    using tempDir = new DisposableTempDir("agent-frontmatter-falsy");
+    const agentsRoot = path.join(tempDir.path, ".lattice", "agents");
+    await fs.mkdir(agentsRoot, { recursive: true });
+
+    await fs.writeFile(
+      path.join(agentsRoot, "base.md"),
+      `---
+name: Base
+ui:
+  hidden: true
+sidekick:
+  runnable: true
+  skip_init_hook: true
+---
+`,
+      "utf-8"
+    );
+
+    await fs.writeFile(
+      path.join(agentsRoot, "child.md"),
+      `---
+name: Child
+base: base
+ui:
+  hidden: false
+sidekick:
+  runnable: false
+  skip_init_hook: false
+---
+`,
+      "utf-8"
+    );
+
+    const roots = { projectRoot: agentsRoot, globalRoot: agentsRoot };
+    const runtime = new LocalRuntime(tempDir.path);
+
+    const frontmatter = await resolveAgentFrontmatter(runtime, tempDir.path, "child", { roots });
+
+    expect(frontmatter.ui?.hidden).toBe(false);
+    expect(frontmatter.sidekick?.runnable).toBe(false);
+    expect(frontmatter.sidekick?.skip_init_hook).toBe(false);
+  });
+
+  test("resolveAgentFrontmatter concatenates tools.add/tools.remove (base first)", async () => {
+    using tempDir = new DisposableTempDir("agent-frontmatter-tools");
+    const agentsRoot = path.join(tempDir.path, ".lattice", "agents");
+    await fs.mkdir(agentsRoot, { recursive: true });
+
+    await fs.writeFile(
+      path.join(agentsRoot, "base.md"),
+      `---
+name: Base
+tools:
+  add:
+    - a
+  remove:
+    - b
+---
+`,
+      "utf-8"
+    );
+
+    await fs.writeFile(
+      path.join(agentsRoot, "child.md"),
+      `---
+name: Child
+base: base
+tools:
+  add:
+    - c
+  remove:
+    - d
+---
+`,
+      "utf-8"
+    );
+
+    const roots = { projectRoot: agentsRoot, globalRoot: agentsRoot };
+    const runtime = new LocalRuntime(tempDir.path);
+
+    const frontmatter = await resolveAgentFrontmatter(runtime, tempDir.path, "child", { roots });
+
+    expect(frontmatter.tools?.add).toEqual(["a", "c"]);
+    expect(frontmatter.tools?.remove).toEqual(["b", "d"]);
+  });
+
+  test("resolveAgentFrontmatter detects cycles", async () => {
+    using tempDir = new DisposableTempDir("agent-frontmatter-cycle");
+    const agentsRoot = path.join(tempDir.path, ".lattice", "agents");
+    await fs.mkdir(agentsRoot, { recursive: true });
+
+    await fs.writeFile(
+      path.join(agentsRoot, "a.md"),
+      `---
+name: A
+base: b
+---
+`,
+      "utf-8"
+    );
+
+    await fs.writeFile(
+      path.join(agentsRoot, "b.md"),
+      `---
+name: B
+base: a
+---
+`,
+      "utf-8"
+    );
+
+    const roots = { projectRoot: agentsRoot, globalRoot: agentsRoot };
+    const runtime = new LocalRuntime(tempDir.path);
+
+    expect(resolveAgentFrontmatter(runtime, tempDir.path, "a", { roots })).rejects.toThrow(
+      "Circular agent inheritance detected"
+    );
   });
 });

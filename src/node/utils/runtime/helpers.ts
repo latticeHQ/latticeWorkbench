@@ -134,18 +134,18 @@ export interface ReadPlanResult {
 /**
  * Read plan file content, checking new path first then legacy, migrating if needed.
  * This handles the transparent migration from ~/.lattice/plans/{id}.md to
- * ~/.lattice/plans/{projectName}/{workspaceName}.md
+ * ~/.lattice/plans/{projectName}/{minionName}.md
  */
 export async function readPlanFile(
   runtime: Runtime,
-  workspaceName: string,
+  minionName: string,
   projectName: string,
-  workspaceId: string
+  minionId: string
 ): Promise<ReadPlanResult> {
   const latticeHome = runtime.getLatticeHome();
-  const planPath = getPlanFilePath(workspaceName, projectName, latticeHome);
+  const planPath = getPlanFilePath(minionName, projectName, latticeHome);
   // Legacy paths only used for non-Docker runtimes
-  const legacyPath = getLegacyPlanFilePath(workspaceId);
+  const legacyPath = getLegacyPlanFilePath(minionId);
 
   // Resolve tilde to absolute path for client use (editor deep links, etc.)
   // For local runtimes this expands ~ to /home/user; for SSH it resolves remotely
@@ -178,18 +178,52 @@ export async function readPlanFile(
 }
 
 /**
- * Move a plan file from one workspace name to another (e.g., during rename).
+ * Check if a non-empty plan file exists for this minion.
+ * Checks both the canonical (per-project) path and the legacy (by minionId) path.
+ */
+export async function hasNonEmptyPlanFile(
+  runtime: Runtime,
+  minionName: string,
+  projectName: string,
+  minionId: string
+): Promise<boolean> {
+  // Defensive: missing identifiers means we cannot safely resolve plan paths.
+  if (!minionName || !projectName || !minionId) {
+    return false;
+  }
+
+  const latticeHome = runtime.getLatticeHome();
+  const planPath = getPlanFilePath(minionName, projectName, latticeHome);
+  // Legacy paths only used for non-Docker runtimes.
+  const legacyPath = getLegacyPlanFilePath(minionId);
+
+  for (const candidatePath of [planPath, legacyPath]) {
+    try {
+      const stat = await runtime.stat(candidatePath);
+      if (!stat.isDirectory && stat.size > 0) {
+        return true;
+      }
+    } catch {
+      // Try next candidate.
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Move a plan file from one minion name to another (e.g., during rename).
  * Silently succeeds if source file doesn't exist.
  */
 export async function movePlanFile(
   runtime: Runtime,
-  oldWorkspaceName: string,
-  newWorkspaceName: string,
+  oldMinionName: string,
+  newMinionName: string,
   projectName: string
 ): Promise<void> {
   const latticeHome = runtime.getLatticeHome();
-  const oldPath = getPlanFilePath(oldWorkspaceName, projectName, latticeHome);
-  const newPath = getPlanFilePath(newWorkspaceName, projectName, latticeHome);
+  const oldPath = getPlanFilePath(oldMinionName, projectName, latticeHome);
+  const newPath = getPlanFilePath(newMinionName, projectName, latticeHome);
 
   try {
     await runtime.stat(oldPath);
@@ -206,22 +240,22 @@ export async function movePlanFile(
 }
 
 /**
- * Copy a plan file from one workspace to another (e.g., during fork).
+ * Copy a plan file from one minion to another (e.g., during fork).
  * Checks both new path format and legacy path format for the source.
  * Silently succeeds if source file doesn't exist at either location.
  */
 export async function copyPlanFile(
   runtime: Runtime,
-  sourceWorkspaceName: string,
-  sourceWorkspaceId: string,
-  targetWorkspaceName: string,
+  sourceMinionName: string,
+  sourceMinionId: string,
+  targetMinionName: string,
   projectName: string
 ): Promise<void> {
   const latticeHome = runtime.getLatticeHome();
-  const sourcePath = getPlanFilePath(sourceWorkspaceName, projectName, latticeHome);
+  const sourcePath = getPlanFilePath(sourceMinionName, projectName, latticeHome);
   // Legacy paths only used for non-Docker runtimes
-  const legacySourcePath = getLegacyPlanFilePath(sourceWorkspaceId);
-  const targetPath = getPlanFilePath(targetWorkspaceName, projectName, latticeHome);
+  const legacySourcePath = getLegacyPlanFilePath(sourceMinionId);
+  const targetPath = getPlanFilePath(targetMinionName, projectName, latticeHome);
 
   // Prefer the new layout, but fall back to the legacy layout.
   //
@@ -233,6 +267,37 @@ export async function copyPlanFile(
     try {
       const content = await readFileString(runtime, candidatePath);
       await writeFileString(runtime, targetPath, content);
+      return;
+    } catch {
+      // Try next candidate
+    }
+  }
+}
+
+/**
+ * Copy a plan file across runtimes (e.g., during fork where source/target may be
+ * different containers). Uses separate runtime handles to avoid the identity mutation
+ * bug where DockerRuntime.forkMinion() changes this.containerName to the target.
+ * Silently succeeds if source file doesn't exist at either location.
+ */
+export async function copyPlanFileAcrossRuntimes(
+  sourceRuntime: Runtime,
+  targetRuntime: Runtime,
+  sourceMinionName: string,
+  sourceMinionId: string,
+  targetMinionName: string,
+  projectName: string
+): Promise<void> {
+  const sourceLatticeHome = sourceRuntime.getLatticeHome();
+  const targetLatticeHome = targetRuntime.getLatticeHome();
+  const sourcePath = getPlanFilePath(sourceMinionName, projectName, sourceLatticeHome);
+  const legacySourcePath = getLegacyPlanFilePath(sourceMinionId);
+  const targetPath = getPlanFilePath(targetMinionName, projectName, targetLatticeHome);
+
+  for (const candidatePath of [sourcePath, legacySourcePath]) {
+    try {
+      const content = await readFileString(sourceRuntime, candidatePath);
+      await writeFileString(targetRuntime, targetPath, content);
       return;
     } catch {
       // Try next candidate

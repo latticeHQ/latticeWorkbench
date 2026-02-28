@@ -57,7 +57,7 @@ describe("TelemetryService feature flag properties", () => {
       const payload: TelemetryEventPayload = {
         event: "message_sent",
         properties: {
-          workspaceId: "workspace-id",
+          minionId: "minion-id",
           model: "test-model",
           agentId: "exec",
           message_length_b2: 128,

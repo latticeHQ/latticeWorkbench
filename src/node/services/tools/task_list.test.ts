@@ -1,11 +1,11 @@
 import { describe, it, expect, mock } from "bun:test";
-import type { ToolCallOptions } from "ai";
+import type { ToolExecutionOptions } from "ai";
 
 import { createTaskListTool } from "./task_list";
 import { TestTempDir, createTestToolConfig } from "./testHelpers";
 import type { TaskService } from "@/node/services/taskService";
 
-const mockToolCallOptions: ToolCallOptions = {
+const mockToolCallOptions: ToolExecutionOptions = {
   toolCallId: "test-call-id",
   messages: [],
 };
@@ -13,7 +13,7 @@ const mockToolCallOptions: ToolCallOptions = {
 describe("task_list tool", () => {
   it("uses default statuses when none are provided", async () => {
     using tempDir = new TestTempDir("test-task-list-default-statuses");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "root-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "root-minion" });
 
     const listDescendantAgentTasks = mock(() => []);
     const taskService = { listDescendantAgentTasks } as unknown as TaskService;
@@ -23,14 +23,14 @@ describe("task_list tool", () => {
     const result: unknown = await Promise.resolve(tool.execute!({}, mockToolCallOptions));
 
     expect(result).toEqual({ tasks: [] });
-    expect(listDescendantAgentTasks).toHaveBeenCalledWith("root-workspace", {
+    expect(listDescendantAgentTasks).toHaveBeenCalledWith("root-minion", {
       statuses: ["queued", "running", "awaiting_report"],
     });
   });
 
   it("passes through provided statuses", async () => {
     using tempDir = new TestTempDir("test-task-list-statuses");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "root-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "root-minion" });
 
     const listDescendantAgentTasks = mock(() => []);
     const taskService = { listDescendantAgentTasks } as unknown as TaskService;
@@ -42,22 +42,22 @@ describe("task_list tool", () => {
     );
 
     expect(result).toEqual({ tasks: [] });
-    expect(listDescendantAgentTasks).toHaveBeenCalledWith("root-workspace", {
+    expect(listDescendantAgentTasks).toHaveBeenCalledWith("root-minion", {
       statuses: ["running"],
     });
   });
 
   it("returns tasks with metadata", async () => {
     using tempDir = new TestTempDir("test-task-list-ok");
-    const baseConfig = createTestToolConfig(tempDir.path, { workspaceId: "root-workspace" });
+    const baseConfig = createTestToolConfig(tempDir.path, { minionId: "root-minion" });
 
     const listDescendantAgentTasks = mock(() => [
       {
         taskId: "task-1",
         status: "running",
-        parentWorkspaceId: "root-workspace",
+        parentMinionId: "root-minion",
         agentType: "exec",
-        workspaceName: "agent_exec_task-1",
+        minionName: "agent_exec_task-1",
         title: "t",
         createdAt: "2025-01-01T00:00:00.000Z",
         modelString: "anthropic:claude-haiku-4-5",
@@ -76,9 +76,9 @@ describe("task_list tool", () => {
         {
           taskId: "task-1",
           status: "running",
-          parentWorkspaceId: "root-workspace",
+          parentMinionId: "root-minion",
           agentType: "exec",
-          workspaceName: "agent_exec_task-1",
+          minionName: "agent_exec_task-1",
           title: "t",
           createdAt: "2025-01-01T00:00:00.000Z",
           modelString: "anthropic:claude-haiku-4-5",

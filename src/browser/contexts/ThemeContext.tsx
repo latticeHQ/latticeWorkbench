@@ -27,12 +27,12 @@ function normalizeThemeMode(value: unknown): ThemeMode | undefined {
     return value as ThemeMode;
   }
 
-  // Migrate legacy themes to light/dark
-  if (value.endsWith("-light") || value === "anthropic") {
+  // Preserve intent for removed themes (flexoki-light/dark, solarized-light/dark, etc.).
+  if (value.endsWith("-light")) {
     return "light";
   }
 
-  if (value.endsWith("-dark") || value === "anthropic-dark") {
+  if (value.endsWith("-dark")) {
     return "dark";
   }
 
@@ -50,8 +50,13 @@ interface ThemeContextValue {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const THEME_COLORS: Record<ThemeMode, string> = {
-  light: "#FAF9F6",
-  dark: "#1A1917",
+  dark: "#0D0D0D",
+  light: "#FAFAF7",
+};
+
+const FAVICON_BY_SCHEME: Record<"light" | "dark", string> = {
+  light: "/favicon.ico",
+  dark: "/favicon-dark.ico",
 };
 
 /** Map theme mode to CSS color-scheme value */
@@ -59,9 +64,26 @@ function getColorScheme(theme: ThemeMode): "light" | "dark" {
   return theme === "light" ? "light" : "dark";
 }
 
+function applyThemeFavicon(theme: ThemeMode) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"][data-theme-icon]');
+  if (!favicon) {
+    return;
+  }
+
+  const scheme = getColorScheme(theme);
+  const nextHref = FAVICON_BY_SCHEME[scheme];
+  if (favicon.getAttribute("href") !== nextHref) {
+    favicon.setAttribute("href", nextHref);
+  }
+}
+
 function resolveSystemTheme(): ThemeMode {
   if (typeof window === "undefined" || !window.matchMedia) {
-    return "light";
+    return "dark";
   }
 
   return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
@@ -86,6 +108,8 @@ function applyThemeToDocument(theme: ThemeMode) {
   if (body) {
     body.style.backgroundColor = "var(--color-background)";
   }
+
+  applyThemeFavicon(theme);
 }
 
 export function ThemeProvider({
@@ -143,7 +167,11 @@ export function ThemeProvider({
 
   const toggleTheme = useCallback(() => {
     if (!isNestedUnderForcedProvider) {
-      setTheme((current) => (current === "light" ? "dark" : "light"));
+      setTheme((current) => {
+        const currentIndex = THEME_VALUES.indexOf(current);
+        const nextIndex = (currentIndex + 1) % THEME_VALUES.length;
+        return THEME_VALUES[nextIndex];
+      });
     }
   }, [setTheme, isNestedUnderForcedProvider]);
 

@@ -1,9 +1,5 @@
 import assert from "@/common/utils/assert";
-import type {
-  LatticeReasoningPart,
-  LatticeTextPart,
-  LatticeToolPart,
-} from "@/common/types/message";
+import type { LatticeReasoningPart, LatticeTextPart, LatticeToolPart } from "@/common/types/message";
 
 export function extractAssistantText(parts: unknown): string {
   if (!Array.isArray(parts)) {

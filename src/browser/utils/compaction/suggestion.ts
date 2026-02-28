@@ -4,8 +4,9 @@
  * Used by RetryBarrier to offer "Compact & retry" when we hit context limits.
  */
 
+import { isModelAllowedByPolicy } from "@/browser/utils/policyUi";
 import { KNOWN_MODELS } from "@/common/constants/knownModels";
-import type { ProvidersConfigMap } from "@/common/orpc/types";
+import type { EffectivePolicy, ProvidersConfigMap } from "@/common/orpc/types";
 import { formatModelDisplayName } from "@/common/utils/ai/modelDisplay";
 import { getModelStats } from "@/common/utils/tokens/modelStats";
 
@@ -27,14 +28,16 @@ export interface CompactionSuggestion {
 export function getExplicitCompactionSuggestion(options: {
   modelId: string;
   providersConfig: ProvidersConfigMap | null;
+  policy?: EffectivePolicy | null;
 }): CompactionSuggestion | null {
   const modelId = options.modelId.trim();
   if (modelId.length === 0) {
     return null;
   }
 
-  const colonIndex = modelId.indexOf(":");
-  const provider = colonIndex === -1 ? null : modelId.slice(0, colonIndex);
+  const normalized = modelId;
+  const colonIndex = normalized.indexOf(":");
+  const provider = colonIndex === -1 ? null : normalized.slice(0, colonIndex);
   const isProviderConfigured = provider
     ? options.providersConfig?.[provider]?.isConfigured === true
     : false;
@@ -43,13 +46,18 @@ export function getExplicitCompactionSuggestion(options: {
     return null;
   }
 
-  const stats = getModelStats(modelId);
+  // Validate against policy if provided
+  if (!isModelAllowedByPolicy(options.policy ?? null, normalized)) {
+    return null;
+  }
+
+  const stats = getModelStats(normalized);
 
   // Prefer a stable alias for built-in known models.
-  const known = Object.values(KNOWN_MODELS).find((m) => m.id === modelId);
+  const known = Object.values(KNOWN_MODELS).find((m) => m.id === normalized);
   const modelArg = known?.aliases?.[0] ?? modelId;
 
-  const providerModelId = colonIndex === -1 ? modelId : modelId.slice(colonIndex + 1);
+  const providerModelId = colonIndex === -1 ? normalized : normalized.slice(colonIndex + 1);
   const displayName = formatModelDisplayName(known?.providerModelId ?? providerModelId);
 
   return {
@@ -69,6 +77,7 @@ export function getExplicitCompactionSuggestion(options: {
 export function getHigherContextCompactionSuggestion(options: {
   currentModel: string;
   providersConfig: ProvidersConfigMap | null;
+  policy?: EffectivePolicy | null;
 }): CompactionSuggestion | null {
   const currentStats = getModelStats(options.currentModel);
   if (!currentStats?.max_input_tokens) {
@@ -80,6 +89,11 @@ export function getHigherContextCompactionSuggestion(options: {
   for (const known of Object.values(KNOWN_MODELS)) {
     const isProviderConfigured = options.providersConfig?.[known.provider]?.isConfigured === true;
     if (!isProviderConfigured) {
+      continue;
+    }
+
+    // Skip models blocked by policy
+    if (!isModelAllowedByPolicy(options.policy ?? null, known.id)) {
       continue;
     }
 

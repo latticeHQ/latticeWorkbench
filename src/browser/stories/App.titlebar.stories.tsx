@@ -1,15 +1,44 @@
 /**
- * Title bar stories - demonstrates title bar layout variants
+ * Title bar stories - demonstrates title bar layout variants.
+ *
+ * Each story shows a populated app (projects + minions in sidebar)
+ * so the title bar coexists with real content rather than an empty shell.
  */
 
 import React from "react";
 import { appMeta, AppWithMocks, type AppStory } from "./meta.js";
+import { createMinion, groupMinionsByProject } from "./mockFactory";
+import { selectMinion, expandProjects, collapseWorkbenchPanel } from "./storyHelpers";
 import { createMockORPCClient } from "@/browser/stories/mocks/orpc";
 
 export default {
   ...appMeta,
   title: "App/TitleBar",
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared minion fixtures (2 projects, 4 minions)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function createPopulatedClient() {
+  const minions = [
+    createMinion({ id: "tb-1", name: "feature/dark-mode", projectName: "web-app" }),
+    createMinion({ id: "tb-2", name: "fix/nav-overflow", projectName: "web-app" }),
+    createMinion({ id: "tb-3", name: "main", projectName: "api-server" }),
+    createMinion({ id: "tb-4", name: "refactor/auth", projectName: "api-server" }),
+  ];
+  const projects = groupMinionsByProject(minions);
+
+  selectMinion(minions[0]);
+  expandProjects([...projects.keys()]);
+  collapseWorkbenchPanel();
+
+  return createMockORPCClient({ projects, minions });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stories
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * macOS desktop mode with traffic lights inset.
@@ -42,14 +71,13 @@ export const MacOSDesktop: AppStory = {
       return <Story />;
     },
   ],
-  render: () => (
-    <AppWithMocks
-      setup={() =>
-        createMockORPCClient({
-          projects: new Map(),
-          workspaces: [],
-        })
-      }
-    />
-  ),
+  render: () => <AppWithMocks setup={createPopulatedClient} />,
+};
+
+/**
+ * Browser / web mode — no Electron API, standard title bar.
+ * Uses the same populated minion data as MacOSDesktop.
+ */
+export const BrowserMode: AppStory = {
+  render: () => <AppWithMocks setup={createPopulatedClient} />,
 };

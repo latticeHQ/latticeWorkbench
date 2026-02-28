@@ -1,42 +1,51 @@
-import React from "react";
+import { LatticeHexagonSpinner } from "@/browser/components/ui/lattice-hexagon-spinner";
+import { useTheme } from "@/browser/contexts/ThemeContext";
+import { Shimmer } from "@/browser/components/ai-elements/shimmer";
 
 interface CreationCenterContentProps {
   projectName: string;
   isSending: boolean;
-  /** The confirmed workspace name (null while generation is in progress) */
-  workspaceName?: string | null;
-  /** The confirmed workspace title (null while generation is in progress) */
-  workspaceTitle?: string | null;
+  /** The confirmed minion name (null while generation is in progress) */
+  minionName?: string | null;
+  /** The confirmed minion title (null while generation is in progress) */
+  minionTitle?: string | null;
 }
 
 /**
- * Loading overlay displayed during workspace creation.
- * Shown as an overlay when isSending is true.
+ * Loading overlay displayed during minion creation.
+ * Shows the animated Lattice hexagon logo while the minion is being summoned.
  */
 export function CreationCenterContent(props: CreationCenterContentProps) {
-  // Only render when actually sending/creating
-  if (!props.isSending) {
-    return null;
-  }
+  const { theme } = useTheme();
+  const isDark = theme === "dark" || theme.endsWith("-dark");
 
   return (
-    <div className="bg-bg-dark/80 fixed inset-0 z-10 flex items-center justify-center backdrop-blur-sm">
-      <div className="max-w-xl px-8 text-center">
-        <div className="bg-accent mb-4 inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent"></div>
-        <h2 className="text-foreground mb-2 text-lg font-medium">Creating workspace</h2>
-        <p className="text-muted text-sm leading-relaxed">
-          {props.workspaceName ? (
-            <>
-              <code className="bg-separator rounded px-1">{props.workspaceName}</code>
-              {props.workspaceTitle && (
-                <span className="text-muted-foreground ml-1">— {props.workspaceTitle}</span>
+    <>
+      {props.isSending && (
+        <div
+          className={`absolute inset-0 z-10 flex flex-col items-center justify-center pb-[30vh] ${isDark ? "bg-sidebar" : "bg-white"}`}
+        >
+          <LatticeHexagonSpinner
+            size={120}
+            className={isDark ? "text-foreground" : "text-gray-800"}
+          />
+          <div className="mt-8 max-w-xl px-8 text-center">
+            <h2 className="text-foreground mb-2 text-2xl font-medium">Summoning minion</h2>
+            <p className="text-muted text-sm leading-relaxed">
+              {props.minionName ? (
+                <>
+                  <code className="bg-separator rounded px-1">{props.minionName}</code>
+                  {props.minionTitle && (
+                    <span className="text-muted-foreground ml-1">— {props.minionTitle}</span>
+                  )}
+                </>
+              ) : (
+                <Shimmer>Generating name…</Shimmer>
               )}
-            </>
-          ) : (
-            "Generating name…"
-          )}
-        </p>
-      </div>
-    </div>
+            </p>
+          </div>
+        </div>
+      )}
+    </>
   );
 }

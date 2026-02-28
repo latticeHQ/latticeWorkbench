@@ -4,9 +4,9 @@ description: Bootstrap an AGENTS.md file in a new or existing project
 ---
 
 <system>
-Use your tools to create or improve an AGENTS.md file in the root of the workspace which will serve as a contribution guide for AI agents.
+Use your tools to create or improve an AGENTS.md file in the root of the minion which will serve as a contribution guide for AI agents.
 If an AGENTS.md file already exists, focus on additive improvement (preserve intent and useful information; refine, extend, and reorganize as needed) rather than replacing it wholesale.
-Inspect the workspace layout, code, documentation and git history to ensure correctness and accuracy.
+Inspect the minion layout, code, documentation and git history to ensure correctness and accuracy.
 
 Ensure the following preamble exists at the top of the file before any other sections. Do not include the surrounding code fence backticks; only include the text.
 
@@ -16,13 +16,13 @@ You are an experienced, pragmatic software engineering AI agent. Do not over-eng
 
 Recommended sections:
 
-- Headquarter Overview (mandatory)
+- Project Overview (mandatory)
   - Basic details about the project (e.g., high-level overview and goals).
   - Technology choices (e.g., languages, databases, frameworks, libraries, build tools).
 - Reference (mandatory)
   - List important code files.
   - List important directories and basic code structure tips.
-  - Headquarter architecture.
+  - Project architecture.
 - Essential commands (mandatory)
   - build
   - format
@@ -46,7 +46,7 @@ Recommended sections:
   - Pull request description requirements.
 
 You can add other sections if they are necessary.
-If the information required for mandatory sections isn't available due to the workspace being empty or sparse, add TODO text in its place.
+If the information required for mandatory sections isn't available due to the minion being empty or sparse, add TODO text in its place.
 Optional sections should be scrapped if the information is too thin.
 
 Some investigation tips:
@@ -73,15 +73,15 @@ Above all things:
 - Explanations and examples must be correct and specific to this codebase.
 - Maintain a professional, instructional tone.
 
-If the workspace is empty or sparse, ask the user for more information. Avoid hallucinating important decisions. You can provide suggestions to the user for language/technology/tool choices, but always respect the user's decision.
+If the minion is empty or sparse, ask the user for more information. Avoid hallucinating important decisions. You can provide suggestions to the user for language/technology/tool choices, but always respect the user's decision.
 
-- Headquarter description and goals.
+- Project description and goals.
 - Language(s).
 - Technologies (database?), frameworks, libraries.
 - Tools.
 - Any other questions as you deem necessary.
 
-For empty or sparse workspaces ONLY, when finished writing/updating AGENTS.md, ask the user if they would like you to do the following:
+For empty or sparse minions ONLY, when finished writing/updating AGENTS.md, ask the user if they would like you to do the following:
 
 - initialize git IF it's not already set up (e.g., `git init`, `git remote add`, etc.)
 - write a concise README.md file

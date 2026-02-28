@@ -12,8 +12,8 @@
  * Legacy model (tool_hook): single hook with marker protocol (echo $LATTICE_EXEC)
  */
 
-import assert from "@/common/utils/assert";
 import type { Tool } from "ai";
+import { cloneToolPreservingDescriptors } from "@/common/utils/tools/cloneToolPreservingDescriptors";
 import type { Runtime } from "@/node/runtime/Runtime";
 import type { WithHookOutput, MayHaveHookOutput } from "@/common/types/tools";
 import {
@@ -33,8 +33,8 @@ export interface HookConfig {
   runtimeTempDir: string;
   /** Working directory where hooks are discovered */
   cwd: string;
-  /** Workspace ID for hook context */
-  workspaceId: string;
+  /** Minion ID for hook context */
+  minionId: string;
   /** Additional environment variables to pass to hooks */
   env?: Record<string, string>;
 }
@@ -46,21 +46,6 @@ function truncateHookOutput(output: string): string {
     return output;
   }
   return output.slice(0, HOOK_OUTPUT_MAX_CHARS) + "\n\n[hook_output truncated]";
-}
-
-function cloneToolPreservingDescriptors(tool: unknown): Tool {
-  assert(tool && typeof tool === "object", "tool must be an object");
-
-  // Clone the tool without invoking getters (important for some dynamic tools).
-  const prototype = Object.getPrototypeOf(tool) as unknown;
-  assert(
-    prototype === null || typeof prototype === "object",
-    "tool prototype must be an object or null"
-  );
-
-  const clone = Object.create(prototype) as object;
-  Object.defineProperties(clone, Object.getOwnPropertyDescriptors(tool));
-  return clone as Tool;
 }
 
 /**
@@ -90,7 +75,7 @@ export function withHooks<TParameters, TResult>(
     options: unknown
   ) => unknown;
 
-  // Avoid mutating cached tools in place (e.g. MCP tools cached per workspace).
+  // Avoid mutating cached tools in place (e.g. MCP tools cached per minion).
   // Repeated getToolsForModel() calls should not stack wrappers.
   const wrappedTool = cloneToolPreservingDescriptors(tool) as Tool<TParameters, TResult>;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -119,7 +104,8 @@ export function withHooks<TParameters, TResult>(
     const hookContext = {
       tool: toolName,
       toolInput,
-      workspaceId: config.workspaceId,
+      toolInputValue: args,
+      minionId: config.minionId,
       projectDir: config.cwd,
       runtimeTempDir: config.runtimeTempDir,
       env: config.env,
@@ -178,7 +164,7 @@ async function executeWithNewHooks<TResult>(
   context: {
     tool: string;
     toolInput: string;
-    workspaceId: string;
+    minionId: string;
     projectDir: string;
     runtimeTempDir?: string;
     env?: Record<string, string>;
@@ -242,7 +228,7 @@ async function executeWithLegacyHook<TResult>(
   context: {
     tool: string;
     toolInput: string;
-    workspaceId: string;
+    minionId: string;
     projectDir: string;
     runtimeTempDir?: string;
     env?: Record<string, string>;
