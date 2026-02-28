@@ -923,9 +923,11 @@ if (gotTheLock) {
           console.log("❌ Error installing React DevTools:", err);
         }
 
-        // Set dock icon in dev mode (packaged builds use build/icon.icns automatically)
+        // Set dock icon in dev mode (packaged builds use build/icon.icns automatically).
+        // Use icon-dock.png which has the macOS squircle mask baked in — raw PNGs
+        // via app.dock.setIcon() don't get the system mask applied.
         if (process.platform === "darwin") {
-          const iconPath = path.join(__dirname, "../../build/icon.png");
+          const iconPath = path.join(__dirname, "../../build/icon-dock.png");
           if (fs.existsSync(iconPath)) {
             app.dock?.setIcon(nativeImage.createFromPath(iconPath));
           }
