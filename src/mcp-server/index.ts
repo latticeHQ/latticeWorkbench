@@ -11,8 +11,8 @@
  * Features:
  * - 200+ tools across 18 modules (minion, project, terminal, inbox, kanban, scheduler, sync, etc.)
  * - 2 discovery tools for progressive disclosure (search_tools, list_tool_categories)
- * - 12 MCP resources for efficient data access (projects, config, chat history, inbox, sync, etc.)
- * - 4 MCP prompts for common workflows (create-and-run-task, cost-report, etc.)
+ * - 13 MCP resources for efficient data access (orientation, projects, config, chat history, inbox, sync, etc.)
+ * - 5 MCP prompts for common workflows (orientation, create-and-run-task, cost-report, etc.)
  * - Typed SDK for code execution pattern (sdk/ directory)
  *
  * Server discovery order:
@@ -171,7 +171,7 @@ async function main(): Promise<void> {
 
   process.stderr.write(
     `[lattice-mcp] Registered ${toolCatalog.length} tools in catalog, ` +
-      `12 resources, 4 prompts\n`
+      `13 resources, 5 prompts\n`
   );
 
   // Connect via stdio transport (stdin/stdout)

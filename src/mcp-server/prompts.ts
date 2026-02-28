@@ -9,6 +9,36 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 export function registerPrompts(server: McpServer): void {
+  // ── Orientation ──────────────────────────────────────────────────────────
+  server.prompt(
+    "orientation",
+    "Get oriented with Lattice — understand the entity hierarchy, discover tool categories, and check current state. Run this first in a new session.",
+    {},
+    async () => ({
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: [
+              `Get oriented with Lattice by following these steps:`,
+              ``,
+              `1. **Read orientation**: Read the \`lattice://orientation\` resource to understand the entity hierarchy (Server → Projects → Minions → Terminals/Tasks), scoping rules, and common mistakes.`,
+              ``,
+              `2. **Browse capabilities**: Call \`list_tool_categories\` to see all 19+ tool categories with scope tags ([Global], [Project-scoped], [Minion-scoped]) and tool counts.`,
+              ``,
+              `3. **Check current state**: Read \`lattice://projects\` and \`lattice://minions\` to see what projects and minions exist.`,
+              ``,
+              `4. **Check provider status**: Read \`lattice://providers\` to see which AI providers are configured and available.`,
+              ``,
+              `5. **Report**: Summarize what you found — available projects, active minions, configured providers, and key capabilities. Suggest what the user might want to do next.`,
+            ].join("\n"),
+          },
+        },
+      ],
+    })
+  );
+
   // ── Create and run a task ──────────────────────────────────────────────
   server.prompt(
     "create-and-run-task",

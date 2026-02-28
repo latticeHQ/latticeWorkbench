@@ -1,6 +1,6 @@
 # Lattice SDK
 
-Typed TypeScript SDK for controlling the Lattice Lattice Workbench programmatically.
+Typed TypeScript SDK for controlling the Lattice Workbench programmatically.
 
 All functions take a `RouterClient<AppRouter>` as the first argument. Use `getClient()` from `./client` to obtain one.
 
@@ -37,13 +37,17 @@ const usage = await getSessionUsage(c, ws.minionId);
 | `tasks` | 1 | Create sub-tasks for parallel agent orchestration |
 | `analytics` | 8 | Spend tracking: summaries, time series, breakdowns by project/model/agent, cache ratios |
 | `tokenizer` | 3 | Token counting: single, batch, chat statistics with cost |
-| `server-mgmt` | 29 | Server status, SSH, auth sessions, updates, signing, Lattice integration, experiments, telemetry |
+| `server-mgmt` | 34 | Server status, SSH, auth sessions, updates, signing, Lattice identity, experiments, telemetry, UI layouts, inference |
 | `mcp-management` | 6 | Global MCP server CRUD: list, add, remove, test, enable/disable, tool allowlists |
 | `secrets` | 2 | Get/update global or project-scoped secrets |
 | `general` | 6 | Ping, directory ops, editor integration, log management |
 | `oauth` | 17 | Device-code and server-side OAuth flows for Copilot, Codex, MCP servers |
+| `inbox` | 9 | Inbox messaging: list conversations, send replies, manage adapter connections, channel tokens |
+| `kanban` | 3 | Kanban board: list cards, move between columns, get archived buffer |
+| `scheduler` | 6 | Task scheduler: create/manage cron or interval automated tasks |
+| `sync` | 9 | Git sync: push/pull state, manage repos, check GitHub auth, configure categories |
 
-**Total: 170 typed functions** covering the full Lattice oRPC API surface.
+**Total: 202 typed functions** covering the full Lattice oRPC API surface.
 
 ## Module Details
 
@@ -53,8 +57,8 @@ const usage = await getSessionUsage(c, ws.minionId);
 ### project (25 functions)
 `listProjects`, `createProject`, `deleteProject`, `getProjectDetails`, `updateProject`, `listBranches`, `switchBranch`, `createCrew`, `updateCrew`, `deleteCrew`, `listCrews`, `getProjectSecrets`, `updateProjectSecrets`, `addProjectMcpServer`, `removeProjectMcpServer`, `listProjectMcpServers`, `testProjectMcpServer`, `setProjectMcpServerEnabled`, `setProjectMcpServerToolAllowlist`, `getIdleCompactionConfig`, `setIdleCompactionConfig`, `getProjectFileCompletions`, `archiveMergedInProject`, `getProjectSettings`, `updateProjectSettings`
 
-### server-mgmt (28 functions)
-`getApiServerStatus`, `setApiServerSettings`, `getSshHost`, `setSshHost`, `getLaunchProject`, `listAuthSessions`, `revokeAuthSession`, `revokeOtherAuthSessions`, `getStatsTabState`, `setStatsTabOverride`, `getPolicy`, `refreshPolicy`, `checkForUpdates`, `downloadUpdate`, `installUpdate`, `getUpdateChannel`, `setUpdateChannel`, `getSigningCapabilities`, `signMessage`, `clearIdentityCache`, `getLatticeInfo`, `listLatticeTemplates`, `listLatticePresets`, `listLatticeMinions`, `generateName`, `getTelemetryStatus`, `getExperiments`, `reloadExperiments`
+### server-mgmt (34 functions)
+`getApiServerStatus`, `setApiServerSettings`, `getSshHost`, `setSshHost`, `getLaunchProject`, `listAuthSessions`, `revokeAuthSession`, `revokeOtherAuthSessions`, `getStatsTabState`, `setStatsTabOverride`, `getPolicy`, `refreshPolicy`, `checkForUpdates`, `downloadUpdate`, `installUpdate`, `getUpdateChannel`, `setUpdateChannel`, `getSigningCapabilities`, `signMessage`, `clearIdentityCache`, `getLatticeInfo`, `listLatticeTemplates`, `listLatticePresets`, `listLatticeMinions`, `generateName`, `getTelemetryStatus`, `getExperiments`, `reloadExperiments`, `getUiLayouts`, `saveUiLayouts`, `latticeWhoami`, `latticeLogin`, `setTelemetryEnabled`, `getInferenceStatus`
 
 ### oauth (17 functions)
 `copilotStartDeviceFlow`, `copilotWaitForDeviceFlow`, `copilotCancelDeviceFlow`, `codexStartDeviceFlow`, `codexWaitForDeviceFlow`, `codexCancelDeviceFlow`, `codexDisconnect`, `mcpStartServerFlow`, `mcpWaitForServerFlow`, `mcpCancelServerFlow`, `mcpGetAuthStatus`, `mcpLogout`, `projectMcpStartServerFlow`, `projectMcpWaitForServerFlow`, `projectMcpCancelServerFlow`, `projectMcpGetAuthStatus`, `projectMcpLogout`
@@ -88,3 +92,15 @@ const usage = await getSessionUsage(c, ws.minionId);
 
 ### tasks (1 function)
 `createTask`
+
+### inbox (9 functions)
+`listConversations`, `getConversation`, `sendReply`, `updateStatus`, `connectionStatus`, `connectAdapter`, `disconnectAdapter`, `getChannelTokens`, `setChannelToken`
+
+### kanban (3 functions)
+`listCards`, `moveCard`, `getArchivedBuffer`
+
+### scheduler (6 functions)
+`listSchedules`, `createSchedule`, `updateSchedule`, `removeSchedule`, `runSchedule`, `getHistory`
+
+### sync (9 functions)
+`getStatus`, `getConfig`, `saveConfig`, `checkGhAuth`, `listRepos`, `createRepo`, `push`, `pull`, `disconnect`
