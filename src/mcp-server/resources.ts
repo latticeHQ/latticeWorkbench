@@ -12,10 +12,106 @@ import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RouterClient } from "@orpc/server";
 import type { AppRouter } from "@/node/orpc/router";
 
+/** Static orientation data — teaches LLMs the Lattice mental model. */
+const ORIENTATION = {
+  summary:
+    "Lattice is an AI agent orchestration workbench. You control it through " +
+    "200+ MCP tools organized into scoped categories. The core hierarchy is: " +
+    "Server → Projects → Minions → Terminals/Tasks. Most tools require a " +
+    "scoping ID (projectPath or minionId). Use list_tool_categories to browse " +
+    "capabilities, then search_tools to find specific tools.",
+
+  hierarchy: {
+    server: {
+      description: "The running Lattice backend (one per machine)",
+      contains: ["projects", "globalConfig", "providers", "analytics", "sync", "globalMcpServers"],
+      tools: "server, config, analytics, mcp-management, oauth, tokenizer, discovery",
+    },
+    project: {
+      description: "A registered code project (has a path on disk, branches, crews, secrets)",
+      scopedBy: "projectPath (absolute path)",
+      contains: ["minions", "crews", "projectSecrets", "projectMcpServers", "scheduledTasks", "inbox"],
+      tools: "project, secrets, scheduler, inbox",
+    },
+    minion: {
+      description: "An isolated agent environment — has its own git branch, chat history, model config, and terminals",
+      scopedBy: "minionId (UUID)",
+      contains: ["terminals", "kanbanCards", "chatHistory", "plan", "sessionUsage"],
+      tools: "minion, terminal, kanban, tasks",
+    },
+    terminal: {
+      description: "A PTY session inside a minion — can run shell commands or launch built-in AI agent profiles",
+      scopedBy: "sessionId",
+      tools: "terminal",
+    },
+    terminalProfiles: {
+      description: "GLOBAL pre-configured CLI tool launchers (claude-code, gemini-cli, copilot, codex, aider, amp)",
+      scopedBy: "profileId",
+      note: "These are built-in — do NOT build a CLI from scratch when a user says 'run Gemini' or 'launch Claude Code'. Use terminal_profiles_list → terminal_profiles_set_config → terminal_create with profileId.",
+      tools: "terminal-profiles",
+    },
+    crew: {
+      description: "A named grouping of minions within a project (organizational unit)",
+      scopedBy: "crewId",
+      parentTools: "project (createCrew, updateCrew, deleteCrew, listCrews)",
+    },
+  },
+
+  scopeGuide: {
+    global: "Server-wide: config, providers, analytics, mcp-management, oauth, terminal-profiles, sync, discovery, general, tokenizer",
+    projectScoped: "Require projectPath: project, secrets, scheduler, inbox",
+    minionScoped: "Require minionId: minion, terminal, kanban, tasks",
+    agents: "Agent definitions are global but skill execution is project-scoped",
+  },
+
+  commonMistakes: [
+    {
+      mistake: "Building a CLI from scratch when user says 'run Gemini' or 'launch Claude Code'",
+      fix: "Use the built-in terminal profiles: terminal_profiles_list → terminal_profiles_set_config (enable) → terminal_create with profileId",
+    },
+    {
+      mistake: "Calling minion tools without a minionId",
+      fix: "First create a minion (create_minion) or list existing ones (list_minions) to get a minionId",
+    },
+    {
+      mistake: "Searching for tools by guessing names",
+      fix: "Use list_tool_categories first, then search_tools({ category: '...' }) or search_tools({ query: '...' })",
+    },
+    {
+      mistake: "Trying to get real-time terminal output via MCP",
+      fix: "MCP is request/response only. Use send_message with bash tool calls for command execution with output capture. Terminal output requires WebSocket subscriptions.",
+    },
+  ],
+
+  toolDiscoveryGuide:
+    "1. Call list_tool_categories to see all 19+ categories with descriptions and tool counts. " +
+    "2. Call search_tools({ category: 'minion' }) to list all tools in a category. " +
+    "3. Call search_tools({ query: 'terminal profile' }) to search by keyword. " +
+    "4. Use detail='full' for complete descriptions, 'names' for minimal token usage.",
+};
+
 export function registerResources(
   server: McpServer,
   client: RouterClient<AppRouter>
 ): void {
+  // ── Static: Orientation (hierarchy + mental model) ─────────────────────
+  server.resource(
+    "orientation",
+    "lattice://orientation",
+    {
+      description:
+        "Lattice mental model: entity hierarchy, scoping rules, common mistakes, " +
+        "and tool discovery guide. Read this FIRST to understand how Lattice works.",
+      mimeType: "application/json",
+    },
+    async () => ({
+      contents: [{
+        uri: "lattice://orientation",
+        mimeType: "application/json",
+        text: JSON.stringify(ORIENTATION, null, 2),
+      }],
+    })
+  );
   // ── Static: Projects list ──────────────────────────────────────────────
   server.resource(
     "projects",
