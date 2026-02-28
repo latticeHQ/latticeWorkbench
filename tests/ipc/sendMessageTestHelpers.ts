@@ -20,7 +20,7 @@ import {
   INIT_HOOK_WAIT_MS,
 } from "./helpers";
 import { detectDefaultTrunkBranch } from "../../src/node/git";
-import type { FrontendWorkspaceMetadata } from "../../src/common/types/workspace";
+import type { FrontendMinionMetadata } from "../../src/common/types/minion";
 import { getApiKey } from "../testUtils";
 
 // Shared test environment and git repo
@@ -76,8 +76,8 @@ export function getSharedRepoPath(): string {
 
 interface SharedWorkspaceContext {
   env: TestEnvironment;
-  workspaceId: string;
-  metadata: FrontendWorkspaceMetadata;
+  minionId: string;
+  metadata: FrontendMinionMetadata;
   collector: ReturnType<typeof createStreamCollector>;
 }
 
@@ -100,7 +100,7 @@ export async function withSharedWorkspace(
   const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
   // Create workspace
-  const result = await env.orpc.workspace.create({
+  const result = await env.orpc.minion.create({
     projectPath,
     branchName,
     trunkBranch,
@@ -111,7 +111,7 @@ export async function withSharedWorkspace(
   }
 
   const metadata = result.metadata;
-  const workspaceId = metadata.id;
+  const minionId = metadata.id;
 
   // Setup provider with API key
   const apiKey = getApiKey(provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY");
@@ -120,7 +120,7 @@ export async function withSharedWorkspace(
   });
 
   // Create stream collector
-  const collector = createStreamCollector(env.orpc, workspaceId);
+  const collector = createStreamCollector(env.orpc, minionId);
   collector.start();
 
   // Wait for subscription to be ready
@@ -134,7 +134,7 @@ export async function withSharedWorkspace(
   }
 
   try {
-    await testFn({ env, workspaceId, metadata, collector });
+    await testFn({ env, minionId, metadata, collector });
   } finally {
     const stopPromise = collector.waitForStop().catch((error) => {
       console.warn("Failed to stop StreamCollector during test cleanup:", error);
@@ -151,8 +151,8 @@ export async function withSharedWorkspace(
 
     // Cleanup workspace (force=true to avoid worktree removal hangs from lingering processes)
     try {
-      const removeResult = await env.orpc.workspace.remove({
-        workspaceId,
+      const removeResult = await env.orpc.minion.remove({
+        minionId,
         options: { force: true },
       });
       if (!removeResult.success) {
@@ -181,7 +181,7 @@ export async function withSharedWorkspaceNoProvider(
   const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
   // Create workspace WITHOUT setting up any providers
-  const result = await env.orpc.workspace.create({
+  const result = await env.orpc.minion.create({
     projectPath,
     branchName,
     trunkBranch,
@@ -192,17 +192,17 @@ export async function withSharedWorkspaceNoProvider(
   }
 
   const metadata = result.metadata;
-  const workspaceId = metadata.id;
+  const minionId = metadata.id;
 
   // Set up event collector
-  const collector = createStreamCollector(env.orpc, workspaceId);
+  const collector = createStreamCollector(env.orpc, minionId);
   collector.start();
 
   // Wait for subscription to be ready
   await collector.waitForSubscription();
 
   try {
-    await testFn({ env, workspaceId, metadata, collector });
+    await testFn({ env, minionId, metadata, collector });
   } finally {
     const stopPromise = collector.waitForStop().catch((error) => {
       console.warn("Failed to stop StreamCollector during test cleanup:", error);
@@ -219,8 +219,8 @@ export async function withSharedWorkspaceNoProvider(
 
     // Cleanup workspace (force=true to avoid worktree removal hangs from lingering processes)
     try {
-      const removeResult = await env.orpc.workspace.remove({
-        workspaceId,
+      const removeResult = await env.orpc.minion.remove({
+        minionId,
         options: { force: true },
       });
       if (!removeResult.success) {

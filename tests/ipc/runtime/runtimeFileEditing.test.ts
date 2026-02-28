@@ -132,7 +132,7 @@ describeIntegration("Runtime File Editing Tools", () => {
             // Create workspace
             const branchName = generateBranchName("read-test");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -148,7 +148,7 @@ describeIntegration("Runtime File Editing Tools", () => {
                 type === "ssh" ? STREAM_TIMEOUT_SSH_MS : STREAM_TIMEOUT_LOCAL_MS;
               const createEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Create a file called ${testFileName} with the content: "Hello from lattice file tools!"`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -165,7 +165,7 @@ describeIntegration("Runtime File Editing Tools", () => {
               // Now ask AI to read the file (explicitly request file_read tool)
               const readEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Use the file_read tool to read ${testFileName} and tell me what it contains.`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -215,7 +215,7 @@ describeIntegration("Runtime File Editing Tools", () => {
             // Create workspace
             const branchName = generateBranchName("replace-test");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -231,7 +231,7 @@ describeIntegration("Runtime File Editing Tools", () => {
                 type === "ssh" ? STREAM_TIMEOUT_SSH_MS : STREAM_TIMEOUT_LOCAL_MS;
               const createEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Create a file called ${testFileName} with the content: "The quick brown fox jumps over the lazy dog."`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -248,7 +248,7 @@ describeIntegration("Runtime File Editing Tools", () => {
               // Ask AI to replace text (explicitly request file_edit_replace_string tool)
               const replaceEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Use the file_edit_replace_string tool to replace "brown fox" with "red panda" in ${testFileName}.`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -304,7 +304,7 @@ describeIntegration("Runtime File Editing Tools", () => {
             // Create workspace
             const branchName = generateBranchName("insert-test");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -320,7 +320,7 @@ describeIntegration("Runtime File Editing Tools", () => {
                 type === "ssh" ? STREAM_TIMEOUT_SSH_MS : STREAM_TIMEOUT_LOCAL_MS;
               const createEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Create a file called ${testFileName} with two lines: "Line 1" and "Line 3".`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -337,7 +337,7 @@ describeIntegration("Runtime File Editing Tools", () => {
               // Ask AI to insert text (explicitly request file_edit tool usage)
               const insertEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Use the file_edit_insert (preferred) or file_edit_replace_string tool to insert "Line 2" between Line 1 and Line 3 in ${testFileName}.`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -394,7 +394,7 @@ describeIntegration("Runtime File Editing Tools", () => {
             // Create workspace
             const branchName = generateBranchName("relative-path-test");
             const runtimeConfig = getRuntimeConfig(branchName);
-            const { workspaceId, cleanup } = await createWorkspaceWithInit(
+            const { minionId, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -411,7 +411,7 @@ describeIntegration("Runtime File Editing Tools", () => {
               const relativeTestFile = "subdir/relative_test.txt";
               const createEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Create a file at path "${relativeTestFile}" with content: "Original content"`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -428,7 +428,7 @@ describeIntegration("Runtime File Editing Tools", () => {
               // Now edit the file using a relative path
               const editEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Replace the text in ${relativeTestFile}: change "Original" to "Modified"`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,
@@ -452,7 +452,7 @@ describeIntegration("Runtime File Editing Tools", () => {
               // Read the file to verify the edit was applied
               const readEvents = await sendMessageAndWait(
                 env,
-                workspaceId,
+                minionId,
                 `Read the file ${relativeTestFile} and tell me its content`,
                 HAIKU_MODEL,
                 FILE_TOOLS_ONLY,

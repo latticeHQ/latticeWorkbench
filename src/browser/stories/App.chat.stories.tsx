@@ -1035,11 +1035,10 @@ export const ModelSelectorDropdownOpen: AppStory = {
           minionId,
           messages: [],
           providersConfig: {
-            openai: { apiKeySet: true, isEnabled: true, couponCodeSet: false, isConfigured: true },
+            openai: { apiKeySet: true, isEnabled: true, isConfigured: true },
             anthropic: {
               apiKeySet: true,
               isEnabled: true,
-              couponCodeSet: false,
               isConfigured: true,
             },
           },

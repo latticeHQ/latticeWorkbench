@@ -33,7 +33,7 @@ import {
 } from "../../runtime/test-fixtures/ssh-fixture";
 import type { RuntimeConfig } from "../../../src/common/types/runtime";
 import { getSrcBaseDir } from "../../../src/common/types/runtime";
-import type { FrontendWorkspaceMetadata } from "../../../src/common/types/workspace";
+import type { FrontendMinionMetadata } from "../../../src/common/types/minion";
 import { createRuntime } from "../../../src/node/runtime/runtimeFactory";
 import type { SSHRuntime } from "../../../src/node/runtime/SSHRuntime";
 import { streamToString } from "../../../src/node/runtime/streamUtils";
@@ -44,13 +44,13 @@ const execAsync = promisify(exec);
 
 // Test constants
 const TEST_TIMEOUT_MS = 60000;
-type ExecuteBashResult = Awaited<ReturnType<OrpcTestClient["workspace"]["executeBash"]>>;
+type ExecuteBashResult = Awaited<ReturnType<OrpcTestClient["minion"]["executeBash"]>>;
 
 function expectExecuteBashSuccess(result: ExecuteBashResult, context: string) {
   expect(result.success).toBe(true);
   if (!result.success || !result.data) {
     const errorMessage = "error" in result ? result.error : "unknown error";
-    throw new Error(`workspace.executeBash failed (${context}): ${errorMessage}`);
+    throw new Error(`minion.executeBash failed (${context}): ${errorMessage}`);
   }
   return result.data;
 }
@@ -75,7 +75,7 @@ let sshConfig: SSHServerConfig | undefined;
 
 /**
  * Filter events by type.
- * Works with WorkspaceChatMessage events from StreamCollector.
+ * Works with MinionChatMessage events from StreamCollector.
  */
 function filterEventsByType<T>(events: T[], eventType: string): T[] {
   return events.filter((e) => {
@@ -90,8 +90,8 @@ function filterEventsByType<T>(events: T[], eventType: string): T[] {
  * Set up init event capture using StreamCollector.
  * Init events are captured via ORPC subscription.
  */
-async function setupInitEventCapture(env: TestEnvironment, workspaceId: string) {
-  const collector = createStreamCollector(env.orpc, workspaceId);
+async function setupInitEventCapture(env: TestEnvironment, minionId: string) {
+  const collector = createStreamCollector(env.orpc, minionId);
   collector.start();
   return collector;
 }
@@ -127,11 +127,11 @@ async function createWorkspaceWithCleanup(
   runtimeConfig?: RuntimeConfig
 ): Promise<{
   result:
-    | { success: true; metadata: FrontendWorkspaceMetadata }
+    | { success: true; metadata: FrontendMinionMetadata }
     | { success: false; error: string };
   cleanup: () => Promise<void>;
 }> {
-  const result = await env.orpc.workspace.create({
+  const result = await env.orpc.minion.create({
     projectPath,
     branchName,
     trunkBranch,
@@ -140,12 +140,12 @@ async function createWorkspaceWithCleanup(
   console.log("Create invoked, success:", result.success);
 
   // Note: Events are forwarded via test setup wiring in setup.ts:
-  // workspaceService.on("chat") -> windowService.send() -> webContents.send()
+  // minionService.on("chat") -> windowService.send() -> webContents.send()
   // No need for additional ORPC subscription pipe here.
 
   const cleanup = async () => {
     if (result.success) {
-      await env.orpc.workspace.remove({ workspaceId: result.metadata.id });
+      await env.orpc.minion.remove({ minionId: result.metadata.id });
     }
   };
 
@@ -234,7 +234,7 @@ describeIntegration("WORKSPACE_CREATE with both runtimes", () => {
 
               // Verify workspace metadata
               expect(result.metadata.id).toBeDefined();
-              expect(result.metadata.namedWorkspacePath).toBeDefined();
+              expect(result.metadata.namedMinionPath).toBeDefined();
               expect(result.metadata.projectName).toBeDefined();
 
               await cleanup();
@@ -335,8 +335,8 @@ describeIntegration("WORKSPACE_CREATE with both runtimes", () => {
               // Use WORKSPACE_EXECUTE_BASH to check files (works for both local and SSH runtimes)
 
               // Check that trunk-file.txt exists (from custom-trunk)
-              const checkTrunkFileResult = await env.orpc.workspace.executeBash({
-                workspaceId: result.metadata.id,
+              const checkTrunkFileResult = await env.orpc.minion.executeBash({
+                minionId: result.metadata.id,
                 script: `test -f trunk-file.txt && echo "exists" || echo "missing"`,
               });
               const trunkFileData = expectExecuteBashSuccess(
@@ -346,8 +346,8 @@ describeIntegration("WORKSPACE_CREATE with both runtimes", () => {
               expect((trunkFileData.output ?? "").trim()).toBe("exists");
 
               // Check that other-file.txt does NOT exist (from other-branch)
-              const checkOtherFileResult = await env.orpc.workspace.executeBash({
-                workspaceId: result.metadata.id,
+              const checkOtherFileResult = await env.orpc.minion.executeBash({
+                minionId: result.metadata.id,
                 script: `test -f other-file.txt && echo "exists" || echo "missing"`,
               });
               const otherFileData = expectExecuteBashSuccess(
@@ -357,8 +357,8 @@ describeIntegration("WORKSPACE_CREATE with both runtimes", () => {
               expect((otherFileData.output ?? "").trim()).toBe("missing");
 
               // Verify git log shows the custom trunk commit
-              const gitLogResult = await env.orpc.workspace.executeBash({
-                workspaceId: result.metadata.id,
+              const gitLogResult = await env.orpc.minion.executeBash({
+                minionId: result.metadata.id,
                 script: `git log --oneline --all`,
               });
               const gitLogData = expectExecuteBashSuccess(gitLogResult, "custom trunk: git log");
@@ -414,8 +414,8 @@ exit 0
 
               // Capture init events - subscription starts after workspace created
               // Init hook runs async, so events still streaming
-              const workspaceId = result.metadata.id;
-              const collector = await setupInitEventCapture(env, workspaceId);
+              const minionId = result.metadata.id;
+              const collector = await setupInitEventCapture(env, minionId);
               try {
                 // Wait for init hook to complete
                 await collector.waitForEvent("init-end", getInitWaitTime());
@@ -482,8 +482,8 @@ exit 1
               }
 
               // Capture init events - subscription starts after workspace created
-              const workspaceId = result.metadata.id;
-              const collector = await setupInitEventCapture(env, workspaceId);
+              const minionId = result.metadata.id;
+              const collector = await setupInitEventCapture(env, minionId);
               try {
                 // Wait for init hook to complete
                 await collector.waitForEvent("init-end", getInitWaitTime());
@@ -572,8 +572,8 @@ exit 1
                 }
 
                 // Capture init events - subscription starts after workspace created
-                const workspaceId = result.metadata.id;
-                const collector = await setupInitEventCapture(env, workspaceId);
+                const minionId = result.metadata.id;
+                const collector = await setupInitEventCapture(env, minionId);
                 try {
                   // Wait for init to complete (includes sync + checkout)
                   await collector.waitForEvent("init-end", getInitWaitTime());
@@ -664,9 +664,9 @@ exit 1
 
                 // Verify the stored runtimeConfig has resolved path (not tilde)
                 const projectsConfig = env.config.loadConfigOrDefault();
-                const projectWorkspaces =
-                  projectsConfig.projects.get(tempGitRepo)?.workspaces ?? [];
-                const workspace = projectWorkspaces.find((w) => w.name === branchName);
+                const projectMinions =
+                  projectsConfig.projects.get(tempGitRepo)?.minions ?? [];
+                const workspace = projectMinions.find((w) => w.name === branchName);
 
                 expect(workspace).toBeDefined();
                 const srcBaseDir = getSrcBaseDir(workspace?.runtimeConfig);
@@ -722,9 +722,9 @@ exit 1
 
                 // Verify the stored runtimeConfig has resolved path (not tilde)
                 const projectsConfig = env.config.loadConfigOrDefault();
-                const projectWorkspaces =
-                  projectsConfig.projects.get(tempGitRepo)?.workspaces ?? [];
-                const workspace = projectWorkspaces.find((w) => w.name === branchName);
+                const projectMinions =
+                  projectsConfig.projects.get(tempGitRepo)?.minions ?? [];
+                const workspace = projectMinions.find((w) => w.name === branchName);
 
                 expect(workspace).toBeDefined();
                 const srcBaseDir = getSrcBaseDir(workspace?.runtimeConfig);
@@ -769,9 +769,9 @@ exit 1
                 await new Promise((resolve) => setTimeout(resolve, getInitWaitTime()));
 
                 // Try to execute a command in the workspace
-                const workspaceId = result.metadata.id;
-                const execResult = await env.orpc.workspace.executeBash({
-                  workspaceId,
+                const minionId = result.metadata.id;
+                const execResult = await env.orpc.minion.executeBash({
+                  minionId,
                   script: "pwd",
                 });
 
@@ -891,7 +891,7 @@ exit 1
 
             // Create runtime to check remote on SSH host
             const runtime = createRuntime(runtimeConfig);
-            const workspacePath = runtime.getWorkspacePath(tempGitRepo, branchName);
+            const workspacePath = runtime.getMinionPath(tempGitRepo, branchName);
 
             // Check that origin remote exists and points to the original URL, not the bundle
             const checkOriginCmd = `git -C ${workspacePath} remote get-url origin`;

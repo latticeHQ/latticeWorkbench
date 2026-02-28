@@ -95,7 +95,7 @@ import type { OrpcTestClient } from "../orpcTestClient";
  * Uses StreamCollector for ORPC-native event handling
  */
 async function resumeAndWaitForSuccess(
-  workspaceId: string,
+  minionId: string,
   client: OrpcTestClient,
   model: string,
   timeoutMs = 15000,
@@ -103,12 +103,12 @@ async function resumeAndWaitForSuccess(
     toolPolicy?: Array<{ regex_match: string; action: "enable" | "disable" | "require" }>;
   }
 ): Promise<void> {
-  const collector = createStreamCollector(client, workspaceId);
+  const collector = createStreamCollector(client, minionId);
   collector.start();
 
   try {
-    const resumeResult = await client.workspace.resumeStream({
-      workspaceId,
+    const resumeResult = await client.minion.resumeStream({
+      minionId,
       options: { model, agentId: "exec", toolPolicy: options?.toolPolicy },
     });
 
@@ -203,7 +203,7 @@ describeIntegration("Stream Error Recovery (No Amnesia)", () => {
   test.concurrent(
     "should preserve exact prefix and continue from exact point after stream error",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace(PROVIDER);
+      const { env, minionId, cleanup } = await setupWorkspace(PROVIDER);
       try {
         // Generate unique nonce for this test run
         const nonce = generateNonce();
@@ -223,12 +223,12 @@ Continue this pattern all the way to 100. Use only single-word number names (six
 IMPORTANT: Do not add any other text. Start immediately with ${nonce}-1: one. If interrupted, resume from where you stopped without repeating any lines.`;
 
         // Start collector before sending message
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
 
         const sendResult = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           prompt,
           modelString(PROVIDER, MODEL),
           { toolPolicy: [{ regex_match: ".*", action: "disable" }] }
@@ -252,7 +252,7 @@ IMPORTANT: Do not add any other text. Start immediately with ${nonce}-1: one. If
         // Trigger error mid-stream via ORPC debug endpoint
         const client = resolveOrpcClient(env);
         const triggered = await client.debug.triggerStreamError({
-          workspaceId,
+          minionId,
           errorMessage: "Test-triggered stream error for recovery test",
         });
         expect(triggered).toBe(true);
@@ -262,7 +262,7 @@ IMPORTANT: Do not add any other text. Start immediately with ${nonce}-1: one. If
 
         // Resume and wait for completion
         // Disable all tools (same as original message) so model outputs text, not tool calls
-        await resumeAndWaitForSuccess(workspaceId, client, `${PROVIDER}:${MODEL}`, 15000, {
+        await resumeAndWaitForSuccess(minionId, client, `${PROVIDER}:${MODEL}`, 15000, {
           toolPolicy: [{ regex_match: ".*", action: "disable" }],
         });
 
@@ -271,7 +271,7 @@ IMPORTANT: Do not add any other text. Start immediately with ${nonce}-1: one. If
         await new Promise((resolve) => setTimeout(resolve, 500));
 
         // Read final assistant message from history
-        const history = await readChatHistory(env.tempDir, workspaceId);
+        const history = await readChatHistory(env.tempDir, minionId);
         const assistantMessages = history.filter((m) => m.role === "assistant");
 
         const finalText = assistantMessages

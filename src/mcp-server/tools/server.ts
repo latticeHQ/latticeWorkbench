@@ -417,7 +417,7 @@ export function registerServerTools(
       })
   );
 
-  // ── UI Layouts (read-only) ─────────────────────────────────────────────
+  // ── UI Layouts ─────────────────────────────────────────────────────────
   server.tool(
     "get_ui_layouts",
     "Get all saved panel layout presets configuration.",
@@ -426,6 +426,78 @@ export function registerServerTools(
       withErrorHandling(async () => {
         const layouts = await client.uiLayouts.getAll();
         return { content: [jsonContent(layouts)] };
+      })
+  );
+
+  server.tool(
+    "save_ui_layouts",
+    "Save all panel layout presets configuration.",
+    {
+      layouts: z.unknown().describe("The complete layouts configuration object to save"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.uiLayouts.saveAll(
+          params.layouts as Parameters<typeof client.uiLayouts.saveAll>[0]
+        );
+        return { content: [jsonContent({ message: "UI layouts saved", ...(result as unknown as Record<string, unknown>) })] };
+      })
+  );
+
+  // ── Lattice identity ──────────────────────────────────────────────────
+  server.tool(
+    "lattice_whoami",
+    "Get the currently authenticated Lattice identity (user info, org, role).",
+    {},
+    () =>
+      withErrorHandling(async () => {
+        const identity = await client.lattice.whoami();
+        return { content: [jsonContent(identity)] };
+      })
+  );
+
+  server.tool(
+    "lattice_login",
+    "Log in to the Lattice service. Provide the deployment URL and session token.",
+    {
+      url: z.string().describe("Lattice deployment URL"),
+      sessionToken: z.string().describe("Session token for authentication"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.lattice.login({
+          url: params.url,
+          sessionToken: params.sessionToken,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Telemetry control ─────────────────────────────────────────────────
+  server.tool(
+    "set_telemetry_enabled",
+    "Enable or disable telemetry data collection.",
+    {
+      enabled: z.boolean().describe("Whether to enable telemetry"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.telemetry.setEnabled({
+          enabled: params.enabled,
+        } as Parameters<typeof client.telemetry.setEnabled>[0]);
+        return { content: [jsonContent({ message: `Telemetry ${params.enabled ? "enabled" : "disabled"}`, ...(result as unknown as Record<string, unknown>) })] };
+      })
+  );
+
+  // ── Inference status ──────────────────────────────────────────────────
+  server.tool(
+    "get_inference_status",
+    "Get the current status of the inference engine (model loading, availability, errors).",
+    {},
+    () =>
+      withErrorHandling(async () => {
+        const status = await client.inference.getStatus();
+        return { content: [jsonContent(status)] };
       })
   );
 }

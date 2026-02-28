@@ -25,7 +25,7 @@ import {
   configureTestRetries,
   HAIKU_MODEL,
 } from "../helpers";
-import type { WorkspaceChatMessage } from "../../../src/common/orpc/types";
+import type { MinionChatMessage } from "../../../src/common/orpc/types";
 import type { ToolPolicy } from "../../../src/common/utils/tools/toolPolicy";
 
 // Tool policies: Keep each step pinned to a single tool to avoid the LLM
@@ -51,7 +51,7 @@ const BACKGROUND_TEST_TIMEOUT_MS = 75000;
 /**
  * Extract a bash taskId (e.g. "bash:<processId>") from bash(run_in_background=true) results.
  */
-function extractBashTaskId(events: WorkspaceChatMessage[]): string | null {
+function extractBashTaskId(events: MinionChatMessage[]): string | null {
   for (const event of events) {
     if (!("type" in event) || event.type !== "tool-call-end") continue;
     if (!("toolName" in event) || event.toolName !== "bash") continue;
@@ -68,7 +68,7 @@ function extractBashTaskId(events: WorkspaceChatMessage[]): string | null {
 /**
  * Collect output strings from task_await tool results.
  */
-function collectTaskAwaitOutputs(events: WorkspaceChatMessage[]): string {
+function collectTaskAwaitOutputs(events: MinionChatMessage[]): string {
   const outputs: string[] = [];
 
   for (const event of events) {
@@ -98,7 +98,7 @@ function collectTaskAwaitOutputs(events: WorkspaceChatMessage[]): string {
 /**
  * Extract terminated task ids from a task_terminate tool result.
  */
-function extractTerminatedTaskIds(events: WorkspaceChatMessage[]): string[] {
+function extractTerminatedTaskIds(events: MinionChatMessage[]): string[] {
   for (const event of events) {
     if (!("type" in event) || event.type !== "tool-call-end") continue;
     if (!("toolName" in event) || event.toolName !== "task_terminate") continue;
@@ -151,7 +151,7 @@ describeIntegration("Background Bash Execution", () => {
 
         // Create workspace
         const branchName = generateBranchName("bg-basic");
-        const { workspaceId, cleanup } = await createWorkspaceWithInit(
+        const { minionId, cleanup } = await createWorkspaceWithInit(
           env,
           tempGitRepo,
           branchName,
@@ -163,7 +163,7 @@ describeIntegration("Background Bash Execution", () => {
           // Start a background bash process via bash(run_in_background=true)
           const startEvents = await sendMessageAndWait(
             env,
-            workspaceId,
+            minionId,
             'Use the bash tool with args: { script: "true && sleep 30", timeout_secs: 60, run_in_background: true, display_name: "bg-basic" }. Do not spawn a sub-agent.',
             HAIKU_MODEL,
             BASH_ONLY,
@@ -181,7 +181,7 @@ describeIntegration("Background Bash Execution", () => {
           // Clean up: terminate the background process
           const terminateEvents = await sendMessageAndWait(
             env,
-            workspaceId,
+            minionId,
             `Use task_terminate with task_ids: ["${taskId}"] to terminate the task.`,
             HAIKU_MODEL,
             TASK_TERMINATE_ONLY,
@@ -216,7 +216,7 @@ describeIntegration("Background Bash Execution", () => {
 
         // Create workspace
         const branchName = generateBranchName("bg-terminate");
-        const { workspaceId, cleanup } = await createWorkspaceWithInit(
+        const { minionId, cleanup } = await createWorkspaceWithInit(
           env,
           tempGitRepo,
           branchName,
@@ -228,7 +228,7 @@ describeIntegration("Background Bash Execution", () => {
           // Start a long-running background bash task
           const startEvents = await sendMessageAndWait(
             env,
-            workspaceId,
+            minionId,
             'Use the bash tool with args: { script: "true && sleep 300", timeout_secs: 600, run_in_background: true, display_name: "bg-terminate" }. Do not spawn a sub-agent.',
             HAIKU_MODEL,
             BASH_ONLY,
@@ -241,7 +241,7 @@ describeIntegration("Background Bash Execution", () => {
           // Terminate the task
           const terminateEvents = await sendMessageAndWait(
             env,
-            workspaceId,
+            minionId,
             `Use task_terminate with task_ids: ["${taskId}"] to terminate the task.`,
             HAIKU_MODEL,
             TASK_TERMINATE_ONLY,
@@ -281,7 +281,7 @@ describeIntegration("Background Bash Execution", () => {
 
         // Create workspace
         const branchName = generateBranchName("bg-output");
-        const { workspaceId, cleanup } = await createWorkspaceWithInit(
+        const { minionId, cleanup } = await createWorkspaceWithInit(
           env,
           tempGitRepo,
           branchName,
@@ -294,7 +294,7 @@ describeIntegration("Background Bash Execution", () => {
           const marker = `BGTEST_${Date.now()}_${Math.random().toString(36).slice(2)}`;
           const startEvents = await sendMessageAndWait(
             env,
-            workspaceId,
+            minionId,
             `Use the bash tool with args: { script: "echo \"${marker}\" && sleep 1", timeout_secs: 30, run_in_background: true, display_name: "bg-output" }. Do not spawn a sub-agent.`,
             HAIKU_MODEL,
             BASH_ONLY,
@@ -307,7 +307,7 @@ describeIntegration("Background Bash Execution", () => {
           // Wait for the process to complete and retrieve its output
           const awaitEvents = await sendMessageAndWait(
             env,
-            workspaceId,
+            minionId,
             `Use task_await with task_ids: ["${taskId}"] and timeout_secs: 10 to retrieve output.`,
             HAIKU_MODEL,
             TASK_AWAIT_ONLY,

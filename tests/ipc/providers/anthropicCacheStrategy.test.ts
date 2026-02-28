@@ -16,7 +16,7 @@ describeIntegration("Anthropic cache strategy integration", () => {
   test(
     "should apply cache control to messages, system prompt, and tools for Anthropic models",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
 
       try {
         const model = "anthropic:claude-haiku-4-5";
@@ -24,11 +24,11 @@ describeIntegration("Anthropic cache strategy integration", () => {
         // Send an initial message to establish conversation history
         const firstMessage = "Hello, can you help me with a coding task?";
 
-        const firstCollector = createStreamCollector(env.orpc, workspaceId);
+        const firstCollector = createStreamCollector(env.orpc, minionId);
         firstCollector.start();
         await firstCollector.waitForSubscription();
 
-        await sendMessageWithModel(env, workspaceId, firstMessage, model, {
+        await sendMessageWithModel(env, minionId, firstMessage, model, {
           additionalSystemInstructions: "Be concise and clear in your responses.",
           thinkingLevel: "off",
         });
@@ -39,11 +39,11 @@ describeIntegration("Anthropic cache strategy integration", () => {
         // Send a second message to test cache reuse
         const secondMessage = "What's the best way to handle errors in TypeScript?";
 
-        const secondCollector = createStreamCollector(env.orpc, workspaceId);
+        const secondCollector = createStreamCollector(env.orpc, minionId);
         secondCollector.start();
         await secondCollector.waitForSubscription();
 
-        await sendMessageWithModel(env, workspaceId, secondMessage, model, {
+        await sendMessageWithModel(env, minionId, secondMessage, model, {
           additionalSystemInstructions: "Be concise and clear in your responses.",
           thinkingLevel: "off",
         });

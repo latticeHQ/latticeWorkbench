@@ -22,7 +22,7 @@ describeIntegration("empty assistant message self-healing", () => {
   test.concurrent(
     "should handle corrupted history with empty assistant parts array",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         const historyService = new HistoryService(env.config);
 
@@ -51,7 +51,7 @@ describeIntegration("empty assistant message self-healing", () => {
 
         // Write corrupted history directly
         for (const msg of messages) {
-          const result = await historyService.appendToHistory(workspaceId, msg as any);
+          const result = await historyService.appendToHistory(minionId, msg as any);
           if (!result.success) {
             throw new Error(`Failed to seed history: ${result.error}`);
           }
@@ -59,12 +59,12 @@ describeIntegration("empty assistant message self-healing", () => {
 
         // Now try to send a new message - this should NOT fail with
         // "all messages must have non-empty content"
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
 
         const sendResult = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "This should work despite corrupted history",
           HAIKU_MODEL
         );
@@ -87,7 +87,7 @@ describeIntegration("empty assistant message self-healing", () => {
   test.concurrent(
     "should handle corrupted history with incomplete tool-only assistant message",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         const historyService = new HistoryService(env.config);
 
@@ -119,19 +119,19 @@ describeIntegration("empty assistant message self-healing", () => {
 
         // Write corrupted history directly
         for (const msg of messages) {
-          const result = await historyService.appendToHistory(workspaceId, msg as any);
+          const result = await historyService.appendToHistory(minionId, msg as any);
           if (!result.success) {
             throw new Error(`Failed to seed history: ${result.error}`);
           }
         }
 
         // Now try to send a new message
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
 
         const sendResult = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "This should work despite corrupted tool history",
           HAIKU_MODEL
         );

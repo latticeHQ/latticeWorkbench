@@ -23,10 +23,10 @@ import assert from "node:assert";
 /** Collect all messages via iterateFullHistory (replaces removed getFullHistory). */
 async function collectFullHistory(
   service: HistoryService,
-  workspaceId: string
+  minionId: string
 ): Promise<LatticeMessage[]> {
   const messages: LatticeMessage[] = [];
-  const result = await service.iterateFullHistory(workspaceId, "forward", (chunk) => {
+  const result = await service.iterateFullHistory(minionId, "forward", (chunk) => {
     messages.push(...chunk);
   });
   assert(result.success, `collectFullHistory failed: ${result.success ? "" : result.error}`);
@@ -81,11 +81,11 @@ describeIntegration("sendMessage image handling tests", () => {
         // Skip Anthropic for now as it fails to process the image data URI in tests
         if (provider === "anthropic") return;
 
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           // Send message with image attachment
           const result = await sendMessage(
             env,
-            workspaceId,
+            minionId,
             "This is a small solid-color image. What color is it? Answer with just the color name.",
             {
               model: modelString(provider, model),
@@ -127,9 +127,9 @@ describeIntegration("sendMessage image handling tests", () => {
         // Skip Anthropic for now
         if (provider === "anthropic") return;
 
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           // Send message with multiple image attachments
-          const result = await sendMessage(env, workspaceId, "What colors are these two images?", {
+          const result = await sendMessage(env, minionId, "What colors are these two images?", {
             model: modelString(provider, model),
             fileParts: [RED_PIXEL, BLUE_PIXEL],
           });
@@ -165,9 +165,9 @@ describeIntegration("sendMessage image handling tests", () => {
     test.concurrent(
       "should maintain image context across messages",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           // Send first message with image
-          const result1 = await sendMessage(env, workspaceId, "Remember this image", {
+          const result1 = await sendMessage(env, minionId, "Remember this image", {
             model: modelString("openai", OPENAI_VISION_MODEL),
             fileParts: [RED_PIXEL],
           });
@@ -183,7 +183,7 @@ describeIntegration("sendMessage image handling tests", () => {
           // Send follow-up asking about the image
           const result2 = await sendMessage(
             env,
-            workspaceId,
+            minionId,
             "What color was the image I showed you?",
             {
               model: modelString("openai", OPENAI_VISION_MODEL),
@@ -197,7 +197,7 @@ describeIntegration("sendMessage image handling tests", () => {
           // focuses on verifying that Lattice *persists* image parts and does not lose them across
           // messages in the same workspace.
           const historyService = new HistoryService(env.config);
-          const messages = await collectFullHistory(historyService, workspaceId);
+          const messages = await collectFullHistory(historyService, minionId);
 
           const imageMsg = messages.find(
             (msg: LatticeMessage) =>

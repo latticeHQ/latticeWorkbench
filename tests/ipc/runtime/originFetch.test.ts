@@ -164,7 +164,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           const branchName = generateBranchName("origin-fetch-test");
 
           // Create workspace with new branch
-          const result = await env.orpc.workspace.create({
+          const result = await env.orpc.minion.create({
             projectPath: repoPath,
             branchName,
             trunkBranch,
@@ -175,11 +175,11 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
             throw new Error(`Failed to create workspace: ${result.error}`);
           }
 
-          const workspaceId = result.metadata.id;
+          const minionId = result.metadata.id;
 
           // Execute git command in workspace to check if origin commit is present
-          const execResult = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const execResult = await env.orpc.minion.executeBash({
+            minionId,
             script: `git log --oneline | head -5`,
           });
 
@@ -196,8 +196,8 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           expect(gitLog).toContain(shortHash);
 
           // Also verify the marker file exists
-          const fileCheck = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const fileCheck = await env.orpc.minion.executeBash({
+            minionId,
             script: `cat origin-only.txt`,
           });
 
@@ -207,7 +207,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           }
 
           // Cleanup workspace
-          await env.orpc.workspace.remove({ workspaceId });
+          await env.orpc.minion.remove({ minionId });
         } finally {
           await cleanupTestEnvironment(env);
           await cleanupTestRepos(repoPath, originPath);
@@ -232,7 +232,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           // The local branch exists but doesn't have the origin commit
 
           // Create workspace with the existing branch
-          const result = await env.orpc.workspace.create({
+          const result = await env.orpc.minion.create({
             projectPath: repoPath,
             branchName,
             trunkBranch,
@@ -243,11 +243,11 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
             throw new Error(`Failed to create workspace: ${result.error}`);
           }
 
-          const workspaceId = result.metadata.id;
+          const minionId = result.metadata.id;
 
           // The workspace should have fast-forwarded to include the origin commit
-          const execResult = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const execResult = await env.orpc.minion.executeBash({
+            minionId,
             script: `git log --oneline | head -5`,
           });
 
@@ -263,7 +263,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           expect(gitLog).toContain(shortHash);
 
           // Cleanup workspace
-          await env.orpc.workspace.remove({ workspaceId });
+          await env.orpc.minion.remove({ minionId });
         } finally {
           await cleanupTestEnvironment(env);
           await cleanupTestRepos(repoPath, originPath);
@@ -300,7 +300,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           const branchName = generateBranchName("fallback-test");
 
           // Create workspace - should succeed despite unreachable origin
-          const result = await env.orpc.workspace.create({
+          const result = await env.orpc.minion.create({
             projectPath: repoPath,
             branchName,
             trunkBranch,
@@ -312,11 +312,11 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
             throw new Error(`Failed to create workspace: ${result.error}`);
           }
 
-          const workspaceId = result.metadata.id;
+          const minionId = result.metadata.id;
 
           // Verify the workspace is usable
-          const execResult = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const execResult = await env.orpc.minion.executeBash({
+            minionId,
             script: `cat README.md`,
           });
 
@@ -326,7 +326,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           }
 
           // Cleanup workspace
-          await env.orpc.workspace.remove({ workspaceId });
+          await env.orpc.minion.remove({ minionId });
         } finally {
           await cleanupTestEnvironment(env);
           await cleanupTempGitRepo(repoPath);
@@ -382,7 +382,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           const branchName = generateBranchName("local-ahead-test");
 
           // Create workspace - should preserve local unpushed work
-          const result = await env.orpc.workspace.create({
+          const result = await env.orpc.minion.create({
             projectPath: repoPath,
             branchName,
             trunkBranch,
@@ -393,11 +393,11 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
             throw new Error(`Failed to create workspace: ${result.error}`);
           }
 
-          const workspaceId = result.metadata.id;
+          const minionId = result.metadata.id;
 
           // Verify the workspace contains the LOCAL commit (not just origin)
-          const execResult = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const execResult = await env.orpc.minion.executeBash({
+            minionId,
             script: `git log --oneline | head -5`,
           });
 
@@ -410,8 +410,8 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           expect(execResult.data.output).toContain(localShortHash);
 
           // Also verify the local-only file exists
-          const fileCheck = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const fileCheck = await env.orpc.minion.executeBash({
+            minionId,
             script: `cat local-only.txt`,
           });
 
@@ -421,7 +421,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           }
 
           // Cleanup workspace
-          await env.orpc.workspace.remove({ workspaceId });
+          await env.orpc.minion.remove({ minionId });
         } finally {
           await cleanupTestEnvironment(env);
           await cleanupTestRepos(repoPath, originPath);
@@ -460,7 +460,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
 
           // Create workspace - origin fetch will fail (local path inaccessible from SSH),
           // but workspace should still be created from bundled local state
-          const result = await env.orpc.workspace.create({
+          const result = await env.orpc.minion.create({
             projectPath: repoPath,
             branchName,
             trunkBranch,
@@ -472,14 +472,14 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
             throw new Error(`Failed to create workspace: ${result.error}`);
           }
 
-          const workspaceId = result.metadata.id;
+          const minionId = result.metadata.id;
 
           // Wait for SSH init to complete
-          await waitForInitComplete(env, workspaceId, SSH_INIT_WAIT_MS);
+          await waitForInitComplete(env, minionId, SSH_INIT_WAIT_MS);
 
           // Verify workspace has the local state (Initial commit)
-          const execResult = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const execResult = await env.orpc.minion.executeBash({
+            minionId,
             script: `git log --oneline | head -3`,
           });
 
@@ -492,7 +492,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           expect(execResult.data.output).toContain("Initial commit");
 
           // Cleanup workspace
-          await env.orpc.workspace.remove({ workspaceId });
+          await env.orpc.minion.remove({ minionId });
         } finally {
           await cleanupTestEnvironment(env);
           await cleanupTestRepos(repoPath, originPath);
@@ -527,7 +527,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
           const branchName = generateBranchName("ssh-unreachable-origin");
           const runtimeConfig = getSSHRuntimeConfig();
 
-          const result = await env.orpc.workspace.create({
+          const result = await env.orpc.minion.create({
             projectPath: repoPath,
             branchName,
             trunkBranch,
@@ -539,13 +539,13 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
             throw new Error(`Failed to create workspace: ${result.error}`);
           }
 
-          const workspaceId = result.metadata.id;
+          const minionId = result.metadata.id;
 
           // Wait for init and verify workspace is usable
-          await waitForInitComplete(env, workspaceId, SSH_INIT_WAIT_MS);
+          await waitForInitComplete(env, minionId, SSH_INIT_WAIT_MS);
 
-          const execResult = await env.orpc.workspace.executeBash({
-            workspaceId,
+          const execResult = await env.orpc.minion.executeBash({
+            minionId,
             script: `cat README.md`,
           });
 
@@ -554,7 +554,7 @@ describeIntegration("Origin fetch ordering during workspace creation", () => {
             expect((execResult.data.output ?? "").trim()).toBe("initial");
           }
 
-          await env.orpc.workspace.remove({ workspaceId });
+          await env.orpc.minion.remove({ minionId });
         } finally {
           await cleanupTestEnvironment(env);
           await cleanupTempGitRepo(repoPath);

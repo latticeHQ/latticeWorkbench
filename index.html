@@ -63,32 +63,92 @@
         gap: 16px;
       }
 
-      /* Lattice hexagon spinner — replaces the old circular spinner */
-      .boot-loader__spinner {
-        width: 48px;
-        height: 48px;
-        animation: boot-hex-rotate 4s linear infinite;
+      /* ── Minion Eyes Awakening ─────────────────────────────── */
+
+      .boot-loader__eyes {
+        width: 160px;
+        height: 80px;
       }
 
-      .boot-loader__hex {
-        animation: boot-hex-pulse 2s ease-in-out infinite;
-        stroke-dasharray: 280;
-        stroke-dashoffset: 0;
+      .boot-loader__lid {
+        transform: translateY(-56px);
       }
 
-      .boot-loader__node {
-        animation: boot-hex-node 2s ease-in-out infinite;
-        transform-origin: 78px 78.5px;
+      .boot-loader__lid--left {
+        animation: boot-lid-life 4s ease-in-out 0.4s infinite both;
       }
 
-      .boot-loader__link {
-        animation: boot-hex-link 2s ease-in-out infinite;
+      .boot-loader__lid--right {
+        animation: boot-lid-life 4s ease-in-out 0.7s infinite both;
+      }
+
+      @keyframes boot-lid-life {
+        0%   { transform: translateY(-56px); }
+        15%  { transform: translateY(0); }
+        89%  { transform: translateY(0); }
+        93%  { transform: translateY(-56px); }
+        97%  { transform: translateY(0); }
+        100% { transform: translateY(0); }
+      }
+
+      /* Pupil idle drift */
+      .boot-loader__pupil--left {
+        animation: boot-pupil-idle 3s ease-in-out 1.3s infinite;
+      }
+
+      .boot-loader__pupil--right {
+        animation: boot-pupil-idle 3s ease-in-out 1.5s infinite;
+      }
+
+      @keyframes boot-pupil-idle {
+        0%, 100% { transform: translate(0, 0); }
+        20%      { transform: translate(2px, -1px); }
+        50%      { transform: translate(-1.5px, 1px); }
+        80%      { transform: translate(1px, -0.5px); }
+      }
+
+      /* Iris parallax drift */
+      .boot-loader__iris--left {
+        animation: boot-iris-idle 3s ease-in-out 1.3s infinite;
+      }
+
+      .boot-loader__iris--right {
+        animation: boot-iris-idle 3s ease-in-out 1.5s infinite;
+      }
+
+      @keyframes boot-iris-idle {
+        0%, 100% { transform: translate(0, 0); }
+        20%      { transform: translate(1px, -0.5px); }
+        50%      { transform: translate(-0.75px, 0.5px); }
+        80%      { transform: translate(0.5px, -0.25px); }
+      }
+
+      /* Goggle rim glow pulse */
+      .boot-loader__rim {
+        animation: boot-goggle-glow 2s ease-in-out 1s infinite;
+      }
+
+      @keyframes boot-goggle-glow {
+        0%, 100% { stroke: #9CA3AF; }
+        50%      { stroke: #D1D5DB; }
+      }
+
+      /* Strap fade-in */
+      .boot-loader__strap {
+        opacity: 0;
+        animation: boot-fade-in 0.4s ease-out 0.3s forwards;
       }
 
       .boot-loader__text {
         margin: 0;
         font-size: 14px;
         color: var(--color-text-secondary, #6b6b6b);
+        opacity: 0;
+        animation: boot-fade-in 0.5s ease-out 1.0s forwards;
+      }
+
+      @keyframes boot-fade-in {
+        to { opacity: 1; }
       }
 
       :root[data-theme="light"] .boot-loader__text,
@@ -96,42 +156,45 @@
         color: var(--color-text-secondary, #8A7B50);
       }
 
-      :root[data-theme="light"] .boot-loader__spinner path,
-      :root[data-theme="light"] .boot-loader__spinner circle,
-      :root[data-theme="light"] .boot-loader__spinner line,
-      :root[data-theme$="-light"] .boot-loader__spinner path,
-      :root[data-theme$="-light"] .boot-loader__spinner circle,
-      :root[data-theme$="-light"] .boot-loader__spinner line {
-        stroke: #D4A017;
+      :root[data-theme="light"] .boot-loader__rim,
+      :root[data-theme$="-light"] .boot-loader__rim {
+        animation-name: boot-goggle-glow-light;
+      }
+
+      @keyframes boot-goggle-glow-light {
+        0%, 100% { stroke: #6B7280; }
+        50%      { stroke: #9CA3AF; }
+      }
+
+      :root[data-theme="light"] .boot-loader__strap,
+      :root[data-theme$="-light"] .boot-loader__strap {
+        fill: #9CA3AF;
+      }
+
+      :root[data-theme="light"] .boot-loader__pupil--left,
+      :root[data-theme="light"] .boot-loader__pupil--right,
+      :root[data-theme$="-light"] .boot-loader__pupil--left,
+      :root[data-theme$="-light"] .boot-loader__pupil--right {
+        fill: #1F2937;
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .boot-loader__spinner,
-        .boot-loader__hex,
-        .boot-loader__node,
-        .boot-loader__link {
-          animation: none;
+        .boot-loader__lid {
+          transform: translateY(0);
         }
-      }
-
-      @keyframes boot-hex-rotate {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-      }
-
-      @keyframes boot-hex-pulse {
-        0%, 100% { opacity: 0.4; stroke-dashoffset: 0; }
-        50% { opacity: 1; stroke-dashoffset: 56; }
-      }
-
-      @keyframes boot-hex-node {
-        0%, 100% { transform: scale(1); opacity: 0.6; }
-        50% { transform: scale(1.4); opacity: 1; }
-      }
-
-      @keyframes boot-hex-link {
-        0%, 100% { opacity: 0.3; }
-        50% { opacity: 1; }
+        .boot-loader__lid--left,
+        .boot-loader__lid--right,
+        .boot-loader__pupil--left,
+        .boot-loader__pupil--right,
+        .boot-loader__iris--left,
+        .boot-loader__iris--right,
+        .boot-loader__rim,
+        .boot-loader__strap,
+        .boot-loader__text {
+          animation: none !important;
+          opacity: 1;
+          transform: none;
+        }
       }
     </style>
     <script>
@@ -202,10 +265,45 @@
     <div id="root">
       <div class="boot-loader" role="status" aria-live="polite" aria-busy="true">
         <div class="boot-loader__inner">
-          <svg class="boot-loader__spinner" viewBox="0 0 156 157" xmlns="http://www.w3.org/2000/svg" overflow="hidden" aria-hidden="true">
-            <path class="boot-loader__hex" d="M39 58.5 78 39 117 58.5 117 97.5 78 117 39 97.5Z" stroke="#FBBF24" stroke-width="2.4375" fill="none"/>
-            <circle class="boot-loader__node" cx="78" cy="78.5" r="4.875" stroke="#FBBF24" stroke-width="2.4375" fill="none"/>
-            <line class="boot-loader__link" x1="58.5" y1="78.5" x2="97.5" y2="78.5" stroke="#FBBF24" stroke-width="2.4375"/>
+          <svg class="boot-loader__eyes" viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <radialGradient id="bl-lens" cx="40%" cy="35%" r="60%">
+                <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.15"/>
+                <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+              </radialGradient>
+              <clipPath id="bl-lid-l">
+                <rect class="boot-loader__lid boot-loader__lid--left" x="30" y="15" width="56" height="56" rx="28"/>
+              </clipPath>
+              <clipPath id="bl-lid-r">
+                <rect class="boot-loader__lid boot-loader__lid--right" x="114" y="15" width="56" height="56" rx="28"/>
+              </clipPath>
+            </defs>
+            <!-- Strap connecting goggles -->
+            <rect class="boot-loader__strap" x="82" y="38" width="36" height="10" rx="2" fill="#6B7280"/>
+            <!-- Left goggle -->
+            <g>
+              <circle class="boot-loader__rim" cx="58" cy="43" r="28" fill="none" stroke="#9CA3AF" stroke-width="4"/>
+              <circle cx="58" cy="43" r="26" fill="none" stroke="#6B7280" stroke-width="1"/>
+              <g clip-path="url(#bl-lid-l)">
+                <circle cx="58" cy="43" r="22" fill="#F9FAFB"/>
+                <circle class="boot-loader__iris boot-loader__iris--left" cx="58" cy="43" r="12" fill="#92700C"/>
+                <circle class="boot-loader__pupil boot-loader__pupil--left" cx="58" cy="43" r="5.5" fill="#0C0F1A"/>
+                <circle cx="58" cy="43" r="22" fill="url(#bl-lens)"/>
+                <circle cx="52" cy="37" r="2.5" fill="#FFFFFF" opacity="0.7"/>
+              </g>
+            </g>
+            <!-- Right goggle -->
+            <g>
+              <circle class="boot-loader__rim" cx="142" cy="43" r="28" fill="none" stroke="#9CA3AF" stroke-width="4"/>
+              <circle cx="142" cy="43" r="26" fill="none" stroke="#6B7280" stroke-width="1"/>
+              <g clip-path="url(#bl-lid-r)">
+                <circle cx="142" cy="43" r="22" fill="#F9FAFB"/>
+                <circle class="boot-loader__iris boot-loader__iris--right" cx="142" cy="43" r="12" fill="#92700C"/>
+                <circle class="boot-loader__pupil boot-loader__pupil--right" cx="142" cy="43" r="5.5" fill="#0C0F1A"/>
+                <circle cx="142" cy="43" r="22" fill="url(#bl-lens)"/>
+                <circle cx="136" cy="37" r="2.5" fill="#FFFFFF" opacity="0.7"/>
+              </g>
+            </g>
           </svg>
           <p class="boot-loader__text">Loading minions...</p>
         </div>

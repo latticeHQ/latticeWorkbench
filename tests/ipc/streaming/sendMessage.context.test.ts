@@ -45,14 +45,14 @@ describeIntegration("sendMessage context handling tests", () => {
     test.concurrent(
       "should maintain conversation context across messages",
       async () => {
-        await withSharedWorkspace(provider, async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace(provider, async ({ env, minionId, collector }) => {
           // Send first message establishing context.
           // Tools are disabled to keep this test deterministic in CI: models can
           // occasionally emit tool-call-only responses (no assistant text), but this
           // test is focused on conversation context continuity.
           const result1 = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "My name is TestUser. Remember this.",
             modelString(provider, model),
             { toolPolicy: [{ regex_match: ".*", action: "disable" }] }
@@ -68,7 +68,7 @@ describeIntegration("sendMessage context handling tests", () => {
           // Send follow-up asking about context
           const result2 = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "What is my name?",
             modelString(provider, model),
             { toolPolicy: [{ regex_match: ".*", action: "disable" }] }
@@ -103,11 +103,11 @@ describeIntegration("sendMessage context handling tests", () => {
     test.concurrent(
       "should support editing a previous message",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           // Send initial message
           const result1 = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Say 'original'",
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );
@@ -137,10 +137,10 @@ describeIntegration("sendMessage context handling tests", () => {
     test.concurrent(
       "should respect additionalSystemInstructions",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "What is 2+2?",
             modelString("openai", KNOWN_MODELS.GPT.providerModelId),
             {
@@ -181,7 +181,7 @@ describeIntegration("sendMessage context handling tests", () => {
     test.concurrent(
       "should execute bash tool when requested",
       async () => {
-        await withSharedWorkspace("anthropic", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("anthropic", async ({ env, minionId, collector }) => {
           const repoPath = getSharedRepoPath();
 
           // Create a test file in the workspace
@@ -192,7 +192,7 @@ describeIntegration("sendMessage context handling tests", () => {
             // Ask to read the file using bash
             const result = await sendMessageWithModel(
               env,
-              workspaceId,
+              minionId,
               `Use bash to run: cat ${testFilePath}. Set display_name="read-file" and timeout_secs=30. Do not spawn a sub-agent.`,
               modelString("anthropic", KNOWN_MODELS.HAIKU.providerModelId),
               {
@@ -233,12 +233,12 @@ describeIntegration("sendMessage context handling tests", () => {
     test.concurrent(
       "should respect tool policy 'none'",
       async () => {
-        await withSharedWorkspace("anthropic", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("anthropic", async ({ env, minionId, collector }) => {
           // Ask for something that would normally use tools
           // Policy to disable all tools: match any tool name and disable
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Run the command 'echo test' using bash.",
             modelString("anthropic", KNOWN_MODELS.HAIKU.providerModelId),
             {
@@ -265,12 +265,12 @@ describeIntegration("sendMessage context handling tests", () => {
     test.concurrent(
       "should handle truncateHistory",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           // Send a few messages to build history
           for (let i = 0; i < 3; i++) {
             await sendMessageWithModel(
               env,
-              workspaceId,
+              minionId,
               `Message ${i + 1}`,
               modelString("openai", KNOWN_MODELS.GPT.providerModelId)
             );
@@ -285,8 +285,8 @@ describeIntegration("sendMessage context handling tests", () => {
           let attempts = 0;
           const maxAttempts = 20;
           while (attempts < maxAttempts) {
-            const activity = await env.orpc.workspace.activity.list();
-            const workspaceActivity = activity[workspaceId];
+            const activity = await env.orpc.minion.activity.list();
+            const workspaceActivity = activity[minionId];
             if (!workspaceActivity?.streaming) {
               break;
             }
@@ -295,8 +295,8 @@ describeIntegration("sendMessage context handling tests", () => {
           }
 
           // Truncate history
-          const truncateResult = await env.orpc.workspace.truncateHistory({
-            workspaceId,
+          const truncateResult = await env.orpc.minion.truncateHistory({
+            minionId,
             percentage: 50,
           });
 
@@ -305,7 +305,7 @@ describeIntegration("sendMessage context handling tests", () => {
           // Should still be able to send messages
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "After truncation",
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );

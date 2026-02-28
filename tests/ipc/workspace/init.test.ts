@@ -15,7 +15,7 @@ import {
   resolveOrpcClient,
 } from "../helpers";
 import { createStreamCollector } from "../streamCollector";
-import type { WorkspaceInitEvent } from "@/common/orpc/types";
+import type { MinionInitEvent } from "@/common/orpc/types";
 import { isInitOutput, isInitEnd, isInitStart } from "@/common/orpc/types";
 import * as path from "path";
 import * as os from "os";
@@ -137,10 +137,10 @@ describeIntegration("Workspace init hook", () => {
         expect(createResult.success).toBe(true);
         if (!createResult.success) return;
 
-        const workspaceId = createResult.metadata.id;
+        const minionId = createResult.metadata.id;
 
         // Wait for hook to complete and collect init events for verification
-        const initEvents = await collectInitEvents(env, workspaceId, 10000);
+        const initEvents = await collectInitEvents(env, minionId, 10000);
 
         // Verify event sequence
         expect(initEvents.length).toBeGreaterThan(0);
@@ -155,11 +155,11 @@ describeIntegration("Workspace init hook", () => {
 
         // Should have output and error lines
         const outputEvents = initEvents.filter(
-          (e): e is Extract<WorkspaceInitEvent, { type: "init-output" }> =>
+          (e): e is Extract<MinionInitEvent, { type: "init-output" }> =>
             isInitOutput(e) && !e.isError
         );
         const errorEvents = initEvents.filter(
-          (e): e is Extract<WorkspaceInitEvent, { type: "init-output" }> =>
+          (e): e is Extract<MinionInitEvent, { type: "init-output" }> =>
             isInitOutput(e) && e.isError === true
         );
 
@@ -185,9 +185,9 @@ describeIntegration("Workspace init hook", () => {
 
         // Workspace should be usable - verify getInfo succeeds
         const client = resolveOrpcClient(env);
-        const info = await client.workspace.getInfo({ workspaceId });
+        const info = await client.minion.getInfo({ minionId });
         expect(info).not.toBeNull();
-        if (info) expect(info.id).toBe(workspaceId);
+        if (info) expect(info.id).toBe(minionId);
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -214,10 +214,10 @@ describeIntegration("Workspace init hook", () => {
         expect(createResult.success).toBe(true);
         if (!createResult.success) return;
 
-        const workspaceId = createResult.metadata.id;
+        const minionId = createResult.metadata.id;
 
         // Wait for hook to complete (without throwing on failure) and collect events
-        const initEvents = await waitForInitEnd(env, workspaceId, 10000);
+        const initEvents = await waitForInitEnd(env, minionId, 10000);
 
         // Verify we got events
         expect(initEvents.length).toBeGreaterThan(0);
@@ -228,11 +228,11 @@ describeIntegration("Workspace init hook", () => {
 
         // Should have output and error
         const failureOutputEvents = initEvents.filter(
-          (e): e is Extract<WorkspaceInitEvent, { type: "init-output" }> =>
+          (e): e is Extract<MinionInitEvent, { type: "init-output" }> =>
             isInitOutput(e) && !e.isError
         );
         const failureErrorEvents = initEvents.filter(
-          (e): e is Extract<WorkspaceInitEvent, { type: "init-output" }> =>
+          (e): e is Extract<MinionInitEvent, { type: "init-output" }> =>
             isInitOutput(e) && e.isError === true
         );
         expect(failureOutputEvents.length).toBeGreaterThanOrEqual(1);
@@ -247,9 +247,9 @@ describeIntegration("Workspace init hook", () => {
 
         // CRITICAL: Workspace should remain usable even after hook failure
         const client = resolveOrpcClient(env);
-        const info = await client.workspace.getInfo({ workspaceId });
+        const info = await client.minion.getInfo({ minionId });
         expect(info).not.toBeNull();
-        if (info) expect(info.id).toBe(workspaceId);
+        if (info) expect(info.id).toBe(minionId);
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -285,10 +285,10 @@ describeIntegration("Workspace init hook", () => {
         expect(createResult.success).toBe(true);
         if (!createResult.success) return;
 
-        const workspaceId = createResult.metadata.id;
+        const minionId = createResult.metadata.id;
 
         // Wait for init to complete and collect events
-        const initEvents = await collectInitEvents(env, workspaceId, 5000);
+        const initEvents = await collectInitEvents(env, minionId, 5000);
 
         // Should have init-start event (always emitted, even without hook)
         const startEvent = initEvents.find((e) => isInitStart(e));
@@ -307,7 +307,7 @@ describeIntegration("Workspace init hook", () => {
 
         // Workspace should still be usable
         const client = resolveOrpcClient(env);
-        const info = await client.workspace.getInfo({ workspaceId: createResult.metadata.id });
+        const info = await client.minion.getInfo({ minionId: createResult.metadata.id });
         expect(info).not.toBeNull();
       } finally {
         await cleanupTestEnvironment(env);
@@ -334,13 +334,13 @@ describeIntegration("Workspace init hook", () => {
         expect(createResult.success).toBe(true);
         if (!createResult.success) return;
 
-        const workspaceId = createResult.metadata.id;
+        const minionId = createResult.metadata.id;
 
         // Wait for init hook to complete
-        await waitForInitComplete(env, workspaceId, 5000);
+        await waitForInitComplete(env, minionId, 5000);
 
         // Verify init-status.json exists on disk
-        const initStatusPath = path.join(env.config.getSessionDir(workspaceId), "init-status.json");
+        const initStatusPath = path.join(env.config.getSessionDir(minionId), "init-status.json");
         const statusExists = await fs
           .access(initStatusPath)
           .then(() => true)
@@ -404,11 +404,11 @@ describeIntegration("Init timing behavior", () => {
       // Create workspace to trigger init hook
       const result = await createWorkspace(env, repoPath, branchName);
       expect(result.success).toBe(true);
-      const workspaceId = result.success ? result.metadata.id : null;
-      expect(workspaceId).toBeTruthy();
+      const minionId = result.success ? result.metadata.id : null;
+      expect(minionId).toBeTruthy();
 
       // Create a collector to capture events with timestamps
-      const collector = createStreamCollector(client, workspaceId!);
+      const collector = createStreamCollector(client, minionId!);
       collector.start();
       await collector.waitForSubscription(5000);
 
@@ -537,11 +537,11 @@ exit 1
               runtimeConfig
             );
             expect(result.success).toBe(true);
-            const workspaceId = result.success ? result.metadata.id : null;
-            expect(workspaceId).toBeTruthy();
+            const minionId = result.success ? result.metadata.id : null;
+            expect(minionId).toBeTruthy();
 
             // Set up collector to track events
-            const collector = createStreamCollector(client, workspaceId!);
+            const collector = createStreamCollector(client, minionId!);
             collector.start();
             await collector.waitForSubscription(5000);
 
@@ -549,8 +549,8 @@ exit 1
             // This should wait for init to complete before file operations can happen
             // Use Haiku for faster responses - this test is about init queue, not model capability
             const firstMessageStart = Date.now();
-            await client.workspace.sendMessage({
-              workspaceId: workspaceId!,
+            await client.minion.sendMessage({
+              minionId: minionId!,
               message: "Read the README.md file and tell me what it says.",
               options: {
                 model: "anthropic:claude-haiku-4-5",
@@ -580,8 +580,8 @@ exit 1
 
             // SECOND MESSAGE: Send another message
             // Init is already complete (even though it failed), so no init wait
-            await client.workspace.sendMessage({
-              workspaceId: workspaceId!,
+            await client.minion.sendMessage({
+              minionId: minionId!,
               message: "What is 2 + 2?",
               options: {
                 model: "anthropic:claude-haiku-4-5",

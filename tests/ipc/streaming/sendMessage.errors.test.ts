@@ -43,10 +43,10 @@ describeIntegration("sendMessage error handling tests", () => {
     test.concurrent(
       "should reject empty message",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId }) => {
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "", // Empty message
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );
@@ -61,10 +61,10 @@ describeIntegration("sendMessage error handling tests", () => {
     test.concurrent(
       "should reject whitespace-only message",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId }) => {
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "   \n\t  ", // Whitespace only
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );
@@ -81,8 +81,8 @@ describeIntegration("sendMessage error handling tests", () => {
     test.concurrent(
       "should fail with invalid model format (model validation happens before message is persisted)",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId }) => {
-          const result = await sendMessage(env, workspaceId, "Hello", {
+        await withSharedWorkspace("openai", async ({ env, minionId }) => {
+          const result = await sendMessage(env, minionId, "Hello", {
             model: "invalid-model-without-provider",
           });
 
@@ -103,9 +103,9 @@ describeIntegration("sendMessage error handling tests", () => {
     test.concurrent(
       "should fail with non-existent model",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           // sendMessage always returns success (errors come through stream events)
-          const result = await sendMessage(env, workspaceId, "Hello", {
+          const result = await sendMessage(env, minionId, "Hello", {
             model: "openai:gpt-does-not-exist-12345",
           });
 
@@ -127,8 +127,8 @@ describeIntegration("sendMessage error handling tests", () => {
     test.concurrent(
       "should fail with non-existent provider",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId }) => {
-          const result = await sendMessage(env, workspaceId, "Hello", {
+        await withSharedWorkspace("openai", async ({ env, minionId }) => {
+          const result = await sendMessage(env, minionId, "Hello", {
             model: "fakeprovider:some-model",
           });
 
@@ -155,7 +155,7 @@ describeIntegration("sendMessage error handling tests", () => {
       const branchName = generateBranchName("test-no-api-key");
       const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath,
         branchName,
         trunkBranch,
@@ -165,10 +165,10 @@ describeIntegration("sendMessage error handling tests", () => {
         throw new Error(`Failed to create workspace: ${createResult.error}`);
       }
 
-      const workspaceId = createResult.metadata.id;
+      const minionId = createResult.metadata.id;
 
       try {
-        const result = await sendMessage(env, workspaceId, "Hello", {
+        const result = await sendMessage(env, minionId, "Hello", {
           model: modelString("openai", KNOWN_MODELS.GPT.providerModelId),
         });
 
@@ -178,7 +178,7 @@ describeIntegration("sendMessage error handling tests", () => {
         }
       } finally {
         // Cleanup
-        await env.orpc.workspace.remove({ workspaceId });
+        await env.orpc.minion.remove({ minionId });
         await cleanupTestEnvironment(env);
 
         // Restore the API key
@@ -193,11 +193,11 @@ describeIntegration("sendMessage error handling tests", () => {
     test.concurrent(
       "should handle stream interruption gracefully",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           // Start a long-running request
           void sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Write a 500 word essay about technology.",
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );
@@ -206,7 +206,7 @@ describeIntegration("sendMessage error handling tests", () => {
           await collector.waitForEvent("stream-start", 10000);
 
           // Interrupt
-          await env.orpc.workspace.interruptStream({ workspaceId });
+          await env.orpc.minion.interruptStream({ minionId });
 
           // Should get stream-abort, not an error
           const abortEvent = await collector.waitForEvent("stream-abort", 5000);
@@ -217,7 +217,7 @@ describeIntegration("sendMessage error handling tests", () => {
 
           const result = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Say 'recovered'",
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );
@@ -234,11 +234,11 @@ describeIntegration("sendMessage error handling tests", () => {
     test.concurrent(
       "should queue messages sent while streaming",
       async () => {
-        await withSharedWorkspace("openai", async ({ env, workspaceId, collector }) => {
+        await withSharedWorkspace("openai", async ({ env, minionId, collector }) => {
           // Start first message
           void sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Count from 1 to 10 slowly.",
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );
@@ -249,7 +249,7 @@ describeIntegration("sendMessage error handling tests", () => {
           // Send second message while first is streaming (should be queued)
           const result2 = await sendMessageWithModel(
             env,
-            workspaceId,
+            minionId,
             "Say 'queued'",
             modelString("openai", KNOWN_MODELS.GPT.providerModelId)
           );
@@ -258,11 +258,11 @@ describeIntegration("sendMessage error handling tests", () => {
           expect(result2.success).toBe(true);
 
           // Interrupt first to let queue process
-          await env.orpc.workspace.interruptStream({ workspaceId });
+          await env.orpc.minion.interruptStream({ minionId });
           await collector.waitForEvent("stream-abort", 5000);
 
           // Clear queue so we can test fresh
-          await env.orpc.workspace.clearQueue({ workspaceId });
+          await env.orpc.minion.clearQueue({ minionId });
         });
       },
       30000

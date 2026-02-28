@@ -23,7 +23,7 @@ import {
 import { setupProviders, type TestEnvironment } from "../../ipc/setup";
 import { generateBranchName } from "../../ipc/helpers";
 import { detectDefaultTrunkBranch } from "../../../src/node/git";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 
 import { installDom } from "../dom";
 import { renderApp } from "../renderReviewPanel";
@@ -44,7 +44,7 @@ const describeIntegration = shouldRunIntegrationTests() ? describe : describe.sk
 describeIntegration("WorkbenchPanel (UI)", () => {
   let env: TestEnvironment;
   let workspaceId: string;
-  let metadata: FrontendWorkspaceMetadata;
+  let metadata: FrontendMinionMetadata;
 
   beforeAll(async () => {
     await createSharedRepo();
@@ -60,7 +60,7 @@ describeIntegration("WorkbenchPanel (UI)", () => {
     const branchName = generateBranchName("test-right-sidebar");
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
-    const result = await env.orpc.workspace.create({
+    const result = await env.orpc.minion.create({
       projectPath,
       branchName,
       trunkBranch,
@@ -77,7 +77,7 @@ describeIntegration("WorkbenchPanel (UI)", () => {
   afterAll(async () => {
     try {
       if (workspaceId) {
-        const sessions = await env.orpc.terminal.listSessions({ workspaceId }).catch(() => []);
+        const sessions = await env.orpc.terminal.listSessions({ minionId: workspaceId }).catch(() => []);
         await Promise.all(
           sessions.map(async (s) => {
             try {
@@ -88,8 +88,8 @@ describeIntegration("WorkbenchPanel (UI)", () => {
           })
         );
 
-        const removeResult = await env.orpc.workspace.remove({
-          workspaceId,
+        const removeResult = await env.orpc.minion.remove({
+          minionId: workspaceId,
           options: { force: true },
         });
         if (!removeResult.success) {
@@ -110,7 +110,7 @@ describeIntegration("WorkbenchPanel (UI)", () => {
     updatePersistedState(getTerminalTitlesKey(workspaceId), null);
 
     // Ensure backend terminal sessions don't leak between tests when reusing a workspace.
-    const sessions = await env.orpc.terminal.listSessions({ workspaceId }).catch(() => []);
+    const sessions = await env.orpc.terminal.listSessions({ minionId: workspaceId }).catch(() => []);
     await Promise.all(
       sessions.map(async (s) => {
         try {

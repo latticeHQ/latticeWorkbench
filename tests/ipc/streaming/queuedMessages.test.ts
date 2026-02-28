@@ -11,11 +11,11 @@ import {
   configureTestRetries,
 } from "../helpers";
 import { isQueuedMessageChanged, isRestoreToInput } from "@/common/orpc/types";
-import type { WorkspaceChatMessage } from "@/common/orpc/types";
+import type { MinionChatMessage } from "@/common/orpc/types";
 
 // Type aliases for queued message events (extracted from schema union)
-type QueuedMessageChangedEvent = Extract<WorkspaceChatMessage, { type: "queued-message-changed" }>;
-type RestoreToInputEvent = Extract<WorkspaceChatMessage, { type: "restore-to-input" }>;
+type QueuedMessageChangedEvent = Extract<MinionChatMessage, { type: "queued-message-changed" }>;
+type RestoreToInputEvent = Extract<MinionChatMessage, { type: "restore-to-input" }>;
 
 // Skip all tests if TEST_INTEGRATION is not set
 const describeIntegration = shouldRunIntegrationTests() ? describe : describe.skip;
@@ -93,24 +93,24 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should queue message during streaming and auto-send on stream end",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start initial stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'FIRST' and nothing else",
           modelString("anthropic", "claude-sonnet-4-5")
         );
 
-        const collector1 = createStreamCollector(env.orpc, workspaceId);
+        const collector1 = createStreamCollector(env.orpc, minionId);
         collector1.start();
         await collector1.waitForEvent("stream-start", 5000);
 
         // Queue a message while streaming
         const queueResult = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'SECOND' and nothing else",
           modelString("anthropic", "claude-sonnet-4-5")
         );
@@ -151,24 +151,24 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should restore queued message to input on stream abort",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start a stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Count to 10 slowly",
           modelString("anthropic", "claude-sonnet-4-5")
         );
 
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
         await collector.waitForEvent("stream-start", 5000);
 
         // Queue a message
         await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "This message should be restored",
           modelString("anthropic", "claude-sonnet-4-5")
         );
@@ -183,7 +183,7 @@ describeIntegration("Queued messages", () => {
 
         // Interrupt the stream
         const client = resolveOrpcClient(env);
-        const interruptResult = await client.workspace.interruptStream({ workspaceId });
+        const interruptResult = await client.minion.interruptStream({ minionId });
         expect(interruptResult.success).toBe(true);
 
         // Wait for stream abort
@@ -207,7 +207,7 @@ describeIntegration("Queued messages", () => {
         const restoreEvent = await waitForRestoreToInputEvent(collector);
         expect(restoreEvent).toBeDefined();
         expect(restoreEvent?.text).toBe("This message should be restored");
-        expect(restoreEvent?.workspaceId).toBe(workspaceId);
+        expect(restoreEvent?.minionId).toBe(minionId);
 
         // Verify queue is still empty
         const queuedAfter = await getQueuedMessages(collector, { wait: false });
@@ -223,18 +223,18 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should send queued message immediately when sendQueuedImmediately is true",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start collector first and wait for subscription to avoid replay/live
         // event duplication of the user message (same race as resumeStream fix).
-        const collector = createStreamCollector(env.orpc, workspaceId);
+        const collector = createStreamCollector(env.orpc, minionId);
         collector.start();
         await collector.waitForSubscription(5000);
 
         // Start a stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Count to 10 slowly",
           modelString("anthropic", "claude-sonnet-4-5")
         );
@@ -244,7 +244,7 @@ describeIntegration("Queued messages", () => {
         // Queue a message
         await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "This message should be sent immediately",
           modelString("anthropic", "claude-sonnet-4-5")
         );
@@ -255,8 +255,8 @@ describeIntegration("Queued messages", () => {
 
         // Interrupt the stream with sendQueuedImmediately flag
         const client = resolveOrpcClient(env);
-        const interruptResult = await client.workspace.interruptStream({
-          workspaceId,
+        const interruptResult = await client.minion.interruptStream({
+          minionId,
           options: { sendQueuedImmediately: true },
         });
         expect(interruptResult.success).toBe(true);
@@ -292,18 +292,18 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should combine multiple queued messages with newline separator",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start collector first and wait for subscription to avoid replay/live
         // event duplication of the user message (same race as resumeStream fix).
-        const collector1 = createStreamCollector(env.orpc, workspaceId);
+        const collector1 = createStreamCollector(env.orpc, minionId);
         collector1.start();
         await collector1.waitForSubscription(5000);
 
         // Start a stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'FIRST' and nothing else",
           modelString("anthropic", "claude-sonnet-4-5")
         );
@@ -311,13 +311,13 @@ describeIntegration("Queued messages", () => {
         await collector1.waitForEvent("stream-start", 5000);
 
         // Queue multiple messages, waiting for each queued-message-changed event
-        await sendMessage(env, workspaceId, "Message 1");
+        await sendMessage(env, minionId, "Message 1");
         await waitForQueuedMessageEvent(collector1);
 
-        await sendMessage(env, workspaceId, "Message 2");
+        await sendMessage(env, minionId, "Message 2");
         await waitForQueuedMessageEvent(collector1);
 
-        await sendMessage(env, workspaceId, "Message 3");
+        await sendMessage(env, minionId, "Message 3");
         await waitForQueuedMessageEvent(collector1);
 
         // Verify all messages queued (check current state, don't wait for new event)
@@ -332,7 +332,7 @@ describeIntegration("Queued messages", () => {
 
         const userMessages = collector1
           .getEvents()
-          .filter((e: WorkspaceChatMessage) => "role" in e && e.role === "user");
+          .filter((e: MinionChatMessage) => "role" in e && e.role === "user");
         expect(userMessages.length).toBe(2); // First message + auto-sent combined message
         collector1.stop();
       } finally {
@@ -345,22 +345,22 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should auto-send queued message with images",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start a stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'FIRST' and nothing else",
           modelString("anthropic", "claude-sonnet-4-5")
         );
 
-        const collector1 = createStreamCollector(env.orpc, workspaceId);
+        const collector1 = createStreamCollector(env.orpc, minionId);
         collector1.start();
         await collector1.waitForEvent("stream-start", 5000);
 
         // Queue message with image
-        await sendMessage(env, workspaceId, "Describe this image", {
+        await sendMessage(env, minionId, "Describe this image", {
           model: "anthropic:claude-sonnet-4-5",
           fileParts: [TEST_IMAGES.RED_PIXEL],
         });
@@ -396,22 +396,22 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should handle image-only queued message",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start a stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'FIRST' and nothing else",
           modelString("anthropic", "claude-sonnet-4-5")
         );
 
-        const collector1 = createStreamCollector(env.orpc, workspaceId);
+        const collector1 = createStreamCollector(env.orpc, minionId);
         collector1.start();
         await collector1.waitForEvent("stream-start", 5000);
 
         // Queue image-only message (empty text)
-        await sendMessage(env, workspaceId, "", {
+        await sendMessage(env, minionId, "", {
           model: "anthropic:claude-sonnet-4-5",
           fileParts: [TEST_IMAGES.RED_PIXEL],
         });
@@ -444,26 +444,26 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should preserve latest options when queueing",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start a stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'FIRST' and nothing else",
           modelString("anthropic", "claude-sonnet-4-5")
         );
 
-        const collector1 = createStreamCollector(env.orpc, workspaceId);
+        const collector1 = createStreamCollector(env.orpc, minionId);
         collector1.start();
         await collector1.waitForEvent("stream-start", 5000);
 
         // Queue messages with different options
-        await sendMessage(env, workspaceId, "Message 1", {
+        await sendMessage(env, minionId, "Message 1", {
           model: "anthropic:claude-haiku-4-5",
           thinkingLevel: "off",
         });
-        await sendMessage(env, workspaceId, "Message 2", {
+        await sendMessage(env, minionId, "Message 2", {
           model: "anthropic:claude-sonnet-4-5",
           thinkingLevel: "high",
         });
@@ -489,17 +489,17 @@ describeIntegration("Queued messages", () => {
   test.concurrent(
     "should preserve compaction metadata when queueing",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
       try {
         // Start a stream
         void sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Say 'FIRST' and nothing else",
           modelString("anthropic", "claude-sonnet-4-5")
         );
 
-        const collector1 = createStreamCollector(env.orpc, workspaceId);
+        const collector1 = createStreamCollector(env.orpc, minionId);
         collector1.start();
         await collector1.waitForEvent("stream-start", 5000);
 
@@ -510,7 +510,7 @@ describeIntegration("Queued messages", () => {
           parsed: { maxOutputTokens: 3000 },
         };
 
-        await sendMessage(env, workspaceId, "Summarize this conversation into a compact form...", {
+        await sendMessage(env, minionId, "Summarize this conversation into a compact form...", {
           model: "anthropic:claude-sonnet-4-5",
           latticeMetadata: compactionMetadata,
         });

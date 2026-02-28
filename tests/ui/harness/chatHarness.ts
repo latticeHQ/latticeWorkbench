@@ -2,12 +2,12 @@ import { act, fireEvent, waitFor } from "@testing-library/react";
 
 import { updatePersistedState } from "@/browser/hooks/usePersistedState";
 import { getInputKey } from "@/common/constants/storage";
-import { workspaceStore } from "@/browser/stores/WorkspaceStore";
+import { minionStore } from "@/browser/stores/MinionStore";
 
 export class ChatHarness {
   constructor(
     private readonly container: HTMLElement,
-    private readonly workspaceId: string
+    private readonly minionId: string
   ) {}
 
   private async getActiveTextarea(): Promise<HTMLTextAreaElement> {
@@ -43,7 +43,7 @@ export class ChatHarness {
     // Since ChatInput uses usePersistedState, updating the persisted key is both deterministic
     // and exercises the real UI state path.
     act(() => {
-      updatePersistedState(getInputKey(this.workspaceId), text);
+      updatePersistedState(getInputKey(this.minionId), text);
     });
 
     await waitFor(
@@ -105,7 +105,7 @@ export class ChatHarness {
   async expectStreamComplete(timeoutMs: number = 30_000): Promise<void> {
     await waitFor(
       () => {
-        const state = workspaceStore.getWorkspaceSidebarState(this.workspaceId);
+        const state = minionStore.getMinionSidebarState(this.minionId);
         // isStarting = pendingStreamStartTime !== null && !canInterrupt.
         // In gated flows ([mock:wait-start]), the stream hasn't started yet
         // so canInterrupt is false but isStarting is true — we must wait.
@@ -143,7 +143,7 @@ export class ChatHarness {
     textarea.focus();
 
     act(() => {
-      updatePersistedState(getInputKey(this.workspaceId), text);
+      updatePersistedState(getInputKey(this.minionId), text);
     });
 
     await waitFor(

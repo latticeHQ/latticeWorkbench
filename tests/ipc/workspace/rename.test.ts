@@ -103,7 +103,7 @@ describeIntegration("WORKSPACE_RENAME with both runtimes", () => {
             const runtimeConfig = getRuntimeConfig(branchName);
 
             // Create workspace and wait for init
-            const { workspaceId, workspacePath, cleanup } = await createWorkspaceWithInit(
+            const { minionId, workspacePath, cleanup } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               branchName,
@@ -113,36 +113,36 @@ describeIntegration("WORKSPACE_RENAME with both runtimes", () => {
             );
 
             const oldWorkspacePath = workspacePath;
-            const oldSessionDir = env.config.getSessionDir(workspaceId);
+            const oldSessionDir = env.config.getSessionDir(minionId);
 
             // Rename the workspace
             const newName = "renamed-branch";
             const client = resolveOrpcClient(env);
-            const renameResult = await client.workspace.rename({ workspaceId, newName });
+            const renameResult = await client.minion.rename({ minionId, newName });
 
             if (!renameResult.success) {
               throw new Error(`Rename failed: ${renameResult.error}`);
             }
 
             // Get new workspace ID from backend (NEVER construct it in frontend)
-            expect(renameResult.data.newWorkspaceId).toBeDefined();
-            const newWorkspaceId = renameResult.data.newWorkspaceId;
+            expect(renameResult.data.newMinionId).toBeDefined();
+            const newMinionId = renameResult.data.newMinionId;
 
             // With stable IDs, workspace ID should NOT change during rename
-            expect(newWorkspaceId).toBe(workspaceId);
+            expect(newMinionId).toBe(minionId);
 
             // Session directory should still be the same (stable IDs don't move directories)
-            const sessionDir = env.config.getSessionDir(workspaceId);
+            const sessionDir = env.config.getSessionDir(minionId);
             expect(sessionDir).toBe(oldSessionDir);
 
             // Verify metadata was updated (name changed, path changed, but ID stays the same)
-            const newMetadataResult = await client.workspace.getInfo({ workspaceId });
+            const newMetadataResult = await client.minion.getInfo({ minionId });
             expect(newMetadataResult).toBeTruthy();
-            expect(newMetadataResult?.id).toBe(workspaceId); // ID unchanged
+            expect(newMetadataResult?.id).toBe(minionId); // ID unchanged
             expect(newMetadataResult?.name).toBe(newName); // Name updated
 
             // Path DOES change (directory is renamed from old name to new name)
-            const newWorkspacePath = newMetadataResult?.namedWorkspacePath ?? "";
+            const newWorkspacePath = newMetadataResult?.namedMinionPath ?? "";
             expect(newWorkspacePath).not.toBe(oldWorkspacePath);
             expect(newWorkspacePath).toContain(newName); // New path includes new name
 
@@ -150,11 +150,11 @@ describeIntegration("WORKSPACE_RENAME with both runtimes", () => {
             const config = env.config.loadConfigOrDefault();
             let foundWorkspace = false;
             for (const [, projectConfig] of config.projects.entries()) {
-              const workspace = projectConfig.workspaces.find((w) => w.path === newWorkspacePath);
+              const workspace = projectConfig.minions.find((w) => w.path === newWorkspacePath);
               if (workspace) {
                 foundWorkspace = true;
                 expect(workspace.name).toBe(newName); // Name updated in config
-                expect(workspace.id).toBe(workspaceId); // ID unchanged
+                expect(workspace.id).toBe(minionId); // ID unchanged
                 break;
               }
             }
@@ -184,7 +184,7 @@ describeIntegration("WORKSPACE_RENAME with both runtimes", () => {
             const runtimeConfig = getRuntimeConfig(branchName);
 
             // Create first workspace
-            const { workspaceId: firstWorkspaceId, cleanup: firstCleanup } =
+            const { minionId: firstWorkspaceId, cleanup: firstCleanup } =
               await createWorkspaceWithInit(
                 env,
                 tempGitRepo,
@@ -206,8 +206,8 @@ describeIntegration("WORKSPACE_RENAME with both runtimes", () => {
 
             // Try to rename first workspace to the second workspace's name
             const client = resolveOrpcClient(env);
-            const renameResult = await client.workspace.rename({
-              workspaceId: firstWorkspaceId,
+            const renameResult = await client.minion.rename({
+              minionId: firstWorkspaceId,
               newName: secondBranchName,
             });
             expect(renameResult.success).toBe(false);
@@ -216,8 +216,8 @@ describeIntegration("WORKSPACE_RENAME with both runtimes", () => {
             }
 
             // Verify original workspace still exists and wasn't modified
-            const metadataResult = await client.workspace.getInfo({
-              workspaceId: firstWorkspaceId,
+            const metadataResult = await client.minion.getInfo({
+              minionId: firstWorkspaceId,
             });
             expect(metadataResult).toBeTruthy();
             expect(metadataResult?.id).toBe(firstWorkspaceId);

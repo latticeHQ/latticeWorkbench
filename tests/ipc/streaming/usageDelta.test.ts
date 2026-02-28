@@ -25,15 +25,15 @@ describeIntegration("usage-delta events", () => {
   test.concurrent(
     "should emit usage-delta events during multi-step tool call streams",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("anthropic");
-      const collector = createStreamCollector(env.orpc, workspaceId);
+      const { env, minionId, cleanup } = await setupWorkspace("anthropic");
+      const collector = createStreamCollector(env.orpc, minionId);
       collector.start();
 
       try {
         // Ask the model to read a file - guaranteed to trigger tool use
         const result = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Use the file_read tool to read README.md. Only read the first 5 lines.",
           modelString("anthropic", KNOWN_MODELS.SONNET.providerModelId)
         );

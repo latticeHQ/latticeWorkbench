@@ -3,7 +3,7 @@ import type {
   SessionNotification,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import type { WorkspaceChatMessage } from "../../src/common/orpc/types";
+import type { MinionChatMessage } from "../../src/common/orpc/types";
 import { StreamTranslator } from "../../src/node/acp/streamTranslator";
 
 function createHarness(): {
@@ -26,9 +26,9 @@ function createHarness(): {
 async function forwardEventsForSession(
   translator: StreamTranslator,
   sessionId: string,
-  events: WorkspaceChatMessage[]
+  events: MinionChatMessage[]
 ): Promise<void> {
-  async function* stream(): AsyncIterable<WorkspaceChatMessage> {
+  async function* stream(): AsyncIterable<MinionChatMessage> {
     for (const event of events) {
       yield event;
     }
@@ -39,7 +39,7 @@ async function forwardEventsForSession(
 
 async function forwardEvents(
   translator: StreamTranslator,
-  events: WorkspaceChatMessage[]
+  events: MinionChatMessage[]
 ): Promise<void> {
   await forwardEventsForSession(translator, "session-1", events);
 }
@@ -53,17 +53,17 @@ function makeToolCallStart(
   toolName: string,
   args: unknown,
   messageId = "msg-1"
-): WorkspaceChatMessage {
+): MinionChatMessage {
   return {
     type: "tool-call-start",
-    workspaceId: "workspace-1",
+    minionId: "workspace-1",
     messageId,
     toolCallId,
     toolName,
     args,
     tokens: 1,
     timestamp: 1,
-  } as WorkspaceChatMessage;
+  } as MinionChatMessage;
 }
 
 function makeToolCallEnd(
@@ -71,36 +71,36 @@ function makeToolCallEnd(
   toolName: string,
   result: unknown,
   messageId = "msg-1"
-): WorkspaceChatMessage {
+): MinionChatMessage {
   return {
     type: "tool-call-end",
-    workspaceId: "workspace-1",
+    minionId: "workspace-1",
     messageId,
     toolCallId,
     toolName,
     result,
     timestamp: 2,
-  } as WorkspaceChatMessage;
+  } as MinionChatMessage;
 }
 
 function makeStreamError(
   messageId: string,
   error: string,
   errorType = "api_error"
-): WorkspaceChatMessage {
+): MinionChatMessage {
   return {
     type: "stream-error",
     messageId,
     error,
     errorType,
-  } as WorkspaceChatMessage;
+  } as MinionChatMessage;
 }
 
-function makeCaughtUp(replay: "full" | "since" | "live" = "full"): WorkspaceChatMessage {
+function makeCaughtUp(replay: "full" | "since" | "live" = "full"): MinionChatMessage {
   return {
     type: "caught-up",
     replay,
-  } as WorkspaceChatMessage;
+  } as MinionChatMessage;
 }
 
 function makeUserMessage(
@@ -109,7 +109,7 @@ function makeUserMessage(
     replay?: boolean;
     metadata?: Record<string, unknown>;
   }
-): WorkspaceChatMessage {
+): MinionChatMessage {
   return {
     type: "message",
     id: "user-1",
@@ -122,7 +122,7 @@ function makeUserMessage(
     ],
     metadata: options?.metadata,
     replay: options?.replay,
-  } as WorkspaceChatMessage;
+  } as MinionChatMessage;
 }
 
 function getUserTextChunks(sessionUpdates: SessionNotification[]): string[] {
@@ -223,7 +223,7 @@ describe("ACP todo_write plan translation", () => {
   it("emits plan updates when replaying historical todo_write tool parts", async () => {
     const { translator, sessionUpdates } = createHarness();
 
-    const replayMessage: WorkspaceChatMessage = {
+    const replayMessage: MinionChatMessage = {
       type: "message",
       id: "assistant-1",
       role: "assistant",
@@ -242,7 +242,7 @@ describe("ACP todo_write plan translation", () => {
           output: { success: true, count: 2 },
         },
       ],
-    } as WorkspaceChatMessage;
+    } as MinionChatMessage;
 
     await forwardEvents(translator, [replayMessage]);
 
@@ -304,11 +304,11 @@ describe("ACP tool call terminal state translation", () => {
         makeToolCallStart("tool-1", "bash", { cmd: "echo hi" }),
         {
           type: "stream-abort",
-          workspaceId: "workspace-1",
+          minionId: "workspace-1",
           messageId: "",
           abortReason: "system",
           metadata: {},
-        } as WorkspaceChatMessage,
+        } as MinionChatMessage,
         makeStreamError("msg-1", "provider timeout", "provider_error"),
       ])
     ).resolves.toBeUndefined();
@@ -408,7 +408,7 @@ describe("ACP tool call terminal state translation", () => {
   it("keeps replayed input-available tool calls in progress until terminal events", async () => {
     const { translator, sessionUpdates } = createHarness();
 
-    const replayMessage: WorkspaceChatMessage = {
+    const replayMessage: MinionChatMessage = {
       type: "message",
       id: "assistant-pending",
       role: "assistant",
@@ -421,7 +421,7 @@ describe("ACP tool call terminal state translation", () => {
           state: "input-available",
         },
       ],
-    } as WorkspaceChatMessage;
+    } as MinionChatMessage;
 
     await forwardEvents(translator, [
       replayMessage,

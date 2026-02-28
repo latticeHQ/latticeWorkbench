@@ -22,7 +22,7 @@ import { addProjectViaUI, cleanupView, getWorkspaceDraftIds, setupTestDom } from
 import { renderApp } from "../renderReviewPanel";
 import { updatePersistedState } from "@/browser/hooks/usePersistedState";
 
-import { WORKSPACE_DRAFTS_BY_PROJECT_KEY } from "@/common/constants/storage";
+import { MINION_DRAFTS_BY_PROJECT_KEY } from "@/common/constants/storage";
 
 const describeIntegration = shouldRunIntegrationTests() ? describe : describe.skip;
 
@@ -55,7 +55,7 @@ describeIntegration("Draft workspace behavior", () => {
 
     const cleanupDom = setupTestDom();
     // Clear any existing drafts from previous tests
-    updatePersistedState(WORKSPACE_DRAFTS_BY_PROJECT_KEY, null);
+    updatePersistedState(MINION_DRAFTS_BY_PROJECT_KEY, null);
 
     const view = renderApp({ apiClient: env.orpc });
 

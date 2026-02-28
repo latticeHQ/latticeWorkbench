@@ -1,12 +1,12 @@
 import { AgentSideConnection, PROTOCOL_VERSION, ndJsonStream } from "@agentclientprotocol/sdk";
-import type { OnChatMode, WorkspaceChatMessage } from "../../src/common/orpc/types";
+import type { OnChatMode, MinionChatMessage } from "../../src/common/orpc/types";
 import { LatticeAgent } from "../../src/node/acp/agent";
 import type { ORPCClient, ServerConnection } from "../../src/node/acp/serverConnection";
 
-type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["workspace"]["getInfo"]>>>;
+type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["minion"]["getInfo"]>>>;
 
 interface HarnessOptions {
-  getReplayEvents?: (workspaceId: string) => WorkspaceChatMessage[];
+  getReplayEvents?: (minionId: string) => MinionChatMessage[];
   beforeCreateResolves?: Promise<void>;
   disconnectCleanupMaxWaitMs?: number;
 }
@@ -28,7 +28,7 @@ function createWorkspaceInfo(overrides?: Partial<WorkspaceInfo>): WorkspaceInfo 
     projectName: "project",
     projectPath: "/repo/default",
     runtimeConfig: { type: "local" },
-    namedWorkspacePath: "/repo/default/.lattice/ws-default",
+    namedMinionPath: "/repo/default/.lattice/ws-default",
     agentId: "exec",
     aiSettings: {
       model: "anthropic:claude-sonnet-4-5",
@@ -65,8 +65,8 @@ function createControllableAcpStream(): {
 }
 
 async function* createChatStream(
-  events: WorkspaceChatMessage[]
-): AsyncIterable<WorkspaceChatMessage> {
+  events: MinionChatMessage[]
+): AsyncIterable<MinionChatMessage> {
   for (const event of events) {
     yield event;
   }
@@ -120,7 +120,7 @@ function createHarness(options?: HarnessOptions): Harness {
         throw new Error("createHarness: get not implemented for this test");
       },
     },
-    workspace: {
+    minion: {
       create: async (input: {
         projectPath: string;
         branchName: string;
@@ -128,41 +128,41 @@ function createHarness(options?: HarnessOptions): Harness {
         title?: string;
         runtimeConfig?: WorkspaceInfo["runtimeConfig"];
       }) => {
-        const workspaceId = `ws-${workspacesById.size + 1}`;
+        const minionId = `ws-${workspacesById.size + 1}`;
         if (options?.beforeCreateResolves != null) {
           await options.beforeCreateResolves;
         }
 
         const metadata = createWorkspaceInfo({
-          id: workspaceId,
+          id: minionId,
           name: input.branchName,
           title: input.title ?? input.branchName,
           projectPath: input.projectPath,
-          namedWorkspacePath: `${input.projectPath}/.lattice/${input.branchName}`,
+          namedMinionPath: `${input.projectPath}/.lattice/${input.branchName}`,
           runtimeConfig: input.runtimeConfig ?? { type: "local" },
         });
 
-        workspacesById.set(workspaceId, metadata);
-        createdWorkspaceIds.push(workspaceId);
+        workspacesById.set(minionId, metadata);
+        createdWorkspaceIds.push(minionId);
 
         return {
           success: true as const,
           metadata,
         };
       },
-      getInfo: async ({ workspaceId }: { workspaceId: string }) =>
-        workspacesById.get(workspaceId) ?? null,
-      onChat: async (_input: { workspaceId: string; mode?: OnChatMode }) =>
-        createChatStream([{ type: "caught-up" } as WorkspaceChatMessage]),
+      getInfo: async ({ minionId }: { minionId: string }) =>
+        workspacesById.get(minionId) ?? null,
+      onChat: async (_input: { minionId: string; mode?: OnChatMode }) =>
+        createChatStream([{ type: "caught-up" } as MinionChatMessage]),
       updateModeAISettings: async () => ({ success: true as const, data: undefined }),
       updateAgentAISettings: async () => ({ success: true as const, data: undefined }),
-      getFullReplay: async ({ workspaceId }: { workspaceId: string }) => {
-        replayChecks.push(workspaceId);
-        return options?.getReplayEvents?.(workspaceId) ?? [];
+      getFullReplay: async ({ minionId }: { minionId: string }) => {
+        replayChecks.push(minionId);
+        return options?.getReplayEvents?.(minionId) ?? [];
       },
-      remove: async ({ workspaceId }: { workspaceId: string }) => {
-        removeCalls.push(workspaceId);
-        workspacesById.delete(workspaceId);
+      remove: async ({ minionId }: { minionId: string }) => {
+        removeCalls.push(minionId);
+        workspacesById.delete(minionId);
         return { success: true as const };
       },
     },
@@ -244,7 +244,7 @@ describe("ACP disconnect cleanup for untouched session/new workspaces", () => {
               text: "hello",
             },
           ],
-        } as WorkspaceChatMessage,
+        } as MinionChatMessage,
       ],
     });
 

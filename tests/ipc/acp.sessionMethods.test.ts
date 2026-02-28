@@ -1,23 +1,23 @@
 import { AgentSideConnection, PROTOCOL_VERSION, ndJsonStream } from "@agentclientprotocol/sdk";
-import type { OnChatMode, WorkspaceChatMessage } from "../../src/common/orpc/types";
+import type { OnChatMode, MinionChatMessage } from "../../src/common/orpc/types";
 import { LatticeAgent } from "../../src/node/acp/agent";
 import type { ORPCClient, ServerConnection } from "../../src/node/acp/serverConnection";
 
-type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["workspace"]["getInfo"]>>>;
-type WorkspaceActivityById = Awaited<ReturnType<ORPCClient["workspace"]["activity"]["list"]>>;
+type WorkspaceInfo = NonNullable<Awaited<ReturnType<ORPCClient["minion"]["getInfo"]>>>;
+type WorkspaceActivityById = Awaited<ReturnType<ORPCClient["minion"]["activity"]["list"]>>;
 
 interface HarnessOptions {
   activeWorkspaces?: WorkspaceInfo[];
   archivedWorkspaces?: WorkspaceInfo[];
   workspaceActivity?: WorkspaceActivityById;
-  onChatEvents?: WorkspaceChatMessage[];
-  onChatStream?: AsyncIterable<WorkspaceChatMessage>;
+  onChatEvents?: MinionChatMessage[];
+  onChatStream?: AsyncIterable<MinionChatMessage>;
   agentOptions?: ConstructorParameters<typeof LatticeAgent>[2];
 }
 
 interface Harness {
   agent: LatticeAgent;
-  onChatCalls: Array<{ workspaceId: string; mode?: OnChatMode }>;
+  onChatCalls: Array<{ minionId: string; mode?: OnChatMode }>;
   listCalls: Array<{ archived?: boolean } | undefined>;
 }
 
@@ -33,7 +33,7 @@ function createWorkspaceInfo(overrides?: Partial<WorkspaceInfo>): WorkspaceInfo 
     projectName: "project",
     projectPath: "/repo/default",
     runtimeConfig: { type: "local" },
-    namedWorkspacePath: "/repo/default",
+    namedMinionPath: "/repo/default",
     agentId: "exec",
     aiSettings: {
       model: "anthropic:claude-sonnet-4-5",
@@ -61,11 +61,11 @@ function createHarness(options?: HarnessOptions): Harness {
     allWorkspacesById.set(workspace.id, workspace);
   }
 
-  const onChatCalls: Array<{ workspaceId: string; mode?: OnChatMode }> = [];
+  const onChatCalls: Array<{ minionId: string; mode?: OnChatMode }> = [];
   const listCalls: Array<{ archived?: boolean } | undefined> = [];
 
   const client: Partial<ORPCClient> = {
-    workspace: {
+    minion: {
       list: async (input?: { archived?: boolean }) => {
         listCalls.push(input);
         return input?.archived ? archivedWorkspaces : activeWorkspaces;
@@ -73,13 +73,13 @@ function createHarness(options?: HarnessOptions): Harness {
       activity: {
         list: async () => workspaceActivity,
       },
-      getInfo: async ({ workspaceId }: { workspaceId: string }) =>
-        allWorkspacesById.get(workspaceId) ?? null,
-      onChat: async (input: { workspaceId: string; mode?: OnChatMode }) => {
+      getInfo: async ({ minionId }: { minionId: string }) =>
+        allWorkspacesById.get(minionId) ?? null,
+      onChat: async (input: { minionId: string; mode?: OnChatMode }) => {
         onChatCalls.push(input);
         return sharedOnChatStream ?? createChatStream(onChatEvents);
       },
-    } as ORPCClient["workspace"],
+    } as ORPCClient["minion"],
     agentSkills: {
       list: async () => [],
       listDiagnostics: async () => {
@@ -120,18 +120,18 @@ function createHarness(options?: HarnessOptions): Harness {
 }
 
 async function* createChatStream(
-  events: WorkspaceChatMessage[]
-): AsyncIterable<WorkspaceChatMessage> {
+  events: MinionChatMessage[]
+): AsyncIterable<MinionChatMessage> {
   for (const event of events) {
     yield event;
   }
 }
 
 function createNeverEndingChatStream(
-  seedEvents: WorkspaceChatMessage[] = []
-): AsyncIterable<WorkspaceChatMessage> {
+  seedEvents: MinionChatMessage[] = []
+): AsyncIterable<MinionChatMessage> {
   return {
-    async *[Symbol.asyncIterator](): AsyncIterator<WorkspaceChatMessage> {
+    async *[Symbol.asyncIterator](): AsyncIterator<MinionChatMessage> {
       for (const event of seedEvents) {
         yield event;
       }
@@ -168,21 +168,21 @@ describe("ACP unstable session support", () => {
       name: "feature-a",
       title: "Feature A",
       projectPath: "/repo/a",
-      namedWorkspacePath: "/repo/a/.lattice/feature-a",
+      namedMinionPath: "/repo/a/.lattice/feature-a",
     });
     const wsB = createWorkspaceInfo({
       id: "ws-b",
       name: "feature-b",
       title: "Feature B",
       projectPath: "/repo/b",
-      namedWorkspacePath: "/repo/b/.lattice/feature-b",
+      namedMinionPath: "/repo/b/.lattice/feature-b",
     });
     const wsArchived = createWorkspaceInfo({
       id: "ws-archived",
       name: "archived-a",
       title: "Archived A",
       projectPath: "/repo/a",
-      namedWorkspacePath: "/repo/a/.lattice/archived-a",
+      namedMinionPath: "/repo/a/.lattice/archived-a",
       archivedAt: "2026-02-17T12:00:00.000Z",
     });
 
@@ -256,12 +256,12 @@ describe("ACP unstable session support", () => {
     const workspace = createWorkspaceInfo({
       id: "ws-cwd-check",
       projectPath: "/repo/correct",
-      namedWorkspacePath: "/repo/correct/.lattice/ws-cwd-check",
+      namedMinionPath: "/repo/correct/.lattice/ws-cwd-check",
     });
 
     const harness = createHarness({
       activeWorkspaces: [workspace],
-      onChatEvents: [{ type: "caught-up" } as WorkspaceChatMessage],
+      onChatEvents: [{ type: "caught-up" } as MinionChatMessage],
     });
 
     await harness.agent.initialize({ protocolVersion: PROTOCOL_VERSION });
@@ -279,12 +279,12 @@ describe("ACP unstable session support", () => {
     const workspace = createWorkspaceInfo({
       id: "ws-resume",
       projectPath: "/repo/resume",
-      namedWorkspacePath: "/repo/resume/.lattice/ws-resume",
+      namedMinionPath: "/repo/resume/.lattice/ws-resume",
     });
 
     const harness = createHarness({
       activeWorkspaces: [workspace],
-      onChatEvents: [{ type: "caught-up" } as WorkspaceChatMessage],
+      onChatEvents: [{ type: "caught-up" } as MinionChatMessage],
     });
 
     await harness.agent.initialize({ protocolVersion: PROTOCOL_VERSION });
@@ -297,7 +297,7 @@ describe("ACP unstable session support", () => {
 
     expect(response.configOptions?.length).toBeGreaterThan(0);
     expect(harness.onChatCalls[0]).toEqual({
-      workspaceId: "ws-resume",
+      minionId: "ws-resume",
       mode: { type: "live" },
     });
   });
@@ -306,12 +306,12 @@ describe("ACP unstable session support", () => {
     const workspace = createWorkspaceInfo({
       id: "ws-live-to-full",
       projectPath: "/repo/resume",
-      namedWorkspacePath: "/repo/resume/.lattice/ws-live-to-full",
+      namedMinionPath: "/repo/resume/.lattice/ws-live-to-full",
     });
 
     const harness = createHarness({
       activeWorkspaces: [workspace],
-      onChatStream: createNeverEndingChatStream([{ type: "caught-up" } as WorkspaceChatMessage]),
+      onChatStream: createNeverEndingChatStream([{ type: "caught-up" } as MinionChatMessage]),
     });
 
     await harness.agent.initialize({ protocolVersion: PROTOCOL_VERSION });
@@ -339,11 +339,11 @@ describe("ACP unstable session support", () => {
     expect(modeMap.get("ws-live-to-full")).toEqual({ type: "full" });
     expect(harness.onChatCalls).toHaveLength(2);
     expect(harness.onChatCalls[0]).toEqual({
-      workspaceId: "ws-live-to-full",
+      minionId: "ws-live-to-full",
       mode: { type: "live" },
     });
     expect(harness.onChatCalls[1]).toEqual({
-      workspaceId: "ws-live-to-full",
+      minionId: "ws-live-to-full",
       mode: { type: "full" },
     });
   });
@@ -352,22 +352,22 @@ describe("ACP unstable session support", () => {
     const workspaceA = createWorkspaceInfo({
       id: "ws-a",
       projectPath: "/repo/lru",
-      namedWorkspacePath: "/repo/lru/.lattice/ws-a",
+      namedMinionPath: "/repo/lru/.lattice/ws-a",
     });
     const workspaceB = createWorkspaceInfo({
       id: "ws-b",
       projectPath: "/repo/lru",
-      namedWorkspacePath: "/repo/lru/.lattice/ws-b",
+      namedMinionPath: "/repo/lru/.lattice/ws-b",
     });
     const workspaceC = createWorkspaceInfo({
       id: "ws-c",
       projectPath: "/repo/lru",
-      namedWorkspacePath: "/repo/lru/.lattice/ws-c",
+      namedMinionPath: "/repo/lru/.lattice/ws-c",
     });
 
     const harness = createHarness({
       activeWorkspaces: [workspaceA, workspaceB, workspaceC],
-      onChatStream: createNeverEndingChatStream([{ type: "caught-up" } as WorkspaceChatMessage]),
+      onChatStream: createNeverEndingChatStream([{ type: "caught-up" } as MinionChatMessage]),
       agentOptions: {
         maxTrackedSessions: 2,
         sessionIdleTtlMs: 60_000,
@@ -394,7 +394,7 @@ describe("ACP unstable session support", () => {
 
     const sessionStateMap = (
       harness.agent as unknown as {
-        sessionStateById: Map<string, { workspaceId: string }>;
+        sessionStateById: Map<string, { minionId: string }>;
       }
     ).sessionStateById;
 

@@ -79,7 +79,7 @@ describe("task_await executing visualization", () => {
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
       const branchName = generateBranchName("ui-task-await-visualization");
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -114,7 +114,7 @@ describe("task_await executing visualization", () => {
 
       if (workspaceId) {
         try {
-          await env.orpc.workspace.remove({ workspaceId, options: { force: true } });
+          await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } });
         } catch {
           // Best effort cleanup.
         }

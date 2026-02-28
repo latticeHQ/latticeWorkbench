@@ -665,7 +665,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
     variant === "creation" && hasCreationRuntimeOverrides
       ? normalizeRuntimeEnablement(creationProject?.runtimeEnablement)
       : runtimeEnablement;
-  const creationSections = creationProject?.sections ?? [];
+  const creationSections = creationProject?.crews ?? [];
 
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(() => pendingSectionId);
   const [hasAttemptedCreateSend, setHasAttemptedCreateSend] = useState(false);
@@ -690,7 +690,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
       return;
     }
 
-    const stillExists = (creationProject.sections ?? []).some(
+    const stillExists = (creationProject.crews ?? []).some(
       (section) => section.id === selectedSectionId
     );
     if (!stillExists) {

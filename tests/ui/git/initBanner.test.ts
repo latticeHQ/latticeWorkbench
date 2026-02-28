@@ -17,14 +17,14 @@ import { cleanupView, openProjectCreationView } from "../helpers";
 import { createMockORPCClient } from "@/browser/stories/mocks/orpc";
 import type { ProjectConfig } from "@/node/config";
 import { expandProjects } from "@/browser/stories/storyHelpers";
-import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/workspace";
+import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/minion";
 
 const describeIntegration = shouldRunIntegrationTests() ? describe : describe.skip;
 
 /** Helper to create a project config for a path with no workspaces */
 
 function projectWithNoWorkspaces(path: string): [string, ProjectConfig] {
-  return [path, { workspaces: [] }];
+  return [path, { minions: [] }];
 }
 
 describeIntegration("Git Init Banner (UI)", () => {
@@ -37,7 +37,7 @@ describeIntegration("Git Init Banner (UI)", () => {
     // Create mock client with empty branches (indicates non-git repo)
     const client = createMockORPCClient({
       projects: new Map([projectWithNoWorkspaces("/Users/dev/non-git-project")]),
-      workspaces: [],
+      minions: [],
       listBranches: async () => ({ branches: [], recommendedTrunk: null }),
     });
 
@@ -48,7 +48,7 @@ describeIntegration("Git Init Banner (UI)", () => {
         name: "test-workspace",
         projectPath: "/Users/dev/non-git-project",
         projectName: "non-git-project",
-        namedWorkspacePath: "/Users/dev/non-git-project",
+        namedMinionPath: "/Users/dev/non-git-project",
         runtimeConfig: DEFAULT_RUNTIME_CONFIG,
       },
     });
@@ -85,7 +85,7 @@ describeIntegration("Git Init Banner (UI)", () => {
     // Create mock client with branches (indicates git repo)
     const client = createMockORPCClient({
       projects: new Map([projectWithNoWorkspaces("/Users/dev/git-project")]),
-      workspaces: [],
+      minions: [],
       // Default mock has branches, so it's a git repo
     });
 
@@ -96,7 +96,7 @@ describeIntegration("Git Init Banner (UI)", () => {
         name: "test-workspace",
         projectPath: "/Users/dev/git-project",
         projectName: "git-project",
-        namedWorkspacePath: "/Users/dev/git-project",
+        namedMinionPath: "/Users/dev/git-project",
         runtimeConfig: DEFAULT_RUNTIME_CONFIG,
       },
     });
@@ -136,7 +136,7 @@ describeIntegration("Git Init Banner (UI)", () => {
     // Create mock client with empty branches initially, then return branches after git init
     const client = createMockORPCClient({
       projects: new Map([projectWithNoWorkspaces("/Users/dev/non-git-project")]),
-      workspaces: [],
+      minions: [],
       listBranches: async () => {
         if (gitInitCalled) {
           branchesRefreshed = true;
@@ -157,7 +157,7 @@ describeIntegration("Git Init Banner (UI)", () => {
         name: "test-workspace",
         projectPath: "/Users/dev/non-git-project",
         projectName: "non-git-project",
-        namedWorkspacePath: "/Users/dev/non-git-project",
+        namedMinionPath: "/Users/dev/non-git-project",
         runtimeConfig: DEFAULT_RUNTIME_CONFIG,
       },
     });

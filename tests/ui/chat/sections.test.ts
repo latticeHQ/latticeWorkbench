@@ -51,7 +51,7 @@ function findWorkspaceRow(container: HTMLElement, workspaceId: string): HTMLElem
  * Find a crew drop zone in the sidebar by section ID.
  */
 function findCrewDropZone(container: HTMLElement, crewId: string): HTMLElement | null {
-  return container.querySelector(`[data-drop-crew-id="${sectionId}"]`);
+  return container.querySelector(`[data-drop-crew-id="${crewId}"]`);
 }
 
 /**
@@ -71,7 +71,7 @@ async function waitForCrew(
 ): Promise<HTMLElement> {
   return waitFor(
     () => {
-      const section = container.querySelector(`[data-crew-id="${sectionId}"]`);
+      const section = container.querySelector(`[data-crew-id="${crewId}"]`);
       if (!section) throw new Error(`Crew ${crewId} not found`);
       return section as HTMLElement;
     },
@@ -140,7 +140,7 @@ describeIntegration("Workspace Sections", () => {
     // Create a workspace first (ORPC is fine for setup)
     const branchName = generateBranchName("test-crew-ui");
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
-    const wsResult = await env.orpc.workspace.create({
+    const wsResult = await env.orpc.minion.create({
       projectPath,
       branchName,
       trunkBranch,
@@ -183,8 +183,8 @@ describeIntegration("Workspace Sections", () => {
       expect(sectionDragWrapper).not.toBeNull();
     } finally {
       await cleanupView(view, cleanupDom);
-      await env.orpc.workspace.remove({ workspaceId });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId });
+      await env.orpc.minion.remove({ minionId: workspaceId });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId });
     }
   }, 60_000);
 
@@ -192,13 +192,13 @@ describeIntegration("Workspace Sections", () => {
   // Workspace Creation with Section
   // ─────────────────────────────────────────────────────────────────────────────
 
-  test("workspace created with sectionId is assigned to that section", async () => {
+  test("workspace created with crewId is assigned to that section", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create workspace without section first to ensure project exists
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup"),
       trunkBranch,
@@ -215,22 +215,22 @@ describeIntegration("Workspace Sections", () => {
     let workspaceId: string | undefined;
     try {
       // Create workspace WITH sectionId
-      const wsResult = await env.orpc.workspace.create({
+      const wsResult = await env.orpc.minion.create({
         projectPath,
         branchName: generateBranchName("test-create-in-section"),
         trunkBranch,
-        sectionId,
+        crewId: sectionId,
       });
       if (!wsResult.success) throw new Error(`Failed to create workspace: ${wsResult.error}`);
       workspaceId = wsResult.metadata.id;
 
       // Verify workspace metadata has the sectionId
-      const workspaceInfo = await env.orpc.workspace.getInfo({ workspaceId });
-      expect(workspaceInfo?.sectionId).toBe(sectionId);
+      const workspaceInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
+      expect(workspaceInfo?.crewId).toBe(sectionId);
     } finally {
-      if (workspaceId) await env.orpc.workspace.remove({ workspaceId });
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId });
+      if (workspaceId) await env.orpc.minion.remove({ minionId: workspaceId });
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId });
     }
   }, 60_000);
 
@@ -240,7 +240,7 @@ describeIntegration("Workspace Sections", () => {
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create workspace to ensure project exists (ORPC for setup is acceptable)
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup-section-add"),
       trunkBranch,
@@ -311,8 +311,8 @@ describeIntegration("Workspace Sections", () => {
       });
     } finally {
       await cleanupView(view, cleanupDom);
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId });
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId });
     }
   }, 60_000);
 
@@ -322,7 +322,7 @@ describeIntegration("Workspace Sections", () => {
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create a workspace first to ensure the project is registered.
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup-fork-section"),
       trunkBranch,
@@ -332,25 +332,25 @@ describeIntegration("Workspace Sections", () => {
     // Create a section and a workspace inside it.
     const sectionId = await createCrewViaAPI(env, projectPath, "Fork Section");
 
-    let sourceWorkspaceId: string | undefined;
+    let sourceMinionId: string | undefined;
     let forkedWorkspaceId: string | undefined;
 
     try {
-      const sourceWsResult = await env.orpc.workspace.create({
+      const sourceWsResult = await env.orpc.minion.create({
         projectPath,
         branchName: generateBranchName("fork-section-source"),
         trunkBranch,
-        sectionId,
+        crewId: sectionId,
       });
       if (!sourceWsResult.success) {
         throw new Error(`Failed to create source workspace: ${sourceWsResult.error}`);
       }
 
-      sourceWorkspaceId = sourceWsResult.metadata.id;
+      sourceMinionId = sourceWsResult.metadata.id;
 
       const forkedName = generateBranchName("forked-in-section");
-      const forkResult = await env.orpc.workspace.fork({
-        sourceWorkspaceId,
+      const forkResult = await env.orpc.minion.fork({
+        sourceMinionId,
         newName: forkedName,
       });
       if (!forkResult.success) {
@@ -358,20 +358,20 @@ describeIntegration("Workspace Sections", () => {
       }
 
       forkedWorkspaceId = forkResult.metadata.id;
-      expect(forkResult.metadata.sectionId).toBe(sectionId);
+      expect(forkResult.metadata.crewId).toBe(sectionId);
     } finally {
       // Best-effort cleanup: remove any workspaces still assigned to this section,
       // even if the assertion failed before we captured forkedWorkspaceId.
-      const activeWorkspaces = await env.orpc.workspace.list();
+      const activeWorkspaces = await env.orpc.minion.list();
       const sectionWorkspaceIds = activeWorkspaces
-        .filter((workspace) => workspace.sectionId === sectionId)
+        .filter((workspace) => workspace.crewId === sectionId)
         .map((workspace) => workspace.id);
 
       if (forkedWorkspaceId) {
         sectionWorkspaceIds.push(forkedWorkspaceId);
       }
-      if (sourceWorkspaceId) {
-        sectionWorkspaceIds.push(sourceWorkspaceId);
+      if (sourceMinionId) {
+        sectionWorkspaceIds.push(sourceMinionId);
       }
 
       const uniqueWorkspaceIds = [...new Set(sectionWorkspaceIds)].filter(
@@ -379,11 +379,11 @@ describeIntegration("Workspace Sections", () => {
       );
 
       for (const workspaceId of uniqueWorkspaceIds) {
-        await env.orpc.workspace.remove({ workspaceId }).catch(() => {});
+        await env.orpc.minion.remove({ minionId: workspaceId }).catch(() => {});
       }
 
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id }).catch(() => {});
-      await env.orpc.projects.crews.remove({ projectPath, sectionId }).catch(() => {});
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id }).catch(() => {});
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
     }
   }, 60_000);
   // ─────────────────────────────────────────────────────────────────────────────
@@ -396,7 +396,7 @@ describeIntegration("Workspace Sections", () => {
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create a workspace to ensure project exists
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup-reorder-api"),
       trunkBranch,
@@ -434,7 +434,7 @@ describeIntegration("Workspace Sections", () => {
       // Reorder to C, A, B
       const reorderResult = await env.orpc.projects.crews.reorder({
         projectPath,
-        sectionIds: [sectionC.data.id, sectionA.data.id, sectionB.data.id],
+        crewIds: [sectionC.data.id, sectionA.data.id, sectionB.data.id],
       });
       expect(reorderResult.success).toBe(true);
 
@@ -445,10 +445,10 @@ describeIntegration("Workspace Sections", () => {
         .map((section) => section.name);
       expect(trackedReordered).toEqual(["Section C", "Section A", "Section B"]);
     } finally {
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId: sectionA.data.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId: sectionB.data.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId: sectionC.data.id });
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionA.data.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionB.data.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionC.data.id });
     }
   }, 60_000);
 
@@ -462,7 +462,7 @@ describeIntegration("Workspace Sections", () => {
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create a workspace to ensure project exists
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup-section-order"),
       trunkBranch,
@@ -503,9 +503,9 @@ describeIntegration("Workspace Sections", () => {
       expect(trackedOrder).toEqual([sectionFirst.data.id, sectionSecond.data.id]);
     } finally {
       await cleanupView(view, cleanupDom);
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId: sectionFirst.data.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId: sectionSecond.data.id });
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionFirst.data.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionSecond.data.id });
     }
   }, 60_000);
 
@@ -513,13 +513,13 @@ describeIntegration("Workspace Sections", () => {
   // Section Removal Invariants
   // ─────────────────────────────────────────────────────────────────────────────
 
-  test("removing section clears sectionId from active workspaces", async () => {
+  test("removing section clears crewId from active workspaces", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create a setup workspace first to ensure project is registered
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup-removal"),
       trunkBranch,
@@ -535,25 +535,25 @@ describeIntegration("Workspace Sections", () => {
     const sectionId = sectionResult.success ? sectionResult.data.id : "";
 
     // Create a workspace in that section
-    const wsResult = await env.orpc.workspace.create({
+    const wsResult = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("section-removal-test"),
       trunkBranch,
-      sectionId,
+      crewId: sectionId,
     });
     expect(wsResult.success).toBe(true);
     const workspaceId = wsResult.success ? wsResult.metadata.id : "";
 
     try {
       // Verify workspace starts sectioned
-      let wsInfo = await env.orpc.workspace.getInfo({ workspaceId });
+      let wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.sectionId).toBe(sectionId);
+      expect(wsInfo?.crewId).toBe(sectionId);
 
       // Remove section with active workspaces - should succeed and unsection the workspace
       const removeResult = await env.orpc.projects.crews.remove({
         projectPath,
-        sectionId,
+        crewId: sectionId,
       });
       expect(removeResult.success).toBe(true);
 
@@ -562,23 +562,23 @@ describeIntegration("Workspace Sections", () => {
       expect(sections.some((section) => section.id === sectionId)).toBe(false);
 
       // Verify workspace's sectionId is now cleared
-      wsInfo = await env.orpc.workspace.getInfo({ workspaceId });
+      wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.sectionId).toBeUndefined();
+      expect(wsInfo?.crewId).toBeUndefined();
     } finally {
-      await env.orpc.workspace.remove({ workspaceId });
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId }).catch(() => {});
+      await env.orpc.minion.remove({ minionId: workspaceId });
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
     }
   }, 30_000);
 
-  test("removing section clears sectionId from archived workspaces", async () => {
+  test("removing section clears crewId from archived workspaces", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create a setup workspace first to ensure project is registered
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup-archive"),
       trunkBranch,
@@ -594,42 +594,42 @@ describeIntegration("Workspace Sections", () => {
     const sectionId = sectionResult.success ? sectionResult.data.id : "";
 
     // Create a workspace in that section
-    const wsResult = await env.orpc.workspace.create({
+    const wsResult = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("archive-section-test"),
       trunkBranch,
-      sectionId,
+      crewId: sectionId,
     });
     expect(wsResult.success).toBe(true);
     const workspaceId = wsResult.success ? wsResult.metadata.id : "";
 
     try {
       // Archive the workspace
-      const archiveResult = await env.orpc.workspace.archive({ workspaceId });
+      const archiveResult = await env.orpc.minion.archive({ minionId: workspaceId });
       expect(archiveResult.success).toBe(true);
 
       // Verify workspace is archived and has sectionId
-      let wsInfo = await env.orpc.workspace.getInfo({ workspaceId });
+      let wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.sectionId).toBe(sectionId);
+      expect(wsInfo?.crewId).toBe(sectionId);
       expect(wsInfo?.archivedAt).toBeDefined();
 
       // Now remove the section - should succeed since workspace is archived
       const removeResult = await env.orpc.projects.crews.remove({
         projectPath,
-        sectionId,
+        crewId: sectionId,
       });
       expect(removeResult.success).toBe(true);
 
       // Verify workspace's sectionId is now cleared
-      wsInfo = await env.orpc.workspace.getInfo({ workspaceId });
+      wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.sectionId).toBeUndefined();
+      expect(wsInfo?.crewId).toBeUndefined();
     } finally {
-      await env.orpc.workspace.remove({ workspaceId });
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id });
+      await env.orpc.minion.remove({ minionId: workspaceId });
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
       // Section already removed in test, but try anyway in case test failed early
-      await env.orpc.projects.crews.remove({ projectPath, sectionId }).catch(() => {});
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
     }
   }, 30_000);
 
@@ -643,7 +643,7 @@ describeIntegration("Workspace Sections", () => {
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
     // Create a setup workspace first to ensure project is registered
-    const setupWs = await env.orpc.workspace.create({
+    const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup-delete-confirm"),
       trunkBranch,
@@ -659,11 +659,11 @@ describeIntegration("Workspace Sections", () => {
     const sectionId = sectionResult.success ? sectionResult.data.id : "";
 
     // Create a workspace in that section (active, not archived)
-    const wsResult = await env.orpc.workspace.create({
+    const wsResult = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("in-section-delete-confirm"),
       trunkBranch,
-      sectionId,
+      crewId: sectionId,
     });
     expect(wsResult.success).toBe(true);
     const workspaceId = wsResult.success ? wsResult.metadata.id : "";
@@ -747,14 +747,14 @@ describeIntegration("Workspace Sections", () => {
       );
 
       // Backend should reflect the unsectioned workspace as well
-      const wsInfoAfterDelete = await env.orpc.workspace.getInfo({ workspaceId });
+      const wsInfoAfterDelete = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfoAfterDelete).not.toBeNull();
-      expect(wsInfoAfterDelete?.sectionId).toBeUndefined();
+      expect(wsInfoAfterDelete?.crewId).toBeUndefined();
     } finally {
       await cleanupView(view, cleanupDom);
-      await env.orpc.workspace.remove({ workspaceId });
-      await env.orpc.workspace.remove({ workspaceId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, sectionId }).catch(() => {});
+      await env.orpc.minion.remove({ minionId: workspaceId });
+      await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
+      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
     }
   }, 60_000);
 });

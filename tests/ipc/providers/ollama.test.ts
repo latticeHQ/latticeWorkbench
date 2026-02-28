@@ -99,14 +99,14 @@ describeOllama("Ollama integration", () => {
 
   test("should successfully send message to Ollama and receive response", async () => {
     // Setup test environment
-    const { env, workspaceId, cleanup } = await setupWorkspace("ollama");
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const { env, minionId, cleanup } = await setupWorkspace("ollama");
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
     try {
       // Send a simple message to verify basic connectivity
       const result = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "Say 'hello' and nothing else",
         modelString("ollama", OLLAMA_MODEL)
       );
@@ -134,14 +134,14 @@ describeOllama("Ollama integration", () => {
   }, 45000); // Ollama can be slower than cloud APIs, especially first run
 
   test("should successfully call tools with Ollama", async () => {
-    const { env, workspaceId, cleanup } = await setupWorkspace("ollama");
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const { env, minionId, cleanup } = await setupWorkspace("ollama");
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
     try {
       // Ask for current time which should trigger bash
       const result = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         'Use bash to run: date. Set display_name="current-time" and timeout_secs=30. Do not spawn a sub-agent.',
         modelString("ollama", OLLAMA_MODEL),
         {
@@ -186,14 +186,14 @@ describeOllama("Ollama integration", () => {
   }, 90000); // Tool calling can take longer
 
   test("should handle file operations with Ollama", async () => {
-    const { env, workspaceId, cleanup } = await setupWorkspace("ollama");
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const { env, minionId, cleanup } = await setupWorkspace("ollama");
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
     try {
       // Ask to read a file that should exist
       const result = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "Read the README.md file and tell me what the first heading says.",
         modelString("ollama", OLLAMA_MODEL)
       );
@@ -225,14 +225,14 @@ describeOllama("Ollama integration", () => {
   }, 90000); // File operations with reasoning
 
   test("should handle errors gracefully when Ollama is not running", async () => {
-    const { env, workspaceId, cleanup } = await setupWorkspace("ollama");
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const { env, minionId, cleanup } = await setupWorkspace("ollama");
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
     try {
       // Override baseUrl to point to non-existent server
       const result = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "This should fail",
         modelString("ollama", OLLAMA_MODEL),
         {

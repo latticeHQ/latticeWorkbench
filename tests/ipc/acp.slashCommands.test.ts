@@ -112,7 +112,7 @@ describe("ACP slash command support", () => {
       throw new Error("Expected /new command to parse");
     }
 
-    expect(parsed.workspaceName).toBe("feature-branch");
+    expect(parsed.minionName).toBe("feature-branch");
     expect(parsed.trunkBranch).toBe("main");
     expect(parsed.runtimeConfig?.type).toBe("ssh");
     if (parsed.runtimeConfig?.type === "ssh") {
@@ -132,7 +132,7 @@ describe("ACP slash command support", () => {
       throw new Error("Expected one-line /new command to parse");
     }
 
-    expect(parsed.workspaceName).toBe("feature-branch");
+    expect(parsed.minionName).toBe("feature-branch");
     expect(parsed.trunkBranch).toBe("main");
     expect(parsed.runtimeConfig?.type).toBe("ssh");
     expect(parsed.startMessage).toBe("start by summarizing the branch");
@@ -149,7 +149,7 @@ describe("ACP slash command support", () => {
       throw new Error("Expected unquoted two-token /new runtime to parse");
     }
 
-    expect(parsed.workspaceName).toBe("feature-branch");
+    expect(parsed.minionName).toBe("feature-branch");
     expect(parsed.runtimeConfig?.type).toBe("ssh");
     if (parsed.runtimeConfig?.type === "ssh") {
       expect(parsed.runtimeConfig.host).toBe("user@example.com");
@@ -168,7 +168,7 @@ describe("ACP slash command support", () => {
       throw new Error("Expected numeric one-line /new command to parse");
     }
 
-    expect(parsed.workspaceName).toBe("feature-branch");
+    expect(parsed.minionName).toBe("feature-branch");
     expect(parsed.startMessage).toBe("start with step 1");
   });
 
@@ -180,7 +180,7 @@ describe("ACP slash command support", () => {
       throw new Error("Expected numeric workspace name in /new to parse");
     }
 
-    expect(parsed.workspaceName).toBe("123");
+    expect(parsed.minionName).toBe("123");
   });
 
   it("maps skill slash commands to formatted prompts", () => {

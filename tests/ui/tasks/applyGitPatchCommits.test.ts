@@ -92,7 +92,7 @@ describe("task_apply_git_patch commit list", () => {
       const trunkBranch = await detectDefaultTrunkBranch(repoPath);
       const branchName = generateBranchName("ui-task-apply-git-patch");
 
-      const createResult = await env.orpc.workspace.create({
+      const createResult = await env.orpc.minion.create({
         projectPath: repoPath,
         branchName,
         trunkBranch,
@@ -133,7 +133,7 @@ describe("task_apply_git_patch commit list", () => {
 
       if (workspaceId) {
         try {
-          await env.orpc.workspace.remove({ workspaceId, options: { force: true } });
+          await env.orpc.minion.remove({ minionId: workspaceId, options: { force: true } });
         } catch {
           // Best effort cleanup.
         }

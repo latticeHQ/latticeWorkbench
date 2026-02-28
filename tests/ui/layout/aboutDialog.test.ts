@@ -12,7 +12,7 @@ import {
 } from "../../ipc/setup";
 import { cleanupTempGitRepo, createTempGitRepo, generateBranchName } from "../../ipc/helpers";
 import { detectDefaultTrunkBranch } from "@/node/git";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type { UpdateStatus } from "@/common/orpc/types";
 
 type MutableUpdateService = {
@@ -73,7 +73,7 @@ describe("About dialog (UI)", () => {
   let env: TestEnvironment;
   let repoPath: string;
   let workspaceId: string;
-  let workspaceMetadata: FrontendWorkspaceMetadata;
+  let workspaceMetadata: FrontendMinionMetadata;
   let cleanupDom: (() => void) | null = null;
   let view: RenderedApp | null = null;
 
@@ -83,7 +83,7 @@ describe("About dialog (UI)", () => {
 
     const trunkBranch = await detectDefaultTrunkBranch(repoPath);
     const branchName = generateBranchName("about-dialog");
-    const createResult = await env.orpc.workspace.create({
+    const createResult = await env.orpc.minion.create({
       projectPath: repoPath,
       branchName,
       trunkBranch,
@@ -120,8 +120,8 @@ describe("About dialog (UI)", () => {
 
   afterAll(async () => {
     try {
-      const removeResult = await env.orpc.workspace.remove({
-        workspaceId,
+      const removeResult = await env.orpc.minion.remove({
+        minionId: workspaceId,
         options: { force: true },
       });
 

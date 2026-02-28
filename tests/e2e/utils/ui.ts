@@ -342,8 +342,8 @@ export function createWorkspaceUI(page: Page, context: DemoProjectConfig): Works
             if (!window.__ORPC_CLIENT__) {
               throw new Error("ORPC client not initialized");
             }
-            const iterator = await window.__ORPC_CLIENT__.workspace.onChat(
-              { workspaceId: id },
+            const iterator = await window.__ORPC_CLIENT__.minion.onChat(
+              { minionId: id },
               { signal }
             );
 

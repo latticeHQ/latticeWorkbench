@@ -13,10 +13,10 @@ import assert from "node:assert";
 /** Collect all messages via iterateFullHistory (replaces removed getFullHistory). */
 async function collectFullHistory(
   service: HistoryService,
-  workspaceId: string
+  minionId: string
 ): Promise<LatticeMessage[]> {
   const messages: LatticeMessage[] = [];
-  const result = await service.iterateFullHistory(workspaceId, "forward", (chunk) => {
+  const result = await service.iterateFullHistory(minionId, "forward", (chunk) => {
     messages.push(...chunk);
   });
   assert(result.success, `collectFullHistory failed: ${result.success ? "" : result.error}`);
@@ -74,19 +74,19 @@ describe("WebSocket history replay", () => {
           throw new Error(`Workspace creation failed: ${createResult.error}`);
         }
 
-        const workspaceId = createResult.metadata.id;
+        const minionId = createResult.metadata.id;
 
         // Directly write a test message to history file
 
         const historyService = new HistoryService(env.config);
         const testMessage = createLatticeMessage("test-msg-2", "user", "Test message for getHistory");
-        await historyService.appendToHistory(workspaceId, testMessage);
+        await historyService.appendToHistory(minionId, testMessage);
 
         // Wait for file write
         await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Read history directly via HistoryService (not ORPC - testing that direct reads don't broadcast)
-        const messages = await collectFullHistory(historyService, workspaceId);
+        const messages = await collectFullHistory(historyService, minionId);
 
         // Verify we got history back
         expect(messages.length).toBeGreaterThan(0);
