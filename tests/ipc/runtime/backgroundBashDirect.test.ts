@@ -50,7 +50,7 @@ interface ToolExecuteResult {
 describe("Background Bash Direct Integration", () => {
   let env: TestEnvironment;
   let tempGitRepo: string;
-  let workspaceId: string;
+  let minionId: string;
   let workspacePath: string;
 
   beforeAll(async () => {
@@ -59,7 +59,7 @@ describe("Background Bash Direct Integration", () => {
 
     const branchName = generateBranchName("bg-direct-test");
     const trunkBranch = await detectDefaultTrunkBranch(tempGitRepo);
-    const result = await env.orpc.workspace.create({
+    const result = await env.orpc.minion.create({
       projectPath: tempGitRepo,
       branchName,
       trunkBranch,
@@ -68,13 +68,13 @@ describe("Background Bash Direct Integration", () => {
     if (!result.success) {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
-    workspaceId = result.metadata.id;
-    workspacePath = result.metadata.namedWorkspacePath ?? tempGitRepo;
+    minionId = result.metadata.id;
+    workspacePath = result.metadata.namedMinionPath ?? tempGitRepo;
   });
 
   afterAll(async () => {
-    if (workspaceId) {
-      await env.orpc.workspace.remove({ workspaceId }).catch(() => {});
+    if (minionId) {
+      await env.orpc.minion.remove({ minionId }).catch(() => {});
     }
     await cleanupTempGitRepo(tempGitRepo);
     await cleanupTestEnvironment(env);
@@ -93,7 +93,7 @@ describe("Background Bash Direct Integration", () => {
       latticeEnv: {},
       runtimeTempDir: os.tmpdir(),
       backgroundProcessManager: manager,
-      workspaceId,
+      minionId,
     };
 
     // Message 1: Spawn background process
@@ -132,7 +132,7 @@ describe("Background Bash Direct Integration", () => {
     const testId = `handleread_${Date.now()}`;
     const marker = `HANDLE_READ_${testId}`;
 
-    const spawnResult = await manager.spawn(runtime, workspaceId, `echo "${marker}"`, {
+    const spawnResult = await manager.spawn(runtime, minionId, `echo "${marker}"`, {
       cwd: workspacePath,
       displayName: testId,
     });
@@ -161,7 +161,7 @@ describe("Background Bash Direct Integration", () => {
 
     const spawnResult = await manager.spawn(
       runtime,
-      workspaceId,
+      minionId,
       `echo "${marker1}"; sleep ${markerDelaySecs}; echo "${marker2}"`,
       { cwd: workspacePath, displayName: testId }
     );
@@ -198,22 +198,22 @@ describe("Background Bash Direct Integration", () => {
     // Create second workspace
     const branchName2 = generateBranchName("bg-direct-test-2");
     const trunkBranch = await detectDefaultTrunkBranch(tempGitRepo);
-    const result2 = await env.orpc.workspace.create({
+    const result2 = await env.orpc.minion.create({
       projectPath: tempGitRepo,
       branchName: branchName2,
       trunkBranch,
     });
     expect(result2.success).toBe(true);
     if (!result2.success) return;
-    const workspaceId2 = result2.metadata.id;
+    const minionId2 = result2.metadata.id;
 
     try {
       // Spawn in each workspace
-      const spawn1 = await manager.spawn(runtime, workspaceId, "echo ws1", {
+      const spawn1 = await manager.spawn(runtime, minionId, "echo ws1", {
         cwd: workspacePath,
         displayName: "test-1",
       });
-      const spawn2 = await manager.spawn(runtime, workspaceId2, "echo ws2", {
+      const spawn2 = await manager.spawn(runtime, minionId2, "echo ws2", {
         cwd: workspacePath,
         displayName: "test-2",
       });
@@ -225,7 +225,7 @@ describe("Background Bash Direct Integration", () => {
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       // Cleanup workspace 2
-      await manager.cleanup(workspaceId2);
+      await manager.cleanup(minionId2);
 
       // Process 1 still accessible
       const output1 = await manager.getOutput(spawn1.processId);
@@ -235,7 +235,7 @@ describe("Background Bash Direct Integration", () => {
       const output2 = await manager.getOutput(spawn2.processId);
       expect(output2.success).toBe(false);
     } finally {
-      await env.orpc.workspace.remove({ workspaceId: workspaceId2 }).catch(() => {});
+      await env.orpc.minion.remove({ minionId: minionId2 }).catch(() => {});
     }
   });
 });
@@ -243,7 +243,7 @@ describe("Background Bash Direct Integration", () => {
 describe("Background Bash Output Capture", () => {
   let env: TestEnvironment;
   let tempGitRepo: string;
-  let workspaceId: string;
+  let minionId: string;
   let workspacePath: string;
 
   beforeAll(async () => {
@@ -252,7 +252,7 @@ describe("Background Bash Output Capture", () => {
 
     const branchName = generateBranchName("bg-output-test");
     const trunkBranch = await detectDefaultTrunkBranch(tempGitRepo);
-    const result = await env.orpc.workspace.create({
+    const result = await env.orpc.minion.create({
       projectPath: tempGitRepo,
       branchName,
       trunkBranch,
@@ -261,13 +261,13 @@ describe("Background Bash Output Capture", () => {
     if (!result.success) {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
-    workspaceId = result.metadata.id;
-    workspacePath = result.metadata.namedWorkspacePath ?? tempGitRepo;
+    minionId = result.metadata.id;
+    workspacePath = result.metadata.namedMinionPath ?? tempGitRepo;
   });
 
   afterAll(async () => {
-    if (workspaceId) {
-      await env.orpc.workspace.remove({ workspaceId }).catch(() => {});
+    if (minionId) {
+      await env.orpc.minion.remove({ minionId }).catch(() => {});
     }
     await cleanupTempGitRepo(tempGitRepo);
     await cleanupTestEnvironment(env);
@@ -281,7 +281,7 @@ describe("Background Bash Output Capture", () => {
     // Script that writes to stderr and exits with error
     const testId = `stderrerr_${Date.now()}`;
     const marker = `ERROR_${testId}`;
-    const spawnResult = await manager.spawn(runtime, workspaceId, `echo "${marker}" >&2; exit 1`, {
+    const spawnResult = await manager.spawn(runtime, minionId, `echo "${marker}" >&2; exit 1`, {
       cwd: workspacePath,
       displayName: testId,
     });
@@ -308,7 +308,7 @@ describe("Background Bash Output Capture", () => {
     // Script that outputs to stdout, then stderr, then continues
     const spawnResult = await manager.spawn(
       runtime,
-      workspaceId,
+      minionId,
       `echo "${marker1}"; echo "${marker2}" >&2; false; echo "NEVER_SEEN"`,
       { cwd: workspacePath, displayName: testId }
     );
@@ -335,7 +335,7 @@ describe("Background Bash Output Capture", () => {
     const errMarker = `ERR_${testId}`;
     const spawnResult = await manager.spawn(
       runtime,
-      workspaceId,
+      minionId,
       `for i in 1 2 3; do echo "${outMarker}_$i"; echo "${errMarker}_$i" >&2; done`,
       { cwd: workspacePath, displayName: testId }
     );
@@ -359,7 +359,7 @@ describe("Background Bash Output Capture", () => {
 describe("Foreground to Background Migration", () => {
   let env: TestEnvironment;
   let tempGitRepo: string;
-  let workspaceId: string;
+  let minionId: string;
   let workspacePath: string;
 
   beforeAll(async () => {
@@ -368,7 +368,7 @@ describe("Foreground to Background Migration", () => {
 
     const branchName = generateBranchName("fg-to-bg-test");
     const trunkBranch = await detectDefaultTrunkBranch(tempGitRepo);
-    const result = await env.orpc.workspace.create({
+    const result = await env.orpc.minion.create({
       projectPath: tempGitRepo,
       branchName,
       trunkBranch,
@@ -377,13 +377,13 @@ describe("Foreground to Background Migration", () => {
     if (!result.success) {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
-    workspaceId = result.metadata.id;
-    workspacePath = result.metadata.namedWorkspacePath ?? tempGitRepo;
+    minionId = result.metadata.id;
+    workspacePath = result.metadata.namedMinionPath ?? tempGitRepo;
   });
 
   afterAll(async () => {
-    if (workspaceId) {
-      await env.orpc.workspace.remove({ workspaceId }).catch(() => {});
+    if (minionId) {
+      await env.orpc.minion.remove({ minionId }).catch(() => {});
     }
     await cleanupTempGitRepo(tempGitRepo);
     await cleanupTestEnvironment(env);
@@ -406,7 +406,7 @@ describe("Foreground to Background Migration", () => {
       latticeEnv: {},
       runtimeTempDir: os.tmpdir(),
       backgroundProcessManager: manager,
-      workspaceId,
+      minionId,
     };
 
     const testId = `fg_to_bg_${Date.now()}`;
@@ -433,7 +433,7 @@ describe("Foreground to Background Migration", () => {
     await new Promise((resolve) => setTimeout(resolve, FOREGROUND_MIGRATION_READY_MS));
 
     // Verify foreground process is registered
-    const fgToolCallIds = manager.getForegroundToolCallIds(workspaceId);
+    const fgToolCallIds = manager.getForegroundToolCallIds(minionId);
     expect(fgToolCallIds.includes(toolCallId)).toBe(true);
 
     // Send to background while running
@@ -452,11 +452,11 @@ describe("Foreground to Background Migration", () => {
     expect(result.output).not.toContain(marker2);
 
     // Foreground registration should be removed
-    const fgToolCallIds2 = manager.getForegroundToolCallIds(workspaceId);
+    const fgToolCallIds2 = manager.getForegroundToolCallIds(minionId);
     expect(fgToolCallIds2.includes(toolCallId)).toBe(false);
 
     // Process should now be in background list
-    const bgProcs = await manager.list(workspaceId);
+    const bgProcs = await manager.list(minionId);
     const migratedProc = bgProcs.find((p) => p.id === testId);
     expect(migratedProc).toBeDefined();
     expect(migratedProc?.status).toBe("running");
@@ -496,7 +496,7 @@ describe("Foreground to Background Migration", () => {
       latticeEnv: {},
       runtimeTempDir: os.tmpdir(),
       backgroundProcessManager: manager,
-      workspaceId,
+      minionId,
     };
 
     const testId = `preserve_output_${Date.now()}`;
@@ -558,7 +558,7 @@ describe("Foreground to Background Migration", () => {
       latticeEnv: {},
       runtimeTempDir: os.tmpdir(),
       backgroundProcessManager: manager,
-      workspaceId,
+      minionId,
     };
 
     const testId = `fast_exit_${Date.now()}`;
@@ -607,7 +607,7 @@ describe("Foreground to Background Migration", () => {
       latticeEnv: {},
       runtimeTempDir: os.tmpdir(),
       backgroundProcessManager: manager,
-      workspaceId,
+      minionId,
     };
 
     const testId = `abort_after_bg_${Date.now()}`;

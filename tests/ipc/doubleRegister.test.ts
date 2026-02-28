@@ -45,7 +45,7 @@ describeIntegration("Service double registration", () => {
         const projectsList = await client.projects.list();
         expect(Array.isArray(projectsList)).toBe(true);
 
-        const workspaces = await client.workspace.list();
+        const workspaces = await client.minion.list();
         expect(Array.isArray(workspaces)).toBe(true);
       } finally {
         await cleanupTestEnvironment(env);

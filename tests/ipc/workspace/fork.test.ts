@@ -31,9 +31,9 @@ import { createLatticeMessage, type LatticeMessage } from "../../../src/common/t
 import assert from "node:assert";
 
 /** Collect all messages via iterateFullHistory (replaces removed getFullHistory). */
-async function collectFullHistory(service: HistoryService, workspaceId: string) {
+async function collectFullHistory(service: HistoryService, minionId: string) {
   const messages: LatticeMessage[] = [];
-  const result = await service.iterateFullHistory(workspaceId, "forward", (chunk) => {
+  const result = await service.iterateFullHistory(minionId, "forward", (chunk) => {
     messages.push(...chunk);
   });
   assert(result.success, `collectFullHistory failed: ${result.success ? "" : result.error}`);
@@ -108,7 +108,7 @@ describeIntegration("Workspace fork", () => {
 
           try {
             const runtimeConfig = getRuntimeConfig();
-            const { workspaceId: sourceWorkspaceId } = await createWorkspaceWithInit(
+            const { minionId: sourceMinionId } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               "source-workspace",
@@ -128,8 +128,8 @@ describeIntegration("Workspace fork", () => {
             ];
 
             for (const { name, expectedError } of invalidNames) {
-              const forkResult = await client.workspace.fork({
-                sourceWorkspaceId,
+              const forkResult = await client.minion.fork({
+                sourceMinionId,
                 newName: name,
               });
               expect(forkResult.success).toBe(false);
@@ -138,7 +138,7 @@ describeIntegration("Workspace fork", () => {
             }
 
             // Cleanup
-            await client.workspace.remove({ workspaceId: sourceWorkspaceId });
+            await client.minion.remove({ minionId: sourceMinionId });
           } finally {
             await cleanupTestEnvironment(env);
             await cleanupTempGitRepo(tempGitRepo);
@@ -153,7 +153,7 @@ describeIntegration("Workspace fork", () => {
           const runtimeConfig = getRuntimeConfig();
           const {
             env,
-            workspaceId: sourceWorkspaceId,
+            minionId: sourceMinionId,
             cleanup,
           } = await setupWorkspace("anthropic", undefined, {
             runtimeConfig,
@@ -164,8 +164,8 @@ describeIntegration("Workspace fork", () => {
           try {
             // Fork the workspace
             const client = resolveOrpcClient(env);
-            const forkResult = await client.workspace.fork({
-              sourceWorkspaceId,
+            const forkResult = await client.minion.fork({
+              sourceMinionId,
               newName: "forked-workspace",
             });
             expect(forkResult.success).toBe(true);
@@ -204,7 +204,7 @@ describeIntegration("Workspace fork", () => {
           const runtimeConfig = getRuntimeConfig();
           const {
             env,
-            workspaceId: sourceWorkspaceId,
+            minionId: sourceMinionId,
             cleanup,
           } = await setupWorkspace("anthropic", undefined, {
             runtimeConfig,
@@ -227,14 +227,14 @@ describeIntegration("Workspace fork", () => {
             ];
 
             for (const msg of historyMessages) {
-              const result = await historyService.appendToHistory(sourceWorkspaceId, msg);
+              const result = await historyService.appendToHistory(sourceMinionId, msg);
               expect(result.success).toBe(true);
             }
 
             // Fork the workspace
             const client = resolveOrpcClient(env);
-            const forkResult = await client.workspace.fork({
-              sourceWorkspaceId,
+            const forkResult = await client.minion.fork({
+              sourceMinionId,
               newName: "forked-with-history",
             });
             expect(forkResult.success).toBe(true);
@@ -266,7 +266,7 @@ describeIntegration("Workspace fork", () => {
           const runtimeConfig = getRuntimeConfig();
           const {
             env,
-            workspaceId: sourceWorkspaceId,
+            minionId: sourceMinionId,
             cleanup,
           } = await setupWorkspace("anthropic", undefined, {
             runtimeConfig,
@@ -277,8 +277,8 @@ describeIntegration("Workspace fork", () => {
           try {
             // Fork the workspace
             const client = resolveOrpcClient(env);
-            const forkResult = await client.workspace.fork({
-              sourceWorkspaceId,
+            const forkResult = await client.minion.fork({
+              sourceMinionId,
               newName: "forked-independent",
             });
             expect(forkResult.success).toBe(true);
@@ -287,7 +287,7 @@ describeIntegration("Workspace fork", () => {
 
             // User expects: both workspaces work independently
             // Start collectors before sending messages
-            const sourceCollector = createStreamCollector(env.orpc, sourceWorkspaceId);
+            const sourceCollector = createStreamCollector(env.orpc, sourceMinionId);
             const forkedCollector = createStreamCollector(env.orpc, forkedWorkspaceId);
             sourceCollector.start();
             forkedCollector.start();
@@ -300,7 +300,7 @@ describeIntegration("Workspace fork", () => {
             const [sourceResult, forkedResult] = await Promise.all([
               sendMessageWithModel(
                 env,
-                sourceWorkspaceId,
+                sourceMinionId,
                 "What is 5+5? Answer with just the number.",
                 modelString("anthropic", "claude-sonnet-4-5")
               ),
@@ -341,7 +341,7 @@ describeIntegration("Workspace fork", () => {
           const runtimeConfig = getRuntimeConfig();
           const {
             env,
-            workspaceId: sourceWorkspaceId,
+            minionId: sourceMinionId,
             cleanup,
           } = await setupWorkspace("anthropic", undefined, {
             runtimeConfig,
@@ -351,13 +351,13 @@ describeIntegration("Workspace fork", () => {
 
           try {
             // Start collector before starting stream
-            const sourceCollector = createStreamCollector(env.orpc, sourceWorkspaceId);
+            const sourceCollector = createStreamCollector(env.orpc, sourceMinionId);
             sourceCollector.start();
             await sourceCollector.waitForSubscription();
 
             const sendResult = await sendMessageWithModel(
               env,
-              sourceWorkspaceId,
+              sourceMinionId,
               'Count from 1 to 25, one number per line, and include the word "alpha" after each number.',
               modelString("anthropic", "claude-sonnet-4-5")
             );
@@ -380,7 +380,7 @@ describeIntegration("Workspace fork", () => {
             const historyService = new HistoryService(env.config);
             let partialText = "";
             const partialReady = await waitFor(async () => {
-              const partial = await historyService.readPartial(sourceWorkspaceId);
+              const partial = await historyService.readPartial(sourceMinionId);
               if (!partial) return false;
               partialText = (partial.parts ?? [])
                 .filter((part: LatticeMessage["parts"][number]) => part.type === "text")
@@ -395,8 +395,8 @@ describeIntegration("Workspace fork", () => {
 
             // Fork while stream is active (this should commit partial to history)
             const client = resolveOrpcClient(env);
-            const forkResult = await client.workspace.fork({
-              sourceWorkspaceId,
+            const forkResult = await client.minion.fork({
+              sourceMinionId,
               newName: "forked-mid-stream",
             });
             expect(forkResult.success).toBe(true);
@@ -455,7 +455,7 @@ describeIntegration("Workspace fork", () => {
 
           try {
             const runtimeConfig = getRuntimeConfig();
-            const { workspaceId: sourceWorkspaceId } = await createWorkspaceWithInit(
+            const { minionId: sourceMinionId } = await createWorkspaceWithInit(
               env,
               tempGitRepo,
               "source-workspace",
@@ -466,8 +466,8 @@ describeIntegration("Workspace fork", () => {
             const client = resolveOrpcClient(env);
 
             // Fork the workspace
-            const forkResult = await client.workspace.fork({
-              sourceWorkspaceId,
+            const forkResult = await client.minion.fork({
+              sourceMinionId,
               newName: "forked-workspace",
             });
             expect(forkResult.success).toBe(true);
@@ -483,13 +483,13 @@ describeIntegration("Workspace fork", () => {
             }
 
             // User expects: both workspaces appear in workspace list
-            const workspaces = await client.workspace.list();
-            const workspaceIds = workspaces.map((w: { id: string }) => w.id);
-            expect(workspaceIds).toContain(sourceWorkspaceId);
-            expect(workspaceIds).toContain(forkResult.metadata.id);
+            const workspaces = await client.minion.list();
+            const minionIds = workspaces.map((w: { id: string }) => w.id);
+            expect(minionIds).toContain(sourceMinionId);
+            expect(minionIds).toContain(forkResult.metadata.id);
 
             const sourceWorkspace = workspaces.find(
-              (w: { id: string }) => w.id === sourceWorkspaceId
+              (w: { id: string }) => w.id === sourceMinionId
             );
             const forkedWorkspace = workspaces.find(
               (w: { id: string }) => w.id === forkResult.metadata.id
@@ -503,8 +503,8 @@ describeIntegration("Workspace fork", () => {
             }
 
             // Cleanup
-            await client.workspace.remove({ workspaceId: sourceWorkspaceId });
-            await client.workspace.remove({ workspaceId: forkResult.metadata.id });
+            await client.minion.remove({ minionId: sourceMinionId });
+            await client.minion.remove({ minionId: forkResult.metadata.id });
           } finally {
             await cleanupTestEnvironment(env);
             await cleanupTempGitRepo(tempGitRepo);
@@ -521,7 +521,7 @@ describeIntegration("Workspace fork", () => {
       const env = await createTestEnvironment();
       const tempGitRepo = await createTempGitRepo();
       const client = resolveOrpcClient(env);
-      let sourceWorkspaceId: string | undefined;
+      let sourceMinionId: string | undefined;
       let forkedWorkspaceId: string | undefined;
 
       try {
@@ -538,10 +538,10 @@ describeIntegration("Workspace fork", () => {
           true,
           true
         );
-        sourceWorkspaceId = createResult.workspaceId;
+        sourceMinionId = createResult.minionId;
 
-        const sourceWorkspace = (await client.workspace.list()).find(
-          (workspace: { id: string }) => workspace.id === sourceWorkspaceId
+        const sourceWorkspace = (await client.minion.list()).find(
+          (workspace: { id: string }) => workspace.id === sourceMinionId
         );
         expect(sourceWorkspace).toBeDefined();
         expect(sourceWorkspace?.runtimeConfig.type).toBe("docker");
@@ -549,8 +549,8 @@ describeIntegration("Workspace fork", () => {
           expect(sourceWorkspace.runtimeConfig.image).toBe(dockerRuntimeConfig.image);
         }
 
-        const forkResult = await client.workspace.fork({
-          sourceWorkspaceId,
+        const forkResult = await client.minion.fork({
+          sourceMinionId,
           newName: "docker-forked",
         });
         expect(forkResult.success).toBe(true);
@@ -569,7 +569,7 @@ describeIntegration("Workspace fork", () => {
           );
         }
 
-        const workspaces = await client.workspace.list();
+        const workspaces = await client.minion.list();
         const forkedWorkspace = workspaces.find((workspace: { id: string }) => {
           return workspace.id === forkedWorkspaceId;
         });
@@ -587,10 +587,10 @@ describeIntegration("Workspace fork", () => {
         }
       } finally {
         if (forkedWorkspaceId) {
-          await client.workspace.remove({ workspaceId: forkedWorkspaceId });
+          await client.minion.remove({ minionId: forkedWorkspaceId });
         }
-        if (sourceWorkspaceId) {
-          await client.workspace.remove({ workspaceId: sourceWorkspaceId });
+        if (sourceMinionId) {
+          await client.minion.remove({ minionId: sourceMinionId });
         }
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -611,7 +611,7 @@ describeIntegration("Workspace fork", () => {
         const localRuntimeConfig = { type: "local" as const };
 
         const client = resolveOrpcClient(env);
-        const createResult = await client.workspace.create({
+        const createResult = await client.minion.create({
           projectPath: tempGitRepo,
           branchName: "local-source",
           trunkBranch: "main", // Not used for local runtime
@@ -619,15 +619,15 @@ describeIntegration("Workspace fork", () => {
         });
         expect(createResult.success).toBe(true);
         if (!createResult.success) return;
-        const sourceWorkspaceId = createResult.metadata.id;
+        const sourceMinionId = createResult.metadata.id;
 
         // Verify source workspace uses local runtime (project-dir mode)
         expect(createResult.metadata.runtimeConfig.type).toBe("local");
         expect("srcBaseDir" in createResult.metadata.runtimeConfig).toBe(false);
 
         // Fork the local workspace
-        const forkResult = await client.workspace.fork({
-          sourceWorkspaceId,
+        const forkResult = await client.minion.fork({
+          sourceMinionId,
           newName: "local-forked",
         });
         expect(forkResult.success).toBe(true);
@@ -639,20 +639,20 @@ describeIntegration("Workspace fork", () => {
         expect("srcBaseDir" in forkResult.metadata.runtimeConfig).toBe(false);
 
         // Both workspaces should point to the same project path
-        expect(forkResult.metadata.namedWorkspacePath).toBe(
-          createResult.metadata.namedWorkspacePath
+        expect(forkResult.metadata.namedMinionPath).toBe(
+          createResult.metadata.namedMinionPath
         );
         expect(forkResult.metadata.projectPath).toBe(createResult.metadata.projectPath);
 
         // User expects: both workspaces appear in workspace list
-        const workspaces = await client.workspace.list();
-        const workspaceIds = workspaces.map((w: { id: string }) => w.id);
-        expect(workspaceIds).toContain(sourceWorkspaceId);
-        expect(workspaceIds).toContain(forkedWorkspaceId);
+        const workspaces = await client.minion.list();
+        const minionIds = workspaces.map((w: { id: string }) => w.id);
+        expect(minionIds).toContain(sourceMinionId);
+        expect(minionIds).toContain(forkedWorkspaceId);
 
         // Cleanup
-        await client.workspace.remove({ workspaceId: sourceWorkspaceId });
-        await client.workspace.remove({ workspaceId: forkedWorkspaceId });
+        await client.minion.remove({ minionId: sourceMinionId });
+        await client.minion.remove({ minionId: forkedWorkspaceId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -672,7 +672,7 @@ describeIntegration("Workspace fork", () => {
         const localRuntimeConfig = { type: "local" as const };
 
         const client = resolveOrpcClient(env);
-        const createResult = await client.workspace.create({
+        const createResult = await client.minion.create({
           projectPath: tempGitRepo,
           branchName: "local-source-history",
           trunkBranch: "main",
@@ -680,7 +680,7 @@ describeIntegration("Workspace fork", () => {
         });
         expect(createResult.success).toBe(true);
         if (!createResult.success) return;
-        const sourceWorkspaceId = createResult.metadata.id;
+        const sourceMinionId = createResult.metadata.id;
 
         // Add history to source workspace
         const historyService = new HistoryService(env.config);
@@ -696,13 +696,13 @@ describeIntegration("Workspace fork", () => {
         ];
 
         for (const msg of historyMessages) {
-          const result = await historyService.appendToHistory(sourceWorkspaceId, msg);
+          const result = await historyService.appendToHistory(sourceMinionId, msg);
           expect(result.success).toBe(true);
         }
 
         // Fork the local workspace
-        const forkResult = await client.workspace.fork({
-          sourceWorkspaceId,
+        const forkResult = await client.minion.fork({
+          sourceMinionId,
           newName: "local-forked-history",
         });
         expect(forkResult.success).toBe(true);
@@ -727,8 +727,8 @@ describeIntegration("Workspace fork", () => {
         expect(historyContent).toContain(uniqueWord);
 
         // Cleanup
-        await client.workspace.remove({ workspaceId: sourceWorkspaceId });
-        await client.workspace.remove({ workspaceId: forkedWorkspaceId });
+        await client.minion.remove({ minionId: sourceMinionId });
+        await client.minion.remove({ minionId: forkedWorkspaceId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -748,7 +748,7 @@ describeIntegration("Workspace fork", () => {
         const localRuntimeConfig = { type: "local" as const };
 
         const client = resolveOrpcClient(env);
-        const createResult = await client.workspace.create({
+        const createResult = await client.minion.create({
           projectPath: tempGitRepo,
           branchName: "local-persist-test",
           trunkBranch: "main",
@@ -756,11 +756,11 @@ describeIntegration("Workspace fork", () => {
         });
         expect(createResult.success).toBe(true);
         if (!createResult.success) return;
-        const sourceWorkspaceId = createResult.metadata.id;
+        const sourceMinionId = createResult.metadata.id;
 
         // Fork the local workspace
-        const forkResult = await client.workspace.fork({
-          sourceWorkspaceId,
+        const forkResult = await client.minion.fork({
+          sourceMinionId,
           newName: "local-persist-forked",
         });
         expect(forkResult.success).toBe(true);
@@ -772,8 +772,8 @@ describeIntegration("Workspace fork", () => {
         expect("srcBaseDir" in forkResult.metadata.runtimeConfig).toBe(false);
 
         // BUG REPRO: Reload config and verify runtimeConfig persisted correctly
-        // This simulates what happens after app restart or when getAllWorkspaceMetadata is called
-        const workspaces = await client.workspace.list();
+        // This simulates what happens after app restart or when getAllMinionMetadata is called
+        const workspaces = await client.minion.list();
         const forkedWorkspace = workspaces.find((w: { id: string }) => w.id === forkedWorkspaceId);
 
         // This is the critical assertion that would fail before the fix:
@@ -782,14 +782,14 @@ describeIntegration("Workspace fork", () => {
         expect(forkedWorkspace!.runtimeConfig.type).toBe("local");
         expect("srcBaseDir" in forkedWorkspace!.runtimeConfig).toBe(false);
 
-        // Verify namedWorkspacePath is the project path (not ~/.lattice/src/...) for local workspaces
+        // Verify namedMinionPath is the project path (not ~/.lattice/src/...) for local workspaces
         // This ensures Open-in-Editor and path display work correctly after reload
-        expect(forkedWorkspace!.namedWorkspacePath).toBe(tempGitRepo);
-        expect(forkResult.metadata.namedWorkspacePath).toBe(tempGitRepo);
+        expect(forkedWorkspace!.namedMinionPath).toBe(tempGitRepo);
+        expect(forkResult.metadata.namedMinionPath).toBe(tempGitRepo);
 
         // Cleanup
-        await client.workspace.remove({ workspaceId: sourceWorkspaceId });
-        await client.workspace.remove({ workspaceId: forkedWorkspaceId });
+        await client.minion.remove({ minionId: sourceMinionId });
+        await client.minion.remove({ minionId: forkedWorkspaceId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);

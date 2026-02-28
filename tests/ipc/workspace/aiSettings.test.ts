@@ -27,25 +27,25 @@ describe("workspace.updateAgentAISettings", () => {
         throw new Error(`Workspace creation failed: ${createResult.error}`);
       }
 
-      const workspaceId = createResult.metadata.id;
-      expect(workspaceId).toBeTruthy();
+      const minionId = createResult.metadata.id;
+      expect(minionId).toBeTruthy();
 
       const client = resolveOrpcClient(env);
-      const updateResult = await client.workspace.updateAgentAISettings({
-        workspaceId: workspaceId!,
+      const updateResult = await client.minion.updateAgentAISettings({
+        minionId: minionId!,
         agentId: "exec",
         aiSettings: { model: "openai:gpt-5.2", thinkingLevel: "xhigh" },
       });
       expect(updateResult.success).toBe(true);
 
-      const info = await client.workspace.getInfo({ workspaceId: workspaceId! });
+      const info = await client.minion.getInfo({ minionId: minionId! });
       expect(info?.aiSettingsByAgent?.exec).toEqual({
         model: "openai:gpt-5.2",
         thinkingLevel: "xhigh",
       });
 
-      const list = await client.workspace.list();
-      const fromList = list.find((m) => m.id === workspaceId);
+      const list = await client.minion.list();
+      const fromList = list.find((m) => m.id === minionId);
       expect(fromList?.aiSettingsByAgent?.exec).toEqual({
         model: "openai:gpt-5.2",
         thinkingLevel: "xhigh",
@@ -67,14 +67,14 @@ describe("workspace.updateAgentAISettings", () => {
         throw new Error(`Workspace creation failed: ${createResult.error}`);
       }
 
-      const workspaceId = createResult.metadata.id;
-      expect(workspaceId).toBeTruthy();
+      const minionId = createResult.metadata.id;
+      expect(minionId).toBeTruthy();
 
       const client = resolveOrpcClient(env);
 
       // Set initial workspace AI settings
-      const updateResult = await client.workspace.updateAgentAISettings({
-        workspaceId: workspaceId!,
+      const updateResult = await client.minion.updateAgentAISettings({
+        minionId: minionId!,
         agentId: "exec",
         aiSettings: { model: "anthropic:claude-sonnet-4-20250514", thinkingLevel: "medium" },
       });
@@ -82,8 +82,8 @@ describe("workspace.updateAgentAISettings", () => {
 
       // Send a compaction request with a different model
       // The latticeMetadata type: "compaction-request" should prevent AI settings from being persisted
-      await client.workspace.sendMessage({
-        workspaceId: workspaceId!,
+      await client.minion.sendMessage({
+        minionId: minionId!,
         message: "Summarize the conversation",
         options: {
           model: "openai:gpt-4.1-mini", // Different model for compaction
@@ -98,7 +98,7 @@ describe("workspace.updateAgentAISettings", () => {
       });
 
       // Verify the original workspace AI settings were NOT overwritten
-      const info = await client.workspace.getInfo({ workspaceId: workspaceId! });
+      const info = await client.minion.getInfo({ minionId: minionId! });
       expect(info?.aiSettingsByAgent?.exec).toEqual({
         model: "anthropic:claude-sonnet-4-20250514",
         thinkingLevel: "medium",

@@ -15,7 +15,7 @@ import { BackgroundProcessManager } from "@/node/services/backgroundProcessManag
 
 import { fireEvent } from "@testing-library/react";
 import { createAppHarness } from "../harness";
-import { WORKSPACE_DEFAULTS } from "@/constants/workspaceDefaults";
+import { MINION_DEFAULTS } from "@/constants/minionDefaults";
 
 interface ServiceContainerPrivates {
   backgroundProcessManager: BackgroundProcessManager;
@@ -34,8 +34,8 @@ async function waitForForegroundToolCallId(
   let iterator: AsyncIterator<{ foregroundToolCallIds: string[] }> | null = null;
 
   try {
-    const subscribedIterator = await env.orpc.workspace.backgroundBashes.subscribe(
-      { workspaceId },
+    const subscribedIterator = await env.orpc.minion.backgroundBashes.subscribe(
+      { minionId: workspaceId },
       { signal: controller.signal }
     );
 
@@ -60,8 +60,8 @@ async function setDeterministicForceCompactionThreshold(
 ): Promise<void> {
   // Keep force-compaction tests deterministic even if persisted settings enable 1M context
   // or raise the auto-compaction threshold. 10% threshold + 5% force buffer => trigger at 15%.
-  const result = await env.orpc.workspace.setAutoCompactionThreshold({
-    workspaceId,
+  const result = await env.orpc.minion.setAutoCompactionThreshold({
+    minionId: workspaceId,
     threshold: 0.1,
   });
   expect(result.success).toBe(true);
@@ -129,18 +129,18 @@ describe("Compaction UI (mock AI router)", () => {
       const seedMessage = "Seed conversation for compaction";
       const triggerMessage = "[force] Trigger force compaction";
 
-      const seedResult = await app.env.orpc.workspace.sendMessage({
-        workspaceId: app.workspaceId,
+      const seedResult = await app.env.orpc.minion.sendMessage({
+        minionId: app.workspaceId,
         message: seedMessage,
-        options: { model: WORKSPACE_DEFAULTS.model, agentId: WORKSPACE_DEFAULTS.agentId },
+        options: { model: MINION_DEFAULTS.model, agentId: MINION_DEFAULTS.agentId },
       });
       expect(seedResult.success).toBe(true);
       await app.chat.expectTranscriptContains(`Mock response: ${seedMessage}`);
 
-      const triggerResult = await app.env.orpc.workspace.sendMessage({
-        workspaceId: app.workspaceId,
+      const triggerResult = await app.env.orpc.minion.sendMessage({
+        minionId: app.workspaceId,
         message: triggerMessage,
-        options: { model: WORKSPACE_DEFAULTS.model, agentId: WORKSPACE_DEFAULTS.agentId },
+        options: { model: MINION_DEFAULTS.model, agentId: MINION_DEFAULTS.agentId },
       });
       expect(triggerResult.success).toBe(true);
 
@@ -193,10 +193,10 @@ describe("Compaction UI (mock AI router)", () => {
 
       const seedMessage = "Seed conversation for /compact test";
 
-      const seedResult = await app.env.orpc.workspace.sendMessage({
-        workspaceId: app.workspaceId,
+      const seedResult = await app.env.orpc.minion.sendMessage({
+        minionId: app.workspaceId,
         message: seedMessage,
-        options: { model: WORKSPACE_DEFAULTS.model, agentId: WORKSPACE_DEFAULTS.agentId },
+        options: { model: MINION_DEFAULTS.model, agentId: MINION_DEFAULTS.agentId },
       });
       expect(seedResult.success).toBe(true);
       await app.chat.expectTranscriptContains(`Mock response: ${seedMessage}`);
@@ -250,10 +250,10 @@ describe("Compaction UI (mock AI router)", () => {
       const seedMessage = "Seed conversation for compaction";
       const triggerMessage = "[force] Trigger force compaction";
 
-      const seedResult = await app.env.orpc.workspace.sendMessage({
-        workspaceId: app.workspaceId,
+      const seedResult = await app.env.orpc.minion.sendMessage({
+        minionId: app.workspaceId,
         message: seedMessage,
-        options: { model: WORKSPACE_DEFAULTS.model, agentId: WORKSPACE_DEFAULTS.agentId },
+        options: { model: MINION_DEFAULTS.model, agentId: MINION_DEFAULTS.agentId },
       });
       expect(seedResult.success).toBe(true);
       await app.chat.expectTranscriptContains(`Mock response: ${seedMessage}`);

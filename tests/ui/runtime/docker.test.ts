@@ -22,7 +22,7 @@ const describeIntegration = shouldRunIntegrationTests() ? describe : describe.sk
 
 /** Helper to create a project config for a path with no workspaces */
 function projectWithNoWorkspaces(path: string): [string, ProjectConfig] {
-  return [path, { workspaces: [] }];
+  return [path, { minions: [] }];
 }
 
 function findRuntimeButton(container: HTMLElement, label: string): HTMLButtonElement | null {
@@ -47,7 +47,7 @@ describeIntegration("Docker runtime selection (UI)", () => {
 
     const client = createMockORPCClient({
       projects: new Map([projectWithNoWorkspaces(projectPath)]),
-      workspaces: [],
+      minions: [],
     });
 
     const view = renderApp({ apiClient: client });
@@ -138,7 +138,7 @@ describeIntegration("Docker runtime selection (UI)", () => {
     // runtimes unavailable. The UI uses this to disable the buttons.
     const client = createMockORPCClient({
       projects: new Map([projectWithNoWorkspaces(projectPath)]),
-      workspaces: [],
+      minions: [],
       listBranches: async () => ({ branches: [], recommendedTrunk: null }),
       runtimeAvailability: {
         local: { available: true },

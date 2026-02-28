@@ -74,8 +74,8 @@ describeIntegration("Workspace Fork (UI)", () => {
       );
     } finally {
       if (forkedWorkspaceId) {
-        await app.env.orpc.workspace
-          .remove({ workspaceId: forkedWorkspaceId, options: { force: true } })
+        await app.env.orpc.minion
+          .remove({ minionId: forkedWorkspaceId, options: { force: true } })
           .catch(() => {});
       }
 
@@ -139,8 +139,8 @@ describeIntegration("Workspace Fork (UI)", () => {
       );
     } finally {
       if (forkedWorkspaceId) {
-        await app.env.orpc.workspace
-          .remove({ workspaceId: forkedWorkspaceId, options: { force: true } })
+        await app.env.orpc.minion
+          .remove({ minionId: forkedWorkspaceId, options: { force: true } })
           .catch(() => {});
       }
 
@@ -219,8 +219,8 @@ describeIntegration("Workspace Fork (UI)", () => {
       );
     } finally {
       if (forkedWorkspaceId) {
-        await app.env.orpc.workspace
-          .remove({ workspaceId: forkedWorkspaceId, options: { force: true } })
+        await app.env.orpc.minion
+          .remove({ minionId: forkedWorkspaceId, options: { force: true } })
           .catch(() => {});
       }
 

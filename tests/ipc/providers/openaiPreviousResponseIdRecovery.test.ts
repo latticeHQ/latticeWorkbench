@@ -38,7 +38,7 @@ describeIntegration("OpenAI previousResponseId recovery", () => {
   test.concurrent(
     "recovers from invalid previousResponseId on the first request",
     async () => {
-      const { env, workspaceId, cleanup } = await setupWorkspace("openai");
+      const { env, minionId, cleanup } = await setupWorkspace("openai");
 
       try {
         const invalidResponseId = createInvalidResponseId();
@@ -58,18 +58,18 @@ describeIntegration("OpenAI previousResponseId recovery", () => {
           }
         );
 
-        const replaceResult = await env.orpc.workspace.replaceChatHistory({
-          workspaceId,
+        const replaceResult = await env.orpc.minion.replaceChatHistory({
+          minionId,
           summaryMessage,
         });
         expect(replaceResult.success).toBe(true);
 
-        const streamCollector = createStreamCollector(env.orpc, workspaceId);
+        const streamCollector = createStreamCollector(env.orpc, minionId);
         streamCollector.start();
 
         const result = await sendMessageWithModel(
           env,
-          workspaceId,
+          minionId,
           "Respond with DONE.",
           OPENAI_MODEL,
           {

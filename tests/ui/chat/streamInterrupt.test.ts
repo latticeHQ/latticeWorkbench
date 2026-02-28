@@ -16,7 +16,7 @@ import { waitFor } from "@testing-library/react";
 import { preloadTestModules } from "../../ipc/setup";
 import { createStreamCollector } from "../../ipc/streamCollector";
 import { createAppHarness } from "../harness";
-import { useWorkspaceStoreRaw } from "@/browser/stores/WorkspaceStore";
+import { useMinionStoreRaw } from "@/browser/stores/MinionStore";
 
 describe("Stream Interrupt UI (mock AI router)", () => {
   beforeAll(async () => {
@@ -56,8 +56,8 @@ describe("Stream Interrupt UI (mock AI router)", () => {
 
       // Interrupt the stream (simulating user pressing Escape)
       // This should set lastAbortReason to "user"
-      await app.env.orpc.workspace.interruptStream({
-        workspaceId: app.workspaceId,
+      await app.env.orpc.minion.interruptStream({
+        minionId: app.workspaceId,
       });
 
       // Wait for stream-abort event (explicit synchronization instead of setTimeout)
@@ -88,7 +88,7 @@ describe("Stream Interrupt UI (mock AI router)", () => {
 
       // Simulate workspace-switch catch-up hydration while interrupted history exists.
       // eslint-disable-next-line react-hooks/rules-of-hooks -- plain singleton accessor, no React state.
-      const storeRaw = useWorkspaceStoreRaw();
+      const storeRaw = useMinionStoreRaw();
       const transientState = (
         storeRaw as unknown as {
           chatTransientState: Map<string, { caughtUp: boolean; isHydratingTranscript: boolean }>;

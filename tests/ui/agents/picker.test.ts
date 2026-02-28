@@ -180,7 +180,7 @@ describeIntegration("Agent Picker (UI)", () => {
   });
 
   test("built-in agents appear in dropdown", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = setupTestDom();
       const view = renderApp({ apiClient: env.orpc, metadata });
 
@@ -204,10 +204,10 @@ describeIntegration("Agent Picker (UI)", () => {
   }, 30_000);
 
   test("custom workspace agents appear alongside built-ins", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       // With workspaceId provided, agents are discovered from workspace worktree path.
       // This allows iterating on agent definitions per-workspace.
-      const workspacePath = metadata.namedWorkspacePath;
+      const workspacePath = metadata.namedMinionPath;
 
       // Create a custom agent in the workspace worktree
       const customAgentContent = `---
@@ -253,9 +253,9 @@ You are a code review agent. Review code for quality, readability, and best prac
   }, 30_000);
 
   test("refresh button reloads agents after filesystem changes", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       // With workspaceId provided, agents are discovered from workspace worktree path.
-      const workspacePath = metadata.namedWorkspacePath;
+      const workspacePath = metadata.namedMinionPath;
 
       const cleanupDom = setupTestDom();
       const view = renderApp({ apiClient: env.orpc, metadata });
@@ -295,7 +295,7 @@ This is a test agent.
   }, 30_000);
 
   test("agents with descriptions show help indicators", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = setupTestDom();
       const view = renderApp({ apiClient: env.orpc, metadata });
 
@@ -313,7 +313,7 @@ This is a test agent.
   }, 30_000);
 
   test("selecting an agent updates the picker trigger", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = setupTestDom();
       const view = renderApp({ apiClient: env.orpc, metadata });
 
@@ -401,7 +401,7 @@ This is a test agent.
   // Note: Search filtering test is skipped because happy-dom doesn't reliably
   // trigger onChange handlers. The filtering logic is covered by unit tests.
   test.skip("search filters agents by name and id", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = setupTestDom();
       const view = renderApp({ apiClient: env.orpc, metadata });
 

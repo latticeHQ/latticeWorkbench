@@ -12,7 +12,7 @@ import { waitFor } from "@testing-library/react";
 import { preloadTestModules } from "../../ipc/setup";
 import { createStreamCollector } from "../../ipc/streamCollector";
 import { createAppHarness } from "../harness";
-import { workspaceStore } from "@/browser/stores/WorkspaceStore";
+import { minionStore } from "@/browser/stores/MinionStore";
 
 function getWorkspaceElement(container: HTMLElement, workspaceId: string): HTMLElement {
   const el = container.querySelector(`[data-workspace-id="${workspaceId}"]`) as HTMLElement | null;
@@ -42,7 +42,7 @@ describe("Workspace intermediate status (mock AI router)", () => {
       // Ensure we entered the starting window.
       await waitFor(
         () => {
-          const state = workspaceStore.getWorkspaceSidebarState(app.workspaceId);
+          const state = minionStore.getMinionSidebarState(app.workspaceId);
           if (!state.isStarting) {
             throw new Error("Workspace is not in starting state yet");
           }

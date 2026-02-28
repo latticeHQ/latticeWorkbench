@@ -8,17 +8,17 @@ import {
   resolveOrpcClient,
   configureTestRetries,
 } from "../helpers";
-import type { WorkspaceMetadata } from "../../../src/common/types/workspace";
+import type { MinionMetadata } from "../../../src/common/types/minion";
 
 type WorkspaceCreationResult = Awaited<ReturnType<typeof createWorkspace>>;
 
 type OrpcClient = ReturnType<typeof resolveOrpcClient>;
 
-type ExecuteBashResult = Awaited<ReturnType<OrpcClient["workspace"]["executeBash"]>>;
+type ExecuteBashResult = Awaited<ReturnType<OrpcClient["minion"]["executeBash"]>>;
 
 async function executeBashUntilReady(
   client: OrpcClient,
-  workspaceId: string,
+  minionId: string,
   script: string,
   timeoutMs = 5000
 ): Promise<ExecuteBashResult> {
@@ -27,7 +27,7 @@ async function executeBashUntilReady(
 
   const ready = await waitFor(async () => {
     try {
-      lastResult = await client.workspace.executeBash({ workspaceId, script });
+      lastResult = await client.minion.executeBash({ minionId, script });
     } catch (error) {
       lastFailure = error instanceof Error ? error.message : String(error);
       return false;
@@ -57,7 +57,7 @@ async function executeBashUntilReady(
   return lastResult;
 }
 
-function expectWorkspaceCreationSuccess(result: WorkspaceCreationResult): WorkspaceMetadata {
+function expectWorkspaceCreationSuccess(result: WorkspaceCreationResult): MinionMetadata {
   expect(result.success).toBe(true);
   if (!result.success) {
     throw new Error(`Expected workspace creation to succeed, but it failed: ${result.error}`);
@@ -84,11 +84,11 @@ describeIntegration("executeBash", () => {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-bash");
         const metadata = expectWorkspaceCreationSuccess(createResult);
-        const workspaceId = metadata.id;
+        const minionId = metadata.id;
         const client = resolveOrpcClient(env);
 
         // Execute a simple bash command (pwd should return workspace path)
-        const pwdResult = await client.workspace.executeBash({ workspaceId, script: "pwd" });
+        const pwdResult = await client.minion.executeBash({ minionId, script: "pwd" });
 
         expect(pwdResult.success).toBe(true);
         if (!pwdResult.success) return;
@@ -98,7 +98,7 @@ describeIntegration("executeBash", () => {
         expect(pwdResult.data.exitCode).toBe(0);
 
         // Clean up
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -116,12 +116,12 @@ describeIntegration("executeBash", () => {
       try {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-git-status");
-        const workspaceId = expectWorkspaceCreationSuccess(createResult).id;
+        const minionId = expectWorkspaceCreationSuccess(createResult).id;
         const client = resolveOrpcClient(env);
 
         // Execute git status
-        const gitStatusResult = await client.workspace.executeBash({
-          workspaceId,
+        const gitStatusResult = await client.minion.executeBash({
+          minionId,
           script: "git status",
         });
 
@@ -132,7 +132,7 @@ describeIntegration("executeBash", () => {
         expect(gitStatusResult.data.exitCode).toBe(0);
 
         // Clean up
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -150,12 +150,12 @@ describeIntegration("executeBash", () => {
       try {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-failure");
-        const workspaceId = expectWorkspaceCreationSuccess(createResult).id;
+        const minionId = expectWorkspaceCreationSuccess(createResult).id;
         const client = resolveOrpcClient(env);
 
         // Execute a command that will fail
-        const failResult = await client.workspace.executeBash({
-          workspaceId,
+        const failResult = await client.minion.executeBash({
+          minionId,
           script: "exit 42",
         });
 
@@ -168,7 +168,7 @@ describeIntegration("executeBash", () => {
         }
 
         // Clean up
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -186,12 +186,12 @@ describeIntegration("executeBash", () => {
       try {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-timeout");
-        const workspaceId = expectWorkspaceCreationSuccess(createResult).id;
+        const minionId = expectWorkspaceCreationSuccess(createResult).id;
         const client = resolveOrpcClient(env);
 
         // Execute a command that takes longer than the timeout
-        const timeoutResult = await client.workspace.executeBash({
-          workspaceId,
+        const timeoutResult = await client.minion.executeBash({
+          minionId,
           script: "while true; do sleep 0.1; done",
           options: { timeout_secs: 1 },
         });
@@ -204,7 +204,7 @@ describeIntegration("executeBash", () => {
         }
 
         // Clean up
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -222,12 +222,12 @@ describeIntegration("executeBash", () => {
       try {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-large-output");
-        const workspaceId = expectWorkspaceCreationSuccess(createResult).id;
+        const minionId = expectWorkspaceCreationSuccess(createResult).id;
         const client = resolveOrpcClient(env);
 
         // Execute a command that generates 400 lines (well under 10K limit for IPC truncate policy)
-        const result = await client.workspace.executeBash({
-          workspaceId,
+        const result = await client.minion.executeBash({
+          minionId,
           script: "for i in {1..400}; do echo line$i; done",
         });
 
@@ -242,7 +242,7 @@ describeIntegration("executeBash", () => {
         expect(result.data.truncated).toBeUndefined();
 
         // Clean up
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -259,8 +259,8 @@ describeIntegration("executeBash", () => {
       try {
         // Execute bash command with non-existent workspace ID
         const client = resolveOrpcClient(env);
-        const result = await client.workspace.executeBash({
-          workspaceId: "nonexistent-workspace",
+        const result = await client.minion.executeBash({
+          minionId: "nonexistent-workspace",
           script: "echo test",
         });
 
@@ -283,7 +283,7 @@ describeIntegration("executeBash", () => {
       try {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-secrets");
-        const workspaceId = expectWorkspaceCreationSuccess(createResult).id;
+        const minionId = expectWorkspaceCreationSuccess(createResult).id;
         const client = resolveOrpcClient(env);
 
         // Set secrets for the project
@@ -296,8 +296,8 @@ describeIntegration("executeBash", () => {
         });
 
         // Execute bash command that reads the environment variables
-        const echoResult = await client.workspace.executeBash({
-          workspaceId,
+        const echoResult = await client.minion.executeBash({
+          minionId,
           script: 'echo "KEY=$TEST_SECRET_KEY ANOTHER=$ANOTHER_SECRET"',
         });
 
@@ -309,7 +309,7 @@ describeIntegration("executeBash", () => {
         expect(echoResult.data.exitCode).toBe(0);
 
         // Clean up
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);
@@ -327,16 +327,16 @@ describeIntegration("executeBash", () => {
       try {
         // Create a workspace
         const createResult = await createWorkspace(env, tempGitRepo, "test-git-env");
-        const workspaceId = expectWorkspaceCreationSuccess(createResult).id;
+        const minionId = expectWorkspaceCreationSuccess(createResult).id;
         const client = resolveOrpcClient(env);
 
         // Wait for init to complete (prevents Windows filesystem timing issues)
-        await waitForInitComplete(env, workspaceId);
+        await waitForInitComplete(env, minionId);
 
         // Verify GIT_TERMINAL_PROMPT is set to 0
         const gitEnvResult = await executeBashUntilReady(
           client,
-          workspaceId,
+          minionId,
           'echo "GIT_TERMINAL_PROMPT=$GIT_TERMINAL_PROMPT"',
           10_000
         );
@@ -350,8 +350,8 @@ describeIntegration("executeBash", () => {
         }
 
         // Test 1: Verify that git fetch with invalid remote doesn't hang (should fail quickly)
-        const invalidFetchResult = await client.workspace.executeBash({
-          workspaceId,
+        const invalidFetchResult = await client.minion.executeBash({
+          minionId,
           script:
             "git fetch https://invalid-remote-that-does-not-exist-12345.com/repo.git 2>&1 || true",
           options: { timeout_secs: GIT_FETCH_TIMEOUT_SECS },
@@ -363,8 +363,8 @@ describeIntegration("executeBash", () => {
 
         // Test 2: Verify git fetch to real GitHub org repo doesn't hang
         // Uses OpenAI org - will fail if no auth configured, but should fail quickly without prompting
-        const githubFetchResult = await client.workspace.executeBash({
-          workspaceId,
+        const githubFetchResult = await client.minion.executeBash({
+          minionId,
           script: "git fetch https://github.com/openai/private-test-repo-nonexistent 2>&1 || true",
           options: { timeout_secs: GIT_FETCH_TIMEOUT_SECS },
         });
@@ -378,7 +378,7 @@ describeIntegration("executeBash", () => {
         expect(githubFetchResult.data.output).toContain("fatal");
 
         // Clean up
-        await client.workspace.remove({ workspaceId });
+        await client.minion.remove({ minionId });
       } finally {
         await cleanupTestEnvironment(env);
         await cleanupTempGitRepo(tempGitRepo);

@@ -9,9 +9,9 @@
  * messages to agents, managing projects, running terminals, etc.
  *
  * Features:
- * - 169+ tools across 13 modules (minion, project, terminal, etc.)
+ * - 200+ tools across 18 modules (minion, project, terminal, inbox, kanban, scheduler, sync, etc.)
  * - 2 discovery tools for progressive disclosure (search_tools, list_tool_categories)
- * - 10 MCP resources for efficient data access (projects, config, chat history, etc.)
+ * - 12 MCP resources for efficient data access (projects, config, chat history, inbox, sync, etc.)
  * - 4 MCP prompts for common workflows (create-and-run-task, cost-report, etc.)
  * - Typed SDK for code execution pattern (sdk/ directory)
  *
@@ -51,6 +51,10 @@ import { registerServerTools } from "./tools/server";
 import { registerTokenizerTools } from "./tools/tokenizer";
 import { registerOAuthTools } from "./tools/oauth";
 import { registerTerminalProfileTools } from "./tools/terminal-profiles";
+import { registerInboxTools } from "./tools/inbox";
+import { registerKanbanTools } from "./tools/kanban";
+import { registerSchedulerTools } from "./tools/scheduler";
+import { registerSyncTools } from "./tools/sync";
 
 // Discovery, resources, prompts
 import { registerDiscoveryTools, toolCatalog } from "./tools/discovery";
@@ -150,6 +154,10 @@ async function main(): Promise<void> {
   registerAndCatalog(mcpServer, "tokenizer", () => registerTokenizerTools(mcpServer, client));
   registerAndCatalog(mcpServer, "oauth", () => registerOAuthTools(mcpServer, client));
   registerAndCatalog(mcpServer, "terminal-profiles", () => registerTerminalProfileTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "inbox", () => registerInboxTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "kanban", () => registerKanbanTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "scheduler", () => registerSchedulerTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "sync", () => registerSyncTools(mcpServer, client));
 
   // Register discovery tools (search_tools + list_tool_categories)
   // These tools use the populated toolCatalog to enable progressive disclosure.
@@ -163,7 +171,7 @@ async function main(): Promise<void> {
 
   process.stderr.write(
     `[lattice-mcp] Registered ${toolCatalog.length} tools in catalog, ` +
-      `10 resources, 4 prompts\n`
+      `12 resources, 4 prompts\n`
   );
 
   // Connect via stdio transport (stdin/stdout)

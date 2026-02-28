@@ -13,7 +13,7 @@ import {
   isLatticeMessage,
   isQueuedMessageChanged,
   isRestoreToInput,
-  type WorkspaceChatMessage,
+  type MinionChatMessage,
 } from "@/common/orpc/types";
 import type { HistoryService } from "@/node/services/historyService";
 
@@ -32,7 +32,7 @@ function createDeferred<T>(): {
   return { promise, resolve, reject };
 }
 
-type QueuedMessageChangedEvent = Extract<WorkspaceChatMessage, { type: "queued-message-changed" }>;
+type QueuedMessageChangedEvent = Extract<MinionChatMessage, { type: "queued-message-changed" }>;
 
 function findQueuedMessageEvent(
   collector: ReturnType<typeof createStreamCollector>,
@@ -79,11 +79,11 @@ describe("Queued messages during stream completion", () => {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
 
-    const workspaceId = result.metadata.id;
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const minionId = result.metadata.id;
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
 
-    const session = env.services.workspaceService.getOrCreateSession(workspaceId);
+    const session = env.services.minionService.getOrCreateSession(minionId);
     const aiService = env.services.aiService;
 
     // Create a deterministic COMPLETING window by gating the async stream-end handler
@@ -112,7 +112,7 @@ describe("Queued messages during stream completion", () => {
 
       const firstSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "First message",
         HAIKU_MODEL
       );
@@ -125,7 +125,7 @@ describe("Queued messages during stream completion", () => {
 
       // Regression: session should still be busy (COMPLETING) even though the AI service
       // is no longer streaming.
-      expect(aiService.isStreaming(workspaceId)).toBe(false);
+      expect(aiService.isStreaming(minionId)).toBe(false);
       expect(session.isBusy()).toBe(true);
       expect(session.isPreparingTurn()).toBe(false);
 
@@ -138,7 +138,7 @@ describe("Queued messages during stream completion", () => {
       handleCompletionSpy.mockRestore();
 
       collector.stop();
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 25000);
 
@@ -153,11 +153,11 @@ describe("Queued messages during stream completion", () => {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
 
-    const workspaceId = result.metadata.id;
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const minionId = result.metadata.id;
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
 
-    const session = env.services.workspaceService.getOrCreateSession(workspaceId);
+    const session = env.services.minionService.getOrCreateSession(minionId);
 
     type SessionInternals = {
       compactionHandler: {
@@ -183,7 +183,7 @@ describe("Queued messages during stream completion", () => {
 
       const firstSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "First message",
         HAIKU_MODEL
       );
@@ -212,7 +212,7 @@ describe("Queued messages during stream completion", () => {
       handleCompletionSpy.mockRestore();
 
       collector.stop();
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 25000);
   test("queues message sent during COMPLETING and auto-sends after completion finishes", async () => {
@@ -226,11 +226,11 @@ describe("Queued messages during stream completion", () => {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
 
-    const workspaceId = result.metadata.id;
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const minionId = result.metadata.id;
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
 
-    const session = env.services.workspaceService.getOrCreateSession(workspaceId);
+    const session = env.services.minionService.getOrCreateSession(minionId);
     const aiService = env.services.aiService;
 
     type SessionInternals = {
@@ -257,7 +257,7 @@ describe("Queued messages during stream completion", () => {
 
       const firstSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "First message",
         HAIKU_MODEL
       );
@@ -267,13 +267,13 @@ describe("Queued messages during stream completion", () => {
 
       // Hold the session in COMPLETING.
       await enteredCompletion.promise;
-      expect(aiService.isStreaming(workspaceId)).toBe(false);
+      expect(aiService.isStreaming(minionId)).toBe(false);
       expect(session.isBusy()).toBe(true);
 
       // Send a follow-up message through the *real* IPC path.
       const secondSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "Second message",
         HAIKU_MODEL
       );
@@ -330,7 +330,7 @@ describe("Queued messages during stream completion", () => {
       }
 
       // Verify the queued message made it into the second stream prompt.
-      const promptResult = aiService.debugGetLastMockPrompt(workspaceId);
+      const promptResult = aiService.debugGetLastMockPrompt(minionId);
       if (!promptResult.success || !promptResult.data) {
         throw new Error("Mock prompt snapshot missing after queued stream start");
       }
@@ -348,7 +348,7 @@ describe("Queued messages during stream completion", () => {
       handleCompletionSpy.mockRestore();
 
       collector.stop();
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 25000);
 
@@ -363,11 +363,11 @@ describe("Queued messages during stream completion", () => {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
 
-    const workspaceId = result.metadata.id;
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const minionId = result.metadata.id;
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
 
-    const session = env.services.workspaceService.getOrCreateSession(workspaceId);
+    const session = env.services.minionService.getOrCreateSession(minionId);
 
     type SessionInternals = {
       compactionHandler: {
@@ -391,7 +391,7 @@ describe("Queued messages during stream completion", () => {
     type WorkspaceServiceInternals = {
       historyService: HistoryService;
     };
-    const historyService = (env.services.workspaceService as unknown as WorkspaceServiceInternals)
+    const historyService = (env.services.minionService as unknown as WorkspaceServiceInternals)
       .historyService;
     const truncateSpy = jest.spyOn(historyService, "truncateAfterMessage");
 
@@ -401,7 +401,7 @@ describe("Queued messages during stream completion", () => {
       const firstMessageText = "First message";
       const firstSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         firstMessageText,
         HAIKU_MODEL
       );
@@ -434,7 +434,7 @@ describe("Queued messages during stream completion", () => {
 
       const editSendPromise = sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "Edited message",
         HAIKU_MODEL,
         {
@@ -457,7 +457,7 @@ describe("Queued messages during stream completion", () => {
       truncateSpy.mockRestore();
 
       collector.stop();
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 25000);
 
@@ -472,11 +472,11 @@ describe("Queued messages during stream completion", () => {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
 
-    const workspaceId = result.metadata.id;
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const minionId = result.metadata.id;
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
 
-    const session = env.services.workspaceService.getOrCreateSession(workspaceId);
+    const session = env.services.minionService.getOrCreateSession(minionId);
 
     type SessionInternals = {
       compactionHandler: {
@@ -498,7 +498,7 @@ describe("Queued messages during stream completion", () => {
 
       const firstSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "First message",
         HAIKU_MODEL
       );
@@ -517,7 +517,7 @@ describe("Queued messages during stream completion", () => {
       // Prove the session is usable again.
       const secondSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         "Second message",
         HAIKU_MODEL
       );
@@ -536,7 +536,7 @@ describe("Queued messages during stream completion", () => {
       handleCompletionSpy.mockRestore();
 
       collector.stop();
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 25000);
 
@@ -551,11 +551,11 @@ describe("Queued messages during stream completion", () => {
       throw new Error(`Failed to create workspace: ${result.error}`);
     }
 
-    const workspaceId = result.metadata.id;
-    const collector = createStreamCollector(env.orpc, workspaceId);
+    const minionId = result.metadata.id;
+    const collector = createStreamCollector(env.orpc, minionId);
     collector.start();
 
-    const session = env.services.workspaceService.getOrCreateSession(workspaceId);
+    const session = env.services.minionService.getOrCreateSession(minionId);
     const aiService = env.services.aiService;
 
     // Create a deterministic COMPLETING window by gating the async stream-end handler
@@ -582,7 +582,7 @@ describe("Queued messages during stream completion", () => {
     type WorkspaceServiceInternals = {
       historyService: HistoryService;
     };
-    const historyService = (env.services.workspaceService as unknown as WorkspaceServiceInternals)
+    const historyService = (env.services.minionService as unknown as WorkspaceServiceInternals)
       .historyService;
 
     try {
@@ -591,7 +591,7 @@ describe("Queued messages during stream completion", () => {
       const firstMessageText = "First message";
       const firstSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         firstMessageText,
         HAIKU_MODEL
       );
@@ -621,13 +621,13 @@ describe("Queued messages during stream completion", () => {
 
       // Hold the session in COMPLETING.
       await enteredCompletion.promise;
-      expect(aiService.isStreaming(workspaceId)).toBe(false);
+      expect(aiService.isStreaming(minionId)).toBe(false);
       expect(session.isBusy()).toBe(true);
 
       const queuedText = "Second message";
       const queuedSendResult = await sendMessageWithModel(
         env,
-        workspaceId,
+        minionId,
         queuedText,
         HAIKU_MODEL
       );
@@ -647,7 +647,7 @@ describe("Queued messages during stream completion", () => {
       expect(queuedEvent.queuedMessages).toEqual([queuedText]);
 
       const editedText = "Edited message";
-      const editSendPromise = sendMessageWithModel(env, workspaceId, editedText, HAIKU_MODEL, {
+      const editSendPromise = sendMessageWithModel(env, minionId, editedText, HAIKU_MODEL, {
         editMessageId: firstUserMessageId,
       });
 
@@ -695,7 +695,7 @@ describe("Queued messages during stream completion", () => {
       expect(restoreEvent).toBeDefined();
       expect(restoreEvent!.text).toBe(queuedText);
 
-      const historyResult = await historyService.getHistoryFromLatestBoundary(workspaceId);
+      const historyResult = await historyService.getHistoryFromLatestBoundary(minionId);
       if (!historyResult.success) {
         throw new Error(`Failed to read history: ${historyResult.error}`);
       }
@@ -720,7 +720,7 @@ describe("Queued messages during stream completion", () => {
       handleCompletionSpy.mockRestore();
 
       collector.stop();
-      await env.orpc.workspace.remove({ workspaceId });
+      await env.orpc.minion.remove({ minionId });
     }
   }, 25000);
 });

@@ -2,7 +2,7 @@ import "../dom";
 import { fireEvent, waitFor } from "@testing-library/react";
 
 import { shouldRunIntegrationTests, validateApiKeys } from "../../testUtils";
-import { STORAGE_KEYS } from "@/constants/workspaceDefaults";
+import { STORAGE_KEYS } from "@/constants/minionDefaults";
 import { getReviewsKey } from "@/common/constants/storage";
 import {
   cleanupSharedRepo,
@@ -24,7 +24,7 @@ import {
   simulateFileModifyingToolEnd,
 } from "../helpers";
 import type { APIClient } from "@/browser/contexts/API";
-import type { FrontendWorkspaceMetadata } from "@/common/types/workspace";
+import type { FrontendMinionMetadata } from "@/common/types/minion";
 import { readPersistedState, updatePersistedState } from "@/browser/hooks/usePersistedState";
 
 configureTestRetries(2);
@@ -39,7 +39,7 @@ validateApiKeys(["ANTHROPIC_API_KEY"]);
  */
 async function setupReviewPanel(
   view: RenderedApp,
-  metadata: FrontendWorkspaceMetadata,
+  metadata: FrontendMinionMetadata,
   workspaceId: string
 ): Promise<HTMLElement> {
   await setupWorkspaceView(view, metadata, workspaceId);
@@ -55,7 +55,7 @@ async function setupReviewPanel(
 
 function renderReviewPanelForRefreshTests(params: {
   apiClient: APIClient;
-  metadata: FrontendWorkspaceMetadata;
+  metadata: FrontendMinionMetadata;
   workspaceId: string;
 }): RenderedApp {
   // These refresh tests make uncommitted filesystem changes and expect them to show up in the
@@ -82,7 +82,7 @@ describeIntegration("ReviewPanel manual refresh (UI + ORPC)", () => {
   });
 
   test("manual refresh updates diff and sets lastRefreshInfo", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -96,8 +96,8 @@ describeIntegration("ReviewPanel manual refresh (UI + ORPC)", () => {
 
         // Make a direct FS change (no tool-call events)
         const MANUAL_MARKER = "MANUAL_REFRESH_TEST_MARKER";
-        const bashRes = await env.orpc.workspace.executeBash({
-          workspaceId,
+        const bashRes = await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${MANUAL_MARKER}" >> README.md`,
         });
         expect(bashRes.success).toBe(true);
@@ -132,7 +132,7 @@ describeIntegration("ReviewPanel manual refresh (UI + ORPC)", () => {
   }, 120_000);
 
   test("/ focuses review search", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -165,7 +165,7 @@ describeIntegration("ReviewPanel manual refresh (UI + ORPC)", () => {
   }, 120_000);
 
   test("/ does not steal focus from editable elements", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -202,7 +202,7 @@ describeIntegration("ReviewPanel manual refresh (UI + ORPC)", () => {
     });
   }, 120_000);
   test("Ctrl+R triggers manual refresh", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -230,7 +230,7 @@ describeIntegration("ReviewPanel manual refresh (UI + ORPC)", () => {
   }, 120_000);
 
   test("manual refresh updates lastRefreshInfo even when diff unchanged", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -288,7 +288,7 @@ describeIntegration("ReviewPanel simulated tool refresh (UI + ORPC, no LLM)", ()
   });
 
   test("simulated file-modifying tool triggers scheduled refresh", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -302,8 +302,8 @@ describeIntegration("ReviewPanel simulated tool refresh (UI + ORPC, no LLM)", ()
 
         // Make a direct FS change (simulating what a tool would do)
         const SIMULATED_MARKER = "SIMULATED_TOOL_MARKER";
-        const bashRes = await env.orpc.workspace.executeBash({
-          workspaceId,
+        const bashRes = await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${SIMULATED_MARKER}" >> README.md`,
         });
         expect(bashRes.success).toBe(true);
@@ -329,7 +329,7 @@ describeIntegration("ReviewPanel simulated tool refresh (UI + ORPC, no LLM)", ()
   }, 120_000);
 
   test("multiple simulated tool completions are rate-limited with trailing debounce", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -343,8 +343,8 @@ describeIntegration("ReviewPanel simulated tool refresh (UI + ORPC, no LLM)", ()
 
         // Make first file change
         const MARKER_1 = "RATE_LIMIT_MARKER_1";
-        await env.orpc.workspace.executeBash({
-          workspaceId,
+        await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${MARKER_1}" >> README.md`,
         });
 
@@ -354,15 +354,15 @@ describeIntegration("ReviewPanel simulated tool refresh (UI + ORPC, no LLM)", ()
         // Immediately make more changes and simulate more completions
         // These should be coalesced (rate-limited)
         const MARKER_2 = "RATE_LIMIT_MARKER_2";
-        await env.orpc.workspace.executeBash({
-          workspaceId,
+        await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${MARKER_2}" >> README.md`,
         });
         simulateFileModifyingToolEnd(workspaceId);
 
         const MARKER_3 = "RATE_LIMIT_MARKER_3";
-        await env.orpc.workspace.executeBash({
-          workspaceId,
+        await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${MARKER_3}" >> README.md`,
         });
         simulateFileModifyingToolEnd(workspaceId);
@@ -382,7 +382,7 @@ describeIntegration("ReviewPanel simulated tool refresh (UI + ORPC, no LLM)", ()
   }, 120_000);
 
   test("refresh runs while panel focused", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -403,8 +403,8 @@ describeIntegration("ReviewPanel simulated tool refresh (UI + ORPC, no LLM)", ()
 
         // Make a file change while panel is focused
         const FOCUS_MARKER = "FOCUS_MARKER_WHILE_FOCUSED";
-        await env.orpc.workspace.executeBash({
-          workspaceId,
+        await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${FOCUS_MARKER}" >> README.md`,
         });
 
@@ -438,7 +438,7 @@ describeIntegration("ReviewPanel auto refresh (UI + ORPC + live LLM)", () => {
   });
 
   test("tool-call-end triggers scheduled refresh", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, collector, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, collector, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -454,8 +454,8 @@ describeIntegration("ReviewPanel auto refresh (UI + ORPC + live LLM)", () => {
 
         // Make a direct FS change (no tool-call events). The scheduled/tool-completion
         // refresh should still pick this up.
-        const bashRes = await env.orpc.workspace.executeBash({
-          workspaceId,
+        const bashRes = await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${AUTO_MARKER}" >> README.md`,
         });
         expect(bashRes.success).toBe(true);
@@ -485,8 +485,8 @@ describeIntegration("ReviewPanel auto refresh (UI + ORPC + live LLM)", () => {
         await waitForToolCallEnd(collector, "bash");
 
         // Verify the workspace actually changed
-        const statusRes = await env.orpc.workspace.executeBash({
-          workspaceId,
+        const statusRes = await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: "git status --porcelain",
         });
         expect(statusRes.success).toBe(true);
@@ -510,7 +510,7 @@ describeIntegration("ReviewPanel auto refresh (UI + ORPC + live LLM)", () => {
   }, 180_000);
 
   test("refresh button is disabled while composing review note", async () => {
-    await withSharedWorkspace("anthropic", async ({ env, workspaceId, metadata }) => {
+    await withSharedWorkspace("anthropic", async ({ env, minionId: workspaceId, metadata }) => {
       const cleanupDom = installDom();
 
       const view = renderReviewPanelForRefreshTests({
@@ -524,8 +524,8 @@ describeIntegration("ReviewPanel auto refresh (UI + ORPC + live LLM)", () => {
 
         // First, create some changes so we have a diff to interact with
         const INITIAL_MARKER = "COMPOSE_TEST_MARKER";
-        await env.orpc.workspace.executeBash({
-          workspaceId,
+        await env.orpc.minion.executeBash({
+          minionId: workspaceId,
           script: `echo "${INITIAL_MARKER}" >> README.md`,
         });
 
