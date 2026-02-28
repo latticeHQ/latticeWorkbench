@@ -440,8 +440,11 @@ export class ProviderModelFactory {
       // Handle Claude Code subprocess provider — spawns the `claude` CLI binary
       // directly, bypassing API key configuration entirely. The real Claude Code
       // binary handles auth (Pro/Max subscription), making this the sanctioned path.
+      //
+      // Agentic mode: Claude Code handles tool calling internally via --mcp-config,
+      // with access to Lattice MCP tools (create minions, list projects, etc.).
       if (providerName === "claude-code") {
-        return Ok(createClaudeCodeModel(modelId) as unknown as LanguageModel);
+        return Ok(createClaudeCodeModel(modelId, "agentic") as unknown as LanguageModel);
       }
 
       // Load providers configuration - the ONLY source of truth
