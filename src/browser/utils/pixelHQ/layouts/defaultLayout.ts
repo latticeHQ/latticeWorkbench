@@ -41,25 +41,25 @@ import { resolveCrewColor } from "@/common/constants/ui";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Minimum width of a crew section (tiles) */
-const MIN_SECTION_WIDTH = 10;
+const MIN_SECTION_WIDTH = 6;
 
 /** Desk spacing within a section (tiles between desk centers) */
-const DESK_SPACING = 3;
+const DESK_SPACING = 2;
 
 /** Padding inside each section (tiles) */
-const SECTION_PADDING = 2;
+const SECTION_PADDING = 1;
 
 /** Elevator area width (tiles) */
-const ELEVATOR_WIDTH = 6;
+const ELEVATOR_WIDTH = 4;
 
 /** Break room + server closet width (tiles) */
-const UTILITY_WIDTH = 8;
+const UTILITY_WIDTH = 5;
 
 /** Common aisle height (tiles) — walkable corridor at bottom */
-const AISLE_HEIGHT = 3;
+const AISLE_HEIGHT = 2;
 
 /** Main work area height (tiles) — above the aisle */
-const WORK_AREA_HEIGHT = 12;
+const WORK_AREA_HEIGHT = 10;
 
 /** Total floor height */
 const FLOOR_HEIGHT = WORK_AREA_HEIGHT + AISLE_HEIGHT;
@@ -68,10 +68,10 @@ const FLOOR_HEIGHT = WORK_AREA_HEIGHT + AISLE_HEIGHT;
 const DIVIDER_WIDTH = 1;
 
 /** Phase partition width (2 tiles — thicker between-phase divider) */
-const PHASE_PARTITION_WIDTH = 2;
+const PHASE_PARTITION_WIDTH = 1;
 
 /** Default desks per section when no minion count data available */
-const DEFAULT_DESKS_PER_SECTION = 4;
+const DEFAULT_DESKS_PER_SECTION = 3;
 
 /** Default number of stages per phase (matches pipeline view PHASE_SIZE) */
 const DEFAULT_PHASE_SIZE = 3;
@@ -209,9 +209,8 @@ function fillPhasePartition(
     for (let r = startRow; r < startRow + height; r++) {
       const idx = r * cols + c;
       if (idx >= 0 && idx < tiles.length) {
-        // Alternating pattern: WALL-ish tile for visual distinction
         tiles[idx] = TT.FLOOR_1;
-        tileColors[idx] = { ...phaseColor, b: phaseColor.b + 2 };
+        tileColors[idx] = { ...phaseColor, b: phaseColor.b + 3 };
       }
     }
   }
@@ -313,7 +312,7 @@ export function generateFloorLayout(
     bounds: { col: elevatorCol, row: 0, width: ELEVATOR_WIDTH, height: WORK_AREA_HEIGHT },
   });
 
-  // Elevator furniture: plants for decoration
+  // Elevator furniture: plant + water cooler
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "plant",
@@ -323,16 +322,8 @@ export function generateFloorLayout(
   });
   furniture.push({
     uid: nextFurnitureUid(),
-    catalogId: "plant",
-    col: elevatorCol + ELEVATOR_WIDTH - 2,
-    row: 1,
-    roomId: "elevator",
-  });
-  // Water cooler in elevator area
-  furniture.push({
-    uid: nextFurnitureUid(),
     catalogId: "water_cooler",
-    col: elevatorCol + 2,
+    col: elevatorCol + 1,
     row: WORK_AREA_HEIGHT - 2,
     roomId: "elevator",
   });
@@ -385,43 +376,44 @@ export function generateFloorLayout(
 
       // Place desks in the section (2 rows of desks)
       const deskCount = minionCounts?.get(crewId) ?? DEFAULT_DESKS_PER_SECTION;
-      const desksPerRow = Math.ceil(deskCount / 2);
+      const maxDesksPerRow = Math.max(1, Math.floor((sectionWidth - SECTION_PADDING * 2) / DESK_SPACING));
+      const desksPerRow = Math.min(Math.ceil(deskCount / 2), maxDesksPerRow);
 
-      // Top row of desks (row 2-3)
-      for (let d = 0; d < desksPerRow && d < Math.floor((sectionWidth - SECTION_PADDING * 2) / DESK_SPACING); d++) {
+      // Top row of desks (row 1-2)
+      for (let d = 0; d < desksPerRow; d++) {
         const deskCol = sectionCol + SECTION_PADDING + d * DESK_SPACING;
         furniture.push({
           uid: nextFurnitureUid(),
           catalogId: "desk",
+          col: deskCol,
+          row: 1,
+          roomId,
+        });
+        furniture.push({
+          uid: nextFurnitureUid(),
+          catalogId: "chair",
           col: deskCol,
           row: 2,
           roomId,
         });
-        furniture.push({
-          uid: nextFurnitureUid(),
-          catalogId: "chair",
-          col: deskCol,
-          row: 3,
-          roomId,
-        });
       }
 
-      // Bottom row of desks (row 6-7)
-      const bottomRowDesks = Math.max(0, deskCount - desksPerRow);
-      for (let d = 0; d < bottomRowDesks && d < Math.floor((sectionWidth - SECTION_PADDING * 2) / DESK_SPACING); d++) {
+      // Bottom row of desks (row 4-5)
+      const bottomRowDesks = Math.min(Math.max(0, deskCount - desksPerRow), maxDesksPerRow);
+      for (let d = 0; d < bottomRowDesks; d++) {
         const deskCol = sectionCol + SECTION_PADDING + d * DESK_SPACING;
         furniture.push({
           uid: nextFurnitureUid(),
           catalogId: "desk",
           col: deskCol,
-          row: 6,
+          row: 4,
           roomId,
         });
         furniture.push({
           uid: nextFurnitureUid(),
           catalogId: "chair",
           col: deskCol,
-          row: 7,
+          row: 5,
           roomId,
         });
       }
@@ -430,16 +422,16 @@ export function generateFloorLayout(
       furniture.push({
         uid: nextFurnitureUid(),
         catalogId: "whiteboard",
-        col: sectionCol + Math.floor(sectionWidth / 2) - 1,
+        col: sectionCol + Math.floor(sectionWidth / 2),
         row: 0,
         roomId,
       });
 
-      // Plant decoration
+      // Plant decoration at bottom
       furniture.push({
         uid: nextFurnitureUid(),
         catalogId: "plant",
-        col: sectionCol + sectionWidth - 2,
+        col: sectionCol,
         row: WORK_AREA_HEIGHT - 2,
         roomId,
       });
@@ -470,16 +462,6 @@ export function generateFloorLayout(
     // Add between-phase partition (not after the last phase)
     if (phaseIdx < phaseCount - 1) {
       fillPhasePartition(tiles, tileColors, totalCols, cursor, 0, FLOOR_HEIGHT, phaseColor);
-
-      // Place a conveyor belt / separator decoration in the partition
-      furniture.push({
-        uid: nextFurnitureUid(),
-        catalogId: "plant",
-        col: cursor,
-        row: 0,
-        roomId: `phase_${phaseIdx}`,
-      });
-
       cursor += PHASE_PARTITION_WIDTH;
     }
   }
@@ -509,23 +491,9 @@ export function generateFloorLayout(
   });
   furniture.push({
     uid: nextFurnitureUid(),
-    catalogId: "couch",
-    col: utilityCol + 1,
-    row: 3,
-    roomId: "break_room",
-  });
-  furniture.push({
-    uid: nextFurnitureUid(),
     catalogId: "coffee",
-    col: utilityCol + UTILITY_WIDTH - 2,
+    col: utilityCol + 3,
     row: 1,
-    roomId: "break_room",
-  });
-  furniture.push({
-    uid: nextFurnitureUid(),
-    catalogId: "plant",
-    col: utilityCol + UTILITY_WIDTH - 2,
-    row: breakRoomHeight - 2,
     roomId: "break_room",
   });
 
@@ -545,7 +513,7 @@ export function generateFloorLayout(
   });
 
   // Server closet furniture: server racks
-  const rackCount = Math.min(3, Math.floor((UTILITY_WIDTH - 2) / 2));
+  const rackCount = Math.min(2, Math.floor((UTILITY_WIDTH - 1) / 2));
   for (let i = 0; i < rackCount; i++) {
     furniture.push({
       uid: nextFurnitureUid(),

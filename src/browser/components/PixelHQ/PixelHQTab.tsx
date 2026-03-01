@@ -53,6 +53,7 @@ import { useAPI } from "@/browser/contexts/API";
 import { PixelHQToolbar } from "./PixelHQToolbar";
 import { PixelHQContextMenu, type HQContextTarget, type HQContextMenuActions } from "./PixelHQContextMenu";
 import { PixelHQCharacterTooltip } from "./PixelHQCharacterTooltip";
+import { BuildingCrossSection } from "./BuildingCrossSection";
 import type { Character } from "@/browser/utils/pixelHQ/engine/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -128,7 +129,7 @@ export function PixelHQTab({ projectPath }: PixelHQTabProps) {
     officeState.setFurnitureCatalog(FURNITURE_CATALOG_MAP);
     const layout = generateFloorLayout(crewList);
     officeState.rebuildFromLayout(layout);
-    r.centerOnLayout(layout.cols, layout.rows);
+    r.fitToLayout(layout.cols, layout.rows);
 
     // Phase 4 — Editor (create but don't activate)
     const editor = new EditorState(layout);
@@ -513,73 +514,79 @@ export function PixelHQTab({ projectPath }: PixelHQTabProps) {
     : undefined;
 
   return (
-    <div
-      ref={containerRef}
-      className="relative w-full h-full min-h-[500px] overflow-hidden bg-[#0C0F1A]"
-    >
-      <canvas
-        ref={canvasRef}
-        className="w-full h-full"
-        style={{ cursor: getCursor() }}
-        onWheel={handleWheel}
-        onClick={handleClick}
-        onContextMenu={handleContextMenu}
-        onMouseMove={handleMouseMove}
-        onMouseLeave={handleMouseLeave}
-      />
+    <div className="flex w-full h-full min-h-[500px] bg-[#0C0F1A]">
+      {/* Building cross-section sidebar */}
+      <BuildingCrossSection projectPath={projectPath} />
 
-      {/* Toolbar — always visible */}
-      {renderer && (
-        <PixelHQToolbar
-          renderer={renderer}
-          officeState={officeState}
+      {/* Canvas container */}
+      <div
+        ref={containerRef}
+        className="relative flex-1 overflow-hidden"
+      >
+        <canvas
+          ref={canvasRef}
+          className="w-full h-full"
+          style={{ cursor: getCursor() }}
+          onWheel={handleWheel}
+          onClick={handleClick}
+          onContextMenu={handleContextMenu}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+        />
+
+        {/* Toolbar — always visible */}
+        {renderer && (
+          <PixelHQToolbar
+            renderer={renderer}
+            officeState={officeState}
+            crews={crews}
+          />
+        )}
+
+        {/* Editor sidebar — visible when editor is active */}
+        {editorActive && editorStateRef.current && (
+          <PixelHQEditor
+            editor={editorStateRef.current}
+            onClose={handleToggleEditor}
+            onApplyTemplate={handleApplyTemplate}
+          />
+        )}
+
+        {/* Context menu — control panel */}
+        <PixelHQContextMenu
+          open={contextMenuOpen}
+          onOpenChange={setContextMenuOpen}
+          position={contextMenuPosition}
+          target={contextMenuTarget}
+          actions={contextMenuActions}
           crews={crews}
         />
-      )}
 
-      {/* Editor sidebar — visible when editor is active */}
-      {editorActive && editorStateRef.current && (
-        <PixelHQEditor
-          editor={editorStateRef.current}
-          onClose={handleToggleEditor}
-          onApplyTemplate={handleApplyTemplate}
-        />
-      )}
+        {/* Character tooltip — on hover */}
+        {hoveredCharacter && !contextMenuOpen && (
+          <PixelHQCharacterTooltip
+            character={hoveredCharacter}
+            x={tooltipPos.x}
+            y={tooltipPos.y}
+            crewName={hoveredCrewName}
+            crewColor={hoveredCrewColor}
+          />
+        )}
 
-      {/* Context menu — control panel */}
-      <PixelHQContextMenu
-        open={contextMenuOpen}
-        onOpenChange={setContextMenuOpen}
-        position={contextMenuPosition}
-        target={contextMenuTarget}
-        actions={contextMenuActions}
-        crews={crews}
-      />
-
-      {/* Character tooltip — on hover */}
-      {hoveredCharacter && !contextMenuOpen && (
-        <PixelHQCharacterTooltip
-          character={hoveredCharacter}
-          x={tooltipPos.x}
-          y={tooltipPos.y}
-          crewName={hoveredCrewName}
-          crewColor={hoveredCrewColor}
-        />
-      )}
-
-      {/* Paused overlay */}
-      {paused && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
-          <div className="bg-[#111427]/90 backdrop-blur border border-[#1F2337]/50 rounded-lg px-4 py-2 shadow-lg">
-            <span className="text-[#FBBF24] text-sm font-semibold tracking-wide">
-              ⏸ PAUSED
-            </span>
-            <span className="text-[#6B7280] text-xs ml-2">
-              Press Space to resume
-            </span>
+        {/* Paused overlay */}
+        {paused && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 pointer-events-none">
+            <div className="bg-[#111427]/90 backdrop-blur border border-[#1F2337]/50 rounded-lg px-4 py-2 shadow-lg">
+              <span className="text-[#FBBF24] text-sm font-semibold tracking-wide">
+                ⏸ PAUSED
+              </span>
+              <span className="text-[#6B7280] text-xs ml-2">
+                Press Space to resume
+              </span>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

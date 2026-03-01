@@ -62,7 +62,7 @@ import { MinionStatusIndicator } from "./MinionStatusIndicator";
 import { TitleEditProvider, useTitleEdit } from "@/browser/contexts/MinionTitleEditContext";
 import { useConfirmDialog } from "@/browser/contexts/ConfirmDialogContext";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
-import { ChevronRight, CircleHelp, KeyRound, Building2 } from "lucide-react";
+import { ChevronRight, CircleHelp, KeyRound } from "lucide-react";
 import { LATTICE_HELP_CHAT_MINION_ID } from "@/common/constants/latticeChat";
 import { useMinionActions } from "@/browser/contexts/MinionContext";
 import { useRouter } from "@/browser/contexts/RouterContext";
@@ -997,13 +997,6 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     <span>Add Project</span>
                   </button>
                 </div>
-                {/* Building floor directory header */}
-                <div className="flex items-center gap-1.5 px-4 pb-2">
-                  <Building2 size={11} className="text-muted shrink-0" />
-                  <span className="text-muted text-[10px] font-semibold uppercase tracking-widest">
-                    Lattice HQ — Floor Directory
-                  </span>
-                </div>
               </div>
               <div
                 ref={projectListScrollRef}
@@ -1021,7 +1014,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     </button>
                   </div>
                 ) : (
-                  visibleProjectPaths.map((projectPath, projectIndex) => {
+                  visibleProjectPaths.map((projectPath) => {
                     const config = projects.get(projectPath);
                     if (!config) return null;
                     const projectName = getProjectName(projectPath);
@@ -1029,9 +1022,6 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                       projectPath.replace(/[^a-zA-Z0-9_-]/g, "-") || "root";
                     const minionListId = `minion-list-${sanitizedProjectId}`;
                     const isExpanded = expandedProjectsList.includes(projectPath);
-                    const floorNumber = visibleProjectPaths.length - projectIndex; // top floor = highest number
-                    const projectMinions = sortedMinionsByProject.get(projectPath) ?? [];
-                    const activeFloorMinions = projectMinions.filter(m => m.taskStatus === "running").length;
 
                     return (
                       <div key={projectPath} className="border-hover border-b">
@@ -1073,15 +1063,6 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             />
                           </button>
                           <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
-                            {/* Floor number badge — elevator panel style */}
-                            <span className={cn(
-                              "flex h-4 w-4 shrink-0 items-center justify-center rounded text-[9px] font-bold tabular-nums",
-                              activeFloorMinions > 0
-                                ? "bg-accent/15 text-accent"
-                                : "bg-muted/10 text-muted"
-                            )}>
-                              {floorNumber}
-                            </span>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div className="text-muted-dark flex min-w-0 gap-2 truncate text-sm">
@@ -1096,17 +1077,8 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                   })()}
                                 </div>
                               </TooltipTrigger>
-                              <TooltipContent align="start">Floor {floorNumber} — {projectPath}</TooltipContent>
+                              <TooltipContent align="start">{projectPath}</TooltipContent>
                             </Tooltip>
-                            {/* Active minion count indicator */}
-                            {projectMinions.length > 0 && (
-                              <span className={cn(
-                                "shrink-0 text-[9px] tabular-nums",
-                                activeFloorMinions > 0 ? "text-emerald-400" : "text-muted"
-                              )}>
-                                {activeFloorMinions > 0 ? `${activeFloorMinions}/${projectMinions.length}` : projectMinions.length}
-                              </span>
-                            )}
                           </div>
                           <Tooltip>
                             <TooltipTrigger asChild>
