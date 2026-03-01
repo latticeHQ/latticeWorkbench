@@ -1023,28 +1023,42 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     const isExpanded = expandedProjectsList.includes(projectPath);
                     const floorNumber = visibleProjectPaths.length - projectIndex;
 
-                    const isEvenFloor = floorNumber % 2 === 0;
+                    // Distinct color per floor — mirrors the crew color palette approach
+                    const FLOOR_COLORS = [
+                      "#5a9bd4", // Blue
+                      "#d4a05a", // Amber
+                      "#7dd47d", // Green
+                      "#d465a5", // Pink
+                      "#9580d4", // Purple
+                      "#48b0a0", // Teal
+                      "#d46565", // Red
+                      "#64748b", // Slate
+                    ];
+                    const floorColor = FLOOR_COLORS[(floorNumber - 1) % FLOOR_COLORS.length];
 
                     return (
                       <div
                         key={projectPath}
-                        className="border-separator flex border-b-2 border-dashed last:border-b-0"
+                        className="flex last:border-b-0"
+                        style={{ borderBottom: `2px dashed ${floorColor}30` }}
                       >
-                        {/* Vertical floor tab strip — alternating tint */}
+                        {/* Vertical floor tab strip — floor-colored */}
                         <button
                           onClick={() => toggleProject(projectPath)}
-                          className={cn(
-                            "border-separator flex w-7 shrink-0 cursor-pointer items-center justify-center border-r border-dashed border-l-0 border-t-0 border-b-0 py-3 transition-colors",
-                            isExpanded
-                              ? "bg-accent/10 text-accent"
-                              : isEvenFloor
-                                ? "bg-hover/60 text-muted hover:bg-hover hover:text-foreground"
-                                : "bg-transparent text-muted hover:bg-hover/50 hover:text-foreground"
-                          )}
+                          className="flex w-7 shrink-0 cursor-pointer items-center justify-center border-none py-3 transition-colors"
+                          style={{
+                            backgroundColor: `${floorColor}${isExpanded ? "20" : "10"}`,
+                            borderRight: `2px solid ${floorColor}${isExpanded ? "80" : "40"}`,
+                          }}
                         >
                           <span
                             className="whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.2em]"
-                            style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}
+                            style={{
+                              writingMode: "vertical-rl",
+                              textOrientation: "mixed",
+                              transform: "rotate(180deg)",
+                              color: floorColor,
+                            }}
                           >
                             {floorNumber === 1 ? "First" : floorNumber === 2 ? "Second" : floorNumber === 3 ? "Third" : `${floorNumber}th`} Floor
                           </span>
@@ -1176,7 +1190,8 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             id={minionListId}
                             role="region"
                             aria-label={`Minions for ${projectName}`}
-                            className="bg-hover/30 pt-1"
+                            className="pt-1"
+                            style={{ backgroundColor: `${floorColor}08` }}
                           >
                             {(() => {
                               // Archived minions are excluded from minionMetadata so won't appear here
