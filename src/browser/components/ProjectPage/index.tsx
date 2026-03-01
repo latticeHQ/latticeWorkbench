@@ -14,7 +14,7 @@ import { ProjectHQOverview } from "../ProjectHQOverview";
 import { PixelWorkstationHQ } from "../PixelWorkstationHQ/PixelWorkstationHQ";
 
 /** Tab IDs — MCP + Archived live in Settings */
-type ProjectTab = "pipeline" | "minion" | "hq";
+type ProjectTab = "workbench" | "pipeline" | "minion";
 
 interface ProjectPageProps {
   projectPath: string;
@@ -42,29 +42,29 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
   // Active tab — persisted per project
   const [activeTab, setActiveTab] = usePersistedState<ProjectTab>(
     `projectTab:${props.projectPath}`,
-    "pipeline"
+    "workbench"
   );
 
-  // Tab definitions — MCP + Archived live in Settings
+  // Tab definitions — Workbench first as default landing tab
   const tabs: Array<{
     id: ProjectTab;
     label: string;
     icon: React.ReactNode;
   }> = [
     {
+      id: "workbench",
+      label: "Workbench",
+      icon: <Building size={13} />,
+    },
+    {
       id: "pipeline",
-      label: "Overview - Agents",
+      label: "Agent Network",
       icon: <Network size={13} />,
     },
     {
       id: "minion",
       label: "New Mission",
       icon: <Plus size={13} />,
-    },
-    {
-      id: "hq" as const,
-      label: "HQ",
-      icon: <Building size={13} />,
     },
   ];
 
@@ -160,7 +160,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
             )}
 
             {/* ── Pixel HQ ── */}
-            {activeTab === "hq" && (
+            {activeTab === "workbench" && (
               <div className="w-full px-4 py-4">
                 <PixelWorkstationHQ
                   projectPath={props.projectPath}
