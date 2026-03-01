@@ -850,13 +850,13 @@ export function createClaudeCodeModel(
       const systemPrompt = extractSystemPrompt(options);
 
       if (mode === "streaming") {
-        // ── Streaming mode: CLI is pure LLM proxy, AI SDK manages tools ──
-        // The AI SDK calls doStream() on each step of its tool loop:
-        //   1. First call: user message only
-        //   2. If model returns tool_use → SDK executes tools → calls doStream() again
-        //      with full conversation (user + assistant tool_use + tool results)
-        //   3. Repeat until model returns stop_reason !== tool_use
+        // ── Streaming mode: CLI proxies to Claude API, AI SDK manages tool execution ──
+        // The CLI needs --mcp-config so tool definitions are included in the API request.
+        // Without it, Claude doesn't know tools exist and just describes them in text.
+        // The AI SDK intercepts tool_use events from attachStreamJsonAdapter and
+        // executes tools itself — the CLI just proxies, it doesn't execute tools.
         const events = promptToStreamJsonEvents(options);
+        const mcpConfigJson = await generateLatticeMcpConfig();
 
         const args = buildClaudeArgs({
           prompt: "",            // Not used — conversation goes via stdin
@@ -864,7 +864,7 @@ export function createClaudeCodeModel(
           systemPrompt,
           outputFormat: "stream-json",
           mode: "streaming",
-          mcpConfigJson: null,   // No --mcp-config — tools managed by AI SDK
+          mcpConfigJson,         // CLI includes tool definitions in API request
         });
 
         log.info(
@@ -980,14 +980,20 @@ function buildClaudeArgs(options: ClaudeArgOptions): string[] {
   }
 
   if (mode === "streaming") {
-    // ── Streaming mode: pure LLM proxy, Lattice manages tools via AI SDK ──
+    // ── Streaming mode: CLI proxies to Claude API, Lattice manages tool execution ──
     // No -p flag — conversation comes via stdin as stream-json events.
-    // No --mcp-config — tools are loaded by aiService.ts and executed by the AI SDK.
+    // --mcp-config IS passed so the CLI includes tool definitions in the API request.
+    // Without it, Claude doesn't know tools exist and responds in plain text.
+    // Tool execution is handled by the AI SDK, not the CLI.
     args.push("--input-format", "stream-json");
     args.push("--output-format", "stream-json");
     args.push("--model", modelId);
     args.push("--verbose");
     args.push("--no-session-persistence");
+    if (mcpConfigJson) {
+      args.push("--mcp-config", mcpConfigJson);
+    }
+    args.push("--permission-mode", "bypassPermissions");
     return args;
   }
 
