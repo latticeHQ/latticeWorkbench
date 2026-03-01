@@ -1113,9 +1113,11 @@ export function ProvidersSection() {
                         </ToggleGroupItem>
                         <ToggleGroupItem
                           value="streaming"
-                          className="h-7 px-3 text-[13px]"
+                          className="h-7 px-3 text-[13px] opacity-40 cursor-not-allowed"
+                          title="Work in progress — not yet functional"
+                          disabled
                         >
-                          Streaming
+                          Streaming (WIP)
                         </ToggleGroupItem>
                         <ToggleGroupItem
                           value="proxy"
@@ -1126,7 +1128,8 @@ export function ProvidersSection() {
                       </ToggleGroup>
                       <p className="text-muted mt-1 text-[11px]">
                         <strong>Agentic:</strong> CLI handles tools via MCP.{" "}
-                        <strong>Streaming:</strong> Lattice intercepts tool calls.{" "}
+                        <strong>Streaming:</strong>{" "}
+                        <span className="opacity-60">WIP — Lattice-managed tool calls (not yet functional).</span>{" "}
                         <strong>Proxy:</strong> Text-only, no tools.
                       </p>
                     </div>

@@ -8,10 +8,11 @@
  *   The CLI runs its own multi-turn agentic loop with access to Lattice MCP tools.
  *   Still uses -p mode (non-interactive), but the process manages its own tool loop.
  *
- * - "streaming": Lattice-managed tool execution via the AI SDK's streamText() loop.
+ * - "streaming": [WIP] Lattice-managed tool execution via the AI SDK's streamText() loop.
  *   The CLI uses --input-format stream-json / --output-format stream-json with --mcp-config
  *   so Claude sees tool definitions in the API request. The AI SDK intercepts tool_use
  *   events and executes tools itself. A fresh CLI process is spawned per doStream() call.
+ *   STATUS: Not yet functional — stdin event format issues with CLI. Falls back gracefully.
  */
 export type ClaudeCodeExecutionMode = "proxy" | "agentic" | "streaming";
 
