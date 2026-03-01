@@ -27,13 +27,13 @@ import { resolveCrewColor } from "@/common/constants/ui";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Total height of the layout in tiles */
-const LAYOUT_HEIGHT = 20;
+const LAYOUT_HEIGHT = 24;
 
 /** Hallway width between rooms */
 const HALLWAY_WIDTH = 3;
 
 /** Room height (top and bottom rooms) */
-const ROOM_HEIGHT = 6;
+const ROOM_HEIGHT = 8;
 
 /** Row where the top rooms start */
 const TOP_ROOM_ROW = 1;
@@ -45,19 +45,19 @@ const HALLWAY_ROW = TOP_ROOM_ROW + ROOM_HEIGHT;
 const BOTTOM_ROOM_ROW = HALLWAY_ROW + HALLWAY_WIDTH;
 
 /** Width of the lobby room */
-const LOBBY_WIDTH = 8;
+const LOBBY_WIDTH = 10;
 
 /** Width of the war room */
-const WAR_ROOM_WIDTH = 12;
+const WAR_ROOM_WIDTH = 14;
 
 /** Width of each crew room */
-const CREW_ROOM_WIDTH = 10;
+const CREW_ROOM_WIDTH = 12;
 
 /** Width of the server room */
-const SERVER_ROOM_WIDTH = 6;
+const SERVER_ROOM_WIDTH = 8;
 
 /** Width of the bench/lounge room */
-const BENCH_WIDTH = 10;
+const BENCH_WIDTH = 12;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -265,6 +265,13 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
     row: BOTTOM_ROOM_ROW + 2,
     roomId: "lobby",
   });
+  furniture.push({
+    uid: nextFurnitureUid(),
+    catalogId: "couch",
+    col: lobbyCol + 2,
+    row: BOTTOM_ROOM_ROW + 1,
+    roomId: "lobby",
+  });
 
   cursor += LOBBY_WIDTH;
 
@@ -308,6 +315,12 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
     row: TOP_ROOM_ROW + 1,
     roomId: "war_room",
   });
+
+  // Chairs around conference table
+  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol - 1, row: confTableRow, roomId: "war_room" });
+  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol + 3, row: confTableRow, roomId: "war_room" });
+  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol - 1, row: confTableRow + 1, roomId: "war_room" });
+  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol + 3, row: confTableRow + 1, roomId: "war_room" });
 
   cursor += WAR_ROOM_WIDTH;
 
@@ -375,8 +388,15 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
       furniture.push({
         uid: nextFurnitureUid(),
         catalogId: "desk",
-        col: crewRoomCol + 2 + d * 2,
+        col: crewRoomCol + 2 + d * 3,
         row: TOP_ROOM_ROW + 2,
+        roomId,
+      });
+      furniture.push({
+        uid: nextFurnitureUid(),
+        catalogId: "chair",
+        col: crewRoomCol + 2 + d * 3,
+        row: TOP_ROOM_ROW + 3,
         roomId,
       });
     }
@@ -386,6 +406,13 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
         catalogId: "desk",
         col: crewRoomCol + 2 + d * 3,
         row: BOTTOM_ROOM_ROW + 2,
+        roomId: `${roomId}_lower`,
+      });
+      furniture.push({
+        uid: nextFurnitureUid(),
+        catalogId: "chair",
+        col: crewRoomCol + 2 + d * 3,
+        row: BOTTOM_ROOM_ROW + 3,
         roomId: `${roomId}_lower`,
       });
     }
@@ -430,7 +457,7 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
   });
 
   // Server room furniture: server racks along the back wall
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     furniture.push({
       uid: nextFurnitureUid(),
       catalogId: "server_rack",
@@ -497,6 +524,13 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
     catalogId: "bookshelf",
     col: benchCol + BENCH_WIDTH - 2,
     row: TOP_ROOM_ROW + 1,
+    roomId: "bench_lounge",
+  });
+  furniture.push({
+    uid: nextFurnitureUid(),
+    catalogId: "plant",
+    col: benchCol + BENCH_WIDTH - 3,
+    row: BOTTOM_ROOM_ROW + 1,
     roomId: "bench_lounge",
   });
 
