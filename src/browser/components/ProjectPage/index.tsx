@@ -11,7 +11,7 @@ import { usePersistedState } from "@/browser/hooks/usePersistedState";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { ProjectHQOverview } from "../ProjectHQOverview";
-import { PixelHQTab } from "../PixelHQ/PixelHQTab";
+import { PixelWorkstationHQ } from "../PixelWorkstationHQ/PixelWorkstationHQ";
 
 /** Tab IDs — MCP + Archived live in Settings */
 type ProjectTab = "pipeline" | "minion" | "hq";
@@ -161,8 +161,8 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
 
             {/* ── Pixel HQ ── */}
             {activeTab === "hq" && (
-              <div className="w-full h-full" style={{ minHeight: "500px" }}>
-                <PixelHQTab
+              <div className="w-full px-4 py-4">
+                <PixelWorkstationHQ
                   projectPath={props.projectPath}
                   projectName={props.projectName}
                 />
