@@ -1,5 +1,5 @@
 import React from "react";
-import { Menu, Settings, Network, Plus } from "lucide-react";
+import { Menu, Settings, Network, Plus, Building } from "lucide-react";
 import type { FrontendMinionMetadata } from "@/common/types/minion";
 import { cn } from "@/common/lib/utils";
 import { AgentProvider } from "@/browser/contexts/AgentContext";
@@ -11,9 +11,10 @@ import { usePersistedState } from "@/browser/hooks/usePersistedState";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { ProjectOverviewTab } from "./ProjectOverviewTab";
 import { ProjectHQOverview } from "../ProjectHQOverview";
+import { PixelHQTab } from "../PixelHQ/PixelHQTab";
 
 /** Tab IDs — MCP + Archived live in Settings */
-type ProjectTab = "pipeline" | "minion";
+type ProjectTab = "pipeline" | "minion" | "hq";
 
 interface ProjectPageProps {
   projectPath: string;
@@ -59,6 +60,11 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
       id: "minion",
       label: "New Mission",
       icon: <Plus size={13} />,
+    },
+    {
+      id: "hq" as const,
+      label: "HQ",
+      icon: <Building size={13} />,
     },
   ];
 
@@ -150,6 +156,16 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
                     onMinionCreated={props.onMinionCreated}
                   />
                 </div>
+              </div>
+            )}
+
+            {/* ── Pixel HQ ── */}
+            {activeTab === "hq" && (
+              <div className="w-full h-full" style={{ minHeight: "500px" }}>
+                <PixelHQTab
+                  projectPath={props.projectPath}
+                  projectName={props.projectName}
+                />
               </div>
             )}
 
