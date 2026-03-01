@@ -71,11 +71,13 @@ import { forkMinion } from "@/browser/utils/chatCommands";
 import { PopoverError } from "./PopoverError";
 import { CrewHeader } from "./CrewHeader";
 import { AddCrewButton } from "./AddCrewButton";
+import { resolveCrewColor } from "@/common/constants/ui";
 import { MinionCrewDropZone } from "./MinionCrewDropZone";
 import { MinionDragLayer } from "./MinionDragLayer";
 import { CrewDragLayer } from "./CrewDragLayer";
 import { DraggableCrew } from "./DraggableCrew";
-import type { CrewConfig } from "@/common/types/project";
+// CrewConfig type is used transitively via CrewHeader props
+import type {} from "@/common/types/project";
 import { getErrorMessage } from "@/common/utils/errors";
 
 // Re-export MinionSelection for backwards compatibility
@@ -1025,7 +1027,27 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     const floorNumber = visibleProjectPaths.length - projectIndex;
 
                     return (
-                      <div key={projectPath} className="border-hover border-b">
+                      <div key={projectPath} className="border-hover border-b flex">
+                        {/* Vertical floor tab strip */}
+                        <button
+                          onClick={() => toggleProject(projectPath)}
+                          className={cn(
+                            "flex w-6 shrink-0 cursor-pointer items-center justify-center border-none border-r border-white/[0.06] transition-colors",
+                            isExpanded
+                              ? "bg-accent/[0.08] text-foreground"
+                              : "bg-transparent text-muted hover:bg-white/[0.03] hover:text-foreground"
+                          )}
+                        >
+                          <span
+                            className="whitespace-nowrap text-[8px] font-bold uppercase tracking-[0.15em]"
+                            style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}
+                          >
+                            {floorNumber}F {projectName}
+                          </span>
+                        </button>
+
+                        {/* Content column */}
+                        <div className="min-w-0 flex-1">
                         <DraggableProjectItem
                           projectPath={projectPath}
                           onReorder={handleReorder}
@@ -1064,9 +1086,6 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             />
                           </button>
                           <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
-                            <span className="text-muted bg-muted/10 flex h-4 shrink-0 items-center rounded px-1 text-[9px] font-bold tabular-nums">
-                              {floorNumber}F
-                            </span>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div className="text-muted-dark flex min-w-0 gap-2 truncate text-sm">
@@ -1436,82 +1455,6 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                 })();
                               };
 
-                              // Render crew with its minions
-                              const renderCrew = (crew: CrewConfig) => {
-                                const crewMinions = byCrewId.get(crew.id) ?? [];
-                                const crewDrafts = draftsByCrewId.get(crew.id) ?? [];
-
-                                const crewExpandedKey = getCrewExpandedKey(
-                                  projectPath,
-                                  crew.id
-                                );
-                                const isCrewExpanded =
-                                  expandedCrews[crewExpandedKey] ?? true;
-
-                                return (
-                                  <DraggableCrew
-                                    key={crew.id}
-                                    crewId={crew.id}
-                                    crewName={crew.name}
-                                    projectPath={projectPath}
-                                    onReorder={handleCrewReorder}
-                                  >
-                                    <MinionCrewDropZone
-                                      projectPath={projectPath}
-                                      crewId={crew.id}
-                                      onDrop={handleMinionSectionDrop}
-                                    >
-                                      <CrewHeader
-                                        crew={crew}
-                                        isExpanded={isCrewExpanded}
-                                        minionCount={
-                                          crewMinions.length + crewDrafts.length
-                                        }
-                                        onToggleExpand={() =>
-                                          toggleCrew(projectPath, crew.id)
-                                        }
-                                        onAddMinion={() => {
-                                          // Create minion in this crew
-                                          handleAddMinion(projectPath, crew.id);
-                                        }}
-                                        onRename={(name) => {
-                                          void updateCrew(projectPath, crew.id, { name });
-                                        }}
-                                        onChangeColor={(color) => {
-                                          void updateCrew(projectPath, crew.id, { color });
-                                        }}
-                                        onDelete={(e) => {
-                                          void handleRemoveSection(
-                                            projectPath,
-                                            crew.id,
-                                            e.currentTarget
-                                          );
-                                        }}
-                                      />
-                                      {isCrewExpanded && (
-                                        <div className="pb-1 pl-2">
-                                          {crewDrafts.map((draft) => renderDraft(draft))}
-                                          {crewMinions.length > 0 ? (
-                                            renderAgeTiers(
-                                              crewMinions,
-                                              getCrewTierKey(projectPath, crew.id, 0).replace(
-                                                ":tier:0",
-                                                ":tier"
-                                              ),
-                                              crew.id
-                                            )
-                                          ) : crewDrafts.length === 0 ? (
-                                            <div className="text-muted px-3 py-2 text-center text-xs italic">
-                                              No minions in this crew
-                                            </div>
-                                          ) : null}
-                                        </div>
-                                      )}
-                                    </MinionCrewDropZone>
-                                  </DraggableCrew>
-                                );
-                              };
-
                               return (
                                 <>
                                   {/* Unsectioned minions first - always show drop zone when crews exist */}
@@ -1545,20 +1488,109 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                     </>
                                   )}
 
-                                  {/* Crews */}
-                                  {crews.map(renderCrew)}
+                                  {/* Crew tabs — horizontal pills */}
+                                  {crews.length > 0 && (
+                                    <div className="flex flex-wrap items-center gap-1 px-2 py-1.5">
+                                      {crews.map((crew) => {
+                                        const crewColor = resolveCrewColor(crew.color);
+                                        const crewMinions = byCrewId.get(crew.id) ?? [];
+                                        const crewDrafts = draftsByCrewId.get(crew.id) ?? [];
+                                        const crewExpandedKey = getCrewExpandedKey(projectPath, crew.id);
+                                        const isCrewExp = expandedCrews[crewExpandedKey] ?? true;
+                                        return (
+                                          <DraggableCrew
+                                            key={crew.id}
+                                            crewId={crew.id}
+                                            crewName={crew.name}
+                                            projectPath={projectPath}
+                                            onReorder={handleCrewReorder}
+                                          >
+                                            <button
+                                              onClick={() => toggleCrew(projectPath, crew.id)}
+                                              className={cn(
+                                                "flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all",
+                                                isCrewExp ? "border-current" : "border-transparent hover:border-white/10"
+                                              )}
+                                              style={{
+                                                color: crewColor,
+                                                backgroundColor: isCrewExp ? `${crewColor}15` : "transparent",
+                                              }}
+                                            >
+                                              <span className="truncate max-w-[80px]">{crew.name}</span>
+                                              <span className="opacity-50">{crewMinions.length + crewDrafts.length}</span>
+                                            </button>
+                                          </DraggableCrew>
+                                        );
+                                      })}
+                                      <AddCrewButton
+                                        onCreateSection={(name) => {
+                                          void handleCreateCrew(projectPath, name);
+                                        }}
+                                      />
+                                    </div>
+                                  )}
 
-                                  {/* Add Crew button */}
-                                  <AddCrewButton
-                                    onCreateSection={(name) => {
-                                      void handleCreateCrew(projectPath, name);
-                                    }}
-                                  />
+                                  {/* Expanded crew content */}
+                                  {crews.map((crew) => {
+                                    const crewExpandedKey = getCrewExpandedKey(projectPath, crew.id);
+                                    const isCrewExp = expandedCrews[crewExpandedKey] ?? true;
+                                    if (!isCrewExp) return null;
+
+                                    const crewMinions = byCrewId.get(crew.id) ?? [];
+                                    const crewDrafts = draftsByCrewId.get(crew.id) ?? [];
+
+                                    return (
+                                      <MinionCrewDropZone
+                                        key={crew.id}
+                                        projectPath={projectPath}
+                                        crewId={crew.id}
+                                        onDrop={handleMinionSectionDrop}
+                                      >
+                                        <CrewHeader
+                                          crew={crew}
+                                          isExpanded={true}
+                                          minionCount={crewMinions.length + crewDrafts.length}
+                                          onToggleExpand={() => toggleCrew(projectPath, crew.id)}
+                                          onAddMinion={() => handleAddMinion(projectPath, crew.id)}
+                                          onRename={(name) => { void updateCrew(projectPath, crew.id, { name }); }}
+                                          onChangeColor={(color) => { void updateCrew(projectPath, crew.id, { color }); }}
+                                          onDelete={(e) => { void handleRemoveSection(projectPath, crew.id, e.currentTarget); }}
+                                        />
+                                        <div className="pb-1 pl-2">
+                                          {crewDrafts.map((draft) => renderDraft(draft))}
+                                          {crewMinions.length > 0 ? (
+                                            renderAgeTiers(
+                                              crewMinions,
+                                              getCrewTierKey(projectPath, crew.id, 0).replace(
+                                                ":tier:0",
+                                                ":tier"
+                                              ),
+                                              crew.id
+                                            )
+                                          ) : crewDrafts.length === 0 ? (
+                                            <div className="text-muted px-3 py-1 text-center text-[10px] italic">
+                                              No minions
+                                            </div>
+                                          ) : null}
+                                        </div>
+                                      </MinionCrewDropZone>
+                                    );
+                                  })}
+
+                                  {/* Add Crew button (shown when no crews yet) */}
+                                  {crews.length === 0 && (
+                                    <AddCrewButton
+                                      onCreateSection={(name) => {
+                                        void handleCreateCrew(projectPath, name);
+                                      }}
+                                    />
+                                  )}
                                 </>
                               );
                             })()}
                           </div>
                         )}
+                        </div>{/* end content column */}
                       </div>
                     );
                   })
