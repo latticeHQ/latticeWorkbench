@@ -1042,7 +1042,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             className="whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.2em]"
                             style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}
                           >
-                            {floorNumber}F {projectName}
+                            {floorNumber === 1 ? "First" : floorNumber === 2 ? "Second" : floorNumber === 3 ? "Third" : `${floorNumber}th`} Floor
                           </span>
                         </button>
 
