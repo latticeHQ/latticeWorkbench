@@ -318,6 +318,34 @@ export class PixelHQRenderer {
   }
 
   /**
+   * Fit the entire layout into the viewport by calculating the optimal zoom
+   * level and centering the camera. Adds a small margin so tiles don't touch
+   * the canvas edge.
+   */
+  fitToLayout(cols: number, rows: number): void {
+    const worldWidth = cols * TILE_SIZE;
+    const worldHeight = rows * TILE_SIZE;
+    const margin = 0.9; // 90% of viewport used, 10% padding
+
+    const zoomX = (this.containerWidth * margin) / worldWidth;
+    const zoomY = (this.containerHeight * margin) / worldHeight;
+    const fitZoom = Math.min(zoomX, zoomY);
+
+    // Clamp to allowed range
+    const clampedZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, fitZoom));
+
+    const centerX = worldWidth / 2;
+    const centerY = worldHeight / 2;
+
+    this.camera.x = centerX;
+    this.camera.y = centerY;
+    this.camera.targetX = centerX;
+    this.camera.targetY = centerY;
+    this.camera.zoom = clampedZoom;
+    this.camera.targetZoom = clampedZoom;
+  }
+
+  /**
    * Get a read-only snapshot of the current camera state.
    *
    * @returns A copy of the current camera state.
