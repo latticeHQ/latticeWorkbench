@@ -46,10 +46,10 @@ export function LeftSidebar(props: LeftSidebarProps) {
 
       {/* Building spine — narrow vertical label strip */}
       {!collapsed && (
-        <div className="bg-sidebar flex h-full w-7 shrink-0 flex-col items-center border-r border-border">
+        <div className="bg-sidebar border-separator flex h-full w-7 shrink-0 flex-col items-center border-r border-dashed">
           <div className="flex flex-1 items-center justify-center">
             <span
-              className="text-muted whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.25em]"
+              className="text-muted-dark whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.25em]"
               style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}
             >
               Lattice Workbench Building
