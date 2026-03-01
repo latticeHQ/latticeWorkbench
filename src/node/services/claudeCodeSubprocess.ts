@@ -981,10 +981,11 @@ function buildClaudeArgs(options: ClaudeArgOptions): string[] {
 
   if (mode === "streaming") {
     // ── Streaming mode: CLI proxies to Claude API, Lattice manages tool execution ──
-    // No -p flag — conversation comes via stdin as stream-json events.
+    // -p IS required — the CLI docs say --input-format only works with --print.
+    // Without -p, the CLI enters interactive mode and ignores stdin entirely.
+    // The prompt arg to -p is empty because conversation comes via stdin events.
     // --mcp-config IS passed so the CLI includes tool definitions in the API request.
-    // Without it, Claude doesn't know tools exist and responds in plain text.
-    // Tool execution is handled by the AI SDK, not the CLI.
+    args.push("-p", "");
     args.push("--input-format", "stream-json");
     args.push("--output-format", "stream-json");
     args.push("--model", modelId);
