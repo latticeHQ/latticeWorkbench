@@ -203,30 +203,33 @@ function StageCostBadge({ minions, color }: {
 // Pixel art components
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Inline SVG desk with monitor, keyboard, and coffee mug. */
+/** Inline SVG full workstation scene: dual monitors, plant, bookshelf, lamp. */
 function PixelDesk({ palette, timeOfDay }: { palette: DeskPalette; timeOfDay: TimeOfDay }) {
-  // Night mode dims the screen slightly
+  // Night mode dims screens slightly
   const screenOpacity = timeOfDay === "night" ? 0.7 : 1;
 
   return (
     <svg
-      viewBox="0 0 16 10"
-      width={64}
-      height={40}
+      viewBox="-2 0 34 14"
+      width={102}
+      height={42}
       className="shrink-0"
       style={{ imageRendering: "pixelated" }}
     >
-      {DESK_RECTS.map((rect, i) => (
-        <rect
-          key={i}
-          x={rect.x}
-          y={rect.y}
-          width={rect.w}
-          height={rect.h}
-          fill={palette[rect.colorKey]}
-          opacity={rect.colorKey === "screen" ? screenOpacity : 1}
-        />
-      ))}
+      {DESK_RECTS.map((rect, i) => {
+        const isScreen = rect.colorKey === "screen" || rect.colorKey === "screen2" || rect.colorKey === "screenLine";
+        return (
+          <rect
+            key={i}
+            x={rect.x}
+            y={rect.y}
+            width={rect.w}
+            height={rect.h}
+            fill={palette[rect.colorKey]}
+            opacity={isScreen ? screenOpacity : 1}
+          />
+        );
+      })}
     </svg>
   );
 }
