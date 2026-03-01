@@ -1014,7 +1014,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     </button>
                   </div>
                 ) : (
-                  visibleProjectPaths.map((projectPath) => {
+                  visibleProjectPaths.map((projectPath, projectIndex) => {
                     const config = projects.get(projectPath);
                     if (!config) return null;
                     const projectName = getProjectName(projectPath);
@@ -1022,6 +1022,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                       projectPath.replace(/[^a-zA-Z0-9_-]/g, "-") || "root";
                     const minionListId = `minion-list-${sanitizedProjectId}`;
                     const isExpanded = expandedProjectsList.includes(projectPath);
+                    const floorNumber = visibleProjectPaths.length - projectIndex;
 
                     return (
                       <div key={projectPath} className="border-hover border-b">
@@ -1063,6 +1064,9 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             />
                           </button>
                           <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
+                            <span className="text-muted bg-muted/10 flex h-4 shrink-0 items-center rounded px-1 text-[9px] font-bold tabular-nums">
+                              {floorNumber}F
+                            </span>
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <div className="text-muted-dark flex min-w-0 gap-2 truncate text-sm">
@@ -1077,7 +1081,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                   })()}
                                 </div>
                               </TooltipTrigger>
-                              <TooltipContent align="start">{projectPath}</TooltipContent>
+                              <TooltipContent align="start">Floor {floorNumber} — {projectPath}</TooltipContent>
                             </Tooltip>
                           </div>
                           <Tooltip>
