@@ -80,18 +80,20 @@ const MATRIX_CHARS =
 
 /** Procedural color palette for furniture types (fallback when no sprite). */
 const FURNITURE_COLORS: Record<string, { fill: string; accent: string }> = {
-  desk: { fill: "#5C3D2E", accent: "#7A5240" },
-  chair: { fill: "#3B3B4F", accent: "#4E4E65" },
-  server_rack: { fill: "#2A2D3E", accent: "#10B981" },
-  plant: { fill: "#1B5E20", accent: "#4CAF50" },
-  bookshelf: { fill: "#4E342E", accent: "#795548" },
-  whiteboard: { fill: "#E0E0E0", accent: "#BDBDBD" },
-  coffee_machine: { fill: "#3E2723", accent: "#8D6E63" },
-  couch: { fill: "#37474F", accent: "#546E7A" },
+  desk: { fill: "#6B4226", accent: "#8B5A3E" },
+  chair: { fill: "#4A4A62", accent: "#5E5E78" },
+  server_rack: { fill: "#2D3148", accent: "#10B981" },
+  plant: { fill: "#2E7D32", accent: "#66BB6A" },
+  bookshelf: { fill: "#5D4037", accent: "#8D6E63" },
+  whiteboard: { fill: "#E8E8E8", accent: "#CCCCCC" },
+  coffee_machine: { fill: "#4E342E", accent: "#A1887F" },
+  couch: { fill: "#455A64", accent: "#607D8B" },
+  water_cooler: { fill: "#37474F", accent: "#4FC3F7" },
+  conf_table: { fill: "#3E2723", accent: "#5D4037" },
 };
 
 /** Default furniture color when catalog ID is not recognized. */
-const DEFAULT_FURNITURE_COLOR = { fill: "#3B3B4F", accent: "#4E4E65" };
+const DEFAULT_FURNITURE_COLOR = { fill: "#4A4A62", accent: "#5E5E78" };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PixelHQRenderer
@@ -304,6 +306,19 @@ export class PixelHQRenderer {
   }
 
   /**
+   * Center the camera on the middle of the given layout grid.
+   * Call after the layout is generated.
+   */
+  centerOnLayout(cols: number, rows: number): void {
+    const centerX = (cols * TILE_SIZE) / 2;
+    const centerY = (rows * TILE_SIZE) / 2;
+    this.camera.x = centerX;
+    this.camera.y = centerY;
+    this.camera.targetX = centerX;
+    this.camera.targetY = centerY;
+  }
+
+  /**
    * Get a read-only snapshot of the current camera state.
    *
    * @returns A copy of the current camera state.
@@ -498,7 +513,8 @@ export class PixelHQRenderer {
           ctx.fillStyle = THEME_WALL;
           ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           ctx.fillStyle = THEME_WALL_ACCENT;
-          ctx.fillRect(px, py, TILE_SIZE, 1);
+          ctx.fillRect(px, py, TILE_SIZE, 2);
+          ctx.fillRect(px, py, 2, TILE_SIZE); // Left accent
         } else {
           // Floor tiles: map tile type to color index (FLOOR_1=0, FLOOR_2=1, ...)
           const floorIndex = (tileType as number) - (TT.FLOOR_1 as number);
@@ -506,6 +522,10 @@ export class PixelHQRenderer {
             THEME_FLOOR_COLORS[floorIndex] ?? THEME_FLOOR_COLORS[0];
           ctx.fillStyle = color;
           ctx.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          // Subtle grid line for floor tiles
+          ctx.fillStyle = "rgba(255, 255, 255, 0.03)";
+          ctx.fillRect(px, py, TILE_SIZE, 0.5);
+          ctx.fillRect(px, py, 0.5, TILE_SIZE);
         }
       }
     }
@@ -534,6 +554,11 @@ export class PixelHQRenderer {
       const { bounds, label, crewColor } = room;
       const centerX = (bounds.col + bounds.width / 2) * TILE_SIZE;
       const topY = bounds.row * TILE_SIZE - ROOM_LABEL_OFFSET_Y;
+
+      // Background behind label for readability
+      const labelWidth = ctx.measureText(label).width;
+      ctx.fillStyle = "rgba(11, 14, 24, 0.7)";
+      ctx.fillRect(centerX - labelWidth / 2 - 2, topY - ROOM_LABEL_FONT_SIZE - 1, labelWidth + 4, ROOM_LABEL_FONT_SIZE + 3);
 
       ctx.fillStyle = crewColor ?? THEME_TEXT_MUTED;
       ctx.globalAlpha = 0.8;
