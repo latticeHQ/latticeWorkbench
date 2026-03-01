@@ -733,8 +733,18 @@ async function requireClaudeBinary(): Promise<string> {
  */
 export function createClaudeCodeModel(
   modelId: string,
-  mode: ClaudeCodeExecutionMode = "agentic"
+  requestedMode: ClaudeCodeExecutionMode = "agentic"
 ): LanguageModelV2 {
+  // [WIP] Streaming mode is not yet functional — stdin event format issues with CLI.
+  // Fall back to agentic so users who select "Streaming (WIP)" still get working tool calls.
+  // Keep mode typed as full union so streaming branches compile for future re-enablement.
+  const mode: ClaudeCodeExecutionMode =
+    requestedMode === "streaming" ? "agentic" : requestedMode;
+  if (requestedMode === "streaming") {
+    log.warn(
+      "[claude-code-subprocess] Streaming mode is WIP — falling back to agentic mode"
+    );
+  }
   const normalizedModelId = normalizeModelId(modelId);
 
   return {
@@ -863,8 +873,8 @@ export function createClaudeCodeModel(
       const binaryPath = await requireClaudeBinary();
       const systemPrompt = extractSystemPrompt(options);
 
-      if (mode === "streaming") {
-        // ── Streaming mode: CLI proxies to Claude API, AI SDK manages tool execution ──
+      if ((mode as ClaudeCodeExecutionMode) === "streaming") {
+        // ── Streaming mode [WIP]: CLI proxies to Claude API, AI SDK manages tool execution ──
         // The CLI needs --mcp-config so tool definitions are included in the API request.
         // Without it, Claude doesn't know tools exist and just describes them in text.
         // The AI SDK intercepts tool_use events from attachStreamJsonAdapter and
@@ -993,8 +1003,8 @@ function buildClaudeArgs(options: ClaudeArgOptions): string[] {
     args.push("--system-prompt", systemPrompt);
   }
 
-  if (mode === "streaming") {
-    // ── Streaming mode: CLI proxies to Claude API, Lattice manages tool execution ──
+  if ((mode as ClaudeCodeExecutionMode) === "streaming") {
+    // ── Streaming mode [WIP]: CLI proxies to Claude API, Lattice manages tool execution ──
     // -p IS required — the CLI docs say --input-format only works with --print.
     // Without -p, the CLI enters interactive mode and ignores stdin entirely.
     // The prompt arg to -p is empty because conversation comes via stdin events.
