@@ -44,6 +44,20 @@ export function LeftSidebar(props: LeftSidebarProps) {
         onClick={onToggleCollapsed}
       />
 
+      {/* Building spine — narrow vertical label strip */}
+      {!collapsed && (
+        <div className="bg-sidebar flex h-full w-7 shrink-0 flex-col items-center border-r border-border">
+          <div className="flex flex-1 items-center justify-center">
+            <span
+              className="text-muted whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.25em]"
+              style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}
+            >
+              Lattice Workbench Building
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <div
         data-testid="left-sidebar"
