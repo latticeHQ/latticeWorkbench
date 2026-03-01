@@ -476,14 +476,13 @@ function promptToFlatString(options: LanguageModelV2CallOptions, skipSystem: boo
  * Each event is a JSON line written to stdin when using --input-format stream-json.
  *
  * System prompts are handled via --system-prompt flag, not stdin.
- *
- * NOTE: Currently unused — streaming mode falls back to agentic behaviour.
- * Kept for forward-compatibility when the CLI supports "propose tools, don't execute".
+ * Assistant messages (including tool-call parts) are replayed so the CLI can
+ * reconstruct the full conversation for each doStream() step.
  */
-export function promptToStreamJsonEvents(_options: LanguageModelV2CallOptions): string[] {
+export function promptToStreamJsonEvents(options: LanguageModelV2CallOptions): string[] {
   const events: string[] = [];
 
-  for (const msg of _options.prompt) {
+  for (const msg of options.prompt) {
     if (msg.role === "system") {
       // Handled via --system-prompt CLI flag
       continue;
@@ -499,6 +498,30 @@ export function promptToStreamJsonEvents(_options: LanguageModelV2CallOptions): 
           JSON.stringify({
             type: "user",
             message: { role: "user", content: textParts.join("\n") },
+          })
+        );
+      }
+    } else if (msg.role === "assistant") {
+      // Replay assistant messages so the CLI reconstructs full conversation.
+      // The AI SDK sends these on each step with prior tool-call parts.
+      const content: Array<Record<string, unknown>> = [];
+      for (const part of msg.content) {
+        if (part.type === "text" && part.text) {
+          content.push({ type: "text", text: part.text });
+        } else if (part.type === "tool-call") {
+          content.push({
+            type: "tool_use",
+            id: part.toolCallId,
+            name: part.toolName,
+            input: part.input,
+          });
+        }
+      }
+      if (content.length > 0) {
+        events.push(
+          JSON.stringify({
+            type: "assistant",
+            message: { role: "assistant", content },
           })
         );
       }
@@ -520,8 +543,6 @@ export function promptToStreamJsonEvents(_options: LanguageModelV2CallOptions): 
         }
       }
     }
-    // Assistant messages are part of conversation history the CLI reconstructs
-    // from the user + tool_result sequence. We don't replay them on stdin.
   }
 
   return events;
@@ -714,12 +735,10 @@ export function createClaudeCodeModel(
       const systemPrompt = extractSystemPrompt(options);
       const prompt = promptToFlatString(options, systemPrompt !== null);
 
-      // Generate MCP config for agentic / streaming modes (streaming currently
-      // falls back to agentic behaviour — see claudeCodeMode.ts).
+      // Generate MCP config for agentic mode (CLI handles tools internally).
+      // Streaming mode skips this — tools are managed by the AI SDK via doStream().
       const mcpConfigJson =
-        (mode === "agentic" || mode === "streaming")
-          ? await generateLatticeMcpConfig()
-          : null;
+        mode === "agentic" ? await generateLatticeMcpConfig() : null;
 
       const args = buildClaudeArgs({
         prompt,
@@ -830,19 +849,66 @@ export function createClaudeCodeModel(
       const binaryPath = await requireClaudeBinary();
       const systemPrompt = extractSystemPrompt(options);
 
-      // "streaming" currently falls through to the same path as "agentic" —
-      // the --input-format stream-json approach is blocked until the Claude Code
-      // CLI supports proposing tool calls without executing them internally.
+      if (mode === "streaming") {
+        // ── Streaming mode: CLI is pure LLM proxy, AI SDK manages tools ──
+        // The AI SDK calls doStream() on each step of its tool loop:
+        //   1. First call: user message only
+        //   2. If model returns tool_use → SDK executes tools → calls doStream() again
+        //      with full conversation (user + assistant tool_use + tool results)
+        //   3. Repeat until model returns stop_reason !== tool_use
+        const events = promptToStreamJsonEvents(options);
 
-      // ── All modes: flat text prompt via -p flag ──
+        const args = buildClaudeArgs({
+          prompt: "",            // Not used — conversation goes via stdin
+          modelId: normalizedModelId,
+          systemPrompt,
+          outputFormat: "stream-json",
+          mode: "streaming",
+          mcpConfigJson: null,   // No --mcp-config — tools managed by AI SDK
+        });
+
+        log.info(
+          `[claude-code-subprocess] doStream (streaming): ${binaryPath} ${args.slice(0, 4).join(" ")} ... (${events.length} stdin events)`
+        );
+
+        const proc = spawnClaude(binaryPath, args);
+
+        if (options.abortSignal) {
+          options.abortSignal.addEventListener("abort", () => {
+            log.info("[claude-code-subprocess] Abort signal received, killing process");
+            proc.kill("SIGTERM");
+          });
+        }
+
+        // Write conversation events to stdin, then close
+        for (const event of events) {
+          proc.stdin?.write(event + "\n");
+        }
+        proc.stdin?.end();
+
+        const stream = new ReadableStream<LanguageModelV2StreamPart>({
+          start(controller) {
+            // Don't close stdin again — already closed above
+            attachStreamJsonAdapter(proc, controller, false);
+          },
+        });
+
+        return {
+          stream,
+          rawCall: {
+            rawPrompt: JSON.stringify(events),
+            rawSettings: { model: normalizedModelId, mode: "streaming" },
+          },
+          warnings: [] as LanguageModelV2CallWarning[],
+        };
+      }
+
+      // ── Agentic / Proxy: flat text prompt via -p flag ──
       const prompt = promptToFlatString(options, systemPrompt !== null);
 
-      // Generate MCP config for agentic / streaming modes (streaming currently
-      // falls back to agentic behaviour — see claudeCodeMode.ts).
+      // Generate MCP config for agentic mode (CLI handles tools internally)
       const mcpConfigJson =
-        (mode === "agentic" || mode === "streaming")
-          ? await generateLatticeMcpConfig()
-          : null;
+        mode === "agentic" ? await generateLatticeMcpConfig() : null;
 
       const args = buildClaudeArgs({
         prompt,
@@ -913,9 +979,17 @@ function buildClaudeArgs(options: ClaudeArgOptions): string[] {
     args.push("--system-prompt", systemPrompt);
   }
 
-  // "streaming" currently falls back to agentic behaviour (see claudeCodeMode.ts).
-  // Normalize so the rest of this function only checks for "agentic" vs "proxy".
-  const effectiveMode = mode === "streaming" ? "agentic" : mode;
+  if (mode === "streaming") {
+    // ── Streaming mode: pure LLM proxy, Lattice manages tools via AI SDK ──
+    // No -p flag — conversation comes via stdin as stream-json events.
+    // No --mcp-config — tools are loaded by aiService.ts and executed by the AI SDK.
+    args.push("--input-format", "stream-json");
+    args.push("--output-format", "stream-json");
+    args.push("--model", modelId);
+    args.push("--verbose");
+    args.push("--no-session-persistence");
+    return args;
+  }
 
   // ── Proxy / Agentic: non-interactive print mode ──
   args.push("-p", prompt);
@@ -929,7 +1003,7 @@ function buildClaudeArgs(options: ClaudeArgOptions): string[] {
   args.push("--no-session-persistence");
 
   // ── Agentic mode: pass MCP config and permission bypass ──
-  if (effectiveMode === "agentic") {
+  if (mode === "agentic") {
     // Inject Lattice MCP server so Claude Code can call Lattice tools
     // (create_minion, list_projects, send_message, etc.) during its agentic loop.
     if (mcpConfigJson) {
