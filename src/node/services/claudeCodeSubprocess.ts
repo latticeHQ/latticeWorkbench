@@ -475,6 +475,15 @@ function promptToFlatString(options: LanguageModelV2CallOptions, skipSystem: boo
  * Serialize AI SDK prompt messages to Claude Code stream-json input events.
  * Each event is a JSON line written to stdin when using --input-format stream-json.
  *
+ * Format matches the Claude Agent SDK's ProcessTransport protocol (SDKUserMessage):
+ *   { type: "user", session_id: "", message: { role: "user", content: [...] }, parent_tool_use_id: null }
+ *
+ * Key requirements:
+ *   - `session_id` must be "" (empty string, not omitted)
+ *   - `parent_tool_use_id` must be null (not omitted)
+ *   - `message.content` must be an array of content blocks, not a plain string
+ *   - Each JSON line terminated with \n
+ *
  * System prompts are handled via --system-prompt flag, not stdin.
  * Assistant messages (including tool-call parts) are replayed so the CLI can
  * reconstruct the full conversation for each doStream() step.
@@ -487,17 +496,20 @@ export function promptToStreamJsonEvents(options: LanguageModelV2CallOptions): s
       // Handled via --system-prompt CLI flag
       continue;
     } else if (msg.role === "user") {
-      const textParts: string[] = [];
+      // Build content blocks array (Anthropic MessageParam format)
+      const contentBlocks: Array<{ type: "text"; text: string }> = [];
       for (const part of msg.content) {
         if (part.type === "text") {
-          textParts.push(part.text);
+          contentBlocks.push({ type: "text", text: part.text });
         }
       }
-      if (textParts.length > 0) {
+      if (contentBlocks.length > 0) {
         events.push(
           JSON.stringify({
             type: "user",
-            message: { role: "user", content: textParts.join("\n") },
+            session_id: "",
+            message: { role: "user", content: contentBlocks },
+            parent_tool_use_id: null,
           })
         );
       }
@@ -521,7 +533,9 @@ export function promptToStreamJsonEvents(options: LanguageModelV2CallOptions): s
         events.push(
           JSON.stringify({
             type: "assistant",
+            session_id: "",
             message: { role: "assistant", content },
+            parent_tool_use_id: null,
           })
         );
       }
