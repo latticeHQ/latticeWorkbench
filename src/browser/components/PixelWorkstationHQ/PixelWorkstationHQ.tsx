@@ -644,7 +644,7 @@ function HQMetricsBar({ totalMissions, activeMissions, totalSidekicks, stageCoun
         <div className="h-6 w-6 flex items-center justify-center rounded-md border border-border/35 bg-background-secondary">
           <Building className="h-3 w-3 text-muted/55" />
         </div>
-        <span className="text-foreground/40 text-[9px] font-bold uppercase tracking-widest">Pixel HQ</span>
+        <span className="text-foreground/40 text-[9px] font-bold uppercase tracking-widest">Workbench</span>
       </div>
       <div className="w-px h-4 bg-border/25 shrink-0" />
 
