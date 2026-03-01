@@ -107,6 +107,7 @@ export function PixelHQTab({ projectPath }: PixelHQTabProps) {
     officeState.setFurnitureCatalog(FURNITURE_CATALOG_MAP);
     const layout = generateDefaultLayout(crews);
     officeState.rebuildFromLayout(layout);
+    r.centerOnLayout(layout.cols, layout.rows);
 
     // Phase 4 — Editor (create but don't activate)
     const editor = new EditorState(layout);
