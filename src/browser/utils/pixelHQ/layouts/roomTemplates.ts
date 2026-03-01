@@ -183,7 +183,7 @@ const devPod4: RoomTemplate = {
 
     rooms.push({
       id: "template_room",
-      zone: RoomZone.CREW_ROOM,
+      zone: RoomZone.CREW_SECTION,
       label: "Dev Pod",
       bounds: { col: 0, row: 0, width: cols, height: rows },
     });
@@ -259,7 +259,7 @@ const warRoom: RoomTemplate = {
 
     rooms.push({
       id: "template_war_room",
-      zone: RoomZone.WAR_ROOM,
+      zone: RoomZone.CREW_SECTION,
       label: "War Room",
       bounds: { col: 0, row: 0, width: cols, height: rows },
     });
@@ -303,7 +303,7 @@ const serverCloset: RoomTemplate = {
 
     rooms.push({
       id: "template_server",
-      zone: RoomZone.SERVER_ROOM,
+      zone: RoomZone.SERVER_CLOSET,
       label: "Server Room",
       bounds: { col: 0, row: 0, width: cols, height: rows },
     });
@@ -388,7 +388,7 @@ const lounge: RoomTemplate = {
 
     rooms.push({
       id: "template_lounge",
-      zone: RoomZone.BENCH_LOUNGE,
+      zone: RoomZone.BREAK_ROOM,
       label: "Lounge",
       bounds: { col: 0, row: 0, width: cols, height: rows },
     });
@@ -434,7 +434,7 @@ const focusBooth: RoomTemplate = {
 
     rooms.push({
       id: "template_focus",
-      zone: RoomZone.CREW_ROOM,
+      zone: RoomZone.CREW_SECTION,
       label: "Focus Booth",
       bounds: { col: 0, row: 0, width: cols, height: rows },
     });
@@ -502,7 +502,7 @@ const openFloor: RoomTemplate = {
 
     rooms.push({
       id: "template_open",
-      zone: RoomZone.CREW_ROOM,
+      zone: RoomZone.CREW_SECTION,
       label: "Open Floor",
       bounds: { col: 0, row: 0, width: cols, height: rows },
     });
