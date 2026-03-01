@@ -1201,6 +1201,8 @@ export class ProviderModelFactory {
         canonicalProviderName: string;
         /** Model ID from the canonical model string. */
         canonicalModelId: string;
+        /** Claude Code execution mode (only set for claude-code provider). */
+        claudeCodeMode?: import("../../common/types/claudeCodeMode").ClaudeCodeExecutionMode;
       },
       SendMessageError
     >
@@ -1222,12 +1224,27 @@ export class ProviderModelFactory {
       return Err(modelResult.error);
     }
 
+    // Read Claude Code execution mode if this is the claude-code provider.
+    // aiService.ts uses this to decide whether to load MCP tools.
+    let claudeCodeMode: import("../../common/types/claudeCodeMode").ClaudeCodeExecutionMode | undefined;
+    if (canonicalProviderName === "claude-code") {
+      const providersConfig = this.config.loadProvidersConfig() ?? {};
+      const ccConfig = (providersConfig["claude-code"] ?? {}) as { claudeCodeMode?: string };
+      claudeCodeMode =
+        ccConfig.claudeCodeMode === "proxy"
+          ? "proxy"
+          : ccConfig.claudeCodeMode === "streaming"
+            ? "streaming"
+            : "agentic";
+    }
+
     return Ok({
       model: modelResult.data,
       effectiveModelString,
       canonicalModelString,
       canonicalProviderName,
       canonicalModelId,
+      claudeCodeMode,
     });
   }
 }
