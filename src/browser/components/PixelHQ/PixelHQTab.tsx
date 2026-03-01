@@ -53,7 +53,6 @@ import { useAPI } from "@/browser/contexts/API";
 import { PixelHQToolbar } from "./PixelHQToolbar";
 import { PixelHQContextMenu, type HQContextTarget, type HQContextMenuActions } from "./PixelHQContextMenu";
 import { PixelHQCharacterTooltip } from "./PixelHQCharacterTooltip";
-import { BuildingCrossSection } from "./BuildingCrossSection";
 import type { Character } from "@/browser/utils/pixelHQ/engine/types";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -514,15 +513,10 @@ export function PixelHQTab({ projectPath }: PixelHQTabProps) {
     : undefined;
 
   return (
-    <div className="flex w-full h-full min-h-[500px] bg-[#0C0F1A]">
-      {/* Building cross-section sidebar */}
-      <BuildingCrossSection projectPath={projectPath} />
-
-      {/* Canvas container */}
-      <div
-        ref={containerRef}
-        className="relative flex-1 overflow-hidden"
-      >
+    <div
+      ref={containerRef}
+      className="relative w-full h-full min-h-[500px] overflow-hidden bg-[#0C0F1A]"
+    >
         <canvas
           ref={canvasRef}
           className="w-full h-full"
@@ -586,7 +580,6 @@ export function PixelHQTab({ projectPath }: PixelHQTabProps) {
             </div>
           </div>
         )}
-      </div>
     </div>
   );
 }
