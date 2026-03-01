@@ -1,14 +1,28 @@
 /**
- * Pixel HQ Default Layout Generator
+ * Pixel HQ Floor Layout Generator
  *
- * Procedurally generates a multi-room office layout based on the
- * project's crew configuration. The layout includes:
+ * Generates an open-plan floor layout based on the project's crew configuration.
+ * Maps the Lattice hierarchy to a pixel-art office floor:
  *
- *   Lobby | Hallway | War Room | Hallway | Crew Rooms... | Hallway | Server Room | Hallway | Bench Lounge
+ *   Building = Lattice server instance
+ *   Floor    = One project
+ *   Phase    = Pipeline phase (groups of 3 stages) — floor partition
+ *   Section  = One crew/stage (open-plan workstation area, color-tinted)
+ *   Worker   = One minion (pixel character at a desk)
  *
- * Rooms are arranged horizontally with a central hallway corridor.
- * Each crew gets its own room with desks, and shared spaces
- * (war room, server room, lounge) are generated for the whole team.
+ * Layout structure (no walled rooms — open plan with subtle dividers):
+ *
+ *   ┌──────────┬───────────────────────────────┬────────────────────────────┬────────┐
+ *   │ ELEVATOR │  ┌─ Phase 1 ─────────────────┐│ ┌─ Phase 2 ──────────────┐│ BREAK  │
+ *   │ (spawn)  │  │ Crew A │ Crew B │ Crew C  ││ │ Crew D │ Crew E │ ...  ││ ROOM   │
+ *   │          │  │ desks  │ desks  │ desks   ││ │ desks  │ desks  │      ││ ☕🛋   │
+ *   │          │  │────────│────────│─────────││ │────────│────────│──────││        │
+ *   │  plants  │  └────────┴────────┴─────────┘│ └────────┴────────┴──────┘│ 🪴     │
+ *   │          │      (thin dividers)    ┃      │     (thin dividers)       │        │
+ *   ├──────────┼─────────────────────────╂──────┼───────────────────────────┤ SERVER │
+ *   │          │     COMMON AISLE        ┃      │        COMMON AISLE       │ CLOSET │
+ *   │          │                    (thick partition)                        │ 🖥🖥   │
+ *   └──────────┴─────────────────────────┴──────┴───────────────────────────┴────────┘
  */
 
 import type {
@@ -26,38 +40,54 @@ import { resolveCrewColor } from "@/common/constants/ui";
 // Layout Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Total height of the layout in tiles */
-const LAYOUT_HEIGHT = 24;
+/** Minimum width of a crew section (tiles) */
+const MIN_SECTION_WIDTH = 10;
 
-/** Hallway width between rooms */
-const HALLWAY_WIDTH = 3;
+/** Desk spacing within a section (tiles between desk centers) */
+const DESK_SPACING = 3;
 
-/** Room height (top and bottom rooms) */
-const ROOM_HEIGHT = 8;
+/** Padding inside each section (tiles) */
+const SECTION_PADDING = 2;
 
-/** Row where the top rooms start */
-const TOP_ROOM_ROW = 1;
+/** Elevator area width (tiles) */
+const ELEVATOR_WIDTH = 6;
 
-/** Row where the hallway corridor starts */
-const HALLWAY_ROW = TOP_ROOM_ROW + ROOM_HEIGHT;
+/** Break room + server closet width (tiles) */
+const UTILITY_WIDTH = 8;
 
-/** Row where the bottom rooms start */
-const BOTTOM_ROOM_ROW = HALLWAY_ROW + HALLWAY_WIDTH;
+/** Common aisle height (tiles) — walkable corridor at bottom */
+const AISLE_HEIGHT = 3;
 
-/** Width of the lobby room */
-const LOBBY_WIDTH = 10;
+/** Main work area height (tiles) — above the aisle */
+const WORK_AREA_HEIGHT = 12;
 
-/** Width of the war room */
-const WAR_ROOM_WIDTH = 14;
+/** Total floor height */
+const FLOOR_HEIGHT = WORK_AREA_HEIGHT + AISLE_HEIGHT;
 
-/** Width of each crew room */
-const CREW_ROOM_WIDTH = 12;
+/** Section divider width (1 tile — subtle within-phase divider) */
+const DIVIDER_WIDTH = 1;
 
-/** Width of the server room */
-const SERVER_ROOM_WIDTH = 8;
+/** Phase partition width (2 tiles — thicker between-phase divider) */
+const PHASE_PARTITION_WIDTH = 2;
 
-/** Width of the bench/lounge room */
-const BENCH_WIDTH = 12;
+/** Default desks per section when no minion count data available */
+const DEFAULT_DESKS_PER_SECTION = 4;
+
+/** Default number of stages per phase (matches pipeline view PHASE_SIZE) */
+const DEFAULT_PHASE_SIZE = 3;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase Colors — distinct hue for each phase partition band
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PHASE_PARTITION_COLORS: TileColorConfig[] = [
+  { h: 200, s: 15, b: 6 },  // Phase 1: cool blue
+  { h: 140, s: 15, b: 6 },  // Phase 2: green
+  { h: 280, s: 15, b: 6 },  // Phase 3: purple
+  { h: 30, s: 15, b: 6 },   // Phase 4: warm amber
+  { h: 340, s: 15, b: 6 },  // Phase 5: rose
+  { h: 60, s: 15, b: 6 },   // Phase 6: yellow
+];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -71,10 +101,8 @@ function nextFurnitureUid(): string {
 
 /**
  * Parse a hex color string to an approximate HSB TileColorConfig for tinting.
- * This is a rough conversion for subtle room tinting -- not a full color model.
  */
 function hexToTileColor(hex: string, saturation = 20, brightness = 5): TileColorConfig {
-  // Strip # prefix
   const clean = hex.replace("#", "");
   const r = parseInt(clean.substring(0, 2), 16) / 255;
   const g = parseInt(clean.substring(2, 4), 16) / 255;
@@ -144,46 +172,68 @@ function fillColorRect(
 }
 
 /**
- * Draw walls around the perimeter of a room (1-tile border).
- * The interior (inset by 1 tile on all sides) remains as floor.
+ * Fill a single column as a subtle section divider (slightly lighter floor).
  */
-function drawRoomWalls(
+function fillDivider(
   tiles: TileType[],
+  tileColors: Array<TileColorConfig | null>,
   cols: number,
   col: number,
-  row: number,
-  width: number,
+  startRow: number,
   height: number,
 ): void {
-  // Top and bottom walls
-  for (let c = col; c < col + width; c++) {
-    tiles[row * cols + c] = TT.WALL;
-    tiles[(row + height - 1) * cols + c] = TT.WALL;
-  }
-  // Left and right walls
-  for (let r = row; r < row + height; r++) {
-    tiles[r * cols + col] = TT.WALL;
-    tiles[r * cols + (col + width - 1)] = TT.WALL;
+  const dividerColor: TileColorConfig = { h: 220, s: 8, b: 3 };
+  for (let r = startRow; r < startRow + height; r++) {
+    const idx = r * cols + col;
+    if (idx >= 0 && idx < tiles.length) {
+      tiles[idx] = TT.FLOOR_2;
+      tileColors[idx] = dividerColor;
+    }
   }
 }
 
 /**
- * Create a door opening in a wall by replacing wall tiles with floor.
- * The door is placed at a specific column and row, spanning `size` tiles wide.
+ * Fill a phase partition — thicker (2-tile) band with distinct phase color.
+ * Uses WALL tiles on top row and colored FLOOR on bottom row for a conveyor-belt feel.
  */
-function openDoor(
+function fillPhasePartition(
   tiles: TileType[],
+  tileColors: Array<TileColorConfig | null>,
   cols: number,
   col: number,
-  row: number,
-  size: number,
+  startRow: number,
+  height: number,
+  phaseColor: TileColorConfig,
 ): void {
-  for (let c = col; c < col + size; c++) {
-    const idx = row * cols + c;
-    if (idx >= 0 && idx < tiles.length) {
-      tiles[idx] = TT.FLOOR_1;
+  for (let c = col; c < col + PHASE_PARTITION_WIDTH; c++) {
+    for (let r = startRow; r < startRow + height; r++) {
+      const idx = r * cols + c;
+      if (idx >= 0 && idx < tiles.length) {
+        // Alternating pattern: WALL-ish tile for visual distinction
+        tiles[idx] = TT.FLOOR_1;
+        tileColors[idx] = { ...phaseColor, b: phaseColor.b + 2 };
+      }
     }
   }
+}
+
+/**
+ * Calculate width needed for a crew section based on desk count.
+ */
+function calcSectionWidth(deskCount: number): number {
+  const desksNeeded = Math.max(deskCount, 2); // Minimum 2 desks per section
+  return Math.max(MIN_SECTION_WIDTH, desksNeeded * DESK_SPACING + SECTION_PADDING * 2);
+}
+
+/**
+ * Group crews into phases of `phaseSize`.
+ */
+function groupIntoPhases(crews: CrewConfig[], phaseSize: number): CrewConfig[][] {
+  const phases: CrewConfig[][] = [];
+  for (let i = 0; i < crews.length; i += phaseSize) {
+    phases.push(crews.slice(i, i + phaseSize));
+  }
+  return phases;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -191,37 +241,60 @@ function openDoor(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Generate a default office layout based on the project's crew configuration.
+ * Generate an open-plan floor layout based on the project's crew configuration.
  *
- * The layout is arranged horizontally:
- *   Lobby → War Room → Crew Rooms (one per crew) → Server Room → Bench Lounge
+ * Layout structure:
+ *   Elevator | Phase Partitions [ Crew Sections (with dividers) ] | Break Room + Server Closet
+ *   ─────────────── COMMON AISLE ────────────────────────────────────────────────────────────
  *
- * Connected by a central hallway corridor. Each room gets walls, floors,
- * furniture, and optional color tinting based on crew colors.
+ * Crews are grouped into phases (default 3 per phase, matching the pipeline view).
+ * Within a phase, sections have subtle 1-tile dividers. Between phases, a thicker
+ * 2-tile partition band with distinct color provides visual separation — like
+ * conveyor belt zones on a factory floor.
  *
- * @param crews - Array of crew configurations from the project
+ * @param crews - Array of crew configurations from the project (pre-sorted by linked list)
+ * @param minionCounts - Optional map of crewId → active minion count for dynamic sizing
+ * @param phaseSize - Number of stages per phase (default: 3, matching pipeline PHASE_SIZE)
  * @returns A complete OfficeLayout ready for OfficeState.rebuildFromLayout()
  */
-export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
+export function generateFloorLayout(
+  crews: CrewConfig[],
+  minionCounts?: Map<string, number>,
+  phaseSize: number = DEFAULT_PHASE_SIZE,
+): OfficeLayout {
   // Reset furniture UID counter for deterministic layouts
   furnitureUidCounter = 0;
 
-  const crewCount = Math.max(crews.length, 1);
+  // If no crews, create a single default section
+  const effectiveCrews = crews.length > 0 ? crews : [{ id: "default_crew_0", name: "Crew 1", nextId: null } as CrewConfig];
+  const crewCount = effectiveCrews.length;
+
+  // Group into phases
+  const phases = groupIntoPhases(effectiveCrews, phaseSize);
+  const phaseCount = phases.length;
+
+  // Calculate section widths
+  const sectionWidths: number[] = [];
+  for (let i = 0; i < crewCount; i++) {
+    const crew = effectiveCrews[i];
+    const crewId = crew?.id ?? `default_crew_${i}`;
+    const deskCount = minionCounts?.get(crewId) ?? DEFAULT_DESKS_PER_SECTION;
+    sectionWidths.push(calcSectionWidth(deskCount));
+  }
+
+  // Total within-phase divider space (between sections in same phase)
+  let withinPhaseDividers = 0;
+  for (const phase of phases) {
+    withinPhaseDividers += Math.max(0, phase.length - 1) * DIVIDER_WIDTH;
+  }
+
+  // Total between-phase partition space
+  const betweenPhasePartitions = Math.max(0, phaseCount - 1) * PHASE_PARTITION_WIDTH;
 
   // Calculate total width
-  const totalWidth =
-    LOBBY_WIDTH +
-    HALLWAY_WIDTH +
-    WAR_ROOM_WIDTH +
-    HALLWAY_WIDTH +
-    crewCount * CREW_ROOM_WIDTH +
-    HALLWAY_WIDTH +
-    SERVER_ROOM_WIDTH +
-    HALLWAY_WIDTH +
-    BENCH_WIDTH;
-
-  const totalCols = totalWidth;
-  const totalRows = LAYOUT_HEIGHT;
+  const sectionsWidth = sectionWidths.reduce((sum, w) => sum + w, 0) + withinPhaseDividers + betweenPhasePartitions;
+  const totalCols = ELEVATOR_WIDTH + sectionsWidth + UTILITY_WIDTH;
+  const totalRows = FLOOR_HEIGHT;
 
   // Initialize tiles and colors
   const tiles: TileType[] = new Array(totalCols * totalRows).fill(TT.VOID);
@@ -229,313 +302,262 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
   const furniture: PlacedFurniture[] = [];
   const rooms: RoomDefinition[] = [];
 
-  let cursor = 0;
-
-  // ── Lobby ──────────────────────────────────────────────────────────────────
-  const lobbyCol = cursor;
-  fillRect(tiles, totalCols, lobbyCol, TOP_ROOM_ROW, LOBBY_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH, TT.FLOOR_2);
-  drawRoomWalls(tiles, totalCols, lobbyCol, TOP_ROOM_ROW, LOBBY_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH);
+  // ── Elevator (spawn area) ────────────────────────────────────────────────
+  const elevatorCol = 0;
+  fillRect(tiles, totalCols, elevatorCol, 0, ELEVATOR_WIDTH, WORK_AREA_HEIGHT, TT.FLOOR_2);
 
   rooms.push({
-    id: "lobby",
-    zone: RoomZone.LOBBY,
-    label: "Lobby",
-    bounds: { col: lobbyCol, row: TOP_ROOM_ROW, width: LOBBY_WIDTH, height: ROOM_HEIGHT * 2 + HALLWAY_WIDTH },
+    id: "elevator",
+    zone: RoomZone.ELEVATOR,
+    label: "Elevator",
+    bounds: { col: elevatorCol, row: 0, width: ELEVATOR_WIDTH, height: WORK_AREA_HEIGHT },
   });
 
-  // Lobby furniture: plants and water cooler
+  // Elevator furniture: plants for decoration
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "plant",
-    col: lobbyCol + 2,
-    row: TOP_ROOM_ROW + 2,
-    roomId: "lobby",
+    col: elevatorCol + 1,
+    row: 1,
+    roomId: "elevator",
   });
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "plant",
-    col: lobbyCol + 5,
-    row: TOP_ROOM_ROW + 2,
-    roomId: "lobby",
+    col: elevatorCol + ELEVATOR_WIDTH - 2,
+    row: 1,
+    roomId: "elevator",
   });
+  // Water cooler in elevator area
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "water_cooler",
-    col: lobbyCol + 3,
-    row: BOTTOM_ROOM_ROW + 2,
-    roomId: "lobby",
-  });
-  furniture.push({
-    uid: nextFurnitureUid(),
-    catalogId: "couch",
-    col: lobbyCol + 2,
-    row: BOTTOM_ROOM_ROW + 1,
-    roomId: "lobby",
+    col: elevatorCol + 2,
+    row: WORK_AREA_HEIGHT - 2,
+    roomId: "elevator",
   });
 
-  cursor += LOBBY_WIDTH;
-
-  // ── Hallway (Lobby → War Room) ────────────────────────────────────────────
-  fillRect(tiles, totalCols, cursor, HALLWAY_ROW, HALLWAY_WIDTH, HALLWAY_WIDTH, TT.FLOOR_1);
-  cursor += HALLWAY_WIDTH;
-
-  // Open doors: lobby right wall and war room left wall
-  openDoor(tiles, totalCols, lobbyCol + LOBBY_WIDTH - 1, HALLWAY_ROW + 1, 1);
-
-  // ── War Room ──────────────────────────────────────────────────────────────
-  const warRoomCol = cursor;
-  fillRect(tiles, totalCols, warRoomCol, TOP_ROOM_ROW, WAR_ROOM_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH, TT.FLOOR_3);
-  drawRoomWalls(tiles, totalCols, warRoomCol, TOP_ROOM_ROW, WAR_ROOM_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH);
-  openDoor(tiles, totalCols, warRoomCol, HALLWAY_ROW + 1, 1);
-
-  const warRoomColor: TileColorConfig = { h: 45, s: 15, b: 5 }; // Warm yellow tint
-  fillColorRect(tileColors, totalCols, warRoomCol + 1, TOP_ROOM_ROW + 1, WAR_ROOM_WIDTH - 2, ROOM_HEIGHT * 2 + HALLWAY_WIDTH - 2, warRoomColor);
+  // ── Common Aisle (walkable corridor at bottom) ───────────────────────────
+  fillRect(tiles, totalCols, 0, WORK_AREA_HEIGHT, totalCols, AISLE_HEIGHT, TT.FLOOR_1);
 
   rooms.push({
-    id: "war_room",
-    zone: RoomZone.WAR_ROOM,
-    label: "War Room",
-    bounds: { col: warRoomCol, row: TOP_ROOM_ROW, width: WAR_ROOM_WIDTH, height: ROOM_HEIGHT * 2 + HALLWAY_WIDTH },
+    id: "common_aisle",
+    zone: RoomZone.COMMON_AISLE,
+    label: "Aisle",
+    bounds: { col: 0, row: WORK_AREA_HEIGHT, width: totalCols, height: AISLE_HEIGHT },
   });
 
-  // War Room furniture: conference table centered, whiteboard on top wall
-  const confTableCol = warRoomCol + Math.floor((WAR_ROOM_WIDTH - 3) / 2);
-  const confTableRow = TOP_ROOM_ROW + Math.floor((ROOM_HEIGHT * 2 + HALLWAY_WIDTH - 2) / 2);
-  furniture.push({
-    uid: nextFurnitureUid(),
-    catalogId: "conf_table",
-    col: confTableCol,
-    row: confTableRow,
-    roomId: "war_room",
-  });
-  furniture.push({
-    uid: nextFurnitureUid(),
-    catalogId: "whiteboard",
-    col: warRoomCol + 2,
-    row: TOP_ROOM_ROW + 1,
-    roomId: "war_room",
-  });
+  // ── Phase Partitions + Crew Sections ──────────────────────────────────────
+  let cursor = ELEVATOR_WIDTH;
+  let globalCrewIdx = 0;
 
-  // Chairs around conference table
-  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol - 1, row: confTableRow, roomId: "war_room" });
-  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol + 3, row: confTableRow, roomId: "war_room" });
-  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol - 1, row: confTableRow + 1, roomId: "war_room" });
-  furniture.push({ uid: nextFurnitureUid(), catalogId: "chair", col: confTableCol + 3, row: confTableRow + 1, roomId: "war_room" });
+  for (let phaseIdx = 0; phaseIdx < phaseCount; phaseIdx++) {
+    const phase = phases[phaseIdx];
+    const phaseColor = PHASE_PARTITION_COLORS[phaseIdx % PHASE_PARTITION_COLORS.length];
+    const phaseStartCol = cursor;
 
-  cursor += WAR_ROOM_WIDTH;
+    // Render each crew section within this phase
+    for (let localIdx = 0; localIdx < phase.length; localIdx++) {
+      const crew = phase[localIdx];
+      const crewId = crew.id;
+      const crewName = crew.name;
+      const crewColor = resolveCrewColor(crew.color);
+      const sectionWidth = sectionWidths[globalCrewIdx];
+      const sectionCol = cursor;
+      const roomId = `section_${crewId}`;
 
-  // ── Hallway (War Room → Crew Rooms) ───────────────────────────────────────
-  fillRect(tiles, totalCols, cursor, HALLWAY_ROW, HALLWAY_WIDTH, HALLWAY_WIDTH, TT.FLOOR_1);
-  openDoor(tiles, totalCols, warRoomCol + WAR_ROOM_WIDTH - 1, HALLWAY_ROW + 1, 1);
-  cursor += HALLWAY_WIDTH;
+      // Fill section floor (work area only — aisle is already filled)
+      const floorVariant = (TT.FLOOR_3 + (globalCrewIdx % 5)) as TileType;
+      fillRect(tiles, totalCols, sectionCol, 0, sectionWidth, WORK_AREA_HEIGHT, floorVariant);
 
-  // ── Crew Rooms ────────────────────────────────────────────────────────────
-  for (let i = 0; i < crewCount; i++) {
-    const crew = crews[i];
-    const crewRoomCol = cursor;
-    const crewId = crew?.id ?? `default_crew_${i}`;
-    const crewName = crew?.name ?? `Crew ${i + 1}`;
-    const crewColor = resolveCrewColor(crew?.color);
-    const roomId = `crew_${crewId}`;
+      // Apply crew color tint
+      const tileColor = hexToTileColor(crewColor, 18, 4);
+      fillColorRect(tileColors, totalCols, sectionCol, 0, sectionWidth, WORK_AREA_HEIGHT, tileColor);
 
-    // Top room: crew workspace
-    fillRect(tiles, totalCols, crewRoomCol, TOP_ROOM_ROW, CREW_ROOM_WIDTH, ROOM_HEIGHT, TT.FLOOR_4);
-    drawRoomWalls(tiles, totalCols, crewRoomCol, TOP_ROOM_ROW, CREW_ROOM_WIDTH, ROOM_HEIGHT);
+      rooms.push({
+        id: roomId,
+        zone: RoomZone.CREW_SECTION,
+        label: crewName,
+        bounds: { col: sectionCol, row: 0, width: sectionWidth, height: WORK_AREA_HEIGHT },
+        crewId,
+        crewColor,
+      });
 
-    // Bottom room: overflow/secondary space for same crew
-    fillRect(tiles, totalCols, crewRoomCol, BOTTOM_ROOM_ROW, CREW_ROOM_WIDTH, ROOM_HEIGHT, TT.FLOOR_5);
-    drawRoomWalls(tiles, totalCols, crewRoomCol, BOTTOM_ROOM_ROW, CREW_ROOM_WIDTH, ROOM_HEIGHT);
+      // Place desks in the section (2 rows of desks)
+      const deskCount = minionCounts?.get(crewId) ?? DEFAULT_DESKS_PER_SECTION;
+      const desksPerRow = Math.ceil(deskCount / 2);
 
-    // Hallway connection (between rooms)
-    fillRect(tiles, totalCols, crewRoomCol, HALLWAY_ROW, CREW_ROOM_WIDTH, HALLWAY_WIDTH, TT.FLOOR_1);
+      // Top row of desks (row 2-3)
+      for (let d = 0; d < desksPerRow && d < Math.floor((sectionWidth - SECTION_PADDING * 2) / DESK_SPACING); d++) {
+        const deskCol = sectionCol + SECTION_PADDING + d * DESK_SPACING;
+        furniture.push({
+          uid: nextFurnitureUid(),
+          catalogId: "desk",
+          col: deskCol,
+          row: 2,
+          roomId,
+        });
+        furniture.push({
+          uid: nextFurnitureUid(),
+          catalogId: "chair",
+          col: deskCol,
+          row: 3,
+          roomId,
+        });
+      }
 
-    // Doors from hallway into each room
-    openDoor(tiles, totalCols, crewRoomCol + Math.floor(CREW_ROOM_WIDTH / 2), TOP_ROOM_ROW + ROOM_HEIGHT - 1, 2);
-    openDoor(tiles, totalCols, crewRoomCol + Math.floor(CREW_ROOM_WIDTH / 2), BOTTOM_ROOM_ROW, 2);
+      // Bottom row of desks (row 6-7)
+      const bottomRowDesks = Math.max(0, deskCount - desksPerRow);
+      for (let d = 0; d < bottomRowDesks && d < Math.floor((sectionWidth - SECTION_PADDING * 2) / DESK_SPACING); d++) {
+        const deskCol = sectionCol + SECTION_PADDING + d * DESK_SPACING;
+        furniture.push({
+          uid: nextFurnitureUid(),
+          catalogId: "desk",
+          col: deskCol,
+          row: 6,
+          roomId,
+        });
+        furniture.push({
+          uid: nextFurnitureUid(),
+          catalogId: "chair",
+          col: deskCol,
+          row: 7,
+          roomId,
+        });
+      }
 
-    // Hallway connections to left (previous section) and right (next section)
-    if (i === 0) {
-      // Connect to war room hallway
-      openDoor(tiles, totalCols, crewRoomCol, HALLWAY_ROW + 1, 1);
-    }
-
-    // Apply crew color tint to room floors
-    const tileColor = hexToTileColor(crewColor, 20, 5);
-    fillColorRect(tileColors, totalCols, crewRoomCol + 1, TOP_ROOM_ROW + 1, CREW_ROOM_WIDTH - 2, ROOM_HEIGHT - 2, tileColor);
-    fillColorRect(tileColors, totalCols, crewRoomCol + 1, BOTTOM_ROOM_ROW + 1, CREW_ROOM_WIDTH - 2, ROOM_HEIGHT - 2, tileColor);
-
-    rooms.push({
-      id: roomId,
-      zone: RoomZone.CREW_ROOM,
-      label: crewName,
-      bounds: { col: crewRoomCol, row: TOP_ROOM_ROW, width: CREW_ROOM_WIDTH, height: ROOM_HEIGHT },
-      crewId,
-      crewColor,
-    });
-
-    // Also register bottom room for overflow seating
-    rooms.push({
-      id: `${roomId}_lower`,
-      zone: RoomZone.CREW_ROOM,
-      label: `${crewName} (B)`,
-      bounds: { col: crewRoomCol, row: BOTTOM_ROOM_ROW, width: CREW_ROOM_WIDTH, height: ROOM_HEIGHT },
-      crewId,
-      crewColor,
-    });
-
-    // Crew room furniture: 3 desks in top room, 2 in bottom
-    for (let d = 0; d < 3; d++) {
+      // Whiteboard at the top of each section
       furniture.push({
         uid: nextFurnitureUid(),
-        catalogId: "desk",
-        col: crewRoomCol + 2 + d * 3,
-        row: TOP_ROOM_ROW + 2,
+        catalogId: "whiteboard",
+        col: sectionCol + Math.floor(sectionWidth / 2) - 1,
+        row: 0,
         roomId,
       });
+
+      // Plant decoration
       furniture.push({
         uid: nextFurnitureUid(),
-        catalogId: "chair",
-        col: crewRoomCol + 2 + d * 3,
-        row: TOP_ROOM_ROW + 3,
+        catalogId: "plant",
+        col: sectionCol + sectionWidth - 2,
+        row: WORK_AREA_HEIGHT - 2,
         roomId,
       });
-    }
-    for (let d = 0; d < 2; d++) {
-      furniture.push({
-        uid: nextFurnitureUid(),
-        catalogId: "desk",
-        col: crewRoomCol + 2 + d * 3,
-        row: BOTTOM_ROOM_ROW + 2,
-        roomId: `${roomId}_lower`,
-      });
-      furniture.push({
-        uid: nextFurnitureUid(),
-        catalogId: "chair",
-        col: crewRoomCol + 2 + d * 3,
-        row: BOTTOM_ROOM_ROW + 3,
-        roomId: `${roomId}_lower`,
-      });
+
+      cursor += sectionWidth;
+      globalCrewIdx++;
+
+      // Add within-phase divider between sections (not after last in phase)
+      if (localIdx < phase.length - 1) {
+        fillDivider(tiles, tileColors, totalCols, cursor, 0, WORK_AREA_HEIGHT);
+        cursor += DIVIDER_WIDTH;
+      }
     }
 
-    // Add a plant in each crew room for decoration
-    furniture.push({
-      uid: nextFurnitureUid(),
-      catalogId: "plant",
-      col: crewRoomCol + 1,
-      row: TOP_ROOM_ROW + 1,
-      roomId,
+    // Track the phase end column (for metadata)
+    const phaseEndCol = cursor;
+    const phaseWidth = phaseEndCol - phaseStartCol;
+
+    // Add phase as a metadata room (for labels, jump-to-section, etc.)
+    // Using COMMON_AISLE zone since we don't want characters assigned here
+    rooms.push({
+      id: `phase_${phaseIdx}`,
+      zone: RoomZone.COMMON_AISLE,
+      label: `Phase ${phaseIdx + 1}`,
+      bounds: { col: phaseStartCol, row: 0, width: phaseWidth, height: WORK_AREA_HEIGHT },
     });
 
-    cursor += CREW_ROOM_WIDTH;
+    // Add between-phase partition (not after the last phase)
+    if (phaseIdx < phaseCount - 1) {
+      fillPhasePartition(tiles, tileColors, totalCols, cursor, 0, FLOOR_HEIGHT, phaseColor);
 
-    // Hallway between crew rooms (if not the last one)
-    if (i < crewCount - 1) {
-      fillRect(tiles, totalCols, cursor - 1, HALLWAY_ROW, 2, HALLWAY_WIDTH, TT.FLOOR_1);
+      // Place a conveyor belt / separator decoration in the partition
+      furniture.push({
+        uid: nextFurnitureUid(),
+        catalogId: "plant",
+        col: cursor,
+        row: 0,
+        roomId: `phase_${phaseIdx}`,
+      });
+
+      cursor += PHASE_PARTITION_WIDTH;
     }
   }
 
-  // ── Hallway (Crew Rooms → Server Room) ────────────────────────────────────
-  fillRect(tiles, totalCols, cursor, HALLWAY_ROW, HALLWAY_WIDTH, HALLWAY_WIDTH, TT.FLOOR_1);
-  // Open door from last crew room's hallway into this hallway
-  openDoor(tiles, totalCols, cursor, HALLWAY_ROW + 1, 1);
-  cursor += HALLWAY_WIDTH;
+  // ── Break Room (top-right, archived minions) ─────────────────────────────
+  const utilityCol = totalCols - UTILITY_WIDTH;
+  const breakRoomHeight = Math.floor(WORK_AREA_HEIGHT * 0.6);
+  fillRect(tiles, totalCols, utilityCol, 0, UTILITY_WIDTH, breakRoomHeight, TT.FLOOR_7);
 
-  // ── Server Room ───────────────────────────────────────────────────────────
-  const serverRoomCol = cursor;
-  fillRect(tiles, totalCols, serverRoomCol, TOP_ROOM_ROW, SERVER_ROOM_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH, TT.FLOOR_6);
-  drawRoomWalls(tiles, totalCols, serverRoomCol, TOP_ROOM_ROW, SERVER_ROOM_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH);
-  openDoor(tiles, totalCols, serverRoomCol, HALLWAY_ROW + 1, 1);
-
-  const serverColor: TileColorConfig = { h: 220, s: 25, b: 3 }; // Cool blue tint
-  fillColorRect(tileColors, totalCols, serverRoomCol + 1, TOP_ROOM_ROW + 1, SERVER_ROOM_WIDTH - 2, ROOM_HEIGHT * 2 + HALLWAY_WIDTH - 2, serverColor);
+  const breakColor: TileColorConfig = { h: 30, s: 10, b: -3 };
+  fillColorRect(tileColors, totalCols, utilityCol, 0, UTILITY_WIDTH, breakRoomHeight, breakColor);
 
   rooms.push({
-    id: "server_room",
-    zone: RoomZone.SERVER_ROOM,
-    label: "Server Room",
-    bounds: { col: serverRoomCol, row: TOP_ROOM_ROW, width: SERVER_ROOM_WIDTH, height: ROOM_HEIGHT * 2 + HALLWAY_WIDTH },
+    id: "break_room",
+    zone: RoomZone.BREAK_ROOM,
+    label: "Break Room",
+    bounds: { col: utilityCol, row: 0, width: UTILITY_WIDTH, height: breakRoomHeight },
   });
 
-  // Server room furniture: server racks along the back wall
-  for (let i = 0; i < 4; i++) {
-    furniture.push({
-      uid: nextFurnitureUid(),
-      catalogId: "server_rack",
-      col: serverRoomCol + 1 + i * 2,
-      row: TOP_ROOM_ROW + 1,
-      roomId: "server_room",
-    });
-  }
-
-  cursor += SERVER_ROOM_WIDTH;
-
-  // ── Hallway (Server Room → Bench Lounge) ──────────────────────────────────
-  fillRect(tiles, totalCols, cursor, HALLWAY_ROW, HALLWAY_WIDTH, HALLWAY_WIDTH, TT.FLOOR_1);
-  openDoor(tiles, totalCols, serverRoomCol + SERVER_ROOM_WIDTH - 1, HALLWAY_ROW + 1, 1);
-  cursor += HALLWAY_WIDTH;
-
-  // ── Bench Lounge ──────────────────────────────────────────────────────────
-  const benchCol = cursor;
-  fillRect(tiles, totalCols, benchCol, TOP_ROOM_ROW, BENCH_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH, TT.FLOOR_7);
-  drawRoomWalls(tiles, totalCols, benchCol, TOP_ROOM_ROW, BENCH_WIDTH, ROOM_HEIGHT * 2 + HALLWAY_WIDTH);
-  openDoor(tiles, totalCols, benchCol, HALLWAY_ROW + 1, 1);
-
-  const benchColor: TileColorConfig = { h: 30, s: 10, b: -5 }; // Dim warm tint
-  fillColorRect(tileColors, totalCols, benchCol + 1, TOP_ROOM_ROW + 1, BENCH_WIDTH - 2, ROOM_HEIGHT * 2 + HALLWAY_WIDTH - 2, benchColor);
-
-  rooms.push({
-    id: "bench_lounge",
-    zone: RoomZone.BENCH_LOUNGE,
-    label: "Bench Lounge",
-    bounds: { col: benchCol, row: TOP_ROOM_ROW, width: BENCH_WIDTH, height: ROOM_HEIGHT * 2 + HALLWAY_WIDTH },
-  });
-
-  // Bench lounge furniture: couches, coffee machine, bookshelf
+  // Break room furniture
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "couch",
-    col: benchCol + 2,
-    row: TOP_ROOM_ROW + 2,
-    roomId: "bench_lounge",
+    col: utilityCol + 1,
+    row: 1,
+    roomId: "break_room",
   });
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "couch",
-    col: benchCol + 5,
-    row: TOP_ROOM_ROW + 2,
-    roomId: "bench_lounge",
-  });
-  furniture.push({
-    uid: nextFurnitureUid(),
-    catalogId: "couch",
-    col: benchCol + 2,
-    row: BOTTOM_ROOM_ROW + 2,
-    roomId: "bench_lounge",
+    col: utilityCol + 1,
+    row: 3,
+    roomId: "break_room",
   });
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "coffee",
-    col: benchCol + 1,
-    row: BOTTOM_ROOM_ROW + 1,
-    roomId: "bench_lounge",
-  });
-  furniture.push({
-    uid: nextFurnitureUid(),
-    catalogId: "bookshelf",
-    col: benchCol + BENCH_WIDTH - 2,
-    row: TOP_ROOM_ROW + 1,
-    roomId: "bench_lounge",
+    col: utilityCol + UTILITY_WIDTH - 2,
+    row: 1,
+    roomId: "break_room",
   });
   furniture.push({
     uid: nextFurnitureUid(),
     catalogId: "plant",
-    col: benchCol + BENCH_WIDTH - 3,
-    row: BOTTOM_ROOM_ROW + 1,
-    roomId: "bench_lounge",
+    col: utilityCol + UTILITY_WIDTH - 2,
+    row: breakRoomHeight - 2,
+    roomId: "break_room",
   });
 
+  // ── Server Closet (bottom-right, MCP servers) ───────────────────────────
+  const serverClosetRow = breakRoomHeight;
+  const serverClosetHeight = WORK_AREA_HEIGHT - breakRoomHeight;
+  fillRect(tiles, totalCols, utilityCol, serverClosetRow, UTILITY_WIDTH, serverClosetHeight, TT.FLOOR_6);
+
+  const serverColor: TileColorConfig = { h: 220, s: 25, b: 3 };
+  fillColorRect(tileColors, totalCols, utilityCol, serverClosetRow, UTILITY_WIDTH, serverClosetHeight, serverColor);
+
+  rooms.push({
+    id: "server_closet",
+    zone: RoomZone.SERVER_CLOSET,
+    label: "Servers",
+    bounds: { col: utilityCol, row: serverClosetRow, width: UTILITY_WIDTH, height: serverClosetHeight },
+  });
+
+  // Server closet furniture: server racks
+  const rackCount = Math.min(3, Math.floor((UTILITY_WIDTH - 2) / 2));
+  for (let i = 0; i < rackCount; i++) {
+    furniture.push({
+      uid: nextFurnitureUid(),
+      catalogId: "server_rack",
+      col: utilityCol + 1 + i * 2,
+      row: serverClosetRow + 1,
+      roomId: "server_closet",
+    });
+  }
+
   return {
-    version: 1,
+    version: 2,
     cols: totalCols,
     rows: totalRows,
     tiles,
@@ -544,3 +566,10 @@ export function generateDefaultLayout(crews: CrewConfig[]): OfficeLayout {
     rooms,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Legacy Compat — keep the old name as an alias
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** @deprecated Use generateFloorLayout instead */
+export const generateDefaultLayout = generateFloorLayout;

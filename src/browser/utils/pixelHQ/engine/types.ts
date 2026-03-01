@@ -38,12 +38,11 @@ export interface TileColorConfig {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const RoomZone = {
-  CREW_ROOM: "crew_room",
-  WAR_ROOM: "war_room",
-  LOBBY: "lobby",
-  SERVER_ROOM: "server_room",
-  BENCH_LOUNGE: "bench_lounge",
-  HALLWAY: "hallway",
+  CREW_SECTION: "crew_section",
+  ELEVATOR: "elevator",
+  BREAK_ROOM: "break_room",
+  SERVER_CLOSET: "server_closet",
+  COMMON_AISLE: "common_aisle",
 } as const;
 export type RoomZone = (typeof RoomZone)[keyof typeof RoomZone];
 

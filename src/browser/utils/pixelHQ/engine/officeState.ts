@@ -214,10 +214,10 @@ export class OfficeState {
       }
     } else {
       // No crew -- try lobby or any room with available seats
-      const lobbyRoom = this.findRoomByZone("lobby");
-      if (lobbyRoom) {
-        char.roomId = lobbyRoom.id;
-        const seat = this.findAvailableSeat(lobbyRoom.id);
+      const elevatorRoom = this.findRoomByZone("elevator");
+      if (elevatorRoom) {
+        char.roomId = elevatorRoom.id;
+        const seat = this.findAvailableSeat(elevatorRoom.id);
         if (seat) {
           this.assignSeatToCharacter(char, seat);
         }
@@ -602,6 +602,84 @@ export class OfficeState {
     return null;
   }
 
+  /**
+   * Find which room/section contains a given tile coordinate.
+   *
+   * Searches through all room definitions to find one whose bounds
+   * contain the specified tile. Useful for context menu — determines
+   * what section was right-clicked.
+   *
+   * @param col - Tile column
+   * @param row - Tile row
+   * @returns The RoomDefinition at that tile, or null
+   */
+  getSectionAt(col: number, row: number): RoomDefinition | null {
+    for (const room of this.rooms.values()) {
+      const b = room.bounds;
+      if (
+        col >= b.col && col < b.col + b.width &&
+        row >= b.row && row < b.row + b.height
+      ) {
+        return room;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Find an unoccupied seat at or near a given tile coordinate.
+   *
+   * Used for the "New Minion Here" context menu action — finds the
+   * closest empty desk seat to where the user right-clicked.
+   *
+   * @param col - Tile column of the click
+   * @param row - Tile row of the click
+   * @param maxRadius - Maximum tile radius to search (default 5)
+   * @returns The nearest empty Seat, or null
+   */
+  getEmptyDeskAt(col: number, row: number, maxRadius = 5): Seat | null {
+    let bestSeat: Seat | null = null;
+    let bestDist = Infinity;
+
+    for (const seat of this.seats.values()) {
+      if (seat.assignedTo !== null) continue;
+
+      const dc = seat.col - col;
+      const dr = seat.row - row;
+      const dist = Math.sqrt(dc * dc + dr * dr);
+
+      if (dist < bestDist && dist <= maxRadius) {
+        bestDist = dist;
+        bestSeat = seat;
+      }
+    }
+
+    return bestSeat;
+  }
+
+  /**
+   * Find the furniture instance at a given tile coordinate.
+   *
+   * Checks all resolved furniture instances to see if any occupy
+   * the specified tile position. Used for context menu hit-testing.
+   *
+   * @param col - Tile column
+   * @param row - Tile row
+   * @returns The FurnitureInstance at that tile, or null
+   */
+  getFurnitureAt(col: number, row: number): FurnitureInstance | null {
+    for (const inst of this.furnitureInstances) {
+      const { placed, catalog } = inst;
+      if (
+        col >= placed.col && col < placed.col + catalog.width &&
+        row >= placed.row && row < placed.row + catalog.height
+      ) {
+        return inst;
+      }
+    }
+    return null;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Update Loop
   // ─────────────────────────────────────────────────────────────────────────
@@ -744,7 +822,7 @@ export class OfficeState {
         }
 
         const uid = nextSeatUid();
-        const roomZone = roomId ? (this.rooms.get(roomId)?.zone ?? "hallway") : "hallway";
+        const roomZone = roomId ? (this.rooms.get(roomId)?.zone ?? "common_aisle") : "common_aisle";
 
         const seat: Seat = {
           uid,
@@ -870,7 +948,7 @@ export class OfficeState {
    */
   private findRoomForCrew(crewId: string): RoomDefinition | null {
     for (const room of this.rooms.values()) {
-      if (room.zone === "crew_room" && room.crewId === crewId) {
+      if (room.zone === "crew_section" && room.crewId === crewId) {
         return room;
       }
     }

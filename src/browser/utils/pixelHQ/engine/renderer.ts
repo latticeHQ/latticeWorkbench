@@ -55,7 +55,6 @@ import {
   MATRIX_EFFECT_DURATION_SEC,
   MATRIX_RAIN_COLUMNS,
   ROOM_LABEL_FONT_SIZE,
-  ROOM_LABEL_OFFSET_Y,
   MINIMAP_WIDTH,
   MINIMAP_HEIGHT,
   MINIMAP_PADDING,
@@ -546,23 +545,49 @@ export class PixelHQRenderer {
     const { ctx } = this;
 
     ctx.save();
-    ctx.font = `${ROOM_LABEL_FONT_SIZE}px monospace`;
-    ctx.textAlign = "center";
-    ctx.textBaseline = "bottom";
+    ctx.font = `bold ${ROOM_LABEL_FONT_SIZE}px monospace`;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
 
     for (const room of rooms) {
-      const { bounds, label, crewColor } = room;
-      const centerX = (bounds.col + bounds.width / 2) * TILE_SIZE;
-      const topY = bounds.row * TILE_SIZE - ROOM_LABEL_OFFSET_Y;
+      const { bounds, label, crewColor, zone } = room;
 
-      // Background behind label for readability
+      // Skip common aisle labels — too noisy
+      if (zone === "common_aisle") continue;
+
+      // Label position: inside top-left of section with padding
+      const labelX = bounds.col * TILE_SIZE + 3;
+      const labelY = bounds.row * TILE_SIZE + 2;
+
+      // Background pill behind label for readability
       const labelWidth = ctx.measureText(label).width;
-      ctx.fillStyle = "rgba(11, 14, 24, 0.7)";
-      ctx.fillRect(centerX - labelWidth / 2 - 2, topY - ROOM_LABEL_FONT_SIZE - 1, labelWidth + 4, ROOM_LABEL_FONT_SIZE + 3);
+      const pillColor = crewColor ? crewColor + "30" : "rgba(11, 14, 24, 0.7)";
+      ctx.fillStyle = pillColor;
+      ctx.fillRect(
+        labelX - 2,
+        labelY - 1,
+        labelWidth + 4,
+        ROOM_LABEL_FONT_SIZE + 3,
+      );
 
+      // Label text
       ctx.fillStyle = crewColor ?? THEME_TEXT_MUTED;
-      ctx.globalAlpha = 0.8;
-      ctx.fillText(label, centerX, topY);
+      ctx.globalAlpha = 0.9;
+      ctx.fillText(label, labelX, labelY);
+
+      // Section divider: subtle vertical dashed line on the RIGHT edge of crew sections
+      if (zone === "crew_section") {
+        const rightEdgeX = (bounds.col + bounds.width) * TILE_SIZE;
+        ctx.strokeStyle = THEME_WALL_ACCENT;
+        ctx.globalAlpha = 0.3;
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.moveTo(rightEdgeX, bounds.row * TILE_SIZE);
+        ctx.lineTo(rightEdgeX, (bounds.row + bounds.height) * TILE_SIZE);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
     }
 
     ctx.globalAlpha = 1;
