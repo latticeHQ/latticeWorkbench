@@ -1153,7 +1153,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             id={minionListId}
                             role="region"
                             aria-label={`Minions for ${projectName}`}
-                            className="pt-1"
+                            className="ml-2 border-l border-white/[0.06] pt-1"
                           >
                             {(() => {
                               // Archived minions are excluded from minionMetadata so won't appear here
