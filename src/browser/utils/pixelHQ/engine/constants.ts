@@ -137,7 +137,7 @@ export const ZOOM_MIN = 0.5;
 export const ZOOM_MAX = 6.0;
 
 /** Default zoom level */
-export const ZOOM_DEFAULT = 2.0;
+export const ZOOM_DEFAULT = 3.0;
 
 /** Zoom step per scroll wheel tick */
 export const ZOOM_STEP = 0.25;
@@ -154,24 +154,24 @@ export const MAX_DELTA_TIME_SEC = 0.034; // ~30fps minimum
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Main background color (matches Lattice dark theme) */
-export const THEME_BG = "#0C0F1A";
+export const THEME_BG = "#0B0E18";
 
 /** Floor tile base colors (dark navy variations) */
 export const THEME_FLOOR_COLORS = [
-  "#141829", // FLOOR_1 — darkest
-  "#161B30", // FLOOR_2
-  "#181D35", // FLOOR_3
-  "#1A1F38", // FLOOR_4
-  "#151A2E", // FLOOR_5
-  "#171C33", // FLOOR_6
-  "#191E36", // FLOOR_7 — lightest
+  "#1E2340", // FLOOR_1 — base (clearly visible vs void)
+  "#212645", // FLOOR_2
+  "#1C2744", // FLOOR_3
+  "#1F2A4A", // FLOOR_4
+  "#232B48", // FLOOR_5
+  "#1A2542", // FLOOR_6
+  "#252E4C", // FLOOR_7 — lightest
 ] as const;
 
 /** Wall color */
-export const THEME_WALL = "#1E2236";
+export const THEME_WALL = "#2A3050";
 
 /** Wall accent/border color */
-export const THEME_WALL_ACCENT = "#262A40";
+export const THEME_WALL_ACCENT = "#3A4065";
 
 /** Accent yellow (Minion yellow / Lattice brand) */
 export const THEME_ACCENT_YELLOW = "#FBBF24";
@@ -205,10 +205,10 @@ export const THEME_BORDER = "#1F2337";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Room label font size in pixels (at 1x zoom) */
-export const ROOM_LABEL_FONT_SIZE = 5;
+export const ROOM_LABEL_FONT_SIZE = 7;
 
 /** Room label Y offset from top of room bounds (pixels) */
-export const ROOM_LABEL_OFFSET_Y = 3;
+export const ROOM_LABEL_OFFSET_Y = 5;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Minimap
