@@ -71,7 +71,17 @@ import { forkMinion } from "@/browser/utils/chatCommands";
 import { PopoverError } from "./PopoverError";
 import { CrewHeader } from "./CrewHeader";
 import { AddCrewButton } from "./AddCrewButton";
-import { resolveCrewColor } from "@/common/constants/ui";
+/** Distinct colors for floor tab strips — cycle through if more floors than colors */
+const FLOOR_COLORS = [
+  "#5a9bd4", // Blue
+  "#d4a05a", // Amber
+  "#7dd47d", // Green
+  "#d465a5", // Pink
+  "#9580d4", // Purple
+  "#d46565", // Red
+  "#64748b", // Slate
+  "#48b0a0", // Teal
+] as const;
 import { MinionCrewDropZone } from "./MinionCrewDropZone";
 import { MinionDragLayer } from "./MinionDragLayer";
 import { CrewDragLayer } from "./CrewDragLayer";
@@ -1026,21 +1036,36 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     const isExpanded = expandedProjectsList.includes(projectPath);
                     const floorNumber = visibleProjectPaths.length - projectIndex;
 
+                    const floorColor = FLOOR_COLORS[(floorNumber - 1) % FLOOR_COLORS.length];
+
                     return (
-                      <div key={projectPath} className="border-hover border-b flex">
+                      <div
+                        key={projectPath}
+                        className="flex"
+                        style={{
+                          borderBottom: "2px solid",
+                          borderBottomColor: `${floorColor}20`,
+                        }}
+                      >
                         {/* Vertical floor tab strip */}
                         <button
                           onClick={() => toggleProject(projectPath)}
-                          className={cn(
-                            "flex w-6 shrink-0 cursor-pointer items-center justify-center border-none border-r border-white/[0.06] transition-colors",
-                            isExpanded
-                              ? "bg-accent/[0.08] text-foreground"
-                              : "bg-transparent text-muted hover:bg-white/[0.03] hover:text-foreground"
-                          )}
+                          className="flex w-7 shrink-0 cursor-pointer items-center justify-center border-none transition-colors"
+                          style={{
+                            backgroundColor: isExpanded ? `${floorColor}18` : `${floorColor}08`,
+                            borderRight: `2px solid ${floorColor}${isExpanded ? "60" : "30"}`,
+                          }}
                         >
                           <span
-                            className="whitespace-nowrap text-[8px] font-bold uppercase tracking-[0.15em]"
-                            style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}
+                            className="whitespace-nowrap font-bold uppercase tracking-[0.15em]"
+                            style={{
+                              writingMode: "vertical-rl",
+                              textOrientation: "mixed",
+                              transform: "rotate(180deg)",
+                              color: floorColor,
+                              fontSize: "8px",
+                              opacity: isExpanded ? 1 : 0.6,
+                            }}
                           >
                             {floorNumber}F {projectName}
                           </span>
@@ -1172,7 +1197,10 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             id={minionListId}
                             role="region"
                             aria-label={`Minions for ${projectName}`}
-                            className="ml-2 border-l border-white/[0.06] pt-1"
+                            className="pt-1"
+                            style={{
+                              backgroundColor: `${floorColor}06`,
+                            }}
                           >
                             {(() => {
                               // Archived minions are excluded from minionMetadata so won't appear here
@@ -1488,103 +1516,66 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                     </>
                                   )}
 
-                                  {/* Crew tabs — horizontal pills */}
-                                  {crews.length > 0 && (
-                                    <div className="flex flex-wrap items-center gap-1 px-2 py-1.5">
-                                      {crews.map((crew) => {
-                                        const crewColor = resolveCrewColor(crew.color);
-                                        const crewMinions = byCrewId.get(crew.id) ?? [];
-                                        const crewDrafts = draftsByCrewId.get(crew.id) ?? [];
-                                        const crewExpandedKey = getCrewExpandedKey(projectPath, crew.id);
-                                        const isCrewExp = expandedCrews[crewExpandedKey] ?? true;
-                                        return (
-                                          <DraggableCrew
-                                            key={crew.id}
-                                            crewId={crew.id}
-                                            crewName={crew.name}
-                                            projectPath={projectPath}
-                                            onReorder={handleCrewReorder}
-                                          >
-                                            <button
-                                              onClick={() => toggleCrew(projectPath, crew.id)}
-                                              className={cn(
-                                                "flex cursor-pointer items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-all",
-                                                isCrewExp ? "border-current" : "border-transparent hover:border-white/10"
-                                              )}
-                                              style={{
-                                                color: crewColor,
-                                                backgroundColor: isCrewExp ? `${crewColor}15` : "transparent",
-                                              }}
-                                            >
-                                              <span className="truncate max-w-[80px]">{crew.name}</span>
-                                              <span className="opacity-50">{crewMinions.length + crewDrafts.length}</span>
-                                            </button>
-                                          </DraggableCrew>
-                                        );
-                                      })}
-                                      <AddCrewButton
-                                        onCreateSection={(name) => {
-                                          void handleCreateCrew(projectPath, name);
-                                        }}
-                                      />
-                                    </div>
-                                  )}
-
-                                  {/* Expanded crew content */}
+                                  {/* Crews */}
                                   {crews.map((crew) => {
-                                    const crewExpandedKey = getCrewExpandedKey(projectPath, crew.id);
-                                    const isCrewExp = expandedCrews[crewExpandedKey] ?? true;
-                                    if (!isCrewExp) return null;
-
                                     const crewMinions = byCrewId.get(crew.id) ?? [];
                                     const crewDrafts = draftsByCrewId.get(crew.id) ?? [];
+                                    const crewExpandedKey = getCrewExpandedKey(projectPath, crew.id);
+                                    const isCrewExpanded = expandedCrews[crewExpandedKey] ?? true;
 
                                     return (
-                                      <MinionCrewDropZone
+                                      <DraggableCrew
                                         key={crew.id}
-                                        projectPath={projectPath}
                                         crewId={crew.id}
-                                        onDrop={handleMinionSectionDrop}
+                                        crewName={crew.name}
+                                        projectPath={projectPath}
+                                        onReorder={handleCrewReorder}
                                       >
-                                        <CrewHeader
-                                          crew={crew}
-                                          isExpanded={true}
-                                          minionCount={crewMinions.length + crewDrafts.length}
-                                          onToggleExpand={() => toggleCrew(projectPath, crew.id)}
-                                          onAddMinion={() => handleAddMinion(projectPath, crew.id)}
-                                          onRename={(name) => { void updateCrew(projectPath, crew.id, { name }); }}
-                                          onChangeColor={(color) => { void updateCrew(projectPath, crew.id, { color }); }}
-                                          onDelete={(e) => { void handleRemoveSection(projectPath, crew.id, e.currentTarget); }}
-                                        />
-                                        <div className="pb-1 pl-2">
-                                          {crewDrafts.map((draft) => renderDraft(draft))}
-                                          {crewMinions.length > 0 ? (
-                                            renderAgeTiers(
-                                              crewMinions,
-                                              getCrewTierKey(projectPath, crew.id, 0).replace(
-                                                ":tier:0",
-                                                ":tier"
-                                              ),
-                                              crew.id
-                                            )
-                                          ) : crewDrafts.length === 0 ? (
-                                            <div className="text-muted px-3 py-1 text-center text-[10px] italic">
-                                              No minions
+                                        <MinionCrewDropZone
+                                          projectPath={projectPath}
+                                          crewId={crew.id}
+                                          onDrop={handleMinionSectionDrop}
+                                        >
+                                          <CrewHeader
+                                            crew={crew}
+                                            isExpanded={isCrewExpanded}
+                                            minionCount={crewMinions.length + crewDrafts.length}
+                                            onToggleExpand={() => toggleCrew(projectPath, crew.id)}
+                                            onAddMinion={() => handleAddMinion(projectPath, crew.id)}
+                                            onRename={(name) => { void updateCrew(projectPath, crew.id, { name }); }}
+                                            onChangeColor={(color) => { void updateCrew(projectPath, crew.id, { color }); }}
+                                            onDelete={(e) => { void handleRemoveSection(projectPath, crew.id, e.currentTarget); }}
+                                          />
+                                          {isCrewExpanded && (
+                                            <div className="pb-1 pl-2">
+                                              {crewDrafts.map((draft) => renderDraft(draft))}
+                                              {crewMinions.length > 0 ? (
+                                                renderAgeTiers(
+                                                  crewMinions,
+                                                  getCrewTierKey(projectPath, crew.id, 0).replace(
+                                                    ":tier:0",
+                                                    ":tier"
+                                                  ),
+                                                  crew.id
+                                                )
+                                              ) : crewDrafts.length === 0 ? (
+                                                <div className="text-muted px-3 py-2 text-center text-xs italic">
+                                                  No minions in this crew
+                                                </div>
+                                              ) : null}
                                             </div>
-                                          ) : null}
-                                        </div>
-                                      </MinionCrewDropZone>
+                                          )}
+                                        </MinionCrewDropZone>
+                                      </DraggableCrew>
                                     );
                                   })}
 
-                                  {/* Add Crew button (shown when no crews yet) */}
-                                  {crews.length === 0 && (
-                                    <AddCrewButton
-                                      onCreateSection={(name) => {
-                                        void handleCreateCrew(projectPath, name);
-                                      }}
-                                    />
-                                  )}
+                                  {/* Add Crew button */}
+                                  <AddCrewButton
+                                    onCreateSection={(name) => {
+                                      void handleCreateCrew(projectPath, name);
+                                    }}
+                                  />
                                 </>
                               );
                             })()}
