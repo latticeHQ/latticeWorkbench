@@ -1023,19 +1023,23 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     const isExpanded = expandedProjectsList.includes(projectPath);
                     const floorNumber = visibleProjectPaths.length - projectIndex;
 
+                    const isEvenFloor = floorNumber % 2 === 0;
+
                     return (
                       <div
                         key={projectPath}
-                        className="border-separator flex border-b border-dashed last:border-b-0"
+                        className="border-separator flex border-b-2 border-dashed last:border-b-0"
                       >
-                        {/* Vertical floor tab strip */}
+                        {/* Vertical floor tab strip — alternating tint */}
                         <button
                           onClick={() => toggleProject(projectPath)}
                           className={cn(
-                            "border-separator flex w-7 shrink-0 cursor-pointer items-center justify-center border-r border-dashed border-l-0 border-t-0 border-b-0 transition-colors",
+                            "border-separator flex w-7 shrink-0 cursor-pointer items-center justify-center border-r border-dashed border-l-0 border-t-0 border-b-0 py-3 transition-colors",
                             isExpanded
-                              ? "bg-hover text-accent"
-                              : "bg-transparent text-muted hover:bg-hover/50 hover:text-muted-light"
+                              ? "bg-accent/10 text-accent"
+                              : isEvenFloor
+                                ? "bg-hover/60 text-muted hover:bg-hover hover:text-foreground"
+                                : "bg-transparent text-muted hover:bg-hover/50 hover:text-foreground"
                           )}
                         >
                           <span
