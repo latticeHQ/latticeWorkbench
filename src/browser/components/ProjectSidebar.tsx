@@ -71,23 +71,10 @@ import { forkMinion } from "@/browser/utils/chatCommands";
 import { PopoverError } from "./PopoverError";
 import { CrewHeader } from "./CrewHeader";
 import { AddCrewButton } from "./AddCrewButton";
-/** Distinct colors for floor tab strips — cycle through if more floors than colors */
-const FLOOR_COLORS = [
-  "#5a9bd4", // Blue
-  "#d4a05a", // Amber
-  "#7dd47d", // Green
-  "#d465a5", // Pink
-  "#9580d4", // Purple
-  "#d46565", // Red
-  "#64748b", // Slate
-  "#48b0a0", // Teal
-] as const;
 import { MinionCrewDropZone } from "./MinionCrewDropZone";
 import { MinionDragLayer } from "./MinionDragLayer";
 import { CrewDragLayer } from "./CrewDragLayer";
 import { DraggableCrew } from "./DraggableCrew";
-// CrewConfig type is used transitively via CrewHeader props
-import type {} from "@/common/types/project";
 import { getErrorMessage } from "@/common/utils/errors";
 
 // Re-export MinionSelection for backwards compatibility
@@ -1036,36 +1023,24 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     const isExpanded = expandedProjectsList.includes(projectPath);
                     const floorNumber = visibleProjectPaths.length - projectIndex;
 
-                    const floorColor = FLOOR_COLORS[(floorNumber - 1) % FLOOR_COLORS.length];
-
                     return (
                       <div
                         key={projectPath}
-                        className="flex"
-                        style={{
-                          borderBottom: "2px solid",
-                          borderBottomColor: `${floorColor}20`,
-                        }}
+                        className="border-separator flex border-b border-dashed last:border-b-0"
                       >
                         {/* Vertical floor tab strip */}
                         <button
                           onClick={() => toggleProject(projectPath)}
-                          className="flex w-7 shrink-0 cursor-pointer items-center justify-center border-none transition-colors"
-                          style={{
-                            backgroundColor: isExpanded ? `${floorColor}18` : `${floorColor}08`,
-                            borderRight: `2px solid ${floorColor}${isExpanded ? "60" : "30"}`,
-                          }}
+                          className={cn(
+                            "border-separator flex w-7 shrink-0 cursor-pointer items-center justify-center border-r border-dashed border-l-0 border-t-0 border-b-0 transition-colors",
+                            isExpanded
+                              ? "bg-hover text-accent"
+                              : "bg-transparent text-muted hover:bg-hover/50 hover:text-muted-light"
+                          )}
                         >
                           <span
-                            className="whitespace-nowrap font-bold uppercase tracking-[0.15em]"
-                            style={{
-                              writingMode: "vertical-rl",
-                              textOrientation: "mixed",
-                              transform: "rotate(180deg)",
-                              color: floorColor,
-                              fontSize: "8px",
-                              opacity: isExpanded ? 1 : 0.6,
-                            }}
+                            className="whitespace-nowrap text-[9px] font-bold uppercase tracking-[0.2em]"
+                            style={{ writingMode: "vertical-rl", textOrientation: "mixed", transform: "rotate(180deg)" }}
                           >
                             {floorNumber}F {projectName}
                           </span>
@@ -1197,10 +1172,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             id={minionListId}
                             role="region"
                             aria-label={`Minions for ${projectName}`}
-                            className="pt-1"
-                            style={{
-                              backgroundColor: `${floorColor}06`,
-                            }}
+                            className="bg-hover/30 pt-1"
                           >
                             {(() => {
                               // Archived minions are excluded from minionMetadata so won't appear here
