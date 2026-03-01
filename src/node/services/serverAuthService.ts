@@ -14,7 +14,7 @@ const GITHUB_ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token";
 const GITHUB_USER_API_URL = "https://api.github.com/user";
 
 // Lattice-owned OAuth app client ID used for server-mode owner login.
-const LATTICE_SERVER_GITHUB_CLIENT_ID = "Ov23liCVKFN3jOo9R7HS";
+const LATTICE_SERVER_GITHUB_CLIENT_ID = "Ov23li2Wf9S1qt2N0lLD";
 const GITHUB_DEVICE_FLOW_SCOPE = "read:user";
 
 const DEFAULT_DEVICE_FLOW_TIMEOUT_MS = 5 * 60 * 1000;

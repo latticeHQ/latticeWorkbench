@@ -552,6 +552,7 @@ export class AIService extends EventEmitter {
         effectiveModelString,
         canonicalModelString,
         canonicalProviderName,
+        claudeCodeMode,
       } = modelResult.data;
 
       // Dump original messages for debugging
@@ -804,10 +805,11 @@ export class AIService extends EventEmitter {
       let mcpStats: MCPMinionStats | undefined;
       let mcpSetupDurationMs = 0;
 
-      // Skip MCP tool fetching for subprocess providers (e.g. claude-code) —
-      // the subprocess manages its own tools internally, and MCP server connections
-      // can hang indefinitely blocking the stream from ever starting.
-      const isSubprocessProvider = canonicalProviderName === "claude-code";
+      // Skip MCP tool fetching for subprocess providers that manage tools internally
+      // (e.g. claude-code in agentic/proxy mode). In "streaming" mode, Lattice manages
+      // tools via the AI SDK, so MCP tools must be loaded.
+      const isSubprocessProvider =
+        canonicalProviderName === "claude-code" && claudeCodeMode !== "streaming";
       if (this.mcpServerManager && minionId !== LATTICE_HELP_CHAT_MINION_ID && !isSubprocessProvider) {
         const start = Date.now();
         try {

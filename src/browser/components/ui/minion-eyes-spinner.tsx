@@ -1,45 +1,59 @@
-import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
+import { cn } from "@/common/lib/utils";
 
 /**
- * LoadingScreen — Minion eyes + Lattice hex assembly.
+ * Animated Minion goggle-eyes spinner.
  *
- * Phase 2 of the boot sequence: React replaces the CSS-only boot-loader
- * with motion-powered SVG. Eyes continue blinking seamlessly, and the
- * Lattice hexagon logo draws itself below via pathLength animation.
+ * Two stylized goggle-eyes that blink and look around — used as the
+ * loading indicator throughout the app. Replaces the hexagon spinner
+ * with the Minion brand identity.
  */
-export function LoadingScreen(props: { statusText?: string }) {
+export function MinionEyesSpinner({
+  className,
+  size = 120,
+}: {
+  className?: string;
+  size?: number;
+}) {
   const shouldReduceMotion = useReducedMotion();
+
+  // Scale factor relative to the 200x100 viewBox
+  const width = size;
+  const height = size * 0.5;
+
+  if (shouldReduceMotion) {
+    return (
+      <div
+        className={cn("minion-eyes-spinner", className)}
+        style={{ width, height }}
+        aria-hidden="true"
+      >
+        <StaticEyes width={width} height={height} />
+      </div>
+    );
+  }
 
   return (
     <div
-      className="boot-loader"
-      role="status"
-      aria-live="polite"
-      aria-busy="true"
+      className={cn("minion-eyes-spinner", className)}
+      style={{ width, height }}
+      aria-hidden="true"
     >
-      <div className="boot-loader__inner">
-        {shouldReduceMotion ? <StaticMinionEyes /> : <AnimatedMinionEyes />}
-        <HexAssembly reduced={!!shouldReduceMotion} />
-        <StatusText text={props.statusText ?? "Loading minions..."} reduced={!!shouldReduceMotion} />
-      </div>
+      <AnimatedEyes width={width} height={height} />
     </div>
   );
 }
 
-/* ── Static eyes (reduced motion) ──────────────────────────────────── */
-function StaticMinionEyes() {
+function StaticEyes({ width, height }: { width: number; height: number }) {
   return (
     <svg
-      className="boot-loader__eyes"
       viewBox="0 0 200 100"
-      width={140}
-      height={70}
+      width={width}
+      height={height}
       xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      style={{ opacity: 1 }}
     >
       <defs>
-        <radialGradient id="ls-lens" cx="40%" cy="35%" r="60%">
+        <radialGradient id="mes-lens" cx="40%" cy="35%" r="60%">
           <stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.15} />
           <stop offset="100%" stopColor="#000000" stopOpacity={0} />
         </radialGradient>
@@ -51,7 +65,7 @@ function StaticMinionEyes() {
         <circle cx="58" cy="43" r="22" fill="#F9FAFB" />
         <circle cx="58" cy="43" r="12" fill="#92700C" />
         <circle cx="58" cy="43" r="5.5" fill="#0C0F1A" />
-        <circle cx="58" cy="43" r="22" fill="url(#ls-lens)" />
+        <circle cx="58" cy="43" r="22" fill="url(#mes-lens)" />
         <circle cx="52" cy="37" r="2.5" fill="#FFFFFF" opacity="0.8" />
       </g>
       <g>
@@ -60,15 +74,14 @@ function StaticMinionEyes() {
         <circle cx="142" cy="43" r="22" fill="#F9FAFB" />
         <circle cx="142" cy="43" r="12" fill="#92700C" />
         <circle cx="142" cy="43" r="5.5" fill="#0C0F1A" />
-        <circle cx="142" cy="43" r="22" fill="url(#ls-lens)" />
+        <circle cx="142" cy="43" r="22" fill="url(#mes-lens)" />
         <circle cx="136" cy="37" r="2.5" fill="#FFFFFF" opacity="0.8" />
       </g>
     </svg>
   );
 }
 
-/* ── Animated eyes (motion-powered) ────────────────────────────────── */
-function AnimatedMinionEyes() {
+function AnimatedEyes({ width, height }: { width: number; height: number }) {
   const lidKeyframes = { y: [0, 0, -56, 0, 0] };
   const lidTimes = [0, 0.89, 0.93, 0.97, 1];
   const lidTransition = (delay: number) => ({
@@ -105,29 +118,25 @@ function AnimatedMinionEyes() {
   });
 
   return (
-    <motion.svg
-      className="boot-loader__eyes"
+    <svg
       viewBox="0 0 200 100"
-      width={140}
-      height={70}
+      width={width}
+      height={height}
       xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      initial={{ opacity: 1 }}
-      animate={{ opacity: 1 }}
     >
       <defs>
-        <radialGradient id="ls-lens" cx="40%" cy="35%" r="60%">
+        <radialGradient id="mes-lens" cx="40%" cy="35%" r="60%">
           <stop offset="0%" stopColor="#FFFFFF" stopOpacity={0.15} />
           <stop offset="100%" stopColor="#000000" stopOpacity={0} />
         </radialGradient>
-        <clipPath id="ls-lid-l">
+        <clipPath id="mes-lid-l">
           <motion.rect
             x="30" y="15" width="56" height="56" rx="28"
             animate={lidKeyframes}
             transition={lidTransition(0)}
           />
         </clipPath>
-        <clipPath id="ls-lid-r">
+        <clipPath id="mes-lid-r">
           <motion.rect
             x="114" y="15" width="56" height="56" rx="28"
             animate={lidKeyframes}
@@ -146,7 +155,7 @@ function AnimatedMinionEyes() {
           animate={rimGlow} transition={rimTransition(0)}
         />
         <circle cx="58" cy="43" r="26" fill="none" stroke="#6B7280" strokeWidth="1" />
-        <g clipPath="url(#ls-lid-l)">
+        <g clipPath="url(#mes-lid-l)">
           <circle cx="58" cy="43" r="22" fill="#F9FAFB" />
           <motion.circle
             r="12" fill="#92700C"
@@ -158,7 +167,7 @@ function AnimatedMinionEyes() {
             animate={{ cx: leftPupilCx, cy: leftPupilCy }}
             transition={pupilTransition(0)}
           />
-          <circle cx="58" cy="43" r="22" fill="url(#ls-lens)" />
+          <circle cx="58" cy="43" r="22" fill="url(#mes-lens)" />
           <circle cx="52" cy="37" r="2.5" fill="#FFFFFF" opacity="0.8" />
         </g>
       </g>
@@ -170,7 +179,7 @@ function AnimatedMinionEyes() {
           animate={rimGlow} transition={rimTransition(0.2)}
         />
         <circle cx="142" cy="43" r="26" fill="none" stroke="#6B7280" strokeWidth="1" />
-        <g clipPath="url(#ls-lid-r)">
+        <g clipPath="url(#mes-lid-r)">
           <circle cx="142" cy="43" r="22" fill="#F9FAFB" />
           <motion.circle
             r="12" fill="#92700C"
@@ -182,94 +191,10 @@ function AnimatedMinionEyes() {
             animate={{ cx: rightPupilCx, cy: rightPupilCy }}
             transition={pupilTransition(0.2)}
           />
-          <circle cx="142" cy="43" r="22" fill="url(#ls-lens)" />
+          <circle cx="142" cy="43" r="22" fill="url(#mes-lens)" />
           <circle cx="136" cy="37" r="2.5" fill="#FFFFFF" opacity="0.8" />
         </g>
       </g>
-    </motion.svg>
-  );
-}
-
-/* ── Lattice hexagon assembly ──────────────────────────────────────── */
-function HexAssembly({ reduced }: { reduced: boolean }) {
-  if (reduced) {
-    return (
-      <svg
-        viewBox="0 0 24 24"
-        width={32}
-        height={32}
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-        style={{ marginTop: 12, opacity: 0.5 }}
-      >
-        <path d="M12 2L22 7.5V16.5L12 22L2 16.5V7.5L12 2Z" stroke="currentColor" strokeWidth="1.5" />
-        <circle cx="12" cy="12" r="2" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M7 12H17" stroke="currentColor" strokeWidth="1.5" />
-      </svg>
-    );
-  }
-
-  return (
-    <motion.svg
-      viewBox="0 0 24 24"
-      width={32}
-      height={32}
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      style={{ marginTop: 12 }}
-      initial={{ opacity: 0, scale: 0.6 }}
-      animate={{ opacity: 0.5, scale: 1 }}
-      transition={{ delay: 0.5, duration: 0.6, ease: "easeOut" }}
-    >
-      <motion.path
-        d="M12 2L22 7.5V16.5L12 22L2 16.5V7.5L12 2Z"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        initial={{ pathLength: 0 }}
-        animate={{ pathLength: 1 }}
-        transition={{ delay: 0.5, duration: 1.2, ease: "easeInOut" }}
-      />
-      <motion.circle
-        cx="12" cy="12" r="2"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        initial={{ pathLength: 0, opacity: 0 }}
-        animate={{ pathLength: 1, opacity: 1 }}
-        transition={{ delay: 1.2, duration: 0.4, ease: "easeOut" }}
-      />
-      <motion.path
-        d="M7 12H17"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        initial={{ pathLength: 0, opacity: 0 }}
-        animate={{ pathLength: 1, opacity: 1 }}
-        transition={{ delay: 1.0, duration: 0.5, ease: "easeOut" }}
-      />
-    </motion.svg>
-  );
-}
-
-/* ── Status text with crossfade ────────────────────────────────────── */
-function StatusText({ text, reduced }: { text: string; reduced: boolean }) {
-  if (reduced) {
-    return <p className="boot-loader__text" style={{ opacity: 1 }}>{text}</p>;
-  }
-
-  return (
-    <AnimatePresence mode="wait">
-      <motion.p
-        key={text}
-        className="boot-loader__text"
-        style={{ opacity: 1 }}
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -4 }}
-        transition={{ duration: 0.3 }}
-      >
-        {text}
-      </motion.p>
-    </AnimatePresence>
+    </svg>
   );
 }

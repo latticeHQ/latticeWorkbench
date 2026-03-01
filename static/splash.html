@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>lattice - Loading</title>
+    <title>Lattice — Loading</title>
     <style>
       * {
         margin: 0;
@@ -14,97 +14,322 @@
       body {
         width: 400px;
         height: 300px;
-        /* Match --color-background (hsl(0 0% 12%)) */
-        background: hsl(0 0% 12%);
+        background: #0C0F1A;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        /* Match --color-text (hsl(0 0% 83%)) */
-        color: hsl(0 0% 83%);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+        color: #E2E4EB;
         overflow: hidden;
         border-radius: 12px;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        position: relative;
       }
 
+      /* ── Ambient glow — warm yellow halo behind eyes ──────── */
+      .ambient-glow {
+        position: absolute;
+        width: 240px;
+        height: 160px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -55%);
+        background: radial-gradient(ellipse, rgba(251, 191, 36, 0.06) 0%, transparent 70%);
+        pointer-events: none;
+        animation: splash-glow-breathe 3s ease-in-out infinite;
+      }
+
+      @keyframes splash-glow-breathe {
+        0%, 100% { opacity: 0.6; }
+        50%      { opacity: 1; }
+      }
+
+      /* ── Subtle hex grid pattern in background ────────────── */
+      .hex-grid {
+        position: absolute;
+        inset: 0;
+        opacity: 0.03;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill-rule='evenodd'%3E%3Cg fill='%23FBBF24' fill-opacity='1'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5zM3 17.9v12.7l10.99 6.34 11-6.35V17.9l-11-6.34L3 17.9zM0 15l12.98-7.5V0h-2v6.35L0 12.69v2.3zm0 18.5L12.98 41v8h-2v-6.85L0 35.81v-2.3zM15 0v7.5L27.99 15H28v-2.31h-.01L17 6.35V0h-2zm0 49v-8l12.99-7.5H28v2.31h-.01L17 42.15V49h-2z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+        pointer-events: none;
+      }
+
+      /* ── Lattice hexagon logo ──────────────────────────────── */
       .logo {
-        font-size: 48px;
-        font-weight: 700;
-        letter-spacing: -2px;
+        width: 56px;
+        height: 56px;
+        margin-bottom: 20px;
+        position: relative;
+        z-index: 1;
+        filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.3));
+        opacity: 0;
+        transform: scale(0.8);
+        animation: splash-logo-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s forwards;
+      }
+
+      /* Wordmark below logo */
+      .wordmark {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 4px;
+        text-transform: uppercase;
+        color: #6B7394;
         margin-bottom: 24px;
-        /* Gradient from plan mode blue to exec mode purple */
-        background: linear-gradient(135deg, hsl(210 70% 45%) 0%, hsl(268.56deg 94.04% 55.19%) 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        position: relative;
+        z-index: 1;
+        opacity: 0;
+        animation: splash-fade-in 0.5s ease-out 0.4s forwards;
       }
 
+      @keyframes splash-logo-in {
+        to { opacity: 1; transform: scale(1); }
+      }
+
+      /* ── Minion Goggle Eyes ────────────────────────────────── */
+      .splash-eyes {
+        width: 140px;
+        height: 70px;
+        margin-bottom: 18px;
+        position: relative;
+        z-index: 1;
+        filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.3));
+        opacity: 0;
+        animation: splash-fade-in 0.4s ease-out 0.2s forwards;
+      }
+
+      .splash-lid {
+        transform: translateY(-56px);
+      }
+
+      .splash-lid--left {
+        animation: splash-lid-life 4s ease-in-out 0.5s infinite both;
+      }
+
+      .splash-lid--right {
+        animation: splash-lid-life 4s ease-in-out 0.8s infinite both;
+      }
+
+      @keyframes splash-lid-life {
+        0%   { transform: translateY(-56px); }
+        15%  { transform: translateY(0); }
+        89%  { transform: translateY(0); }
+        93%  { transform: translateY(-56px); }
+        97%  { transform: translateY(0); }
+        100% { transform: translateY(0); }
+      }
+
+      .splash-pupil--left {
+        animation: splash-pupil-idle 3s ease-in-out 1.4s infinite;
+      }
+
+      .splash-pupil--right {
+        animation: splash-pupil-idle 3s ease-in-out 1.6s infinite;
+      }
+
+      @keyframes splash-pupil-idle {
+        0%, 100% { transform: translate(0, 0); }
+        20%      { transform: translate(2px, -1px); }
+        50%      { transform: translate(-1.5px, 1px); }
+        80%      { transform: translate(1px, -0.5px); }
+      }
+
+      .splash-iris--left {
+        animation: splash-iris-idle 3s ease-in-out 1.4s infinite;
+      }
+
+      .splash-iris--right {
+        animation: splash-iris-idle 3s ease-in-out 1.6s infinite;
+      }
+
+      @keyframes splash-iris-idle {
+        0%, 100% { transform: translate(0, 0); }
+        20%      { transform: translate(1px, -0.5px); }
+        50%      { transform: translate(-0.75px, 0.5px); }
+        80%      { transform: translate(0.5px, -0.25px); }
+      }
+
+      .splash-rim {
+        animation: splash-rim-glow 2s ease-in-out 1s infinite;
+      }
+
+      @keyframes splash-rim-glow {
+        0%, 100% { stroke: #9CA3AF; }
+        50%      { stroke: #E5E7EB; }
+      }
+
+      .splash-strap {
+        opacity: 0;
+        animation: splash-fade-in 0.4s ease-out 0.3s forwards;
+      }
+
+      /* ── Status text — playful wording ─────────────────────── */
       .loading-text {
-        font-size: 16px;
-        /* Match --color-text-secondary (hsl(0 0% 42%)) */
-        color: hsl(0 0% 42%);
-        margin-bottom: 16px;
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.5px;
+        color: #6B7394;
+        position: relative;
+        z-index: 1;
+        opacity: 0;
+        animation: splash-fade-in 0.5s ease-out 1.0s forwards;
       }
 
-      .hex-spinner {
-        width: 48px;
-        height: 48px;
-        animation: hex-rotate 4s linear infinite;
+      /* Animated dots after text */
+      .loading-text::after {
+        content: '';
+        animation: splash-dots 1.5s steps(4, end) 1.0s infinite;
       }
 
-      .hex-spinner__hex {
-        animation: hex-pulse 2s ease-in-out infinite;
-        stroke-dasharray: 280;
-        stroke-dashoffset: 0;
+      @keyframes splash-dots {
+        0%  { content: ''; }
+        25% { content: '.'; }
+        50% { content: '..'; }
+        75% { content: '...'; }
       }
 
-      .hex-spinner__node {
-        animation: hex-node-pulse 2s ease-in-out infinite;
-        transform-origin: 78px 78.5px;
+      /* ── Progress bar — thin yellow line ───────────────────── */
+      .progress-track {
+        position: absolute;
+        bottom: 36px;
+        width: 120px;
+        height: 2px;
+        background: #1E2235;
+        border-radius: 1px;
+        overflow: hidden;
+        opacity: 0;
+        animation: splash-fade-in 0.4s ease-out 1.2s forwards;
       }
 
-      .hex-spinner__link {
-        animation: hex-link-fade 2s ease-in-out infinite;
+      .progress-bar {
+        width: 0%;
+        height: 100%;
+        background: linear-gradient(90deg, #FBBF24, #F59E0B);
+        border-radius: 1px;
+        animation: splash-progress 3s ease-in-out 1.3s forwards;
       }
 
-      @keyframes hex-rotate {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
+      @keyframes splash-progress {
+        0%   { width: 0%; }
+        20%  { width: 30%; }
+        50%  { width: 55%; }
+        80%  { width: 80%; }
+        100% { width: 92%; }
       }
 
-      @keyframes hex-pulse {
-        0%, 100% { opacity: 0.4; stroke-dashoffset: 0; }
-        50% { opacity: 1; stroke-dashoffset: 56; }
-      }
-
-      @keyframes hex-node-pulse {
-        0%, 100% { transform: scale(1); opacity: 0.6; }
-        50% { transform: scale(1.4); opacity: 1; }
-      }
-
-      @keyframes hex-link-fade {
-        0%, 100% { opacity: 0.3; }
-        50% { opacity: 1; }
-      }
-
+      /* ── Version tag ───────────────────────────────────────── */
       .version {
         position: absolute;
-        bottom: 20px;
-        font-size: 11px;
-        /* Match --color-text-secondary (hsl(0 0% 42%)) */
-        color: hsl(0 0% 42%);
+        bottom: 14px;
+        font-size: 10px;
+        font-weight: 500;
+        letter-spacing: 1.5px;
+        text-transform: uppercase;
+        color: #3D4260;
+        z-index: 1;
+        opacity: 0;
+        animation: splash-fade-in 0.5s ease-out 1.4s forwards;
+      }
+
+      /* ── Shared keyframes ──────────────────────────────────── */
+      @keyframes splash-fade-in {
+        to { opacity: 1; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .splash-lid { transform: translateY(0); }
+        .splash-lid--left,
+        .splash-lid--right,
+        .splash-pupil--left,
+        .splash-pupil--right,
+        .splash-iris--left,
+        .splash-iris--right,
+        .splash-rim,
+        .splash-strap,
+        .logo,
+        .splash-eyes,
+        .loading-text,
+        .loading-text::after,
+        .version,
+        .progress-track,
+        .progress-bar,
+        .ambient-glow {
+          animation: none !important;
+          opacity: 1;
+          transform: none;
+        }
+        .progress-bar { width: 60%; }
       }
     </style>
   </head>
   <body>
-    <div class="logo">lattice</div>
-    <div class="loading-text">Loading services...</div>
-    <svg class="hex-spinner" viewBox="0 0 156 157" xmlns="http://www.w3.org/2000/svg" overflow="hidden">
-      <path class="hex-spinner__hex" d="M39 58.5 78 39 117 58.5 117 97.5 78 117 39 97.5Z" stroke="hsl(0 0% 83%)" stroke-width="2.4375" fill="none"/>
-      <circle class="hex-spinner__node" cx="78" cy="78.5" r="4.875" stroke="hsl(0 0% 83%)" stroke-width="2.4375" fill="none"/>
-      <line class="hex-spinner__link" x1="58.5" y1="78.5" x2="97.5" y2="78.5" stroke="hsl(0 0% 83%)" stroke-width="2.4375"/>
+    <!-- Background layers -->
+    <div class="hex-grid"></div>
+    <div class="ambient-glow"></div>
+
+    <!-- Lattice hexagon logo -->
+    <svg class="logo" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <linearGradient id="sp-logo-grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#FBBF24"/>
+          <stop offset="100%" stop-color="#D4A017"/>
+        </linearGradient>
+      </defs>
+      <path d="M12 2L22 7.5V16.5L12 22L2 16.5V7.5L12 2Z" stroke="url(#sp-logo-grad)" stroke-width="1.5" fill="none"/>
+      <circle cx="12" cy="12" r="2" stroke="url(#sp-logo-grad)" stroke-width="1.5" fill="none"/>
+      <path d="M7 12H17" stroke="url(#sp-logo-grad)" stroke-width="1.5"/>
     </svg>
+    <div class="wordmark">Lattice</div>
+
+    <!-- Minion Eyes -->
+    <svg class="splash-eyes" viewBox="0 0 200 100" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <radialGradient id="sp-lens" cx="40%" cy="35%" r="60%">
+          <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+        </radialGradient>
+        <clipPath id="sp-lid-l">
+          <rect class="splash-lid splash-lid--left" x="30" y="15" width="56" height="56" rx="28"/>
+        </clipPath>
+        <clipPath id="sp-lid-r">
+          <rect class="splash-lid splash-lid--right" x="114" y="15" width="56" height="56" rx="28"/>
+        </clipPath>
+      </defs>
+      <!-- Strap -->
+      <rect class="splash-strap" x="82" y="38" width="36" height="10" rx="2" fill="#6B7280"/>
+      <!-- Left goggle -->
+      <g>
+        <circle class="splash-rim" cx="58" cy="43" r="28" fill="none" stroke="#9CA3AF" stroke-width="4"/>
+        <circle cx="58" cy="43" r="26" fill="none" stroke="#6B7280" stroke-width="1"/>
+        <g clip-path="url(#sp-lid-l)">
+          <circle cx="58" cy="43" r="22" fill="#F9FAFB"/>
+          <circle class="splash-iris splash-iris--left" cx="58" cy="43" r="12" fill="#92700C"/>
+          <circle class="splash-pupil splash-pupil--left" cx="58" cy="43" r="5.5" fill="#0C0F1A"/>
+          <circle cx="58" cy="43" r="22" fill="url(#sp-lens)"/>
+          <circle cx="52" cy="37" r="2.5" fill="#FFFFFF" opacity="0.8"/>
+        </g>
+      </g>
+      <!-- Right goggle -->
+      <g>
+        <circle class="splash-rim" cx="142" cy="43" r="28" fill="none" stroke="#9CA3AF" stroke-width="4"/>
+        <circle cx="142" cy="43" r="26" fill="none" stroke="#6B7280" stroke-width="1"/>
+        <g clip-path="url(#sp-lid-r)">
+          <circle cx="142" cy="43" r="22" fill="#F9FAFB"/>
+          <circle class="splash-iris splash-iris--right" cx="142" cy="43" r="12" fill="#92700C"/>
+          <circle class="splash-pupil splash-pupil--right" cx="142" cy="43" r="5.5" fill="#0C0F1A"/>
+          <circle cx="142" cy="43" r="22" fill="url(#sp-lens)"/>
+          <circle cx="136" cy="37" r="2.5" fill="#FFFFFF" opacity="0.8"/>
+        </g>
+      </g>
+    </svg>
+
+    <!-- Status -->
+    <div class="loading-text">Waking up minions</div>
+
+    <!-- Progress -->
+    <div class="progress-track">
+      <div class="progress-bar"></div>
+    </div>
+
+    <!-- Version -->
     <div class="version">Lattice Workbench</div>
   </body>
 </html>

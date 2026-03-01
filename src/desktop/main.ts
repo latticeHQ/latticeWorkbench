@@ -479,7 +479,7 @@ async function showSplashScreen() {
     height: 300,
     frame: false,
     transparent: false,
-    backgroundColor: "#1f1f1f", // Match splash HTML background (hsl(0 0% 12%)) - prevents white flash
+    backgroundColor: "#0C0F1A", // Match splash HTML background (navy) - prevents white flash
     alwaysOnTop: true,
     center: true,
     resizable: false,
@@ -909,7 +909,7 @@ if (gotTheLock) {
       // Migrate from .clattice to .lattice directory structure if needed
       migrateLegacyLatticeHome();
 
-      // Install React DevTools in development
+      // Install React DevTools and set dock icon in development
       if (!app.isPackaged) {
         try {
           const { default: installExtension, REACT_DEVELOPER_TOOLS } =
@@ -921,6 +921,16 @@ if (gotTheLock) {
           console.log(`✅ React DevTools installed: ${extension.name} (id: ${extension.id})`);
         } catch (err) {
           console.log("❌ Error installing React DevTools:", err);
+        }
+
+        // Set dock icon in dev mode (packaged builds use build/icon.icns automatically).
+        // Use icon-dock.png which has the macOS squircle mask baked in — raw PNGs
+        // via app.dock.setIcon() don't get the system mask applied.
+        if (process.platform === "darwin") {
+          const iconPath = path.join(__dirname, "../../build/icon-dock.png");
+          if (fs.existsSync(iconPath)) {
+            app.dock?.setIcon(nativeImage.createFromPath(iconPath));
+          }
         }
       }
 
