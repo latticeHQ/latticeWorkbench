@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { CharState } from "./pixelSprites";
+import type { CharState } from "./sprites";
 import {
   DESK_SEAT, MINI_TILE_PX,
   findPath, tileToPixel, getRandomWalkableTile,
