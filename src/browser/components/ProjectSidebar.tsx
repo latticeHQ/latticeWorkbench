@@ -1070,7 +1070,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                           projectPath={projectPath}
                           onReorder={handleReorder}
                           selected={false}
-                          onClick={() => handleAddMinion(projectPath)}
+                          onClick={() => navigateToProject(projectPath)}
                           onKeyDown={(e: React.KeyboardEvent) => {
                             // Ignore key events from child buttons
                             if (e.target instanceof HTMLElement && e.target !== e.currentTarget) {
@@ -1078,14 +1078,14 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                             }
                             if (e.key === "Enter" || e.key === " ") {
                               e.preventDefault();
-                              handleAddMinion(projectPath);
+                              navigateToProject(projectPath);
                             }
                           }}
                           role="button"
                           tabIndex={0}
                           aria-expanded={isExpanded}
                           aria-controls={minionListId}
-                          aria-label={`Summon minion in ${projectName}`}
+                          aria-label={`Open workbench for ${projectName}`}
                           data-project-path={projectPath}
                         >
                           <button
