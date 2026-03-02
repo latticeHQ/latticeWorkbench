@@ -31,6 +31,8 @@ import {
   buildPalette, buildCharShadow, buildDeskPalette,
   DESK_RECTS,
 } from "./pixelSprites";
+import { useCharacterWalk } from "./useCharacterWalk";
+import { SCENE_PX_W, SCENE_PX_H } from "./tileGrid";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline step classifier (same as ProjectHQOverview)
@@ -234,8 +236,20 @@ function PixelDesk({ palette, timeOfDay }: { palette: DeskPalette; timeOfDay: Ti
   );
 }
 
-/** CSS box-shadow pixel character with animation. */
-function PixelCharacter({ charState, palette }: { charState: CharState; palette: CharPalette }) {
+/** Pixel-art character scale (matches MINI_TILE_PX rendering). */
+const CHAR_SCALE = 3;
+/** Character sprite dimensions in pixel-space (8×12 grid). */
+const CHAR_PX_W = 8;
+const CHAR_PX_H = 12;
+
+/** CSS box-shadow pixel character with animation and absolute positioning. */
+function PixelCharacter({
+  charState, palette, x, y,
+}: {
+  charState: CharState; palette: CharPalette;
+  /** Pixel-space position from useCharacterWalk hook. */
+  x: number; y: number;
+}) {
   const frames = CHAR_FRAMES[charState];
   const interval = ANIM_INTERVALS[charState];
   const [frameIdx, setFrameIdx] = useState(0);
@@ -256,8 +270,23 @@ function PixelCharacter({ charState, palette }: { charState: CharState; palette:
     [frames, frameIdx, palette]
   );
 
+  // Convert pixel-space coords to screen coords (multiply by scale)
+  // Center the character sprite on the tile position
+  const screenLeft = x * CHAR_SCALE - (CHAR_PX_W * CHAR_SCALE) / 2;
+  const screenTop  = y * CHAR_SCALE - (CHAR_PX_H * CHAR_SCALE) / 2;
+
   return (
-    <div className="relative" style={{ width: 24, height: 36 }}>
+    <div
+      className="absolute"
+      style={{
+        width: CHAR_PX_W * CHAR_SCALE,
+        height: CHAR_PX_H * CHAR_SCALE,
+        left: screenLeft,
+        top: screenTop,
+        zIndex: 10,
+        // No transition — smooth movement comes from 64ms publish rate in hook
+      }}
+    >
       <div
         style={{
           position: "absolute",
@@ -266,7 +295,7 @@ function PixelCharacter({ charState, palette }: { charState: CharState; palette:
           width: 1,
           height: 1,
           boxShadow: shadow,
-          transform: "scale(3)",
+          transform: `scale(${CHAR_SCALE})`,
           transformOrigin: "top left",
           imageRendering: "pixelated",
         }}
@@ -293,8 +322,8 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
   const cost    = getTotalCost(usage.sessionTotal) ?? 0;
   const tok     = usage.totalTokens;
 
-  // Determine character animation state
-  const charState: CharState = live ? "typing" : waiting ? "waiting" : done ? "done" : "idle";
+  // Character walk hook — manages position + FSM
+  const walkResult = useCharacterWalk(live, waiting, done);
   const charPalette = useMemo(() => buildPalette(accent), [accent]);
   const deskPalette = useMemo(() => buildDeskPalette(accent, live), [accent, live]);
 
@@ -325,10 +354,15 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
       }} />
 
       <div className="flex flex-col gap-1.5 p-2">
-        {/* ── Pixel scene: desk + character ── */}
+        {/* ── Pixel scene: desk + character (absolute positioned world) ── */}
         <div
-          className="relative flex items-end justify-center gap-1 rounded-md px-2 py-1.5 overflow-hidden"
-          style={{ background: `${accent}08` }}
+          className="relative rounded-md overflow-hidden"
+          style={{
+            background: `${accent}08`,
+            width: SCENE_PX_W * CHAR_SCALE,
+            height: SCENE_PX_H * CHAR_SCALE,
+            margin: "0 auto",
+          }}
         >
           {/* Ambient glow when live */}
           {live && (
@@ -337,16 +371,25 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
               style={{ background: `radial-gradient(ellipse at 50% 30%, ${accent}15 0%, transparent 70%)` }}
             />
           )}
-          <PixelCharacter charState={charState} palette={charPalette} />
-          <PixelDesk palette={deskPalette} timeOfDay={timeOfDay} />
+          {/* Desk as background layer */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <PixelDesk palette={deskPalette} timeOfDay={timeOfDay} />
+          </div>
+          {/* Character — absolutely positioned by walk hook */}
+          <PixelCharacter
+            charState={walkResult.charState}
+            palette={charPalette}
+            x={walkResult.x}
+            y={walkResult.y}
+          />
 
           {/* Waiting bubble */}
           {waiting && (
-            <div className="absolute top-0.5 left-1/3 text-[10px] font-bold text-amber-400 animate-bounce">?</div>
+            <div className="absolute top-0.5 left-1/3 text-[10px] font-bold text-amber-400 animate-bounce z-20">?</div>
           )}
           {/* Done checkmark */}
           {done && (
-            <div className="absolute top-0.5 right-1 text-[var(--color-success)]">
+            <div className="absolute top-0.5 right-1 text-[var(--color-success)] z-20">
               <CheckCircle2 className="h-3 w-3" />
             </div>
           )}

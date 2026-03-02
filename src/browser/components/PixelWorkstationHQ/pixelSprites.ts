@@ -238,16 +238,121 @@ const WAITING_2: PixelEntry[] = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Walk frames — 4 frames per direction, 8×12 grid
+// Walk cycle pattern: [1, 2, 3, 2] for bobbing symmetry
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Walk Right frame 1 — left leg forward, right arm forward.
+ */
+const WALK_RIGHT_1: PixelEntry[] = [
+  // Hair
+  [3, 0, "hair"], [4, 0, "hair"],
+  [2, 1, "hair"], [3, 1, "hair"], [4, 1, "hair"], [5, 1, "hair"],
+  // Face
+  [2, 2, "skin"], [3, 2, "skin"], [4, 2, "skin"], [5, 2, "skin"],
+  [2, 3, "skin"], [3, 3, "skin"], [4, 3, "skin"], [5, 3, "skin"],
+  // Neck
+  [3, 4, "skin"], [4, 4, "skin"],
+  // Shirt (torso)
+  [2, 4, "shirt"], [5, 4, "shirt"],
+  [2, 5, "shirt"], [3, 5, "shirt"], [4, 5, "shirt"], [5, 5, "shirt"],
+  [2, 6, "shirt"], [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"],
+  // Right arm forward
+  [6, 5, "skin"], [6, 6, "skin"],
+  // Left arm back
+  [1, 6, "skin"], [1, 7, "skin"],
+  // Pants — left leg forward, right leg back
+  [2, 7, "pants"], [3, 7, "pants"], [4, 7, "pants"], [5, 7, "pants"],
+  [1, 8, "pants"], [2, 8, "pants"], [5, 8, "pants"], [6, 8, "pants"],
+  // Left leg forward step
+  [1, 9, "pants"], [2, 9, "pants"],
+  // Right leg back
+  [5, 9, "pants"], [6, 9, "pants"],
+  // Shoes
+  [1, 10, "shoe"], [2, 10, "shoe"], [5, 10, "shoe"], [6, 10, "shoe"],
+];
+
+/**
+ * Walk Right frame 2 — neutral (standing straight, mid-stride).
+ */
+const WALK_RIGHT_2: PixelEntry[] = [
+  // Hair
+  [3, 0, "hair"], [4, 0, "hair"],
+  [2, 1, "hair"], [3, 1, "hair"], [4, 1, "hair"], [5, 1, "hair"],
+  // Face
+  [2, 2, "skin"], [3, 2, "skin"], [4, 2, "skin"], [5, 2, "skin"],
+  [2, 3, "skin"], [3, 3, "skin"], [4, 3, "skin"], [5, 3, "skin"],
+  // Neck
+  [3, 4, "skin"], [4, 4, "skin"],
+  // Shirt
+  [2, 4, "shirt"], [5, 4, "shirt"],
+  [2, 5, "shirt"], [3, 5, "shirt"], [4, 5, "shirt"], [5, 5, "shirt"],
+  [2, 6, "shirt"], [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"],
+  // Arms at sides
+  [1, 6, "skin"], [6, 6, "skin"],
+  // Pants — legs together
+  [2, 7, "pants"], [3, 7, "pants"], [4, 7, "pants"], [5, 7, "pants"],
+  [2, 8, "pants"], [3, 8, "pants"], [4, 8, "pants"], [5, 8, "pants"],
+  [2, 9, "pants"], [3, 9, "pants"], [4, 9, "pants"], [5, 9, "pants"],
+  // Shoes
+  [2, 10, "shoe"], [3, 10, "shoe"], [4, 10, "shoe"], [5, 10, "shoe"],
+];
+
+/**
+ * Walk Right frame 3 — right leg forward, left arm forward (mirror of frame 1).
+ */
+const WALK_RIGHT_3: PixelEntry[] = [
+  // Hair
+  [3, 0, "hair"], [4, 0, "hair"],
+  [2, 1, "hair"], [3, 1, "hair"], [4, 1, "hair"], [5, 1, "hair"],
+  // Face
+  [2, 2, "skin"], [3, 2, "skin"], [4, 2, "skin"], [5, 2, "skin"],
+  [2, 3, "skin"], [3, 3, "skin"], [4, 3, "skin"], [5, 3, "skin"],
+  // Neck
+  [3, 4, "skin"], [4, 4, "skin"],
+  // Shirt
+  [2, 4, "shirt"], [5, 4, "shirt"],
+  [2, 5, "shirt"], [3, 5, "shirt"], [4, 5, "shirt"], [5, 5, "shirt"],
+  [2, 6, "shirt"], [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"],
+  // Left arm forward
+  [1, 5, "skin"], [1, 6, "skin"],
+  // Right arm back
+  [6, 6, "skin"], [6, 7, "skin"],
+  // Pants — right leg forward, left leg back
+  [2, 7, "pants"], [3, 7, "pants"], [4, 7, "pants"], [5, 7, "pants"],
+  [1, 8, "pants"], [2, 8, "pants"], [5, 8, "pants"], [6, 8, "pants"],
+  // Right leg forward step
+  [5, 9, "pants"], [6, 9, "pants"],
+  // Left leg back
+  [1, 9, "pants"], [2, 9, "pants"],
+  // Shoes
+  [1, 10, "shoe"], [2, 10, "shoe"], [5, 10, "shoe"], [6, 10, "shoe"],
+];
+
+/** Helper: mirror a walk frame horizontally (flip col → 7 - col for 8-wide grid). */
+function mirrorFrame(frame: PixelEntry[]): PixelEntry[] {
+  return frame.map(([col, row, key]) => [7 - col, row, key]);
+}
+
+const WALK_LEFT_1 = mirrorFrame(WALK_RIGHT_1);
+const WALK_LEFT_2 = mirrorFrame(WALK_RIGHT_2);
+const WALK_LEFT_3 = mirrorFrame(WALK_RIGHT_3);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Frame sets by state
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type CharState = "idle" | "typing" | "done" | "waiting";
+export type CharState = "idle" | "typing" | "done" | "waiting" | "walk_right" | "walk_left";
 
 export const CHAR_FRAMES: Record<CharState, PixelEntry[][]> = {
-  idle:    [IDLE_1, IDLE_2],
-  typing:  [TYPING_1, TYPING_2, TYPING_3],
-  done:    [DONE_1],
-  waiting: [WAITING_1, WAITING_2],
+  idle:       [IDLE_1, IDLE_2],
+  typing:     [TYPING_1, TYPING_2, TYPING_3],
+  done:       [DONE_1],
+  waiting:    [WAITING_1, WAITING_2],
+  // Walk cycle uses [1, 2, 3, 2] pattern for bobbing symmetry
+  walk_right: [WALK_RIGHT_1, WALK_RIGHT_2, WALK_RIGHT_3, WALK_RIGHT_2],
+  walk_left:  [WALK_LEFT_1, WALK_LEFT_2, WALK_LEFT_3, WALK_LEFT_2],
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -440,8 +545,10 @@ export function buildDeskPalette(crewHex: string, isLive: boolean): DeskPalette 
 
 /** Milliseconds per frame for each state's animation cycle. */
 export const ANIM_INTERVALS: Record<CharState, number> = {
-  idle:    1200,
-  typing:  250,
-  done:    0,     // Static
-  waiting: 800,
+  idle:       1200,
+  typing:     250,
+  done:       0,     // Static
+  waiting:    800,
+  walk_right: 150,
+  walk_left:  150,
 };
