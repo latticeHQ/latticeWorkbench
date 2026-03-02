@@ -6,7 +6,7 @@
  * Includes time-of-day ambient lighting (morning/afternoon/evening/night).
  */
 import {
-  useMemo, useCallback, useState, useEffect,
+  useMemo, useCallback, useState, useEffect, useRef,
 } from "react";
 import { cn } from "@/common/lib/utils";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
@@ -26,18 +26,13 @@ import { getTotalCost, formatCostWithDollar } from "@/common/utils/tokens/usageA
 import { formatTokens } from "@/common/utils/tokens/tokenMeterUtils";
 import { CliAgentIcon } from "../CliAgentIcon";
 import {
-  type CharState, type CharPalette, type DeskPalette, type CharacterAppearance, type TimeOfDay,
-  CHAR_GRID_W, CHAR_GRID_H,
-  ANIM_INTERVALS,
-  buildPalette, deriveAppearance, buildFrameSets,
-  buildCharShadow, buildDeskPalette,
-  DESK_RECTS, DESK_VIEWBOX, DESK_RENDER_W, DESK_RENDER_H,
+  type TimeOfDay,
+  buildPalette, deriveAppearance, buildDeskPalette,
+  DESK_RECTS, DESK_VIEWBOX,
 } from "./sprites";
-import { useCharacterWalk } from "./useCharacterWalk";
-import { SCENE_SCREEN_W, SCENE_SCREEN_H, SCENE_PX_W, SCENE_PX_H } from "./tileGrid";
-
-/** Scale factor applied to the shared crew workstation scene. */
-const WORKSTATION_SCALE = 2;
+import { useCardCanvas } from "./useCardCanvas";
+import { useCrewCanvas, type CrewMinion } from "./useCrewCanvas";
+import { SCENE_SCREEN_W, SCENE_SCREEN_H } from "./tileGrid";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline step classifier (same as ProjectHQOverview)
@@ -206,118 +201,7 @@ function StageCostBadge({ minions, color }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pixel art components
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Inline SVG full workstation scene: chair, dual monitors, plant, bookshelf, lamp, props. */
-function PixelDesk({ palette, timeOfDay }: { palette: DeskPalette; timeOfDay: TimeOfDay }) {
-  const screenOpacity = timeOfDay === "night" ? 0.7 : 1;
-
-  return (
-    <svg
-      viewBox={DESK_VIEWBOX}
-      width={DESK_RENDER_W}
-      height={DESK_RENDER_H}
-      className="shrink-0"
-      style={{ imageRendering: "pixelated" }}
-    >
-      {DESK_RECTS.map((rect, i) => {
-        const isScreen = rect.colorKey === "screen" || rect.colorKey === "screen2"
-          || rect.colorKey === "screenLine" || rect.colorKey === "screenContent";
-        return (
-          <rect
-            key={i}
-            x={rect.x}
-            y={rect.y}
-            width={rect.w}
-            height={rect.h}
-            fill={palette[rect.colorKey]}
-            opacity={isScreen ? screenOpacity : 1}
-          />
-        );
-      })}
-    </svg>
-  );
-}
-
-/** Pixel-art character scale (matches MINI_TILE_PX rendering). */
-const CHAR_SCALE = 3;
-/** Character sprite dimensions in pixel-space (12×18 grid). */
-const CHAR_PX_W = CHAR_GRID_W;  // 12
-const CHAR_PX_H = CHAR_GRID_H;  // 18
-/** Row of the shoe pixels in the sprite — used as the foot anchor. */
-const CHAR_FEET_ROW = 16;
-
-/** Horizontal offset to center the desk SVG inside the scene container. */
-const DESK_OFFSET_X = Math.floor((SCENE_SCREEN_W - DESK_RENDER_W) / 2);
-
-/** CSS box-shadow pixel character with animation and feet-anchored positioning. */
-function PixelCharacter({
-  charState, palette, appearance, x, y,
-}: {
-  charState: CharState; palette: CharPalette;
-  appearance: CharacterAppearance;
-  /** Pixel-space position from useCharacterWalk hook. */
-  x: number; y: number;
-}) {
-  // Build appearance-specific frame sets once per appearance
-  const frameSets = useMemo(() => buildFrameSets(appearance), [appearance]);
-  const frames = frameSets[charState];
-  const interval = ANIM_INTERVALS[charState];
-  const [frameIdx, setFrameIdx] = useState(0);
-
-  useEffect(() => {
-    if (frames.length <= 1 || interval === 0) {
-      setFrameIdx(0);
-      return;
-    }
-    const timer = setInterval(() => {
-      setFrameIdx(prev => (prev + 1) % frames.length);
-    }, interval);
-    return () => clearInterval(timer);
-  }, [frames.length, interval]);
-
-  const shadow = useMemo(
-    () => buildCharShadow(frames[frameIdx % frames.length], palette),
-    [frames, frameIdx, palette]
-  );
-
-  // Feet-based anchoring: tile position = where the character's feet are.
-  // The shoe row (16) aligns with the tile center vertically.
-  // Horizontally the sprite is centered on the tile.
-  const screenLeft = x * CHAR_SCALE - (CHAR_PX_W * CHAR_SCALE) / 2;
-  const screenTop  = y * CHAR_SCALE - CHAR_FEET_ROW * CHAR_SCALE;
-
-  return (
-    <div
-      className="absolute"
-      style={{
-        width: CHAR_PX_W * CHAR_SCALE,
-        height: CHAR_PX_H * CHAR_SCALE,
-        left: screenLeft,
-        top: screenTop,
-        zIndex: 10,
-      }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: 1,
-          height: 1,
-          boxShadow: shadow,
-          transform: `scale(${CHAR_SCALE})`,
-          transformOrigin: "top left",
-          imageRendering: "pixelated",
-        }}
-      />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Pixel Workstation Card — replaces ServiceNode
+// Pixel Workstation Card — Canvas 2D rendered
 // ─────────────────────────────────────────────────────────────────────────────
 function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
   ws: FrontendMinionMetadata; sidekicks: FrontendMinionMetadata[];
@@ -336,10 +220,13 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
 
   // Character appearance — deterministic from minion ID
   const appearance = useMemo(() => deriveAppearance(ws.id), [ws.id]);
-  // Character walk hook — manages position + FSM
-  const walkResult = useCharacterWalk(live, waiting, done);
   const charPalette = useMemo(() => buildPalette(accent, appearance), [accent, appearance]);
   const deskPalette = useMemo(() => buildDeskPalette(accent, live, timeOfDay), [accent, live, timeOfDay]);
+
+  // Canvas 2D hook — replaces useCharacterWalk + PixelDesk + PixelCharacter
+  const canvasRef = useCardCanvas(
+    appearance, charPalette, deskPalette, timeOfDay, accent, live, waiting, done,
+  );
 
   const sorted = useMemo(
     () => [...sidekicks].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
@@ -368,54 +255,20 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
       }} />
 
       <div className="flex flex-col gap-1.5 p-2">
-        {/* ── Pixel scene: desk + character (absolute positioned world) ── */}
+        {/* ── Pixel scene: Canvas 2D rendered desk + character ── */}
         <div
           className="relative rounded-md overflow-hidden"
-          style={{
-            background: `${accent}08`,
-            width: SCENE_SCREEN_W,
-            height: SCENE_SCREEN_H,
-            margin: "0 auto",
-          }}
+          style={{ width: SCENE_SCREEN_W, height: SCENE_SCREEN_H, margin: "0 auto" }}
         >
-          {/* Ambient glow when live */}
-          {live && (
-            <div
-              className="absolute inset-0 animate-pulse"
-              style={{ background: `radial-gradient(ellipse at 50% 20%, ${accent}15 0%, transparent 60%)` }}
-            />
-          )}
-
-          {/* Floor area below desk — wood plank texture */}
-          <div
-            className="absolute left-0 right-0 bottom-0"
-            style={{
-              top: DESK_RENDER_H,
-              background: `repeating-linear-gradient(90deg,
-                #3a3225 0px, #3a3225 8px,
-                #352e22 8px, #352e22 9px)`,
-            }}
+          <canvas
+            ref={canvasRef as React.RefObject<HTMLCanvasElement>}
+            style={{ imageRendering: "pixelated", display: "block" }}
           />
-
-          {/* Desk as background layer — positioned at top */}
-          <div className="absolute" style={{ top: 0, left: DESK_OFFSET_X }}>
-            <PixelDesk palette={deskPalette} timeOfDay={timeOfDay} />
-          </div>
-
-          {/* Character — feet-anchored, positioned by walk hook */}
-          <PixelCharacter
-            charState={walkResult.charState}
-            palette={charPalette}
-            appearance={appearance}
-            x={walkResult.x}
-            y={walkResult.y}
-          />
-
-          {/* Waiting bubble */}
+          {/* Waiting bubble overlay */}
           {waiting && (
             <div className="absolute top-0.5 left-1/3 text-[10px] font-bold text-amber-400 animate-bounce z-20">?</div>
           )}
-          {/* Done checkmark */}
+          {/* Done checkmark overlay */}
           {done && (
             <div className="absolute top-0.5 right-1 text-[var(--color-success)] z-20">
               <CheckCircle2 className="h-3 w-3" />
@@ -487,124 +340,48 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Minion SVG sprite — clean vector cartoon style
-// ViewBox 0 0 200 300, scaled responsively
+// Shared crew station card — Canvas 2D rendered, one desk + multiple pixel characters
 // ─────────────────────────────────────────────────────────────────────────────
-function MinionSvg({
-  accent, flipped, walking, typing,
-}: {
-  accent: string; flipped: boolean; walking: boolean; typing: boolean;
-}) {
-  const Y = "#FFD700";  // minion yellow
-  const B = accent;     // overalls = crew colour
 
-  const anim = walking
-    ? "minionWalk 0.55s ease-in-out infinite"
-    : typing
-    ? "minionType 0.5s ease-in-out infinite"
-    : undefined;
-
-  return (
-    <svg
-      viewBox="0 0 200 300"
-      style={{
-        width: "clamp(28px, 3.5vw, 58px)",
-        height: "auto",
-        display: "block",
-        transform: flipped ? "scaleX(-1)" : undefined,
-        animation: anim,
-        overflow: "visible",
-      }}
-    >
-      {/* ── Yellow pill body — taller for more visible face/neck ── */}
-      <rect x="50" y="40" width="100" height="190" rx="50" fill={Y} />
-
-      {/* ── Overalls: rounded bottom + bib ── */}
-      <path d="M50 185 v 30 a 50 50 0 0 0 100 0 v -30 z" fill={B} />
-      <rect x="70" y="155" width="60" height="40" fill={B} />
-
-      {/* ── Suspender straps + clasps ── */}
-      <path d="M45 105 L 75 158" stroke={B} strokeWidth="8" strokeLinecap="round" />
-      <path d="M155 105 L 125 158" stroke={B} strokeWidth="8" strokeLinecap="round" />
-      <circle cx="72" cy="158" r="4" fill="#111" />
-      <circle cx="128" cy="158" r="4" fill="#111" />
-
-      {/* ── Arms + hands ── */}
-      <path d="M45 158 Q 25 188 35 210" stroke={Y} strokeWidth="10" strokeLinecap="round" fill="none" />
-      <circle cx="36" cy="212" r="8" fill="#333" />
-      <path d="M155 158 Q 175 188 165 210" stroke={Y} strokeWidth="10" strokeLinecap="round" fill="none" />
-      <circle cx="164" cy="212" r="8" fill="#333" />
-
-      {/* ── Legs + shoes ── */}
-      <rect x="75" y="228" width="14" height="25" fill={B} />
-      <rect x="111" y="228" width="14" height="25" fill={B} />
-      <ellipse cx="82" cy="253" rx="16" ry="8" fill="#222" />
-      <ellipse cx="118" cy="253" rx="16" ry="8" fill="#222" />
-
-      {/* ── Goggle strap ── */}
-      <rect x="45" y="75" width="110" height="14" fill="#333" />
-
-      {/* ── Goggles + pupils ── */}
-      <circle cx="78" cy="82" r="20" fill="#fff" stroke="#999" strokeWidth="6" />
-      <circle cx="122" cy="82" r="20" fill="#fff" stroke="#999" strokeWidth="6" />
-      <circle cx="82" cy="82" r="6" fill="#654321" />
-      <circle cx="82" cy="82" r="2" fill="#000" />
-      <circle cx="118" cy="82" r="6" fill="#654321" />
-      <circle cx="118" cy="82" r="2" fill="#000" />
-
-      {/* ── Smile ── */}
-      <path d="M 85 110 Q 100 120 115 110" stroke="#333" strokeWidth="2" fill="none" strokeLinecap="round" />
-
-      {/* ── Hair wisps ── */}
-      <path d="M 95 42 Q 90 20 85 15" stroke="#111" strokeWidth="2" fill="none" strokeLinecap="round" />
-      <path d="M 100 40 Q 100 20 100 10" stroke="#111" strokeWidth="2" fill="none" strokeLinecap="round" />
-      <path d="M 105 42 Q 110 20 115 15" stroke="#111" strokeWidth="2" fill="none" strokeLinecap="round" />
-    </svg>
-  );
+/** Hook to build CrewMinion[] from FrontendMinionMetadata + sidebar state. */
+function useCrewMinions(minions: FrontendMinionMetadata[], accent: string): CrewMinion[] {
+  // We need to call hooks in a stable order — so we call useMinionSidebarState
+  // per-minion inside a child component. Instead, build the data without hooks
+  // and let the crew canvas sync state from the parent.
+  return useMemo(() => minions.map(ws => {
+    const appearance = deriveAppearance(ws.id);
+    return {
+      minionId: ws.id,
+      appearance,
+      charPalette: buildPalette(accent, appearance),
+      accentHex: accent,
+      isActive: ws.taskStatus === "running",
+      isWaiting: false, // Updated via CrewMinionStateSync below
+      isDone: ws.taskStatus === "reported",
+    };
+  }), [minions, accent]);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Character in shared scene — owns its own walk hook so React rules are safe
-// Positions via % of scene so minions walk the full-width canvas
-// ─────────────────────────────────────────────────────────────────────────────
-function CharacterInScene({ ws, accent, zIndex }: {
-  ws: FrontendMinionMetadata; accent: string; zIndex: number;
+/** Syncs sidebar state into CrewMinion entries reactively. */
+function CrewMinionStateSync({ ws, crewMinions }: {
+  ws: FrontendMinionMetadata; crewMinions: CrewMinion[];
 }) {
-  const state   = useMinionSidebarState(ws.id);
-  const live    = state.canInterrupt || state.isStarting;
+  const state = useMinionSidebarState(ws.id);
+  const live = state.canInterrupt || state.isStarting;
   const waiting = !live && state.awaitingUserQuestion;
-  const done    = ws.taskStatus === "reported";
-  const walkResult = useCharacterWalk(live, waiting, done);
+  const done = ws.taskStatus === "reported";
 
-  // Map pixel-space coords → percentage of scene dimensions
-  const leftPct = (walkResult.x / SCENE_PX_W) * 100;
-  const topPct  = (walkResult.y / SCENE_PX_H) * 100;
+  // Imperatively patch the CrewMinion entry
+  const entry = crewMinions.find(m => m.minionId === ws.id);
+  if (entry) {
+    entry.isActive = live;
+    entry.isWaiting = waiting;
+    entry.isDone = done;
+  }
 
-  const flipped = walkResult.direction === "left";
-  const walking = walkResult.charState === "walk_left" || walkResult.charState === "walk_right";
-  const typing  = walkResult.charState === "typing";
-
-  return (
-    <div
-      className="absolute"
-      style={{
-        left: `${leftPct}%`,
-        top:  `${topPct}%`,
-        transform: "translate(-50%, -100%)",
-        zIndex,
-        filter: live ? `drop-shadow(0 0 3px ${accent}99)` : undefined,
-        opacity: done ? 0.4 : 1,
-        transition: "opacity 0.3s",
-      }}
-    >
-      <MinionSvg accent={accent} flipped={flipped} walking={walking} typing={typing} />
-    </div>
-  );
+  return null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Shared crew station card — one desk, multiple characters, minion list below
-// ─────────────────────────────────────────────────────────────────────────────
 function SharedCrewStationCard({ minions, accent, onOpen, timeOfDay }: {
   minions: FrontendMinionMetadata[];
   accent: string;
@@ -617,65 +394,51 @@ function SharedCrewStationCard({ minions, accent, onOpen, timeOfDay }: {
     [accent, hasLive, timeOfDay]
   );
 
+  // Build crew minion data
+  const crewMinions = useCrewMinions(minions, accent);
+
+  // Crew scene dimensions — responsive via ResizeObserver
+  const [sceneSize, setSceneSize] = useState({ width: 400, height: 280 });
+  const containerElRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const node = containerElRef.current;
+    if (!node) return;
+    const ro = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (entry) {
+        const w = Math.round(entry.contentRect.width);
+        const h = Math.round(entry.contentRect.height);
+        if (w > 0 && h > 0) setSceneSize(prev =>
+          prev.width === w && prev.height === h ? prev : { width: w, height: h }
+        );
+      }
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, []);
+
+  // Canvas 2D hook — replaces all CSS divs + MinionSvg + CharacterInScene
+  const canvasRef = useCrewCanvas(
+    deskPalette, timeOfDay, sceneSize.width, sceneSize.height, crewMinions,
+  );
+
   return (
     <div className="flex flex-col gap-1.5 p-2">
-      {/* ── Scene: wall zone (top ~33%) anchors desk / floor zone (bottom ~67%) minions roam ── */}
-      {/* Height is viewport-relative: grows with card width (cards are ~50vw in 2-col layout) */}
+      {/* Sync per-minion sidebar state reactively */}
+      {minions.map(ws => (
+        <CrewMinionStateSync key={ws.id} ws={ws} crewMinions={crewMinions} />
+      ))}
+
+      {/* ── Scene: Canvas 2D rendered wall, floor, desk, pixel characters ── */}
       <div
+        ref={containerElRef}
         className="relative w-full rounded-md overflow-hidden"
         style={{ height: "clamp(200px, 22vw, 340px)" }}
       >
-        {/* Wall panel — graph-paper grid tint behind desk */}
-        <div
-          className="absolute inset-x-0 top-0"
-          style={{
-            height: "33%",
-            background: "rgba(20,20,35,0.10)",
-            backgroundImage: `
-              linear-gradient(rgba(100,100,140,0.07) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(100,100,140,0.07) 1px, transparent 1px)`,
-            backgroundSize: "16px 16px",
-          }}
+        <canvas
+          ref={canvasRef as React.RefObject<HTMLCanvasElement>}
+          style={{ imageRendering: "pixelated", display: "block", width: "100%", height: "100%" }}
         />
-        {/* Floor area — dot grid where minions roam */}
-        <div
-          className="absolute inset-x-0 bottom-0"
-          style={{
-            top: "33%",
-            backgroundImage: `radial-gradient(circle, rgba(80,80,110,0.10) 1px, transparent 1px)`,
-            backgroundSize: "12px 12px",
-          }}
-        />
-        {/* Floor contact line — grounds the desk */}
-        <div
-          className="absolute inset-x-0"
-          style={{ top: "33%", height: "1px", background: "rgba(100,100,150,0.28)" }}
-        />
-
-        {hasLive && (
-          <div
-            className="absolute inset-0 animate-pulse pointer-events-none"
-            style={{ background: `radial-gradient(ellipse at 50% 25%, ${accent}18 0%, transparent 65%)` }}
-          />
-        )}
-
-        {/* Desk — 2× scaled, centered, pinned to top */}
-        <div
-          className="absolute"
-          style={{
-            top: 0,
-            left: "50%",
-            transform: `translateX(-50%) scale(${WORKSTATION_SCALE})`,
-            transformOrigin: "top center",
-          }}
-        >
-          <PixelDesk palette={deskPalette} timeOfDay={timeOfDay} />
-        </div>
-
-        {/* Minion agents — percentage-positioned, walk the full scene width */}
-        {minions.map((ws, i) => (
-          <CharacterInScene key={ws.id} ws={ws} accent={accent} zIndex={10 + i} />
-        ))}
       </div>
 
       {/* ── Minion list — 2 columns when crew is large ── */}
@@ -752,7 +515,7 @@ function MinionRow({ ws, accent, onOpen }: {
 // Stage box — crew container with pixel workstation cards inside
 // ─────────────────────────────────────────────────────────────────────────────
 function HQStageBox({
-  section, minions, childrenByParent, onOpen,
+  section, minions, childrenByParent: _childrenByParent, onOpen,
   stageIdx, collapsed, onToggle, timeOfDay,
 }: {
   section: CrewConfig;
@@ -1131,18 +894,6 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
   const isEmpty = rootMinions.length === 0 && sections.length === 0;
 
   return (
-    <>
-    <style>{`
-      @keyframes minionWalk {
-        0%, 100% { transform: translateY(0px) rotate(-2deg); }
-        50%       { transform: translateY(-6px) rotate(2deg); }
-      }
-      @keyframes minionType {
-        0%, 100% { transform: translateY(0px) rotate(0deg); }
-        30%       { transform: translateY(-3px) rotate(-3deg); }
-        70%       { transform: translateY(-3px) rotate(3deg); }
-      }
-    `}</style>
     <div
       className="flex flex-col gap-4 w-full"
       style={{
@@ -1298,6 +1049,5 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
         </p>
       )}
     </div>
-    </>
   );
 }

@@ -2,7 +2,7 @@
  * Pixel office asset library — barrel exports.
  *
  * Usage:
- *   import { buildPalette, buildDeskPalette, buildCharShadow, ... } from "./sprites";
+ *   import { buildPalette, buildDeskPalette, ... } from "./sprites";
  */
 
 // Types
@@ -48,5 +48,5 @@ export {
 // Desk palette
 export { buildDeskPalette } from "./deskPalette";
 
-// Shadow builder
-export { buildCharShadow } from "./shadowBuilder";
+// Shadow builder — deprecated, kept for reference
+// export { buildCharShadow } from "./shadowBuilder";
