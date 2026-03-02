@@ -26,13 +26,15 @@ import { getTotalCost, formatCostWithDollar } from "@/common/utils/tokens/usageA
 import { formatTokens } from "@/common/utils/tokens/tokenMeterUtils";
 import { CliAgentIcon } from "../CliAgentIcon";
 import {
-  type CharState, type CharPalette, type DeskPalette,
-  CHAR_FRAMES, ANIM_INTERVALS,
-  buildPalette, buildCharShadow, buildDeskPalette,
-  DESK_RECTS,
-} from "./pixelSprites";
+  type CharState, type CharPalette, type DeskPalette, type CharacterAppearance, type TimeOfDay,
+  CHAR_GRID_W, CHAR_GRID_H,
+  ANIM_INTERVALS,
+  buildPalette, deriveAppearance, buildFrameSets,
+  buildCharShadow, buildDeskPalette,
+  DESK_RECTS, DESK_VIEWBOX, DESK_RENDER_W, DESK_RENDER_H,
+} from "./sprites";
 import { useCharacterWalk } from "./useCharacterWalk";
-import { SCENE_PX_W, SCENE_PX_H, DESK_SVG_W, DESK_SVG_H } from "./tileGrid";
+import { SCENE_SCREEN_W, SCENE_SCREEN_H } from "./tileGrid";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline step classifier (same as ProjectHQOverview)
@@ -64,7 +66,6 @@ const KNOWN_CLI = new Set(["claude-code","codex","gemini","github-copilot","kiro
 // ─────────────────────────────────────────────────────────────────────────────
 // Time-of-day ambient system
 // ─────────────────────────────────────────────────────────────────────────────
-type TimeOfDay = "morning" | "afternoon" | "evening" | "night";
 
 const TIME_LABELS: Record<TimeOfDay, string> = {
   morning:   "Morning",
@@ -205,21 +206,21 @@ function StageCostBadge({ minions, color }: {
 // Pixel art components
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Inline SVG full workstation scene: dual monitors, plant, bookshelf, lamp. */
+/** Inline SVG full workstation scene: chair, dual monitors, plant, bookshelf, lamp, props. */
 function PixelDesk({ palette, timeOfDay }: { palette: DeskPalette; timeOfDay: TimeOfDay }) {
-  // Night mode dims screens slightly
   const screenOpacity = timeOfDay === "night" ? 0.7 : 1;
 
   return (
     <svg
-      viewBox="-2 0 34 14"
-      width={102}
-      height={42}
+      viewBox={DESK_VIEWBOX}
+      width={DESK_RENDER_W}
+      height={DESK_RENDER_H}
       className="shrink-0"
       style={{ imageRendering: "pixelated" }}
     >
       {DESK_RECTS.map((rect, i) => {
-        const isScreen = rect.colorKey === "screen" || rect.colorKey === "screen2" || rect.colorKey === "screenLine";
+        const isScreen = rect.colorKey === "screen" || rect.colorKey === "screen2"
+          || rect.colorKey === "screenLine" || rect.colorKey === "screenContent";
         return (
           <rect
             key={i}
@@ -238,26 +239,27 @@ function PixelDesk({ palette, timeOfDay }: { palette: DeskPalette; timeOfDay: Ti
 
 /** Pixel-art character scale (matches MINI_TILE_PX rendering). */
 const CHAR_SCALE = 3;
-/** Character sprite dimensions in pixel-space (8×12 grid). */
-const CHAR_PX_W = 8;
+/** Character sprite dimensions in pixel-space (12×18 grid). */
+const CHAR_PX_W = CHAR_GRID_W;  // 12
+const CHAR_PX_H = CHAR_GRID_H;  // 18
 /** Row of the shoe pixels in the sprite — used as the foot anchor. */
-const CHAR_FEET_ROW = 10;
+const CHAR_FEET_ROW = 16;
 
-/** Scene container screen dimensions. */
-const SCENE_SCREEN_W = SCENE_PX_W * CHAR_SCALE; // 108
-const SCENE_SCREEN_H = SCENE_PX_H * CHAR_SCALE; // 72
-/** Horizontal offset to center the desk SVG (102px) inside the container (108px). */
-const DESK_OFFSET_X = Math.floor((SCENE_SCREEN_W - DESK_SVG_W) / 2); // 3
+/** Horizontal offset to center the desk SVG inside the scene container. */
+const DESK_OFFSET_X = Math.floor((SCENE_SCREEN_W - DESK_RENDER_W) / 2);
 
 /** CSS box-shadow pixel character with animation and feet-anchored positioning. */
 function PixelCharacter({
-  charState, palette, x, y,
+  charState, palette, appearance, x, y,
 }: {
   charState: CharState; palette: CharPalette;
+  appearance: CharacterAppearance;
   /** Pixel-space position from useCharacterWalk hook. */
   x: number; y: number;
 }) {
-  const frames = CHAR_FRAMES[charState];
+  // Build appearance-specific frame sets once per appearance
+  const frameSets = useMemo(() => buildFrameSets(appearance), [appearance]);
+  const frames = frameSets[charState];
   const interval = ANIM_INTERVALS[charState];
   const [frameIdx, setFrameIdx] = useState(0);
 
@@ -278,7 +280,7 @@ function PixelCharacter({
   );
 
   // Feet-based anchoring: tile position = where the character's feet are.
-  // The shoe row (10) aligns with the tile center vertically.
+  // The shoe row (16) aligns with the tile center vertically.
   // Horizontally the sprite is centered on the tile.
   const screenLeft = x * CHAR_SCALE - (CHAR_PX_W * CHAR_SCALE) / 2;
   const screenTop  = y * CHAR_SCALE - CHAR_FEET_ROW * CHAR_SCALE;
@@ -288,7 +290,7 @@ function PixelCharacter({
       className="absolute"
       style={{
         width: CHAR_PX_W * CHAR_SCALE,
-        height: CHAR_PX_W * CHAR_SCALE + CHAR_FEET_ROW * CHAR_SCALE, // full sprite height
+        height: CHAR_PX_H * CHAR_SCALE,
         left: screenLeft,
         top: screenTop,
         zIndex: 10,
@@ -329,10 +331,12 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
   const cost    = getTotalCost(usage.sessionTotal) ?? 0;
   const tok     = usage.totalTokens;
 
+  // Character appearance — deterministic from minion ID
+  const appearance = useMemo(() => deriveAppearance(ws.id), [ws.id]);
   // Character walk hook — manages position + FSM
   const walkResult = useCharacterWalk(live, waiting, done);
-  const charPalette = useMemo(() => buildPalette(accent), [accent]);
-  const deskPalette = useMemo(() => buildDeskPalette(accent, live), [accent, live]);
+  const charPalette = useMemo(() => buildPalette(accent, appearance), [accent, appearance]);
+  const deskPalette = useMemo(() => buildDeskPalette(accent, live, timeOfDay), [accent, live, timeOfDay]);
 
   const sorted = useMemo(
     () => [...sidekicks].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
@@ -379,14 +383,14 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
             />
           )}
 
-          {/* Floor area below desk — subtle pixel tile pattern */}
+          {/* Floor area below desk — wood plank texture */}
           <div
             className="absolute left-0 right-0 bottom-0"
             style={{
-              top: DESK_SVG_H,
-              background: `${accent}06`,
-              backgroundImage: `radial-gradient(circle, ${accent}12 0.5px, transparent 0.5px)`,
-              backgroundSize: "6px 6px",
+              top: DESK_RENDER_H,
+              background: `repeating-linear-gradient(90deg,
+                #3a3225 0px, #3a3225 8px,
+                #352e22 8px, #352e22 9px)`,
             }}
           />
 
@@ -399,6 +403,7 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
           <PixelCharacter
             charState={walkResult.charState}
             palette={charPalette}
+            appearance={appearance}
             x={walkResult.x}
             y={walkResult.y}
           />
@@ -864,8 +869,12 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
     <div
       className="flex flex-col gap-4 w-full"
       style={{
-        backgroundImage: `${ambience.gradient}, radial-gradient(circle, ${ambience.dotBg} 1px, transparent 1px)`,
-        backgroundSize: "100% 100%, 22px 22px",
+        backgroundImage: `${ambience.gradient},
+          repeating-linear-gradient(90deg,
+            rgba(58,50,37,0.04) 0px, rgba(58,50,37,0.04) 18px,
+            rgba(53,46,34,0.06) 18px, rgba(53,46,34,0.06) 19px),
+          radial-gradient(circle, ${ambience.dotBg} 0.5px, transparent 0.5px)`,
+        backgroundSize: "100% 100%, 100% 100%, 16px 16px",
       }}
     >
       {/* ── Empty state ── */}
@@ -874,9 +883,9 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
           {/* Pixel art empty desk scene */}
           <div className="relative">
             <svg
-              viewBox="-2 0 34 14"
-              width={170}
-              height={70}
+              viewBox={DESK_VIEWBOX}
+              width={200}
+              height={66}
               style={{ imageRendering: "pixelated", opacity: 0.35 }}
             >
               {DESK_RECTS.map((rect, i) => (
