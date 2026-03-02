@@ -1,11 +1,11 @@
 /**
  * Mini tile grid + BFS pathfinding for pixel workstation card scenes.
  *
- * The scene is 16 columns × 10 rows. Each tile is 3 pixel-space units
+ * The scene is 16 columns × 16 rows. Each tile is 3 pixel-space units
  * (rendered at 3× CSS scale → 9px on screen).
  *
  * The desk SVG occupies the top ~6 rows (wall, monitors, desk surface, legs).
- * Rows 6–9 are the FLOOR area where characters walk.
+ * Rows 6–15 are the FLOOR area where characters walk.
  * Row 5 (chair row) has walkable gaps to connect floor ↔ seat.
  *
  * Grid layout (F=furniture/blocked, .=walkable, S=seat):
@@ -22,6 +22,12 @@
  *  7 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
  *  8 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
  *  9 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 10 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 11 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 12 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 13 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 14 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 15 │  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . │  floor
  *    └──────────────────────────────────────────────────┘
  */
 
@@ -30,18 +36,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const SCENE_COLS = 16;
-export const SCENE_ROWS = 10;
+export const SCENE_ROWS = 16;
 
 /** Pixel-space size per tile (before CSS 3× scale). */
 export const MINI_TILE_PX = 3;
 
 /** Total pixel-space scene dimensions. */
 export const SCENE_PX_W = SCENE_COLS * MINI_TILE_PX; // 48
-export const SCENE_PX_H = SCENE_ROWS * MINI_TILE_PX; // 30
+export const SCENE_PX_H = SCENE_ROWS * MINI_TILE_PX; // 48
 
 /** Screen-space scene dimensions at 3× scale. */
 export const SCENE_SCREEN_W = SCENE_PX_W * 3; // 144
-export const SCENE_SCREEN_H = SCENE_PX_H * 3; // 90
+export const SCENE_SCREEN_H = SCENE_PX_H * 3; // 144
 
 /** The tile where a character sits to work (chair position, front of keyboard). */
 export const DESK_SEAT = { col: 5, row: 5 } as const;
@@ -52,16 +58,22 @@ const FLOOR_ROW_START = 6;
 /** Walkable tiles — true = walkable, false = blocked by furniture. */
 const WALKABLE_MAP: boolean[][] = [
   //  0     1     2     3     4     5     6     7     8     9    10    11    12    13    14    15
-  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row 0: wall
-  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row 1: monitors
-  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row 2: screens
-  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row 3: desk surface
-  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row 4: desk edge
-  [ true,false, true, true, true, true, true, true, true, true,false,false, true, true, true, true], // row 5: chair row (gaps)
-  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 6: floor
-  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 7: floor
-  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 8: floor
-  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 9: floor
+  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row  0: wall
+  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row  1: monitors
+  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row  2: screens
+  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row  3: desk surface
+  [false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false], // row  4: desk edge
+  [ true,false, true, true, true, true, true, true, true, true,false,false, true, true, true, true], // row  5: chair row (gaps)
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row  6: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row  7: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row  8: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row  9: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 10: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 11: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 12: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 13: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 14: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true], // row 15: floor
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
