@@ -18,7 +18,7 @@ import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type { CrewConfig } from "@/common/types/project";
 import {
   CheckCircle2, Clock, DollarSign, Zap, Users, Building,
-  ChevronDown, ChevronRight, ChevronLeft, Activity, ArrowRight,
+  Activity, ArrowRight,
   Sun, Moon, Sunrise, Sunset,
 } from "lucide-react";
 import { Shimmer } from "../ai-elements/shimmer";
@@ -749,205 +749,9 @@ function MinionRow({ ws, accent, onOpen }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage box — crew container with pixel workstation cards inside
-// ─────────────────────────────────────────────────────────────────────────────
-function HQStageBox({
-  section, minions, childrenByParent, onOpen,
-  stageIdx, collapsed, onToggle, timeOfDay,
-}: {
-  section: CrewConfig;
-  minions: FrontendMinionMetadata[];
-  childrenByParent: Map<string, FrontendMinionMetadata[]>;
-  onOpen: (ws: FrontendMinionMetadata) => void;
-  stageIdx: number; collapsed: boolean; onToggle: () => void;
-  timeOfDay: TimeOfDay;
-}) {
-  const color   = resolveCrewColor(section.color);
-  const active  = minions.some(w => w.taskStatus === "running");
-  const isEmpty = minions.length === 0;
-
-  const cliIds = useMemo(() => {
-    const s = new Set<string>();
-    minions.forEach(w => { if (w.agentId && KNOWN_CLI.has(w.agentId)) s.add(w.agentId); });
-    return [...s].slice(0, 3);
-  }, [minions]);
-
-  const borderStyle = isEmpty
-    ? "2px dashed rgba(120,120,120,0.22)"
-    : `2px dashed ${color}50`;
-  const bgStyle = isEmpty
-    ? `repeating-linear-gradient(-45deg, transparent, transparent 5px, rgba(128,128,128,0.025) 5px, rgba(128,128,128,0.025) 10px)`
-    : `${color}05`;
-
-  return (
-    <div
-      className={cn(
-        "relative rounded-xl transition-all duration-200",
-        isEmpty && "opacity-35 grayscale"
-      )}
-      style={{
-        border: borderStyle,
-        background: bgStyle,
-        boxShadow: active ? `0 0 0 1px ${color}22, 0 6px 20px ${color}10` : undefined,
-        pointerEvents: isEmpty ? "none" : undefined,
-      }}
-    >
-      {/* Header */}
-      <button
-        type="button" onClick={isEmpty ? undefined : onToggle}
-        className={cn(
-          "flex w-full items-center gap-2 px-3 py-2 rounded-t-xl focus-visible:outline-none",
-          !isEmpty && "group/hdr hover:bg-white/4 transition-colors cursor-pointer"
-        )}
-        style={{ borderBottom: (collapsed || isEmpty) ? "none" : `1px dashed ${color}28` }}
-        tabIndex={isEmpty ? -1 : 0}
-      >
-        <span
-          className="shrink-0 flex h-5 min-w-[20px] items-center justify-center rounded text-[9px] font-bold tabular-nums px-1"
-          style={isEmpty
-            ? { background: "rgba(128,128,128,0.15)", color: "rgba(128,128,128,0.5)" }
-            : { background: `${color}20`, color }}
-        >
-          {stageIdx + 1}
-        </span>
-        <span
-          className={cn(
-            "flex-1 min-w-0 text-left text-[10px] font-bold uppercase tracking-[0.13em] truncate",
-            active ? "text-foreground" : isEmpty ? "text-foreground/30" : "text-foreground/60"
-          )}
-          style={active ? { color } : undefined}
-        >
-          {section.name}
-        </span>
-        {active && <LiveDot size="sm" />}
-        {!isEmpty && cliIds.map(id => <CliAgentIcon key={id} slug={id} className="h-3 w-3 text-foreground/30 shrink-0" />)}
-        {!isEmpty && (
-          <span
-            className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold tabular-nums"
-            style={{ background: `${color}18`, color }}
-          >
-            {minions.length}
-          </span>
-        )}
-        {!isEmpty && <StageCostBadge minions={minions} color={color} />}
-        {!isEmpty && (
-          <span className="shrink-0 text-muted/25 group-hover/hdr:text-muted/55 transition-colors">
-            {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          </span>
-        )}
-      </button>
-
-      {/* Content — shared crew workstation card */}
-      {!isEmpty && !collapsed && (
-        <SharedCrewStationCard
-          minions={minions}
-          accent={color}
-          onOpen={onOpen}
-          timeOfDay={timeOfDay}
-        />
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Phase group — 3 stages with phase header and snake layout
+// Phase group size (stages per phase)
 // ─────────────────────────────────────────────────────────────────────────────
 const PHASE_SIZE = 3;
-
-function HQPhaseGroup({
-  phaseIdx, phaseSections, minionsBySection, childrenByParent,
-  onOpen, collapsed, toggle, timeOfDay,
-}: {
-  phaseIdx: number;
-  phaseSections: CrewConfig[];
-  minionsBySection: Map<string | null, FrontendMinionMetadata[]>;
-  childrenByParent: Map<string, FrontendMinionMetadata[]>;
-  onOpen: (ws: FrontendMinionMetadata) => void;
-  collapsed: Set<string>;
-  toggle: (id: string) => void;
-  timeOfDay: TimeOfDay;
-}) {
-  const phaseActive = phaseSections.some(
-    s => (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
-  );
-  const phaseHasContent = phaseSections.some(
-    s => (minionsBySection.get(s.id) ?? []).length > 0
-  );
-  const phaseMinions = useMemo(
-    () => phaseSections.flatMap(s => minionsBySection.get(s.id) ?? []),
-    [phaseSections, minionsBySection]
-  );
-  const phaseNames = phaseSections.map(s => s.name);
-  const phaseSubtitle = phaseNames.length <= 2
-    ? phaseNames.join(" & ")
-    : `${phaseNames[0]} · ${phaseNames[1]} · ${phaseNames[2]}`;
-
-  return (
-    <div className={cn(
-      "w-full rounded-xl overflow-hidden transition-all duration-200",
-      phaseActive
-        ? "border border-border/50 shadow-sm"
-        : "border border-border/25"
-    )}>
-      {/* Phase header band */}
-      <div className={cn(
-        "flex items-center gap-3 px-4 py-2 border-b",
-        phaseActive ? "bg-muted/12 border-border/30" : "bg-muted/6 border-border/15"
-      )}>
-        <span className={cn(
-          "shrink-0 flex h-5 w-5 items-center justify-center rounded text-[9px] font-black",
-          phaseActive ? "bg-foreground/12 text-foreground/70" : "bg-muted/15 text-foreground/30"
-        )}>
-          {phaseIdx + 1}
-        </span>
-        <span className={cn(
-          "text-[9px] font-black uppercase tracking-[0.18em]",
-          phaseActive ? "text-foreground/55" : "text-foreground/25"
-        )}>
-          Phase {phaseIdx + 1}
-        </span>
-        <span className={cn(
-          "text-[9px] hidden sm:block",
-          phaseActive ? "text-foreground/35" : "text-foreground/18"
-        )}>
-          {phaseSubtitle}
-        </span>
-        {phaseActive && <LiveDot size="sm" />}
-        {phaseHasContent && (
-          <div className="ml-auto flex items-center gap-2">
-            {!phaseActive && (
-              <span className="text-[8px] text-muted/30">
-                {phaseSections.reduce((sum, s) => sum + (minionsBySection.get(s.id) ?? []).length, 0)} missions
-              </span>
-            )}
-            <StageCostBadge minions={phaseMinions} />
-          </div>
-        )}
-      </div>
-
-      {/* Stage boxes — 2-column widget grid */}
-      <div
-        className="grid gap-6 p-5 items-start"
-        style={{ gridTemplateColumns: "repeat(2, 1fr)" }}
-      >
-        {phaseSections.map((sec, logicalIdx) => (
-          <HQStageBox
-            key={sec.id}
-            section={sec}
-            minions={minionsBySection.get(sec.id) ?? []}
-            childrenByParent={childrenByParent}
-            onOpen={onOpen}
-            stageIdx={phaseIdx * PHASE_SIZE + logicalIdx}
-            collapsed={collapsed.has(sec.id)}
-            onToggle={() => toggle(sec.id)}
-            timeOfDay={timeOfDay}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Metrics bar
@@ -1010,6 +814,98 @@ function HQMetricsBar({ totalMissions, activeMissions, totalSidekicks, stageCoun
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan sidebar — left panel with phase tabs + clickable stage list
+// ─────────────────────────────────────────────────────────────────────────────
+function PlanSidebar({
+  phases, currentPhase, onSetPhase,
+  minionsBySection, selectedSectionId, onSelectSection,
+}: {
+  phases: CrewConfig[][];
+  currentPhase: number;
+  onSetPhase: (idx: number) => void;
+  minionsBySection: Map<string | null, FrontendMinionMetadata[]>;
+  selectedSectionId: string | null;
+  onSelectSection: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-col w-52 shrink-0 border-r border-border/20 min-h-0">
+      {/* Header */}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border/15">
+        <span className="text-[9px] font-black uppercase tracking-widest text-foreground/35">Plan</span>
+        {phases.length > 1 && (
+          <div className="flex items-center gap-1 ml-auto flex-wrap">
+            {phases.map((phaseSections, idx) => {
+              const hasRunning = phaseSections.some(s =>
+                (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
+              );
+              return (
+                <button
+                  key={idx} type="button"
+                  onClick={() => onSetPhase(idx)}
+                  className={cn(
+                    "flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[8px] font-bold transition-all",
+                    idx === currentPhase
+                      ? "bg-foreground/12 text-foreground/70"
+                      : "text-muted/35 hover:text-foreground/50 hover:bg-muted/8"
+                  )}
+                >
+                  P{idx + 1}
+                  {hasRunning && <LiveDot size="sm" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Stage list */}
+      <div className="flex flex-col gap-0.5 p-2 overflow-y-auto flex-1">
+        {(phases[currentPhase] ?? []).map((section, idx) => {
+          const minions = minionsBySection.get(section.id) ?? [];
+          const active  = minions.some(w => w.taskStatus === "running");
+          const color   = resolveCrewColor(section.color);
+          const selected = selectedSectionId === section.id;
+          const stageNum = currentPhase * PHASE_SIZE + idx + 1;
+
+          return (
+            <button
+              key={section.id} type="button"
+              onClick={() => onSelectSection(section.id)}
+              className={cn(
+                "flex items-center gap-2 px-2.5 py-2 rounded-lg text-left transition-all border",
+                selected
+                  ? "bg-muted/15 border-border/20"
+                  : "border-transparent hover:bg-muted/8 hover:border-border/10"
+              )}
+            >
+              <span
+                className="shrink-0 flex h-4 w-4 items-center justify-center rounded text-[8px] font-bold"
+                style={{ background: `${color}22`, color }}
+              >
+                {stageNum}
+              </span>
+              <span
+                className="flex-1 min-w-0 text-[10px] font-semibold truncate"
+                style={{ color: selected ? color : undefined }}
+              >
+                {section.name}
+              </span>
+              {active && <LiveDot size="sm" />}
+              {!active && minions.length > 0 && (
+                <span className="text-[9px] text-muted/40 shrink-0">{minions.length}</span>
+              )}
+              {minions.length === 0 && (
+                <span className="text-[9px] text-muted/22 shrink-0">—</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1121,6 +1017,19 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
     if (phases.length > 0 && currentPhase >= phases.length) setCurrentPhase(phases.length - 1);
   }, [phases.length, currentPhase]);
 
+  // Selected section (workspace panel)
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
+  // Auto-select: prefer active section in current phase, else first
+  useEffect(() => {
+    const phaseSections = phases[currentPhase] ?? [];
+    const active = phaseSections.find(s => (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running"));
+    const target = active ?? phaseSections[0];
+    if (target) setSelectedSectionId(target.id);
+  }, [phases, currentPhase, minionsBySection]);
+
+  const selectedSection = sections.find(s => s.id === selectedSectionId) ?? null;
+  const selectedMinions = selectedSection ? (minionsBySection.get(selectedSectionId!) ?? []) : [];
+
   const handleOpen = useCallback(
     (ws: FrontendMinionMetadata) => setSelectedMinion(toMinionSelection(ws)),
     [setSelectedMinion]
@@ -1198,75 +1107,68 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
         onCycleTime={handleCycleTime}
       />
 
-      {/* Phase view */}
+      {/* ── Two-column layout: Plan sidebar | Workspace ── */}
       {sections.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {/* Phase nav — prev / dots / next */}
-          {phases.length > 1 && (
-            <div className="flex items-center justify-center gap-2">
-              <button
-                type="button"
-                disabled={currentPhase === 0}
-                onClick={() => setCurrentPhase(p => Math.max(0, p - 1))}
-                className="h-6 w-6 flex items-center justify-center rounded border border-border/25 bg-background/40 text-muted/50 hover:bg-background hover:text-foreground/70 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="h-3 w-3" />
-              </button>
+        <div
+          className="flex flex-row rounded-xl border border-border/25 overflow-hidden"
+          style={{ minHeight: "clamp(280px, 48vh, 560px)" }}
+        >
+          {/* LEFT: Plan sidebar */}
+          <PlanSidebar
+            phases={phases}
+            currentPhase={currentPhase}
+            onSetPhase={setCurrentPhase}
+            minionsBySection={minionsBySection}
+            selectedSectionId={selectedSectionId}
+            onSelectSection={setSelectedSectionId}
+          />
 
-              <div className="flex items-center gap-1.5">
-                {phases.map((phaseSections, idx) => {
-                  const isActive = idx === currentPhase;
-                  const hasRunning = phaseSections.some(s =>
-                    (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
-                  );
-                  const hasContent = phaseSections.some(s => (minionsBySection.get(s.id) ?? []).length > 0);
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setCurrentPhase(idx)}
-                      className={cn(
-                        "flex items-center gap-1 rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all border",
-                        isActive
-                          ? "bg-foreground/10 border-border/40 text-foreground/70"
-                          : "bg-transparent border-transparent text-muted/40 hover:text-foreground/50 hover:border-border/20"
-                      )}
-                    >
-                      <span>{idx + 1}</span>
-                      {hasRunning && <LiveDot size="sm" />}
-                      {!hasRunning && hasContent && (
-                        <span className="h-1 w-1 rounded-full bg-muted/30 block" />
-                      )}
-                    </button>
-                  );
-                })}
+          {/* RIGHT: Workspace */}
+          <div className="flex-1 min-w-0 flex flex-col overflow-y-auto">
+            {selectedSection ? (
+              <>
+                {/* Stage header */}
+                <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border/20 shrink-0">
+                  <span
+                    className="shrink-0 flex h-5 w-5 items-center justify-center rounded text-[9px] font-bold"
+                    style={{
+                      background: `${resolveCrewColor(selectedSection.color)}20`,
+                      color: resolveCrewColor(selectedSection.color),
+                    }}
+                  >
+                    {sections.indexOf(selectedSection) + 1}
+                  </span>
+                  <span className="text-[11px] font-bold text-foreground/75">{selectedSection.name}</span>
+                  {selectedMinions.some(w => w.taskStatus === "running") && <LiveDot size="sm" />}
+                  <div className="ml-auto flex items-center gap-3">
+                    <span className="text-[9px] text-muted/45">
+                      {selectedMinions.length} mission{selectedMinions.length !== 1 ? "s" : ""}
+                    </span>
+                    <StageCostBadge minions={selectedMinions} color={resolveCrewColor(selectedSection.color)} />
+                  </div>
+                </div>
+
+                {/* Scene */}
+                {selectedMinions.length > 0 ? (
+                  <SharedCrewStationCard
+                    minions={selectedMinions}
+                    accent={resolveCrewColor(selectedSection.color)}
+                    onOpen={handleOpen}
+                    timeOfDay={timeOfDay}
+                  />
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16 text-center">
+                    <span className="text-[10px] text-muted/30">No missions in this stage</span>
+                    <span className="text-[9px] text-muted/20">Dispatch one from the sidebar wizard</span>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-[10px] text-muted/25 py-12">
+                Select a stage from the plan
               </div>
-
-              <button
-                type="button"
-                disabled={currentPhase === phases.length - 1}
-                onClick={() => setCurrentPhase(p => Math.min(phases.length - 1, p + 1))}
-                className="h-6 w-6 flex items-center justify-center rounded border border-border/25 bg-background/40 text-muted/50 hover:bg-background hover:text-foreground/70 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="h-3 w-3" />
-              </button>
-            </div>
-          )}
-
-          {/* Current phase */}
-          {phases[currentPhase] && (
-            <HQPhaseGroup
-              key={currentPhase}
-              phaseIdx={currentPhase}
-              phaseSections={phases[currentPhase]}
-              minionsBySection={minionsBySection}
-              childrenByParent={childrenByParent}
-              onOpen={handleOpen}
-              collapsed={collapsed}
-              toggle={toggle}
-              timeOfDay={timeOfDay}
-            />
-          )}
+            )}
+          </div>
         </div>
       )}
 
