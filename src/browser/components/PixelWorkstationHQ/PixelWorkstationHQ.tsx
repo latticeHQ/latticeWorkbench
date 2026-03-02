@@ -1,12 +1,13 @@
 /**
- * PixelWorkstationHQ — Agent Network grid layout + pixel art workstation cards.
+ * PixelWorkstationHQ — Agent Network grid layout with animated SVG minion cards.
  *
- * Clones ProjectHQOverview structure (phases, stages, snake layout) but
- * replaces ServiceNode text cards with pixel-art desk+character scenes.
- * Includes time-of-day ambient lighting (morning/afternoon/evening/night).
+ * Clones ProjectHQOverview structure (phases, stages, snake layout).
+ * Each minion card shows an animated SVG minion (state-driven: idle, typing,
+ * done, waiting) + tool config badges (model, provider, agent, runtime, skills).
+ * Includes time-of-day display in the metrics bar.
  */
 import {
-  useMemo, useCallback, useState, useEffect, useRef,
+  useMemo, useCallback, useState, useEffect,
 } from "react";
 import { cn } from "@/common/lib/utils";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
@@ -27,12 +28,11 @@ import { formatTokens } from "@/common/utils/tokens/tokenMeterUtils";
 import { CliAgentIcon } from "../CliAgentIcon";
 import {
   type TimeOfDay,
-  buildPalette, deriveAppearance, buildDeskPalette,
+  buildDeskPalette,
   DESK_RECTS, DESK_VIEWBOX,
 } from "./sprites";
-import { useCardCanvas } from "./useCardCanvas";
-import { useCrewCanvas, type CrewMinion } from "./useCrewCanvas";
-import { SCENE_SCREEN_W, SCENE_SCREEN_H } from "./tileGrid";
+import { AnimatedMinion, type MinionState } from "./AnimatedMinion";
+import { MinionToolBadges, MinionModelBadge } from "./MinionToolBadges";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline step classifier (same as ProjectHQOverview)
@@ -182,12 +182,11 @@ function StageCostBadge({ minions, color }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pixel Workstation Card — Canvas 2D rendered
+// Pixel Workstation Card — Animated SVG minion + tool badges
 // ─────────────────────────────────────────────────────────────────────────────
-function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
+function PixelWorkstationCard({ ws, sidekicks, accent, onOpen }: {
   ws: FrontendMinionMetadata; sidekicks: FrontendMinionMetadata[];
   accent: string; onOpen: (ws: FrontendMinionMetadata) => void;
-  timeOfDay: TimeOfDay;
 }) {
   const state   = useMinionSidebarState(ws.id);
   const usage   = useMinionUsage(ws.id);
@@ -199,15 +198,7 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
   const cost    = getTotalCost(usage.sessionTotal) ?? 0;
   const tok     = usage.totalTokens;
 
-  // Character appearance — deterministic from minion ID
-  const appearance = useMemo(() => deriveAppearance(ws.id), [ws.id]);
-  const charPalette = useMemo(() => buildPalette(accent, appearance), [accent, appearance]);
-  const deskPalette = useMemo(() => buildDeskPalette(accent, live, timeOfDay), [accent, live, timeOfDay]);
-
-  // Canvas 2D hook — replaces useCharacterWalk + PixelDesk + PixelCharacter
-  const canvasRef = useCardCanvas(
-    appearance, charPalette, deskPalette, timeOfDay, accent, live, waiting, done,
-  );
+  const minionState: MinionState = live ? "typing" : done ? "done" : waiting ? "waiting" : "idle";
 
   const sorted = useMemo(
     () => [...sidekicks].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
@@ -236,25 +227,26 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
       }} />
 
       <div className="flex flex-col gap-1.5 p-2">
-        {/* ── Pixel scene: Canvas 2D rendered desk + character ── */}
-        <div
-          className="relative rounded-md overflow-hidden"
-          style={{ width: SCENE_SCREEN_W, height: SCENE_SCREEN_H, margin: "0 auto" }}
-        >
-          <canvas
-            ref={canvasRef as React.RefObject<HTMLCanvasElement>}
-            style={{ imageRendering: "pixelated", display: "block" }}
-          />
-          {/* Waiting bubble overlay */}
-          {waiting && (
-            <div className="absolute top-0.5 left-1/3 text-[10px] font-bold text-amber-400 animate-bounce z-20">?</div>
-          )}
-          {/* Done checkmark overlay */}
-          {done && (
-            <div className="absolute top-0.5 right-1 text-[var(--color-success)] z-20">
-              <CheckCircle2 className="h-3 w-3" />
-            </div>
-          )}
+        {/* ── Minion SVG + Tool Badges ── */}
+        <div className="flex items-start gap-2">
+          <div className="relative shrink-0">
+            <AnimatedMinion
+              crewColor={accent}
+              state={minionState}
+              size={64}
+            />
+            {/* Waiting bubble overlay */}
+            {waiting && (
+              <div className="absolute -top-1 right-0 text-[10px] font-bold text-amber-400 animate-bounce z-20">?</div>
+            )}
+            {/* Done checkmark overlay */}
+            {done && (
+              <div className="absolute -top-1 right-0 text-[var(--color-success)] z-20">
+                <CheckCircle2 className="h-3 w-3" />
+              </div>
+            )}
+          </div>
+          <MinionToolBadges ws={ws} />
         </div>
 
         {/* ── Info overlay ── */}
@@ -321,122 +313,31 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared crew station card — Canvas 2D rendered, one desk + multiple pixel characters
+// Shared crew station card — per-minion rows with SVG minion + tool badges
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Hook to build CrewMinion[] from FrontendMinionMetadata + sidebar state. */
-function useCrewMinions(minions: FrontendMinionMetadata[], accent: string): CrewMinion[] {
-  // We need to call hooks in a stable order — so we call useMinionSidebarState
-  // per-minion inside a child component. Instead, build the data without hooks
-  // and let the crew canvas sync state from the parent.
-  return useMemo(() => minions.map(ws => {
-    const appearance = deriveAppearance(ws.id);
-    return {
-      minionId: ws.id,
-      appearance,
-      charPalette: buildPalette(accent, appearance),
-      accentHex: accent,
-      isActive: ws.taskStatus === "running",
-      isWaiting: false, // Updated via CrewMinionStateSync below
-      isDone: ws.taskStatus === "reported",
-    };
-  }), [minions, accent]);
-}
-
-/** Syncs sidebar state into CrewMinion entries reactively. */
-function CrewMinionStateSync({ ws, crewMinions }: {
-  ws: FrontendMinionMetadata; crewMinions: CrewMinion[];
-}) {
-  const state = useMinionSidebarState(ws.id);
-  const live = state.canInterrupt || state.isStarting;
-  const waiting = !live && state.awaitingUserQuestion;
-  const done = ws.taskStatus === "reported";
-
-  // Imperatively patch the CrewMinion entry
-  const entry = crewMinions.find(m => m.minionId === ws.id);
-  if (entry) {
-    entry.isActive = live;
-    entry.isWaiting = waiting;
-    entry.isDone = done;
-  }
-
-  return null;
-}
-
-function SharedCrewStationCard({ minions, accent, onOpen, timeOfDay }: {
+function SharedCrewStationCard({ minions, accent, onOpen }: {
   minions: FrontendMinionMetadata[];
   accent: string;
   onOpen: (ws: FrontendMinionMetadata) => void;
-  timeOfDay: TimeOfDay;
 }) {
-  const hasLive = minions.some(ws => ws.taskStatus === "running");
-  const deskPalette = useMemo(
-    () => buildDeskPalette(accent, hasLive, timeOfDay),
-    [accent, hasLive, timeOfDay]
-  );
-
-  // Build crew minion data
-  const crewMinions = useCrewMinions(minions, accent);
-
-  // Crew scene dimensions — responsive via ResizeObserver
-  const [sceneSize, setSceneSize] = useState({ width: 400, height: 280 });
-  const containerElRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const node = containerElRef.current;
-    if (!node) return;
-    const ro = new ResizeObserver(entries => {
-      const entry = entries[0];
-      if (entry) {
-        const w = Math.round(entry.contentRect.width);
-        const h = Math.round(entry.contentRect.height);
-        if (w > 0 && h > 0) setSceneSize(prev =>
-          prev.width === w && prev.height === h ? prev : { width: w, height: h }
-        );
-      }
-    });
-    ro.observe(node);
-    return () => ro.disconnect();
-  }, []);
-
-  // Canvas 2D hook — replaces all CSS divs + MinionSvg + CharacterInScene
-  const canvasRef = useCrewCanvas(
-    deskPalette, timeOfDay, sceneSize.width, sceneSize.height, crewMinions,
-  );
-
   return (
-    <div className="flex flex-col gap-1.5 p-2">
-      {/* Sync per-minion sidebar state reactively */}
-      {minions.map(ws => (
-        <CrewMinionStateSync key={ws.id} ws={ws} crewMinions={crewMinions} />
-      ))}
-
-      {/* ── Scene: Canvas 2D rendered wall, floor, desk, pixel characters ── */}
+    <div className="flex flex-col gap-2 p-2">
+      {/* ── Per-minion cards with animated SVG + tool badges ── */}
       <div
-        ref={containerElRef}
-        className="relative w-full rounded-md overflow-hidden"
-        style={{ height: "clamp(200px, 22vw, 340px)" }}
-      >
-        <canvas
-          ref={canvasRef as React.RefObject<HTMLCanvasElement>}
-          style={{ imageRendering: "pixelated", display: "block", width: "100%", height: "100%" }}
-        />
-      </div>
-
-      {/* ── Minion list — 2 columns when crew is large ── */}
-      <div
-        className="grid gap-x-2 gap-y-0.5"
-        style={{ gridTemplateColumns: minions.length > 2 ? "1fr 1fr" : "1fr" }}
+        className="grid gap-2"
+        style={{ gridTemplateColumns: minions.length > 1 ? "repeat(auto-fill, minmax(160px, 1fr))" : "1fr" }}
       >
         {minions.map(ws => (
-          <MinionRow key={ws.id} ws={ws} accent={accent} onOpen={onOpen} />
+          <MinionCrewCard key={ws.id} ws={ws} accent={accent} onOpen={onOpen} />
         ))}
       </div>
     </div>
   );
 }
 
-/** Compact clickable row for a single minion in the shared crew card. */
-function MinionRow({ ws, accent, onOpen }: {
+/** Crew mini card — bigger minion (48px) + title + model badge + cost. */
+function MinionCrewCard({ ws, accent, onOpen }: {
   ws: FrontendMinionMetadata; accent: string; onOpen: (ws: FrontendMinionMetadata) => void;
 }) {
   const state   = useMinionSidebarState(ws.id);
@@ -447,47 +348,62 @@ function MinionRow({ ws, accent, onOpen }: {
   const queued  = ws.taskStatus === "queued";
   const title   = ws.title ?? ws.name;
   const cost    = getTotalCost(usage.sessionTotal) ?? 0;
+  const minionState: MinionState = live ? "typing" : done ? "done" : waiting ? "waiting" : "idle";
 
   return (
     <button
       type="button"
       onClick={() => onOpen(ws)}
       className={cn(
-        "group/row flex items-center gap-1.5 rounded px-1.5 py-1 text-left w-full",
-        "transition-colors hover:bg-white/5 cursor-pointer",
-        done && "opacity-50",
-        queued && "opacity-70"
+        "group/card relative flex flex-col items-center gap-1.5 rounded-lg px-2 py-2 text-center w-full",
+        "transition-all duration-150 cursor-pointer border border-transparent",
+        "hover:bg-white/5 hover:border-border/30",
+        live    && "bg-[var(--color-exec-mode)]/4 border-[var(--color-exec-mode)]/20",
+        waiting && "border-amber-400/20",
+        done    && "opacity-45",
+        queued  && "opacity-60"
       )}
     >
-      {/* Status dot */}
-      {live    ? <LiveDot size="sm" /> :
-       done    ? <CheckCircle2 className="h-2.5 w-2.5 shrink-0 text-success" /> :
-       waiting ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 block" /> :
-       queued  ? <span className="h-1.5 w-1.5 rounded-full border border-muted/40 shrink-0 block" /> :
-                 <span className="h-1.5 w-1.5 rounded-full bg-muted/20 shrink-0 block" />}
+      {/* Animated SVG minion */}
+      <div className="relative">
+        <AnimatedMinion
+          crewColor={accent}
+          state={minionState}
+          size={48}
+        />
+        {/* Status overlays */}
+        {live && <LiveDot size="sm" />}
+        {waiting && (
+          <div className="absolute -top-1 -right-1 text-[9px] font-bold text-amber-400 animate-bounce">?</div>
+        )}
+        {done && (
+          <div className="absolute -top-0.5 -right-0.5 text-[var(--color-success)]">
+            <CheckCircle2 className="h-2.5 w-2.5" />
+          </div>
+        )}
+      </div>
+
       {/* Title */}
       <span className={cn(
-        "flex-1 min-w-0 text-[10px] font-medium leading-tight truncate",
-        live ? "text-foreground" : "text-foreground/60"
+        "w-full text-[9px] font-medium leading-tight truncate",
+        live ? "text-foreground" : "text-foreground/55"
       )}>
         {live
           ? <Shimmer colorClass="var(--color-foreground)" className="block truncate">{title}</Shimmer>
           : <span className="block truncate">{title}</span>}
       </span>
-      {/* Cost */}
-      {cost > 0 && (
-        <span className="shrink-0 text-[8px] tabular-nums" style={{ color: `${accent}60` }}>
-          ${formatCostWithDollar(cost)}
-        </span>
-      )}
-      {/* Time */}
-      {ws.createdAt && (
-        <span className="shrink-0 text-[8px] text-muted/30 flex items-center gap-0.5">
-          <Clock className="h-1.5 w-1.5" />
-          {new Date(ws.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-        </span>
-      )}
-      <ArrowRight className="h-2.5 w-2.5 shrink-0 text-muted/20 opacity-0 group-hover/row:opacity-60 transition-opacity" />
+
+      {/* Model badge + cost */}
+      <div className="flex items-center gap-1 flex-wrap justify-center">
+        <MinionModelBadge ws={ws} />
+        {cost > 0 && (
+          <span className="text-[7px] tabular-nums" style={{ color: `${accent}55` }}>
+            ${formatCostWithDollar(cost)}
+          </span>
+        )}
+      </div>
+
+      <ArrowRight className="absolute right-1 top-1 h-2.5 w-2.5 text-muted/20 opacity-0 group-hover/card:opacity-60 transition-opacity" />
     </button>
   );
 }
@@ -497,14 +413,13 @@ function MinionRow({ ws, accent, onOpen }: {
 // ─────────────────────────────────────────────────────────────────────────────
 function HQStageBox({
   section, minions, childrenByParent: _childrenByParent, onOpen,
-  stageIdx, collapsed, onToggle, timeOfDay,
+  stageIdx, collapsed, onToggle,
 }: {
   section: CrewConfig;
   minions: FrontendMinionMetadata[];
   childrenByParent: Map<string, FrontendMinionMetadata[]>;
   onOpen: (ws: FrontendMinionMetadata) => void;
   stageIdx: number; collapsed: boolean; onToggle: () => void;
-  timeOfDay: TimeOfDay;
 }) {
   const color   = resolveCrewColor(section.color);
   const active  = minions.some(w => w.taskStatus === "running");
@@ -587,7 +502,6 @@ function HQStageBox({
           minions={minions}
           accent={color}
           onOpen={onOpen}
-          timeOfDay={timeOfDay}
         />
       )}
     </div>
@@ -601,7 +515,7 @@ const PHASE_SIZE = 3;
 
 function HQPhaseGroup({
   phaseIdx, phaseSections, minionsBySection, childrenByParent,
-  onOpen, collapsed, toggle, timeOfDay,
+  onOpen, collapsed, toggle,
 }: {
   phaseIdx: number;
   phaseSections: CrewConfig[];
@@ -610,7 +524,6 @@ function HQPhaseGroup({
   onOpen: (ws: FrontendMinionMetadata) => void;
   collapsed: Set<string>;
   toggle: (id: string) => void;
-  timeOfDay: TimeOfDay;
 }) {
   const phaseActive = phaseSections.some(
     s => (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
@@ -685,7 +598,6 @@ function HQPhaseGroup({
             stageIdx={phaseIdx * PHASE_SIZE + logicalIdx}
             collapsed={collapsed.has(sec.id)}
             onToggle={() => toggle(sec.id)}
-            timeOfDay={timeOfDay}
           />
         ))}
       </div>
@@ -987,7 +899,6 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
               onOpen={handleOpen}
               collapsed={collapsed}
               toggle={toggle}
-              timeOfDay={timeOfDay}
             />
           )}
         </div>
@@ -1008,8 +919,7 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
             {unsectioned.map(ws => (
               <PixelWorkstationCard key={ws.id} ws={ws}
                 sidekicks={childrenByParent.get(ws.id) ?? []}
-                accent="#6b7280" onOpen={handleOpen}
-                timeOfDay={timeOfDay} />
+                accent="#6b7280" onOpen={handleOpen} />
             ))}
           </div>
         </div>
