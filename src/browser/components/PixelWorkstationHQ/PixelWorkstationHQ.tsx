@@ -32,7 +32,7 @@ import {
   DESK_RECTS,
 } from "./pixelSprites";
 import { useCharacterWalk } from "./useCharacterWalk";
-import { SCENE_PX_W, SCENE_PX_H } from "./tileGrid";
+import { SCENE_PX_W, SCENE_PX_H, DESK_SVG_W, DESK_SVG_H } from "./tileGrid";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline step classifier (same as ProjectHQOverview)
@@ -240,9 +240,16 @@ function PixelDesk({ palette, timeOfDay }: { palette: DeskPalette; timeOfDay: Ti
 const CHAR_SCALE = 3;
 /** Character sprite dimensions in pixel-space (8×12 grid). */
 const CHAR_PX_W = 8;
-const CHAR_PX_H = 12;
+/** Row of the shoe pixels in the sprite — used as the foot anchor. */
+const CHAR_FEET_ROW = 10;
 
-/** CSS box-shadow pixel character with animation and absolute positioning. */
+/** Scene container screen dimensions. */
+const SCENE_SCREEN_W = SCENE_PX_W * CHAR_SCALE; // 108
+const SCENE_SCREEN_H = SCENE_PX_H * CHAR_SCALE; // 72
+/** Horizontal offset to center the desk SVG (102px) inside the container (108px). */
+const DESK_OFFSET_X = Math.floor((SCENE_SCREEN_W - DESK_SVG_W) / 2); // 3
+
+/** CSS box-shadow pixel character with animation and feet-anchored positioning. */
 function PixelCharacter({
   charState, palette, x, y,
 }: {
@@ -270,21 +277,21 @@ function PixelCharacter({
     [frames, frameIdx, palette]
   );
 
-  // Convert pixel-space coords to screen coords (multiply by scale)
-  // Center the character sprite on the tile position
+  // Feet-based anchoring: tile position = where the character's feet are.
+  // The shoe row (10) aligns with the tile center vertically.
+  // Horizontally the sprite is centered on the tile.
   const screenLeft = x * CHAR_SCALE - (CHAR_PX_W * CHAR_SCALE) / 2;
-  const screenTop  = y * CHAR_SCALE - (CHAR_PX_H * CHAR_SCALE) / 2;
+  const screenTop  = y * CHAR_SCALE - CHAR_FEET_ROW * CHAR_SCALE;
 
   return (
     <div
       className="absolute"
       style={{
         width: CHAR_PX_W * CHAR_SCALE,
-        height: CHAR_PX_H * CHAR_SCALE,
+        height: CHAR_PX_W * CHAR_SCALE + CHAR_FEET_ROW * CHAR_SCALE, // full sprite height
         left: screenLeft,
         top: screenTop,
         zIndex: 10,
-        // No transition — smooth movement comes from 64ms publish rate in hook
       }}
     >
       <div
@@ -359,8 +366,8 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
           className="relative rounded-md overflow-hidden"
           style={{
             background: `${accent}08`,
-            width: SCENE_PX_W * CHAR_SCALE,
-            height: SCENE_PX_H * CHAR_SCALE,
+            width: SCENE_SCREEN_W,
+            height: SCENE_SCREEN_H,
             margin: "0 auto",
           }}
         >
@@ -368,14 +375,27 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
           {live && (
             <div
               className="absolute inset-0 animate-pulse"
-              style={{ background: `radial-gradient(ellipse at 50% 30%, ${accent}15 0%, transparent 70%)` }}
+              style={{ background: `radial-gradient(ellipse at 50% 20%, ${accent}15 0%, transparent 60%)` }}
             />
           )}
-          {/* Desk as background layer */}
-          <div className="absolute inset-0 flex items-center justify-center">
+
+          {/* Floor area below desk — subtle pixel tile pattern */}
+          <div
+            className="absolute left-0 right-0 bottom-0"
+            style={{
+              top: DESK_SVG_H,
+              background: `${accent}06`,
+              backgroundImage: `radial-gradient(circle, ${accent}12 0.5px, transparent 0.5px)`,
+              backgroundSize: "6px 6px",
+            }}
+          />
+
+          {/* Desk as background layer — positioned at top */}
+          <div className="absolute" style={{ top: 0, left: DESK_OFFSET_X }}>
             <PixelDesk palette={deskPalette} timeOfDay={timeOfDay} />
           </div>
-          {/* Character — absolutely positioned by walk hook */}
+
+          {/* Character — feet-anchored, positioned by walk hook */}
           <PixelCharacter
             charState={walkResult.charState}
             palette={charPalette}
