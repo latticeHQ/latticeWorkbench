@@ -6,11 +6,10 @@
  *
  * Render pipeline per frame:
  *   1. Clear canvas
- *   2. Draw wood floor background
+ *   2. Draw wood floor background (themed)
  *   3. Draw ambient glow (if live)
  *   4. Draw pre-rendered desk
  *   5. Draw character sprite from atlas
- *   6. Draw status indicators
  */
 
 import type { SceneSubscriber } from "./gameLoop";
@@ -19,7 +18,7 @@ import { CHAR_GRID_W } from "../sprites/types";
 import { getSpriteAtlas, type SpriteAtlas } from "./spriteCache";
 import { getDeskCanvas, type DeskRenderCache } from "./deskRenderer";
 import { WalkController } from "./walkController";
-import { drawWoodFloor, drawAmbientGlow } from "./environmentRenderer";
+import { drawWoodFloor, drawAmbientGlow, getThemeMode } from "./environmentRenderer";
 import { SCENE_SCREEN_W, SCENE_SCREEN_H } from "../tileGrid";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,16 +48,18 @@ export class CardScene implements SceneSubscriber {
   // State
   private isLive = false;
   private accentHex = "#6366f1";
+  private timeOfDay: TimeOfDay = "afternoon";
 
   constructor(
     canvas: HTMLCanvasElement,
     appearance: CharacterAppearance,
     charPalette: CharPalette,
     deskPalette: DeskPalette,
-    _timeOfDay: TimeOfDay,
+    timeOfDay: TimeOfDay,
     accentHex: string,
   ) {
     this.accentHex = accentHex;
+    this.timeOfDay = timeOfDay;
 
     // Setup canvas
     const dpr = window.devicePixelRatio || 1;
@@ -90,11 +91,12 @@ export class CardScene implements SceneSubscriber {
     appearance: CharacterAppearance,
     charPalette: CharPalette,
     deskPalette: DeskPalette,
-    _timeOfDay: TimeOfDay,
+    timeOfDay: TimeOfDay,
     accentHex: string,
   ): void {
     this.atlas = getSpriteAtlas(appearance, charPalette);
     this.deskCache = getDeskCanvas(deskPalette);
+    this.timeOfDay = timeOfDay;
     this.accentHex = accentHex;
   }
 
@@ -112,12 +114,13 @@ export class CardScene implements SceneSubscriber {
     const ctx = this.ctx;
     const W = SCENE_SCREEN_W;
     const H = SCENE_SCREEN_H;
+    const theme = getThemeMode();
 
     // 1. Clear
     ctx.clearRect(0, 0, W, H);
 
-    // 2. Wood floor background
-    drawWoodFloor(ctx, 0, 0, W, H);
+    // 2. Wood floor background (themed)
+    drawWoodFloor(ctx, 0, 0, W, H, this.timeOfDay, theme);
 
     // 3. Ambient glow when live
     if (this.isLive) {

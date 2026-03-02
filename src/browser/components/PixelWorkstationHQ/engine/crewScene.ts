@@ -22,7 +22,7 @@ import { getSpriteAtlas, type SpriteAtlas } from "./spriteCache";
 import { getDeskCanvas, type DeskRenderCache } from "./deskRenderer";
 import { WalkController } from "./walkController";
 import {
-  drawWallPattern, drawFloorPattern, drawFloorLine, drawAmbientGlow,
+  drawSceneGrid, drawAmbientGlow, getThemeMode,
 } from "./environmentRenderer";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -179,18 +179,13 @@ export class CrewScene implements SceneSubscriber {
     const W = this._width;
     const H = this._height;
     const wallH = Math.floor(H * WALL_RATIO);
+    const theme = getThemeMode();
 
     // 1. Clear
     ctx.clearRect(0, 0, W, H);
 
-    // 2. Wall panel (top)
-    drawWallPattern(ctx, 0, 0, W, wallH, this.timeOfDay);
-
-    // 3. Floor panel (bottom)
-    drawFloorPattern(ctx, 0, wallH, W, H - wallH, this.timeOfDay);
-
-    // 4. Contact line
-    drawFloorLine(ctx, 0, wallH, W, this.timeOfDay);
+    // 2–4. Unified scene grid (wall + floor + contact line)
+    drawSceneGrid(ctx, 0, 0, W, H, wallH, this.timeOfDay, theme);
 
     // 5. Ambient glow for any live minion
     let anyLive = false;
