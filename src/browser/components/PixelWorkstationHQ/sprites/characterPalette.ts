@@ -1,31 +1,31 @@
 /**
- * Character appearance variety and palette builder.
+ * Minion appearance variety and palette builder.
  *
- * Each minion gets a unique look derived deterministically from its ID hash,
- * so the same minion always looks the same across sessions.
+ * All minions have the classic yellow pill body with goggles.
+ * Crew color determines overalls. Hair wisp style provides minor variety.
  */
 
 import type { CharacterAppearance, CharPalette } from "./types";
 import { darken } from "./colorUtils";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Variety tables
+// Minion constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Skin tones — light to dark. */
-export const SKIN_TONES = [
-  "#f5d0b0", // light
-  "#dbb99a", // medium
-  "#c18e6b", // tan
-  "#8d5e3c", // dark
+/** Classic minion yellow. */
+const MINION_YELLOW = "#FFD700";
+
+/** Hair wisp colors — all dark, slight variety. */
+export const HAIR_COLORS = [
+  "#222222", // very dark
+  "#333333", // dark gray
+  "#1a1a1a", // near black
+  "#2c2c2c", // charcoal
 ] as const;
 
-/** Hair colors — indexed by hairStyle for variety. */
-export const HAIR_COLORS = [
-  "#2a1f14", // very dark brown (short)
-  "#6b5344", // medium brown (medium)
-  "#d4a843", // golden blonde (long)
-  "#c45c3e", // auburn/red (ponytail)
+// Kept for backward compat but unused — all minions are yellow.
+export const SKIN_TONES = [
+  MINION_YELLOW, MINION_YELLOW, MINION_YELLOW, MINION_YELLOW,
 ] as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -49,24 +49,23 @@ export function deriveAppearance(minionId: string): CharacterAppearance {
 // Palette builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Build a full character palette from crew hex + appearance. */
+/** Build a minion palette from crew hex + appearance. */
 export function buildPalette(
   crewHex: string,
   appearance: CharacterAppearance,
 ): CharPalette {
-  const skinColor = SKIN_TONES[appearance.skinTone];
   const hairColor = HAIR_COLORS[appearance.hairStyle];
   return {
     hair: hairColor,
-    skin: skinColor,
-    eyeWhite: "#f0f0f0",
-    eyePupil: "#1a1a2e",
-    shirt: crewHex,
-    shirtAccent: darken(crewHex, 22),
-    pants: "#3b4252",
-    belt: "#2e3440",
-    shoe: "#222630",
-    outline: "#1a1a2e",
-    shadow: darken(skinColor, 25),
+    skin: MINION_YELLOW,                // yellow body — all minions
+    eyeWhite: "#ffffff",                // goggle lens
+    eyePupil: "#654321",                // brown pupil
+    shirt: crewHex,                     // overalls (crew color)
+    shirtAccent: darken(crewHex, 18),   // suspender clasps
+    pants: crewHex,                     // overalls lower (same as shirt)
+    belt: "#444444",                    // goggle strap + gloves
+    shoe: "#222222",                    // shoes
+    outline: "#888888",                 // goggle rim
+    shadow: darken(MINION_YELLOW, 20),  // body shadow
   };
 }
