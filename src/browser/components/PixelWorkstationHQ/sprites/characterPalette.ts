@@ -63,9 +63,9 @@ export function buildPalette(
     shirt: crewHex,                     // overalls (crew color)
     shirtAccent: darken(crewHex, 18),   // suspender clasps
     pants: crewHex,                     // overalls lower (same as shirt)
-    belt: "#444444",                    // goggle strap + gloves
+    belt: "#333333",                    // goggle strap + gloves (darker for contrast)
     shoe: "#222222",                    // shoes
-    outline: "#888888",                 // goggle rim
-    shadow: darken(MINION_YELLOW, 20),  // body shadow
+    outline: "#999999",                 // goggle rim — silver/metallic
+    shadow: darken(MINION_YELLOW, 15),  // body edge shading (subtle)
   };
 }
