@@ -1,18 +1,31 @@
 /**
  * Mini tile grid + BFS pathfinding for pixel workstation card scenes.
  *
- * Each card's pixel scene is a 12×5 tile grid. Each tile is 3px in pixel-space
- * (rendered at 3× scale → 9px on screen). The grid defines walkable areas,
- * furniture obstacles, and utility functions for pathfinding.
+ * The scene is 12 columns × 8 rows. Each tile is 3 pixel-space units
+ * (rendered at 3× CSS scale → 9px on screen).
  *
- * Grid layout:
+ * The desk SVG occupies the top ~5 rows (monitors, desk surface, legs).
+ * Rows 5–7 are the FLOOR area where characters walk.
+ * Row 4 (desk legs) has walkable gaps to connect floor ↔ seat.
+ *
+ * Coordinate mapping to desk SVG (viewBox "-2 0 34 14"):
+ *   Tile col 0 center → SVG x ≈ -0.5 (lamp)
+ *   Tile col 11 center → SVG x ≈ 32.5 (shelf edge)
+ *   Tile row 0–4 → SVG y 0–15 (desk area)
+ *   Tile row 5–7 → SVG y 15–24 (floor, below desk)
+ *
+ * Grid layout (F=furniture/blocked, .=walkable, S=seat):
+ *
  *    0  1  2  3  4  5  6  7  8  9  10  11
  *  ┌──────────────────────────────────────┐
- * 0│  .  .  .  M  M  M  m  m  .  .  B  B │  monitors/bookshelf
- * 1│  .  .  .  .  .  .  .  .  .  .  .  . │  walkable corridor
- * 2│  .  .  .  .  S  .  .  .  .  .  .  . │  walkable (S=seat)
- * 3│  D  D  K  K  K  K  K  K  .  .  P  P │  desk/keyboard/plant
- * 4│  D  D  .  .  .  .  .  .  .  .  P  . │  desk legs/plant
+ * 0│  F  F  F  F  F  F  F  F  F  F  F  F │  wall / monitors
+ * 1│  F  F  F  F  F  F  F  F  F  F  F  F │  monitors / shelf
+ * 2│  F  F  F  F  F  F  F  F  F  F  F  F │  desk edge / screens
+ * 3│  F  F  F  F  F  F  F  F  F  F  F  F │  desk surface / keyboard
+ * 4│  .  F  .  .  S  .  .  .  F  F  F  . │  desk legs (gaps = path to seat)
+ * 5│  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 6│  .  .  .  .  .  .  .  .  .  .  .  . │  floor
+ * 7│  .  .  .  .  .  .  .  .  .  .  .  . │  floor
  *  └──────────────────────────────────────┘
  */
 
@@ -21,30 +34,36 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const SCENE_COLS = 12;
-export const SCENE_ROWS = 5;
+export const SCENE_ROWS = 8;
 
 /** Pixel-space size per tile (before CSS 3× scale). */
 export const MINI_TILE_PX = 3;
 
 /** Total pixel-space scene dimensions. */
 export const SCENE_PX_W = SCENE_COLS * MINI_TILE_PX; // 36
-export const SCENE_PX_H = SCENE_ROWS * MINI_TILE_PX; // 15
+export const SCENE_PX_H = SCENE_ROWS * MINI_TILE_PX; // 24
 
-/** The tile where a character sits to work (in front of the keyboard, facing monitors). */
-export const DESK_SEAT = { col: 4, row: 2 } as const;
+/** Screen-space desk SVG dimensions (viewBox "-2 0 34 14" at 3× scale). */
+export const DESK_SVG_W = 102;
+export const DESK_SVG_H = 42;
+
+/** The tile where a character sits to work (at desk legs level, front of keyboard). */
+export const DESK_SEAT = { col: 4, row: 4 } as const;
+
+/** First floor row (used for wander target filtering). */
+const FLOOR_ROW_START = 5;
 
 /** Walkable tiles — true = walkable, false = blocked by furniture. */
 const WALKABLE_MAP: boolean[][] = [
-  // Row 0: monitors + bookshelf on wall
-  [true, true, true, false, false, false, false, false, true, true, false, false],
-  // Row 1: open corridor behind desk
-  [true, true, true, true, true, true, true, true, true, true, true, true],
-  // Row 2: walkable area (desk seat at col 4)
-  [true, true, true, true, true, true, true, true, true, true, true, true],
-  // Row 3: desk surface + keyboard + plant
-  [false, false, false, false, false, false, false, false, true, true, false, false],
-  // Row 4: desk legs + plant pot (partially blocked)
-  [false, false, true, true, true, true, true, true, true, true, false, true],
+  //  0     1     2     3     4     5     6     7     8     9    10    11
+  [false,false,false,false,false,false,false,false,false,false,false,false], // row 0: wall/monitors
+  [false,false,false,false,false,false,false,false,false,false,false,false], // row 1: monitors/shelf
+  [false,false,false,false,false,false,false,false,false,false,false,false], // row 2: screens/desk edge
+  [false,false,false,false,false,false,false,false,false,false,false,false], // row 3: desk surface/keyboard
+  [ true,false, true, true, true, true, true, true,false,false,false, true], // row 4: desk legs (seat + gaps)
+  [ true, true, true, true, true, true, true, true, true, true, true, true], // row 5: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true], // row 6: floor
+  [ true, true, true, true, true, true, true, true, true, true, true, true], // row 7: floor
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -149,28 +168,36 @@ export function tileToPixel(col: number, row: number): { x: number; y: number } 
 // Random tile picker
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** All walkable tiles, pre-computed for random selection. */
+/** All walkable tiles, pre-computed. */
 const ALL_WALKABLE: Tile[] = [];
+/** Floor-only walkable tiles (rows 5+), for wander targets. */
+const FLOOR_WALKABLE: Tile[] = [];
+
 for (let r = 0; r < SCENE_ROWS; r++) {
   for (let c = 0; c < SCENE_COLS; c++) {
-    if (WALKABLE_MAP[r][c]) ALL_WALKABLE.push({ col: c, row: r });
+    if (WALKABLE_MAP[r][c]) {
+      ALL_WALKABLE.push({ col: c, row: r });
+      if (r >= FLOOR_ROW_START) {
+        FLOOR_WALKABLE.push({ col: c, row: r });
+      }
+    }
   }
 }
 
 /**
- * Pick a random walkable tile. Optionally exclude a specific tile
- * (e.g. current position to avoid picking the same spot).
+ * Pick a random FLOOR tile for wander targets.
+ * Only returns tiles from the floor area (row 5+), never desk-area tiles.
  */
 export function getRandomWalkableTile(
   excludeCol?: number,
   excludeRow?: number,
 ): Tile {
-  let candidates = ALL_WALKABLE;
+  let candidates = FLOOR_WALKABLE;
   if (excludeCol !== undefined && excludeRow !== undefined) {
-    candidates = ALL_WALKABLE.filter(
+    candidates = FLOOR_WALKABLE.filter(
       t => t.col !== excludeCol || t.row !== excludeRow
     );
   }
-  if (candidates.length === 0) return { col: 0, row: 0 };
+  if (candidates.length === 0) return { col: 4, row: 6 };
   return candidates[Math.floor(Math.random() * candidates.length)];
 }
