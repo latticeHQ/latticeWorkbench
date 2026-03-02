@@ -18,7 +18,7 @@ import type { FrontendMinionMetadata } from "@/common/types/minion";
 import type { CrewConfig } from "@/common/types/project";
 import {
   CheckCircle2, Clock, DollarSign, Zap, Users, Building,
-  ChevronDown, ChevronRight, Activity, ArrowRight,
+  ChevronDown, ChevronRight, ChevronLeft, Activity, ArrowRight,
   Sun, Moon, Sunrise, Sunset,
 } from "lucide-react";
 import { Shimmer } from "../ai-elements/shimmer";
@@ -34,7 +34,10 @@ import {
   DESK_RECTS, DESK_VIEWBOX, DESK_RENDER_W, DESK_RENDER_H,
 } from "./sprites";
 import { useCharacterWalk } from "./useCharacterWalk";
-import { SCENE_SCREEN_W, SCENE_SCREEN_H } from "./tileGrid";
+import { SCENE_SCREEN_W, SCENE_SCREEN_H, SCENE_PX_W, SCENE_PX_H } from "./tileGrid";
+
+/** Scale factor applied to the shared crew workstation scene. */
+const WORKSTATION_SCALE = 2;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline step classifier (same as ProjectHQOverview)
@@ -484,6 +487,268 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen, timeOfDay }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Minion SVG sprite — clean vector cartoon style
+// ViewBox 0 0 200 300, scaled responsively
+// ─────────────────────────────────────────────────────────────────────────────
+function MinionSvg({
+  accent, flipped, walking, typing,
+}: {
+  accent: string; flipped: boolean; walking: boolean; typing: boolean;
+}) {
+  const Y = "#FFD700";  // minion yellow
+  const B = accent;     // overalls = crew colour
+
+  const anim = walking
+    ? "minionWalk 0.55s ease-in-out infinite"
+    : typing
+    ? "minionType 0.5s ease-in-out infinite"
+    : undefined;
+
+  return (
+    <svg
+      viewBox="0 0 200 300"
+      style={{
+        width: "clamp(28px, 3.5vw, 58px)",
+        height: "auto",
+        display: "block",
+        transform: flipped ? "scaleX(-1)" : undefined,
+        animation: anim,
+        overflow: "visible",
+      }}
+    >
+      {/* ── Yellow pill body — taller for more visible face/neck ── */}
+      <rect x="50" y="40" width="100" height="190" rx="50" fill={Y} />
+
+      {/* ── Overalls: rounded bottom + bib ── */}
+      <path d="M50 185 v 30 a 50 50 0 0 0 100 0 v -30 z" fill={B} />
+      <rect x="70" y="155" width="60" height="40" fill={B} />
+
+      {/* ── Suspender straps + clasps ── */}
+      <path d="M45 105 L 75 158" stroke={B} strokeWidth="8" strokeLinecap="round" />
+      <path d="M155 105 L 125 158" stroke={B} strokeWidth="8" strokeLinecap="round" />
+      <circle cx="72" cy="158" r="4" fill="#111" />
+      <circle cx="128" cy="158" r="4" fill="#111" />
+
+      {/* ── Arms + hands ── */}
+      <path d="M45 158 Q 25 188 35 210" stroke={Y} strokeWidth="10" strokeLinecap="round" fill="none" />
+      <circle cx="36" cy="212" r="8" fill="#333" />
+      <path d="M155 158 Q 175 188 165 210" stroke={Y} strokeWidth="10" strokeLinecap="round" fill="none" />
+      <circle cx="164" cy="212" r="8" fill="#333" />
+
+      {/* ── Legs + shoes ── */}
+      <rect x="75" y="228" width="14" height="25" fill={B} />
+      <rect x="111" y="228" width="14" height="25" fill={B} />
+      <ellipse cx="82" cy="253" rx="16" ry="8" fill="#222" />
+      <ellipse cx="118" cy="253" rx="16" ry="8" fill="#222" />
+
+      {/* ── Goggle strap ── */}
+      <rect x="45" y="75" width="110" height="14" fill="#333" />
+
+      {/* ── Goggles + pupils ── */}
+      <circle cx="78" cy="82" r="20" fill="#fff" stroke="#999" strokeWidth="6" />
+      <circle cx="122" cy="82" r="20" fill="#fff" stroke="#999" strokeWidth="6" />
+      <circle cx="82" cy="82" r="6" fill="#654321" />
+      <circle cx="82" cy="82" r="2" fill="#000" />
+      <circle cx="118" cy="82" r="6" fill="#654321" />
+      <circle cx="118" cy="82" r="2" fill="#000" />
+
+      {/* ── Smile ── */}
+      <path d="M 85 110 Q 100 120 115 110" stroke="#333" strokeWidth="2" fill="none" strokeLinecap="round" />
+
+      {/* ── Hair wisps ── */}
+      <path d="M 95 42 Q 90 20 85 15" stroke="#111" strokeWidth="2" fill="none" strokeLinecap="round" />
+      <path d="M 100 40 Q 100 20 100 10" stroke="#111" strokeWidth="2" fill="none" strokeLinecap="round" />
+      <path d="M 105 42 Q 110 20 115 15" stroke="#111" strokeWidth="2" fill="none" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Character in shared scene — owns its own walk hook so React rules are safe
+// Positions via % of scene so minions walk the full-width canvas
+// ─────────────────────────────────────────────────────────────────────────────
+function CharacterInScene({ ws, accent, zIndex }: {
+  ws: FrontendMinionMetadata; accent: string; zIndex: number;
+}) {
+  const state   = useMinionSidebarState(ws.id);
+  const live    = state.canInterrupt || state.isStarting;
+  const waiting = !live && state.awaitingUserQuestion;
+  const done    = ws.taskStatus === "reported";
+  const walkResult = useCharacterWalk(live, waiting, done);
+
+  // Map pixel-space coords → percentage of scene dimensions
+  const leftPct = (walkResult.x / SCENE_PX_W) * 100;
+  const topPct  = (walkResult.y / SCENE_PX_H) * 100;
+
+  const flipped = walkResult.direction === "left";
+  const walking = walkResult.charState === "walk_left" || walkResult.charState === "walk_right";
+  const typing  = walkResult.charState === "typing";
+
+  return (
+    <div
+      className="absolute"
+      style={{
+        left: `${leftPct}%`,
+        top:  `${topPct}%`,
+        transform: "translate(-50%, -100%)",
+        zIndex,
+        filter: live ? `drop-shadow(0 0 3px ${accent}99)` : undefined,
+        opacity: done ? 0.4 : 1,
+        transition: "opacity 0.3s",
+      }}
+    >
+      <MinionSvg accent={accent} flipped={flipped} walking={walking} typing={typing} />
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared crew station card — one desk, multiple characters, minion list below
+// ─────────────────────────────────────────────────────────────────────────────
+function SharedCrewStationCard({ minions, accent, onOpen, timeOfDay }: {
+  minions: FrontendMinionMetadata[];
+  accent: string;
+  onOpen: (ws: FrontendMinionMetadata) => void;
+  timeOfDay: TimeOfDay;
+}) {
+  const hasLive = minions.some(ws => ws.taskStatus === "running");
+  const deskPalette = useMemo(
+    () => buildDeskPalette(accent, hasLive, timeOfDay),
+    [accent, hasLive, timeOfDay]
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5 p-2">
+      {/* ── Scene: wall zone (top ~33%) anchors desk / floor zone (bottom ~67%) minions roam ── */}
+      {/* Height is viewport-relative: grows with card width (cards are ~50vw in 2-col layout) */}
+      <div
+        className="relative w-full rounded-md overflow-hidden"
+        style={{ height: "clamp(200px, 22vw, 340px)" }}
+      >
+        {/* Wall panel — graph-paper grid tint behind desk */}
+        <div
+          className="absolute inset-x-0 top-0"
+          style={{
+            height: "33%",
+            background: "rgba(20,20,35,0.10)",
+            backgroundImage: `
+              linear-gradient(rgba(100,100,140,0.07) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(100,100,140,0.07) 1px, transparent 1px)`,
+            backgroundSize: "16px 16px",
+          }}
+        />
+        {/* Floor area — dot grid where minions roam */}
+        <div
+          className="absolute inset-x-0 bottom-0"
+          style={{
+            top: "33%",
+            backgroundImage: `radial-gradient(circle, rgba(80,80,110,0.10) 1px, transparent 1px)`,
+            backgroundSize: "12px 12px",
+          }}
+        />
+        {/* Floor contact line — grounds the desk */}
+        <div
+          className="absolute inset-x-0"
+          style={{ top: "33%", height: "1px", background: "rgba(100,100,150,0.28)" }}
+        />
+
+        {hasLive && (
+          <div
+            className="absolute inset-0 animate-pulse pointer-events-none"
+            style={{ background: `radial-gradient(ellipse at 50% 25%, ${accent}18 0%, transparent 65%)` }}
+          />
+        )}
+
+        {/* Desk — 2× scaled, centered, pinned to top */}
+        <div
+          className="absolute"
+          style={{
+            top: 0,
+            left: "50%",
+            transform: `translateX(-50%) scale(${WORKSTATION_SCALE})`,
+            transformOrigin: "top center",
+          }}
+        >
+          <PixelDesk palette={deskPalette} timeOfDay={timeOfDay} />
+        </div>
+
+        {/* Minion agents — percentage-positioned, walk the full scene width */}
+        {minions.map((ws, i) => (
+          <CharacterInScene key={ws.id} ws={ws} accent={accent} zIndex={10 + i} />
+        ))}
+      </div>
+
+      {/* ── Minion list — 2 columns when crew is large ── */}
+      <div
+        className="grid gap-x-2 gap-y-0.5"
+        style={{ gridTemplateColumns: minions.length > 2 ? "1fr 1fr" : "1fr" }}
+      >
+        {minions.map(ws => (
+          <MinionRow key={ws.id} ws={ws} accent={accent} onOpen={onOpen} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Compact clickable row for a single minion in the shared crew card. */
+function MinionRow({ ws, accent, onOpen }: {
+  ws: FrontendMinionMetadata; accent: string; onOpen: (ws: FrontendMinionMetadata) => void;
+}) {
+  const state   = useMinionSidebarState(ws.id);
+  const usage   = useMinionUsage(ws.id);
+  const live    = state.canInterrupt || state.isStarting;
+  const waiting = !live && state.awaitingUserQuestion;
+  const done    = ws.taskStatus === "reported";
+  const queued  = ws.taskStatus === "queued";
+  const title   = ws.title ?? ws.name;
+  const cost    = getTotalCost(usage.sessionTotal) ?? 0;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(ws)}
+      className={cn(
+        "group/row flex items-center gap-1.5 rounded px-1.5 py-1 text-left w-full",
+        "transition-colors hover:bg-white/5 cursor-pointer",
+        done && "opacity-50",
+        queued && "opacity-70"
+      )}
+    >
+      {/* Status dot */}
+      {live    ? <LiveDot size="sm" /> :
+       done    ? <CheckCircle2 className="h-2.5 w-2.5 shrink-0 text-success" /> :
+       waiting ? <span className="h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0 block" /> :
+       queued  ? <span className="h-1.5 w-1.5 rounded-full border border-muted/40 shrink-0 block" /> :
+                 <span className="h-1.5 w-1.5 rounded-full bg-muted/20 shrink-0 block" />}
+      {/* Title */}
+      <span className={cn(
+        "flex-1 min-w-0 text-[10px] font-medium leading-tight truncate",
+        live ? "text-foreground" : "text-foreground/60"
+      )}>
+        {live
+          ? <Shimmer colorClass="var(--color-foreground)" className="block truncate">{title}</Shimmer>
+          : <span className="block truncate">{title}</span>}
+      </span>
+      {/* Cost */}
+      {cost > 0 && (
+        <span className="shrink-0 text-[8px] tabular-nums" style={{ color: `${accent}60` }}>
+          ${formatCostWithDollar(cost)}
+        </span>
+      )}
+      {/* Time */}
+      {ws.createdAt && (
+        <span className="shrink-0 text-[8px] text-muted/30 flex items-center gap-0.5">
+          <Clock className="h-1.5 w-1.5" />
+          {new Date(ws.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+        </span>
+      )}
+      <ArrowRight className="h-2.5 w-2.5 shrink-0 text-muted/20 opacity-0 group-hover/row:opacity-60 transition-opacity" />
+    </button>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage box — crew container with pixel workstation cards inside
 // ─────────────────────────────────────────────────────────────────────────────
 function HQStageBox({
@@ -572,18 +837,14 @@ function HQStageBox({
         )}
       </button>
 
-      {/* Content — pixel workstation cards */}
+      {/* Content — shared crew workstation card */}
       {!isEmpty && !collapsed && (
-        <div className="p-2 flex flex-col gap-2">
-          {minions.map(ws => (
-            <PixelWorkstationCard
-              key={ws.id} ws={ws}
-              sidekicks={childrenByParent.get(ws.id) ?? []}
-              accent={color} onOpen={onOpen}
-              timeOfDay={timeOfDay}
-            />
-          ))}
-        </div>
+        <SharedCrewStationCard
+          minions={minions}
+          accent={color}
+          onOpen={onOpen}
+          timeOfDay={timeOfDay}
+        />
       )}
     </div>
   );
@@ -624,7 +885,7 @@ function HQPhaseGroup({
 
   return (
     <div className={cn(
-      "w-fit mx-auto rounded-xl overflow-hidden transition-all duration-200",
+      "w-full rounded-xl overflow-hidden transition-all duration-200",
       phaseActive
         ? "border border-border/50 shadow-sm"
         : "border border-border/25"
@@ -665,35 +926,25 @@ function HQPhaseGroup({
         )}
       </div>
 
-      {/* Stage boxes — snake layout */}
-      {(() => {
-        const isReversed  = phaseIdx % 2 === 1;
-        const displaySecs = isReversed ? [...phaseSections].reverse() : phaseSections;
-        return (
-        <div
-          className="grid gap-10 p-5 items-start justify-center"
-          style={{ gridTemplateColumns: `repeat(${displaySecs.length}, minmax(180px, 280px))` }}
-        >
-        {displaySecs.map((sec) => {
-          const logicalIdx = phaseSections.indexOf(sec);
-          const globalIdx  = phaseIdx * PHASE_SIZE + logicalIdx;
-          return (
-            <HQStageBox
-              key={sec.id}
-              section={sec}
-              minions={minionsBySection.get(sec.id) ?? []}
-              childrenByParent={childrenByParent}
-              onOpen={onOpen}
-              stageIdx={globalIdx}
-              collapsed={collapsed.has(sec.id)}
-              onToggle={() => toggle(sec.id)}
-              timeOfDay={timeOfDay}
-            />
-          );
-        })}
-        </div>
-        );
-      })()}
+      {/* Stage boxes — 2-column widget grid */}
+      <div
+        className="grid gap-6 p-5 items-start"
+        style={{ gridTemplateColumns: "repeat(2, 1fr)" }}
+      >
+        {phaseSections.map((sec, logicalIdx) => (
+          <HQStageBox
+            key={sec.id}
+            section={sec}
+            minions={minionsBySection.get(sec.id) ?? []}
+            childrenByParent={childrenByParent}
+            onOpen={onOpen}
+            stageIdx={phaseIdx * PHASE_SIZE + logicalIdx}
+            collapsed={collapsed.has(sec.id)}
+            onToggle={() => toggle(sec.id)}
+            timeOfDay={timeOfDay}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -710,7 +961,7 @@ function HQMetricsBar({ totalMissions, activeMissions, totalSidekicks, stageCoun
 }) {
   const TimeIcon = TIME_ICONS[timeOfDay];
   return (
-    <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 flex-wrap text-[10.5px] w-fit mx-auto">
+    <div className="flex items-center gap-4 px-4 py-2.5 rounded-xl border border-border/25 bg-background-secondary/50 flex-wrap text-[10.5px] w-full">
       <div className="flex items-center gap-2 shrink-0">
         <div className="h-6 w-6 flex items-center justify-center rounded-md border border-border/35 bg-background-secondary">
           <Building className="h-3 w-3 text-muted/55" />
@@ -856,6 +1107,20 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
     setCollapsed(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }, []);
 
+  // Phase pagination
+  const [currentPhase, setCurrentPhase] = useState(0);
+  // Auto-jump to the first phase that has an active mission
+  useEffect(() => {
+    const activeIdx = phases.findIndex(phaseSections =>
+      phaseSections.some(s => (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running"))
+    );
+    if (activeIdx >= 0) setCurrentPhase(activeIdx);
+  }, [phases, minionsBySection]);
+  // Clamp if phases shrink
+  useEffect(() => {
+    if (phases.length > 0 && currentPhase >= phases.length) setCurrentPhase(phases.length - 1);
+  }, [phases.length, currentPhase]);
+
   const handleOpen = useCallback(
     (ws: FrontendMinionMetadata) => setSelectedMinion(toMinionSelection(ws)),
     [setSelectedMinion]
@@ -866,6 +1131,18 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
   const isEmpty = rootMinions.length === 0 && sections.length === 0;
 
   return (
+    <>
+    <style>{`
+      @keyframes minionWalk {
+        0%, 100% { transform: translateY(0px) rotate(-2deg); }
+        50%       { transform: translateY(-6px) rotate(2deg); }
+      }
+      @keyframes minionType {
+        0%, 100% { transform: translateY(0px) rotate(0deg); }
+        30%       { transform: translateY(-3px) rotate(-3deg); }
+        70%       { transform: translateY(-3px) rotate(3deg); }
+      }
+    `}</style>
     <div
       className="flex flex-col gap-4 w-full"
       style={{
@@ -921,14 +1198,67 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
         onCycleTime={handleCycleTime}
       />
 
-      {/* Phase rows */}
+      {/* Phase view */}
       {sections.length > 0 && (
-        <div className="flex flex-col gap-4">
-          {phases.map((phaseSections, phaseIdx) => (
+        <div className="flex flex-col gap-3">
+          {/* Phase nav — prev / dots / next */}
+          {phases.length > 1 && (
+            <div className="flex items-center justify-center gap-2">
+              <button
+                type="button"
+                disabled={currentPhase === 0}
+                onClick={() => setCurrentPhase(p => Math.max(0, p - 1))}
+                className="h-6 w-6 flex items-center justify-center rounded border border-border/25 bg-background/40 text-muted/50 hover:bg-background hover:text-foreground/70 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-3 w-3" />
+              </button>
+
+              <div className="flex items-center gap-1.5">
+                {phases.map((phaseSections, idx) => {
+                  const isActive = idx === currentPhase;
+                  const hasRunning = phaseSections.some(s =>
+                    (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
+                  );
+                  const hasContent = phaseSections.some(s => (minionsBySection.get(s.id) ?? []).length > 0);
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setCurrentPhase(idx)}
+                      className={cn(
+                        "flex items-center gap-1 rounded px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all border",
+                        isActive
+                          ? "bg-foreground/10 border-border/40 text-foreground/70"
+                          : "bg-transparent border-transparent text-muted/40 hover:text-foreground/50 hover:border-border/20"
+                      )}
+                    >
+                      <span>{idx + 1}</span>
+                      {hasRunning && <LiveDot size="sm" />}
+                      {!hasRunning && hasContent && (
+                        <span className="h-1 w-1 rounded-full bg-muted/30 block" />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                type="button"
+                disabled={currentPhase === phases.length - 1}
+                onClick={() => setCurrentPhase(p => Math.min(phases.length - 1, p + 1))}
+                className="h-6 w-6 flex items-center justify-center rounded border border-border/25 bg-background/40 text-muted/50 hover:bg-background hover:text-foreground/70 disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+
+          {/* Current phase */}
+          {phases[currentPhase] && (
             <HQPhaseGroup
-              key={phaseIdx}
-              phaseIdx={phaseIdx}
-              phaseSections={phaseSections}
+              key={currentPhase}
+              phaseIdx={currentPhase}
+              phaseSections={phases[currentPhase]}
               minionsBySection={minionsBySection}
               childrenByParent={childrenByParent}
               onOpen={handleOpen}
@@ -936,7 +1266,7 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
               toggle={toggle}
               timeOfDay={timeOfDay}
             />
-          ))}
+          )}
         </div>
       )}
 
@@ -968,5 +1298,6 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
         </p>
       )}
     </div>
+    </>
   );
 }
