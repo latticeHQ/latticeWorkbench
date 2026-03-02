@@ -793,10 +793,9 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
     [setSelectedMinion]
   );
 
-  if (rootMinions.length === 0 && sections.length === 0) return null;
-
   const unsectioned = minionsBySection.get(null) ?? [];
   const ambience = TIME_AMBIENCE[timeOfDay];
+  const isEmpty = rootMinions.length === 0 && sections.length === 0;
 
   return (
     <div
@@ -806,6 +805,38 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
         backgroundSize: "100% 100%, 22px 22px",
       }}
     >
+      {/* ── Empty state ── */}
+      {isEmpty && (
+        <div className="flex flex-col items-center justify-center py-20 gap-6">
+          {/* Pixel art empty desk scene */}
+          <div className="relative">
+            <svg
+              viewBox="-2 0 34 14"
+              width={170}
+              height={70}
+              style={{ imageRendering: "pixelated", opacity: 0.35 }}
+            >
+              {DESK_RECTS.map((rect, i) => (
+                <rect
+                  key={i} x={rect.x} y={rect.y} width={rect.w} height={rect.h}
+                  fill={buildDeskPalette("#6b7280", false)[rect.colorKey]}
+                />
+              ))}
+            </svg>
+          </div>
+          <div className="flex flex-col items-center gap-2 text-center">
+            <div className="flex items-center gap-2">
+              <Building className="h-4 w-4 text-muted/40" />
+              <span className="text-[11px] font-bold uppercase tracking-[0.15em] text-foreground/30">
+                Workbench
+              </span>
+            </div>
+            <p className="text-[11px] text-muted/35 max-w-[260px] leading-relaxed">
+              No missions yet. Create crews in Settings, then dispatch missions from the sidebar.
+            </p>
+          </div>
+        </div>
+      )}
       {/* Metrics bar */}
       <HQMetricsBar
         totalMissions={rootMinions.length}
