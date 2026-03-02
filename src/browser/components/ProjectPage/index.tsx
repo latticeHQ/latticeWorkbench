@@ -46,6 +46,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
   );
 
   // Tab definitions — Workbench first as default landing tab
+  // NOTE: Agent Network ("pipeline") tab hidden — kept in code for future use
   const tabs: Array<{
     id: ProjectTab;
     label: string;
@@ -56,11 +57,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
       label: "Workbench",
       icon: <Building size={13} />,
     },
-    {
-      id: "pipeline",
-      label: "Agent Network",
-      icon: <Network size={13} />,
-    },
+    // { id: "pipeline", label: "Agent Network", icon: <Network size={13} /> },
     {
       id: "minion",
       label: "New Mission",
