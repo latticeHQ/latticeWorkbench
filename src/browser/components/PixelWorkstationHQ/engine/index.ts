@@ -12,6 +12,9 @@ export {
   drawFloorLine,
   drawAmbientGlow,
   drawWoodFloor,
+  drawSceneGrid,
+  getThemeMode,
+  type ThemeMode,
 } from "./environmentRenderer";
 export { CardScene } from "./cardScene";
 export { CrewScene } from "./crewScene";

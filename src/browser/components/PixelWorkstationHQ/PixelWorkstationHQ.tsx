@@ -79,25 +79,6 @@ const TIME_ICONS: Record<TimeOfDay, typeof Sun> = {
   night:     Moon,
 };
 
-/** Ambient overlay — subtle gradient that tints the entire HQ view. */
-const TIME_AMBIENCE: Record<TimeOfDay, { gradient: string; dotBg: string }> = {
-  morning: {
-    gradient: "linear-gradient(180deg, rgba(255,200,100,0.04) 0%, transparent 60%)",
-    dotBg: "rgba(255,200,100,0.025)",
-  },
-  afternoon: {
-    gradient: "linear-gradient(180deg, rgba(255,255,220,0.03) 0%, transparent 50%)",
-    dotBg: "rgba(255,255,220,0.02)",
-  },
-  evening: {
-    gradient: "linear-gradient(180deg, rgba(255,120,60,0.05) 0%, transparent 60%)",
-    dotBg: "rgba(255,120,60,0.02)",
-  },
-  night: {
-    gradient: "linear-gradient(180deg, rgba(40,50,100,0.08) 0%, transparent 60%)",
-    dotBg: "rgba(100,120,200,0.015)",
-  },
-};
 
 function getTimeOfDay(): TimeOfDay {
   const h = new Date().getHours();
@@ -650,29 +631,29 @@ function HQPhaseGroup({
     <div className={cn(
       "w-full rounded-xl overflow-hidden transition-all duration-200",
       phaseActive
-        ? "border border-border/50 shadow-sm"
-        : "border border-border/25"
+        ? "border border-border/60 shadow-sm"
+        : "border border-border/40"
     )}>
       {/* Phase header band */}
       <div className={cn(
         "flex items-center gap-3 px-4 py-2 border-b",
-        phaseActive ? "bg-muted/12 border-border/30" : "bg-muted/6 border-border/15"
+        phaseActive ? "bg-muted/20 border-border/40" : "bg-muted/12 border-border/25"
       )}>
         <span className={cn(
           "shrink-0 flex h-5 w-5 items-center justify-center rounded text-[9px] font-black",
-          phaseActive ? "bg-foreground/12 text-foreground/70" : "bg-muted/15 text-foreground/30"
+          phaseActive ? "bg-foreground/15 text-foreground/80" : "bg-muted/20 text-foreground/50"
         )}>
           {phaseIdx + 1}
         </span>
         <span className={cn(
           "text-[9px] font-black uppercase tracking-[0.18em]",
-          phaseActive ? "text-foreground/55" : "text-foreground/25"
+          phaseActive ? "text-foreground/70" : "text-foreground/45"
         )}>
           Phase {phaseIdx + 1}
         </span>
         <span className={cn(
           "text-[9px] hidden sm:block",
-          phaseActive ? "text-foreground/35" : "text-foreground/18"
+          phaseActive ? "text-foreground/50" : "text-foreground/35"
         )}>
           {phaseSubtitle}
         </span>
@@ -680,7 +661,7 @@ function HQPhaseGroup({
         {phaseHasContent && (
           <div className="ml-auto flex items-center gap-2">
             {!phaseActive && (
-              <span className="text-[8px] text-muted/30">
+              <span className="text-[8px] text-muted/50">
                 {phaseSections.reduce((sum, s) => sum + (minionsBySection.get(s.id) ?? []).length, 0)} missions
               </span>
             )}
@@ -890,20 +871,11 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
   );
 
   const unsectioned = minionsBySection.get(null) ?? [];
-  const ambience = TIME_AMBIENCE[timeOfDay];
   const isEmpty = rootMinions.length === 0 && sections.length === 0;
 
   return (
     <div
       className="flex flex-col gap-4 w-full"
-      style={{
-        backgroundImage: `${ambience.gradient},
-          repeating-linear-gradient(90deg,
-            rgba(58,50,37,0.04) 0px, rgba(58,50,37,0.04) 18px,
-            rgba(53,46,34,0.06) 18px, rgba(53,46,34,0.06) 19px),
-          radial-gradient(circle, ${ambience.dotBg} 0.5px, transparent 0.5px)`,
-        backgroundSize: "100% 100%, 100% 100%, 16px 16px",
-      }}
     >
       {/* ── Empty state ── */}
       {isEmpty && (
