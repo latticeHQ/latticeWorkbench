@@ -1,566 +1,355 @@
 /**
- * Character sprite frame data — 12×18 pixel grid.
+ * Minion sprite frame data — 12×18 pixel grid.
+ *
+ * Despicable Me–style minions: yellow pill body, BIG goggles, overalls in crew color.
  *
  * Grid layout (12 cols × 18 rows):
- *   Row  0-1:   Hair (style-dependent)
- *   Row  2:     Forehead / hair edge
- *   Row  3:     Eyes (eyeWhite + eyePupil)
- *   Row  4:     Lower face
- *   Row  5:     Neck + shoulders
- *   Row  6-8:   Torso (shirt)
- *   Row  9-10:  Arms / lower torso
- *   Row  11:    Belt line
- *   Row  12-14: Legs (pants)
- *   Row  15-16: Shoes
+ *   Row  0:      Hair wisps
+ *   Row  1:      Top of pill (4 wide)
+ *   Row  2:      Head (6 wide)
+ *   Row  3:      Head widest (8 wide — pill shape)
+ *   Row  4:      Goggle strap (10 wide — wider than head!)
+ *   Row  5:      Goggles top (rim + white lens)
+ *   Row  6:      Goggles bottom (rim + pupil)
+ *   Row  7:      Face below goggles (8 wide)
+ *   Row  8:      Chin / mouth (6 wide)
+ *   Row  9:      Suspender straps + overalls bib
+ *   Row  10:     Overalls body (8 wide)
+ *   Row  11-12:  Arms (yellow) + overalls
+ *   Row  13-14:  Overalls legs
+ *   Row  15-16:  Shoes
  *
- * Each frame is the "base body" — hair overlays are composed separately
- * so we can mix 4 hair styles with every body frame.
+ * Feet anchor: row 16 (matches CHAR_FEET_ROW in scene renderers).
+ *
+ * Hair wisps composed separately for 4 style variants.
  */
 
 import type { PixelEntry, CharState, CharacterAppearance } from "./types";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Hair style overlays — rows 0–2 only
+// Hair wisp overlays — row 0 only
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Style 0: Short crop — clean, compact. */
-const HAIR_SHORT: PixelEntry[] = [
-  // Row 0: top
-  [4, 0, "hair"], [5, 0, "hair"], [6, 0, "hair"], [7, 0, "hair"],
-  // Row 1: sides
-  [3, 1, "hair"], [4, 1, "hair"], [5, 1, "hair"], [6, 1, "hair"], [7, 1, "hair"], [8, 1, "hair"],
-  // Row 2: forehead edge
-  [3, 2, "hair"], [4, 2, "hair"], [8, 2, "hair"],
-];
-
-/** Style 1: Medium — fuller top, side coverage. */
-const HAIR_MEDIUM: PixelEntry[] = [
-  // Row 0: voluminous top
-  [4, 0, "hair"], [5, 0, "hair"], [6, 0, "hair"], [7, 0, "hair"], [8, 0, "hair"],
-  // Row 1: full sides
-  [3, 1, "hair"], [4, 1, "hair"], [5, 1, "hair"], [6, 1, "hair"], [7, 1, "hair"], [8, 1, "hair"],
-  // Row 2: covers forehead more
-  [3, 2, "hair"], [4, 2, "hair"], [5, 2, "hair"], [8, 2, "hair"],
-];
-
-/** Style 2: Long — extends down the sides. */
-const HAIR_LONG: PixelEntry[] = [
-  // Row 0: wide top
-  [3, 0, "hair"], [4, 0, "hair"], [5, 0, "hair"], [6, 0, "hair"], [7, 0, "hair"], [8, 0, "hair"],
-  // Row 1: full
-  [3, 1, "hair"], [4, 1, "hair"], [5, 1, "hair"], [6, 1, "hair"], [7, 1, "hair"], [8, 1, "hair"], [9, 1, "hair"],
-  // Row 2: side bangs
-  [3, 2, "hair"], [4, 2, "hair"], [5, 2, "hair"], [8, 2, "hair"], [9, 2, "hair"],
-  // Row 3: long side strands (overlaps face area slightly)
-  [3, 3, "hair"], [9, 3, "hair"],
-  // Row 4: extends further
-  [3, 4, "hair"], [9, 4, "hair"],
-];
-
-/** Style 3: Ponytail — short top with tail extending from back. */
-const HAIR_PONYTAIL: PixelEntry[] = [
-  // Row 0: neat top
-  [4, 0, "hair"], [5, 0, "hair"], [6, 0, "hair"], [7, 0, "hair"],
-  // Row 1: neat sides
-  [3, 1, "hair"], [4, 1, "hair"], [5, 1, "hair"], [6, 1, "hair"], [7, 1, "hair"], [8, 1, "hair"],
-  // Row 2: hairline
-  [3, 2, "hair"], [4, 2, "hair"], [8, 2, "hair"],
-  // Ponytail extending from back (right side)
-  [9, 2, "hair"], [9, 3, "hair"], [10, 3, "hair"],
-  [10, 4, "hair"], [10, 5, "hair"],
-];
+const HAIR_WISPS_A: PixelEntry[] = [[5, 0, "hair"], [6, 0, "hair"]];
+const HAIR_WISPS_B: PixelEntry[] = [[5, 0, "hair"], [6, 0, "hair"], [7, 0, "hair"]];
+const HAIR_WISPS_C: PixelEntry[] = [[6, 0, "hair"]];
+const HAIR_WISPS_D: PixelEntry[] = []; // bald
 
 export const HAIR_STYLES: PixelEntry[][] = [
-  HAIR_SHORT,
-  HAIR_MEDIUM,
-  HAIR_LONG,
-  HAIR_PONYTAIL,
+  HAIR_WISPS_A, HAIR_WISPS_B, HAIR_WISPS_C, HAIR_WISPS_D,
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Base body frames (no hair — hair composed on top)
+// Color key reference for minions:
+//   skin        → yellow body (#FFD700)
+//   belt        → goggle strap + gloves (#444)
+//   outline     → goggle rim (#888)
+//   eyeWhite    → goggle lens (white)
+//   eyePupil    → brown pupil (#654321)
+//   shirt       → overalls (crew color)
+//   shirtAccent → suspender clasps
+//   shoe        → shoes (#222)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * IDLE frame 1 — seated at desk, relaxed posture.
- * Face visible with eyes, body upright, hands on lap.
- */
-const IDLE_BODY_1: PixelEntry[] = [
-  // Face (rows 2-4)
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  // Eyes (row 3)
-  [4, 3, "skin"], [5, 3, "eyeWhite"], [6, 3, "eyeWhite"], [7, 3, "skin"],
-  [5, 3, "eyePupil"], [6, 3, "eyePupil"],
-  // Wait — eyes need white BEHIND pupils. Render order: white first, pupil on top.
-  // Actually in box-shadow, later entries overlay. So: white at offset, pupil at same offset wins.
-  // Use separate pixel positions instead:
-  // Left eye: white at (4,3), pupil at (5,3)
-  // Right eye: white at (7,3), pupil at (6,3)
-  // Correction — let's use proper eye layout:
-  // Lower face (row 4)
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck (row 5)
-  [5, 5, "skin"], [6, 5, "skin"],
-  // Shoulders
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Shirt torso (rows 6-8)
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  // Shirt accent (collar line)
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Arms resting on lap (rows 9-10)
-  [3, 8, "skin"], [8, 8, "skin"],
-  [3, 9, "skin"], [8, 9, "skin"],
-  // Belt (row 11)
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  // Pants (rows 11-14)
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  // Shoes (rows 15-16)
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
-  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+// ── Helper: common minion head (centered) ───────────────────────────────────
+
+/** Standard centered minion head, rows 1-8. Eyes open, looking slightly inward. */
+const HEAD_CENTER_OPEN: PixelEntry[] = [
+  // Row 1: top of pill
+  [4, 1, "skin"], [5, 1, "skin"], [6, 1, "skin"], [7, 1, "skin"],
+  // Row 2: head (6 wide)
+  [3, 2, "skin"], [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"], [8, 2, "skin"],
+  // Row 3: head widest (8 wide — pill shape)
+  [2, 3, "skin"], [3, 3, "skin"], [4, 3, "skin"], [5, 3, "skin"], [6, 3, "skin"], [7, 3, "skin"], [8, 3, "skin"], [9, 3, "skin"],
+  // Row 4: goggle strap (10 wide — wider than head)
+  [1, 4, "belt"], [2, 4, "belt"], [3, 4, "belt"], [4, 4, "belt"], [5, 4, "belt"], [6, 4, "belt"], [7, 4, "belt"], [8, 4, "belt"], [9, 4, "belt"], [10, 4, "belt"],
+  // Row 5: goggles top — rim, lens, lens, bridge, bridge, lens, lens, rim (with strap sides)
+  [1, 5, "belt"], [2, 5, "outline"], [3, 5, "eyeWhite"], [4, 5, "eyeWhite"], [5, 5, "outline"], [6, 5, "outline"], [7, 5, "eyeWhite"], [8, 5, "eyeWhite"], [9, 5, "outline"], [10, 5, "belt"],
+  // Row 6: goggles bottom — rim, lens, pupil, bridge, bridge, pupil, lens, rim
+  [1, 6, "belt"], [2, 6, "outline"], [3, 6, "eyeWhite"], [4, 6, "eyePupil"], [5, 6, "outline"], [6, 6, "outline"], [7, 6, "eyePupil"], [8, 6, "eyeWhite"], [9, 6, "outline"], [10, 6, "belt"],
+  // Row 7: face below goggles (8 wide)
+  [2, 7, "skin"], [3, 7, "skin"], [4, 7, "skin"], [5, 7, "skin"], [6, 7, "skin"], [7, 7, "skin"], [8, 7, "skin"], [9, 7, "skin"],
+  // Row 8: chin (6 wide)
+  [3, 8, "skin"], [4, 8, "skin"], [5, 8, "skin"], [6, 8, "skin"], [7, 8, "skin"], [8, 8, "skin"],
 ];
 
-/**
- * IDLE frame 2 — slight head tilt, same seated posture.
- */
-const IDLE_BODY_2: PixelEntry[] = [
-  // Face shifted slightly right
-  [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"], [8, 2, "skin"],
-  // Eyes
-  [5, 3, "skin"], [6, 3, "eyeWhite"], [7, 3, "eyeWhite"], [8, 3, "skin"],
-  [6, 3, "eyePupil"], [7, 3, "eyePupil"],
-  // Lower face
-  [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"], [8, 4, "skin"],
-  // Neck
-  [5, 5, "skin"], [6, 5, "skin"],
-  // Shoulders
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Shirt (same as idle 1)
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Arms
-  [3, 8, "skin"], [8, 8, "skin"],
-  [3, 9, "skin"], [8, 9, "skin"],
-  // Belt + pants + shoes (same)
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
-  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
-];
-
-/**
- * IDLE frame 3 — blink (eyes closed).
- */
-const IDLE_BODY_3: PixelEntry[] = [
-  // Face (same position as frame 1)
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  // Eyes CLOSED — just skin, no white/pupil
-  [4, 3, "skin"], [5, 3, "skin"], [6, 3, "skin"], [7, 3, "skin"],
-  // Eyelid line
-  [5, 3, "outline"], [6, 3, "outline"],
-  // Lower face
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Rest same as idle 1
-  [5, 5, "skin"], [6, 5, "skin"],
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  [3, 8, "skin"], [8, 8, "skin"],
-  [3, 9, "skin"], [8, 9, "skin"],
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
-  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Typing frames
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Typing frame 1 — hands extended forward on keyboard. */
-const TYPING_BODY_1: PixelEntry[] = [
-  // Face (leaning forward slightly)
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  [4, 3, "skin"], [5, 3, "eyeWhite"], [7, 3, "eyeWhite"], [8, 3, "skin"],
-  [5, 3, "eyePupil"], [7, 3, "eyePupil"],
-  [4, 3, "skin"], [6, 3, "skin"],
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck
-  [5, 5, "skin"], [6, 5, "skin"],
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Torso
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Arms EXTENDED forward (typing)
-  [2, 7, "skin"], [9, 7, "skin"],
-  [2, 8, "skin"], [9, 8, "skin"],
-  [1, 9, "skin"], [10, 9, "skin"],
-  // Belt + pants + shoes
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
-  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
-];
-
-/** Typing frame 2 — hands slightly different, alternate key press. */
-const TYPING_BODY_2: PixelEntry[] = [
+/** Centered head with eyes closed (blink). */
+const HEAD_CENTER_CLOSED: PixelEntry[] = [
+  [4, 1, "skin"], [5, 1, "skin"], [6, 1, "skin"], [7, 1, "skin"],
+  [3, 2, "skin"], [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"], [8, 2, "skin"],
+  [2, 3, "skin"], [3, 3, "skin"], [4, 3, "skin"], [5, 3, "skin"], [6, 3, "skin"], [7, 3, "skin"], [8, 3, "skin"], [9, 3, "skin"],
+  [1, 4, "belt"], [2, 4, "belt"], [3, 4, "belt"], [4, 4, "belt"], [5, 4, "belt"], [6, 4, "belt"], [7, 4, "belt"], [8, 4, "belt"], [9, 4, "belt"], [10, 4, "belt"],
+  // Goggles top — same
+  [1, 5, "belt"], [2, 5, "outline"], [3, 5, "eyeWhite"], [4, 5, "eyeWhite"], [5, 5, "outline"], [6, 5, "outline"], [7, 5, "eyeWhite"], [8, 5, "eyeWhite"], [9, 5, "outline"], [10, 5, "belt"],
+  // Goggles bottom — CLOSED (outline line instead of pupil)
+  [1, 6, "belt"], [2, 6, "outline"], [3, 6, "outline"], [4, 6, "outline"], [5, 6, "outline"], [6, 6, "outline"], [7, 6, "outline"], [8, 6, "outline"], [9, 6, "outline"], [10, 6, "belt"],
   // Face
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  [4, 3, "skin"], [5, 3, "eyeWhite"], [7, 3, "eyeWhite"], [8, 3, "skin"],
-  [5, 3, "eyePupil"], [7, 3, "eyePupil"],
-  [4, 3, "skin"], [6, 3, "skin"],
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck + shoulders
-  [5, 5, "skin"], [6, 5, "skin"],
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Torso
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Arms — one higher, one lower (alternating keypress)
-  [2, 7, "skin"], [9, 8, "skin"],
-  [2, 8, "skin"], [9, 9, "skin"],
-  [1, 9, "skin"], [10, 9, "skin"],
-  // Belt + pants + shoes
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
-  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [2, 7, "skin"], [3, 7, "skin"], [4, 7, "skin"], [5, 7, "skin"], [6, 7, "skin"], [7, 7, "skin"], [8, 7, "skin"], [9, 7, "skin"],
+  [3, 8, "skin"], [4, 8, "skin"], [5, 8, "skin"], [6, 8, "skin"], [7, 8, "skin"], [8, 8, "skin"],
 ];
 
-/** Typing frame 3 — mirror of frame 2 (other hand elevated). */
-const TYPING_BODY_3: PixelEntry[] = [
+/** Head shifted RIGHT (for walking right, tilting). */
+const HEAD_RIGHT_OPEN: PixelEntry[] = [
+  [5, 1, "skin"], [6, 1, "skin"], [7, 1, "skin"], [8, 1, "skin"],
+  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"], [8, 2, "skin"], [9, 2, "skin"],
+  [3, 3, "skin"], [4, 3, "skin"], [5, 3, "skin"], [6, 3, "skin"], [7, 3, "skin"], [8, 3, "skin"], [9, 3, "skin"], [10, 3, "skin"],
+  // Strap
+  [2, 4, "belt"], [3, 4, "belt"], [4, 4, "belt"], [5, 4, "belt"], [6, 4, "belt"], [7, 4, "belt"], [8, 4, "belt"], [9, 4, "belt"], [10, 4, "belt"], [11, 4, "belt"],
+  // Goggles
+  [2, 5, "belt"], [3, 5, "outline"], [4, 5, "eyeWhite"], [5, 5, "eyeWhite"], [6, 5, "outline"], [7, 5, "outline"], [8, 5, "eyeWhite"], [9, 5, "eyeWhite"], [10, 5, "outline"], [11, 5, "belt"],
+  [2, 6, "belt"], [3, 6, "outline"], [4, 6, "eyeWhite"], [5, 6, "eyePupil"], [6, 6, "outline"], [7, 6, "outline"], [8, 6, "eyePupil"], [9, 6, "eyeWhite"], [10, 6, "outline"], [11, 6, "belt"],
   // Face
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  [4, 3, "skin"], [5, 3, "eyeWhite"], [7, 3, "eyeWhite"], [8, 3, "skin"],
-  [5, 3, "eyePupil"], [7, 3, "eyePupil"],
-  [4, 3, "skin"], [6, 3, "skin"],
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck + shoulders
-  [5, 5, "skin"], [6, 5, "skin"],
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Torso
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Arms — reversed from frame 2
-  [2, 8, "skin"], [9, 7, "skin"],
-  [2, 9, "skin"], [9, 8, "skin"],
-  [1, 9, "skin"], [10, 9, "skin"],
-  // Belt + pants + shoes
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
-  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [3, 7, "skin"], [4, 7, "skin"], [5, 7, "skin"], [6, 7, "skin"], [7, 7, "skin"], [8, 7, "skin"], [9, 7, "skin"], [10, 7, "skin"],
+  [4, 8, "skin"], [5, 8, "skin"], [6, 8, "skin"], [7, 8, "skin"], [8, 8, "skin"], [9, 8, "skin"],
 ];
 
-const TYPING_BODY_4 = TYPING_BODY_1; // cycle: 1-2-3-1
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Done frames
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Done frame 1 — leaning back, relaxed, arms behind head feel. */
-const DONE_BODY_1: PixelEntry[] = [
+/** Head shifted LEFT (for looking around). */
+const HEAD_LEFT_OPEN: PixelEntry[] = [
+  [3, 1, "skin"], [4, 1, "skin"], [5, 1, "skin"], [6, 1, "skin"],
+  [2, 2, "skin"], [3, 2, "skin"], [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
+  [1, 3, "skin"], [2, 3, "skin"], [3, 3, "skin"], [4, 3, "skin"], [5, 3, "skin"], [6, 3, "skin"], [7, 3, "skin"], [8, 3, "skin"],
+  // Strap
+  [0, 4, "belt"], [1, 4, "belt"], [2, 4, "belt"], [3, 4, "belt"], [4, 4, "belt"], [5, 4, "belt"], [6, 4, "belt"], [7, 4, "belt"], [8, 4, "belt"], [9, 4, "belt"],
+  // Goggles
+  [0, 5, "belt"], [1, 5, "outline"], [2, 5, "eyeWhite"], [3, 5, "eyeWhite"], [4, 5, "outline"], [5, 5, "outline"], [6, 5, "eyeWhite"], [7, 5, "eyeWhite"], [8, 5, "outline"], [9, 5, "belt"],
+  [0, 6, "belt"], [1, 6, "outline"], [2, 6, "eyeWhite"], [3, 6, "eyePupil"], [4, 6, "outline"], [5, 6, "outline"], [6, 6, "eyePupil"], [7, 6, "eyeWhite"], [8, 6, "outline"], [9, 6, "belt"],
   // Face
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  [4, 3, "skin"], [5, 3, "eyeWhite"], [7, 3, "eyeWhite"], [8, 3, "skin"],
-  [5, 3, "eyePupil"], [7, 3, "eyePupil"],
-  [4, 3, "skin"], [6, 3, "skin"],
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck
-  [5, 5, "skin"], [6, 5, "skin"],
-  [4, 5, "shirt"], [7, 5, "shirt"],
-  // Torso (slightly reclined feel)
-  [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"],
-  [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Arms behind/relaxed
-  [3, 6, "skin"], [8, 6, "skin"],
-  [3, 7, "skin"], [8, 7, "skin"],
-  // Belt + pants
-  [4, 9, "belt"], [5, 9, "belt"], [6, 9, "belt"], [7, 9, "belt"],
-  [4, 10, "pants"], [5, 10, "pants"], [6, 10, "pants"], [7, 10, "pants"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  // Feet extended out (relaxed sitting)
+  [1, 7, "skin"], [2, 7, "skin"], [3, 7, "skin"], [4, 7, "skin"], [5, 7, "skin"], [6, 7, "skin"], [7, 7, "skin"], [8, 7, "skin"],
+  [2, 8, "skin"], [3, 8, "skin"], [4, 8, "skin"], [5, 8, "skin"], [6, 8, "skin"], [7, 8, "skin"],
+];
+
+// ── Helper: common seated body (rows 9-16) ──────────────────────────────────
+
+/** Standard seated body: suspenders, overalls, arms at sides, legs together. */
+const BODY_SEATED: PixelEntry[] = [
+  // Row 9: suspender straps + bib
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  // Row 10: overalls body (8 wide)
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
+  // Row 11: arms (yellow) + overalls
+  [1, 11, "skin"], [2, 11, "skin"], [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"], [9, 11, "skin"], [10, 11, "skin"],
+  // Row 12: glove hands + overalls
+  [1, 12, "belt"], [2, 12, "belt"], [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"], [9, 12, "belt"], [10, 12, "belt"],
+  // Row 13-14: overalls legs
+  [4, 13, "shirt"], [5, 13, "shirt"], [6, 13, "shirt"], [7, 13, "shirt"],
+  [4, 14, "shirt"], [5, 14, "shirt"], [6, 14, "shirt"], [7, 14, "shirt"],
+  // Row 15-16: shoes
+  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [4, 16, "shoe"], [5, 16, "shoe"], [6, 16, "shoe"], [7, 16, "shoe"],
+];
+
+// ── Idle frames ─────────────────────────────────────────────────────────────
+
+const IDLE_BODY_1: PixelEntry[] = [...HEAD_CENTER_OPEN, ...BODY_SEATED];
+
+const IDLE_BODY_2: PixelEntry[] = [...HEAD_RIGHT_OPEN, ...BODY_SEATED];
+
+const IDLE_BODY_3: PixelEntry[] = [...HEAD_CENTER_CLOSED, ...BODY_SEATED];
+
+// ── Typing frames ───────────────────────────────────────────────────────────
+
+/** Arms-forward body for typing. */
+const BODY_TYPING_1: PixelEntry[] = [
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
+  // Arms EXTENDED forward
+  [0, 11, "skin"], [1, 11, "skin"], [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"], [10, 11, "skin"], [11, 11, "skin"],
+  [0, 12, "belt"], [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"], [11, 12, "belt"],
+  [4, 13, "shirt"], [5, 13, "shirt"], [6, 13, "shirt"], [7, 13, "shirt"],
+  [4, 14, "shirt"], [5, 14, "shirt"], [6, 14, "shirt"], [7, 14, "shirt"],
+  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [4, 16, "shoe"], [5, 16, "shoe"], [6, 16, "shoe"], [7, 16, "shoe"],
+];
+
+/** Left arm up, right arm down. */
+const BODY_TYPING_2: PixelEntry[] = [
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
+  // Left arm higher, right arm lower
+  [0, 10, "skin"], [1, 10, "skin"], [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"], [10, 11, "skin"], [11, 12, "skin"],
+  [0, 11, "belt"], [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"], [11, 13, "belt"],
+  [4, 13, "shirt"], [5, 13, "shirt"], [6, 13, "shirt"], [7, 13, "shirt"],
+  [4, 14, "shirt"], [5, 14, "shirt"], [6, 14, "shirt"], [7, 14, "shirt"],
+  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [4, 16, "shoe"], [5, 16, "shoe"], [6, 16, "shoe"], [7, 16, "shoe"],
+];
+
+/** Right arm up, left arm down. */
+const BODY_TYPING_3: PixelEntry[] = [
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
+  // Left arm lower, right arm higher
+  [0, 12, "skin"], [1, 11, "skin"], [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"], [10, 10, "skin"], [11, 11, "skin"],
+  [0, 13, "belt"], [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"], [11, 11, "belt"],
+  [4, 13, "shirt"], [5, 13, "shirt"], [6, 13, "shirt"], [7, 13, "shirt"],
+  [4, 14, "shirt"], [5, 14, "shirt"], [6, 14, "shirt"], [7, 14, "shirt"],
+  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [4, 16, "shoe"], [5, 16, "shoe"], [6, 16, "shoe"], [7, 16, "shoe"],
+];
+
+const TYPING_BODY_1: PixelEntry[] = [...HEAD_CENTER_OPEN, ...BODY_TYPING_1];
+const TYPING_BODY_2: PixelEntry[] = [...HEAD_CENTER_OPEN, ...BODY_TYPING_2];
+const TYPING_BODY_3: PixelEntry[] = [...HEAD_CENTER_OPEN, ...BODY_TYPING_3];
+const TYPING_BODY_4 = TYPING_BODY_1;
+
+// ── Done frames ─────────────────────────────────────────────────────────────
+
+/** Relaxed body — arms behind, feet extended. */
+const BODY_DONE_RELAXED: PixelEntry[] = [
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
+  // Arms relaxed behind
+  [1, 10, "skin"], [2, 9, "skin"], [9, 9, "skin"], [10, 10, "skin"],
+  [1, 11, "belt"], [10, 11, "belt"],
+  // Overalls
+  [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"],
+  [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"],
+  // Feet extended out
   [3, 13, "shoe"], [4, 13, "shoe"], [7, 13, "shoe"], [8, 13, "shoe"],
   [3, 14, "shoe"], [4, 14, "shoe"], [7, 14, "shoe"], [8, 14, "shoe"],
 ];
 
-/** Done frame 2 — stretch variation. */
-const DONE_BODY_2: PixelEntry[] = [
-  // Face
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  // Eyes closed (satisfied)
-  [4, 3, "skin"], [5, 3, "skin"], [6, 3, "skin"], [7, 3, "skin"],
-  [5, 3, "outline"], [6, 3, "outline"],
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck
-  [5, 5, "skin"], [6, 5, "skin"],
-  [4, 5, "shirt"], [7, 5, "shirt"],
-  // Torso
-  [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"],
-  [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
+/** Stretch body — arms wide. */
+const BODY_DONE_STRETCH: PixelEntry[] = [
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
   // Arms stretched wide
-  [2, 5, "skin"], [9, 5, "skin"],
-  [2, 6, "skin"], [9, 6, "skin"],
-  // Belt + pants
-  [4, 9, "belt"], [5, 9, "belt"], [6, 9, "belt"], [7, 9, "belt"],
-  [4, 10, "pants"], [5, 10, "pants"], [6, 10, "pants"], [7, 10, "pants"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
+  [0, 9, "skin"], [1, 9, "skin"], [10, 9, "skin"], [11, 9, "skin"],
+  [0, 10, "belt"], [11, 10, "belt"],
+  // Overalls
+  [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"],
+  [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"],
+  // Feet extended
   [3, 13, "shoe"], [4, 13, "shoe"], [7, 13, "shoe"], [8, 13, "shoe"],
   [3, 14, "shoe"], [4, 14, "shoe"], [7, 14, "shoe"], [8, 14, "shoe"],
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Waiting frames
-// ─────────────────────────────────────────────────────────────────────────────
+const DONE_BODY_1: PixelEntry[] = [...HEAD_CENTER_OPEN, ...BODY_DONE_RELAXED];
+const DONE_BODY_2: PixelEntry[] = [...HEAD_CENTER_CLOSED, ...BODY_DONE_STRETCH];
 
-/** Waiting frame 1 — chin rest / thinking. */
-const WAITING_BODY_1: PixelEntry[] = [
-  // Face
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  [4, 3, "skin"], [5, 3, "eyeWhite"], [7, 3, "eyeWhite"], [8, 3, "skin"],
-  [5, 3, "eyePupil"], [7, 3, "eyePupil"],
-  [4, 3, "skin"], [6, 3, "skin"],
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck + shoulders
-  [5, 5, "skin"], [6, 5, "skin"],
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Torso
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Left hand on chin (thinking pose)
-  [3, 4, "skin"], [3, 5, "skin"],
-  // Right arm resting
-  [8, 8, "skin"], [8, 9, "skin"],
-  // Belt + pants + shoes
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
+// ── Waiting frames ──────────────────────────────────────────────────────────
+
+/** Hand on chin body. */
+const BODY_WAITING_CHIN: PixelEntry[] = [
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
+  // Left arm up to chin (glove at chin level = row 8)
+  [2, 8, "belt"], [2, 9, "skin"], [2, 10, "skin"],
+  // Right arm at side
+  [9, 11, "skin"], [10, 11, "skin"], [9, 12, "belt"], [10, 12, "belt"],
+  // Overalls
+  [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"],
+  [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"],
+  [4, 13, "shirt"], [5, 13, "shirt"], [6, 13, "shirt"], [7, 13, "shirt"],
+  [4, 14, "shirt"], [5, 14, "shirt"], [6, 14, "shirt"], [7, 14, "shirt"],
   [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [4, 16, "shoe"], [5, 16, "shoe"], [6, 16, "shoe"], [7, 16, "shoe"],
 ];
 
-/** Waiting frame 2 — hand raised (question gesture). */
-const WAITING_BODY_2: PixelEntry[] = [
-  // Face
-  [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"],
-  [4, 3, "skin"], [5, 3, "eyeWhite"], [7, 3, "eyeWhite"], [8, 3, "skin"],
-  [5, 3, "eyePupil"], [7, 3, "eyePupil"],
-  [4, 3, "skin"], [6, 3, "skin"],
-  [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"],
-  // Neck
-  [5, 5, "skin"], [6, 5, "skin"],
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Torso
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
-  // Right hand RAISED (question)
-  [9, 5, "skin"], [9, 4, "skin"],
-  // Left arm resting
-  [3, 8, "skin"], [3, 9, "skin"],
-  // Belt + pants + shoes
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
+/** Hand raised body. */
+const BODY_WAITING_RAISED: PixelEntry[] = [
+  [3, 9, "shirtAccent"], [4, 9, "shirt"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [2, 10, "shirt"], [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"], [9, 10, "shirt"],
+  // Left arm at side
+  [1, 11, "skin"], [2, 11, "skin"], [1, 12, "belt"], [2, 12, "belt"],
+  // Right arm RAISED (hand above head)
+  [10, 7, "belt"], [10, 8, "skin"], [10, 9, "skin"],
+  // Overalls
+  [4, 11, "shirt"], [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"],
+  [4, 12, "shirt"], [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"],
+  [4, 13, "shirt"], [5, 13, "shirt"], [6, 13, "shirt"], [7, 13, "shirt"],
+  [4, 14, "shirt"], [5, 14, "shirt"], [6, 14, "shirt"], [7, 14, "shirt"],
   [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [4, 16, "shoe"], [5, 16, "shoe"], [6, 16, "shoe"], [7, 16, "shoe"],
 ];
 
-/** Waiting frame 3 — looking around (head shifted). */
-const WAITING_BODY_3: PixelEntry[] = [
-  // Face shifted left
-  [3, 2, "skin"], [4, 2, "skin"], [5, 2, "skin"], [6, 2, "skin"],
-  [3, 3, "skin"], [4, 3, "eyeWhite"], [6, 3, "eyeWhite"], [7, 3, "skin"],
-  [4, 3, "eyePupil"], [6, 3, "eyePupil"],
-  [3, 3, "skin"], [5, 3, "skin"],
-  [3, 4, "skin"], [4, 4, "skin"], [5, 4, "skin"], [6, 4, "skin"],
-  // Neck
-  [5, 5, "skin"], [6, 5, "skin"],
-  [3, 5, "shirt"], [4, 5, "shirt"], [7, 5, "shirt"], [8, 5, "shirt"],
-  // Torso
-  [3, 6, "shirt"], [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [3, 7, "shirt"], [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [4, 8, "shirt"], [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [5, 6, "shirtAccent"], [6, 6, "shirtAccent"],
+const WAITING_BODY_1: PixelEntry[] = [...HEAD_CENTER_OPEN, ...BODY_WAITING_CHIN];
+const WAITING_BODY_2: PixelEntry[] = [...HEAD_CENTER_OPEN, ...BODY_WAITING_RAISED];
+const WAITING_BODY_3: PixelEntry[] = [...HEAD_LEFT_OPEN, ...BODY_SEATED];
+
+// ── Walk frames ─────────────────────────────────────────────────────────────
+// 3 unique walk_right frames, played [1,2,3,2]. walk_left is mirrored.
+
+/** Walk body: legs split wide. */
+const BODY_WALK_SPLIT: PixelEntry[] = [
+  [4, 9, "shirtAccent"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"],
+  // Arms swinging (right forward, left back)
+  [10, 9, "skin"], [11, 10, "skin"], [11, 11, "belt"],
+  [2, 10, "skin"], [1, 11, "skin"], [1, 12, "belt"],
+  // Overalls
+  [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"],
+  [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"],
+  // Legs SPLIT
+  [3, 13, "shirt"], [4, 13, "shirt"], [8, 13, "shirt"], [9, 13, "shirt"],
+  [3, 14, "shirt"], [4, 14, "shirt"], [8, 14, "shirt"], [9, 14, "shirt"],
+  // Shoes split
+  [3, 15, "shoe"], [4, 15, "shoe"], [8, 15, "shoe"], [9, 15, "shoe"],
+  [3, 16, "shoe"], [4, 16, "shoe"], [8, 16, "shoe"], [9, 16, "shoe"],
+];
+
+/** Walk body: legs together (mid-stride). */
+const BODY_WALK_TOGETHER: PixelEntry[] = [
+  [4, 9, "shirtAccent"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"],
   // Arms at sides
-  [3, 8, "skin"], [8, 8, "skin"],
-  [3, 9, "skin"], [8, 9, "skin"],
-  // Belt + pants + shoes
-  [4, 10, "belt"], [5, 10, "belt"], [6, 10, "belt"], [7, 10, "belt"],
-  [4, 11, "pants"], [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [4, 12, "pants"], [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
-  [4, 13, "pants"], [5, 13, "pants"], [6, 13, "pants"], [7, 13, "pants"],
-  [4, 14, "shoe"], [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
-  [4, 15, "shoe"], [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Walk frames — 4 per direction (right), left auto-mirrored
-// Pattern: [1, 2, 3, 2] for symmetric bobbing
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Walk Right frame 1 — left leg forward, right arm forward. */
-const WALK_RIGHT_BODY_1: PixelEntry[] = [
-  // Face
-  [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"], [8, 2, "skin"],
-  [5, 3, "skin"], [6, 3, "eyeWhite"], [8, 3, "eyeWhite"], [9, 3, "skin"],
-  [6, 3, "eyePupil"], [8, 3, "eyePupil"],
-  [5, 3, "skin"], [7, 3, "skin"],
-  [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"], [8, 4, "skin"],
-  // Neck
-  [6, 5, "skin"], [7, 5, "skin"],
-  [4, 5, "shirt"], [5, 5, "shirt"], [8, 5, "shirt"], [9, 5, "shirt"],
-  // Torso
-  [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [6, 6, "shirtAccent"], [7, 6, "shirtAccent"],
-  // Right arm forward
-  [9, 6, "skin"], [9, 7, "skin"],
-  // Left arm back
-  [3, 7, "skin"], [3, 8, "skin"],
-  // Belt
-  [5, 9, "belt"], [6, 9, "belt"], [7, 9, "belt"],
-  // Pants — left leg forward, right leg back
-  [4, 10, "pants"], [5, 10, "pants"], [7, 10, "pants"], [8, 10, "pants"],
-  [3, 11, "pants"], [4, 11, "pants"], [8, 11, "pants"], [9, 11, "pants"],
-  [3, 12, "pants"], [4, 12, "pants"], [8, 12, "pants"], [9, 12, "pants"],
+  [2, 10, "skin"], [9, 10, "skin"],
+  // Overalls
+  [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"],
+  [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"],
+  // Legs together
+  [5, 13, "shirt"], [6, 13, "shirt"], [7, 13, "shirt"],
+  [5, 14, "shirt"], [6, 14, "shirt"], [7, 14, "shirt"],
   // Shoes
-  [3, 13, "shoe"], [4, 13, "shoe"], [8, 13, "shoe"], [9, 13, "shoe"],
-  [3, 14, "shoe"], [4, 14, "shoe"], [8, 14, "shoe"], [9, 14, "shoe"],
+  [5, 15, "shoe"], [6, 15, "shoe"], [7, 15, "shoe"],
+  [5, 16, "shoe"], [6, 16, "shoe"], [7, 16, "shoe"],
 ];
 
-/** Walk Right frame 2 — neutral standing, mid-stride. */
-const WALK_RIGHT_BODY_2: PixelEntry[] = [
-  // Face (facing right)
-  [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"], [8, 2, "skin"],
-  [5, 3, "skin"], [6, 3, "eyeWhite"], [8, 3, "eyeWhite"], [9, 3, "skin"],
-  [6, 3, "eyePupil"], [8, 3, "eyePupil"],
-  [5, 3, "skin"], [7, 3, "skin"],
-  [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"], [8, 4, "skin"],
-  // Neck
-  [6, 5, "skin"], [7, 5, "skin"],
-  [4, 5, "shirt"], [5, 5, "shirt"], [8, 5, "shirt"], [9, 5, "shirt"],
-  // Torso
-  [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [6, 6, "shirtAccent"], [7, 6, "shirtAccent"],
-  // Arms at sides
-  [3, 7, "skin"], [9, 7, "skin"],
-  // Belt
-  [5, 9, "belt"], [6, 9, "belt"], [7, 9, "belt"],
-  // Pants together
-  [5, 10, "pants"], [6, 10, "pants"], [7, 10, "pants"],
-  [5, 11, "pants"], [6, 11, "pants"], [7, 11, "pants"],
-  [5, 12, "pants"], [6, 12, "pants"], [7, 12, "pants"],
+/** Walk body: legs split opposite direction. */
+const BODY_WALK_SPLIT_ALT: PixelEntry[] = [
+  [4, 9, "shirtAccent"], [5, 9, "shirt"], [6, 9, "shirt"], [7, 9, "shirt"], [8, 9, "shirtAccent"],
+  [3, 10, "shirt"], [4, 10, "shirt"], [5, 10, "shirt"], [6, 10, "shirt"], [7, 10, "shirt"], [8, 10, "shirt"],
+  // Arms swinging (left forward, right back)
+  [2, 9, "skin"], [1, 10, "skin"], [1, 11, "belt"],
+  [10, 10, "skin"], [11, 11, "skin"], [11, 12, "belt"],
+  // Overalls
+  [5, 11, "shirt"], [6, 11, "shirt"], [7, 11, "shirt"],
+  [5, 12, "shirt"], [6, 12, "shirt"], [7, 12, "shirt"],
+  // Legs SPLIT (opposite)
+  [3, 13, "shirt"], [4, 13, "shirt"], [8, 13, "shirt"], [9, 13, "shirt"],
+  [3, 14, "shirt"], [4, 14, "shirt"], [8, 14, "shirt"], [9, 14, "shirt"],
   // Shoes
-  [5, 13, "shoe"], [6, 13, "shoe"], [7, 13, "shoe"],
-  [5, 14, "shoe"], [6, 14, "shoe"], [7, 14, "shoe"],
+  [3, 15, "shoe"], [4, 15, "shoe"], [8, 15, "shoe"], [9, 15, "shoe"],
+  [3, 16, "shoe"], [4, 16, "shoe"], [8, 16, "shoe"], [9, 16, "shoe"],
 ];
 
-/** Walk Right frame 3 — right leg forward, left arm forward (opposite of frame 1). */
-const WALK_RIGHT_BODY_3: PixelEntry[] = [
-  // Face
-  [5, 2, "skin"], [6, 2, "skin"], [7, 2, "skin"], [8, 2, "skin"],
-  [5, 3, "skin"], [6, 3, "eyeWhite"], [8, 3, "eyeWhite"], [9, 3, "skin"],
-  [6, 3, "eyePupil"], [8, 3, "eyePupil"],
-  [5, 3, "skin"], [7, 3, "skin"],
-  [5, 4, "skin"], [6, 4, "skin"], [7, 4, "skin"], [8, 4, "skin"],
-  // Neck
-  [6, 5, "skin"], [7, 5, "skin"],
-  [4, 5, "shirt"], [5, 5, "shirt"], [8, 5, "shirt"], [9, 5, "shirt"],
-  // Torso
-  [4, 6, "shirt"], [5, 6, "shirt"], [6, 6, "shirt"], [7, 6, "shirt"], [8, 6, "shirt"],
-  [4, 7, "shirt"], [5, 7, "shirt"], [6, 7, "shirt"], [7, 7, "shirt"], [8, 7, "shirt"],
-  [5, 8, "shirt"], [6, 8, "shirt"], [7, 8, "shirt"],
-  [6, 6, "shirtAccent"], [7, 6, "shirtAccent"],
-  // Left arm forward
-  [3, 6, "skin"], [3, 7, "skin"],
-  // Right arm back
-  [9, 7, "skin"], [9, 8, "skin"],
-  // Belt
-  [5, 9, "belt"], [6, 9, "belt"], [7, 9, "belt"],
-  // Pants — right leg forward, left leg back
-  [4, 10, "pants"], [5, 10, "pants"], [7, 10, "pants"], [8, 10, "pants"],
-  [3, 11, "pants"], [4, 11, "pants"], [8, 11, "pants"], [9, 11, "pants"],
-  [3, 12, "pants"], [4, 12, "pants"], [8, 12, "pants"], [9, 12, "pants"],
-  // Shoes
-  [3, 13, "shoe"], [4, 13, "shoe"], [8, 13, "shoe"], [9, 13, "shoe"],
-  [3, 14, "shoe"], [4, 14, "shoe"], [8, 14, "shoe"], [9, 14, "shoe"],
-];
+const WALK_RIGHT_BODY_1: PixelEntry[] = [...HEAD_RIGHT_OPEN, ...BODY_WALK_SPLIT];
+const WALK_RIGHT_BODY_2: PixelEntry[] = [...HEAD_RIGHT_OPEN, ...BODY_WALK_TOGETHER];
+const WALK_RIGHT_BODY_3: PixelEntry[] = [...HEAD_RIGHT_OPEN, ...BODY_WALK_SPLIT_ALT];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Frame composition + mirroring
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Mirror a frame horizontally for a 12-wide grid: col → 11 - col. */
 function mirrorFrame(frame: PixelEntry[]): PixelEntry[] {
   return frame.map(([col, row, key]) => [11 - col, row, key]);
 }
 
-/**
- * Compose a body frame with a hair style overlay.
- * Hair pixels go on top — later entries in box-shadow overlay earlier ones.
- */
 function composeFrame(body: PixelEntry[], hair: PixelEntry[]): PixelEntry[] {
   return [...body, ...hair];
 }
 
-/**
- * Build the complete frame set for a given hair style.
- * Returns frames for all CharState variants.
- */
 export function buildFrameSets(
   appearance: CharacterAppearance,
 ): Record<CharState, PixelEntry[][]> {
   const hair = HAIR_STYLES[appearance.hairStyle];
-
-  // Compose each body frame with the hair overlay
   const compose = (body: PixelEntry[]) => composeFrame(body, hair);
 
-  // Walk frames also need hair. For walk_right, face is shifted right,
-  // so we use the same hair (it covers rows 0-2 which are the top of head).
-  // For walk_left, mirror everything.
   const walkRightFrames = [
     composeFrame(WALK_RIGHT_BODY_1, hair),
     composeFrame(WALK_RIGHT_BODY_2, hair),
     composeFrame(WALK_RIGHT_BODY_3, hair),
-    composeFrame(WALK_RIGHT_BODY_2, hair), // [1,2,3,2] pattern
+    composeFrame(WALK_RIGHT_BODY_2, hair),
   ];
 
   const mirroredHair = mirrorFrame(hair);
@@ -585,7 +374,6 @@ export function buildFrameSets(
 // Animation timing
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Milliseconds per frame for each state's animation cycle. */
 export const ANIM_INTERVALS: Record<CharState, number> = {
   idle: 1200,
   typing: 220,
