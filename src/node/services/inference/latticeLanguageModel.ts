@@ -24,7 +24,7 @@ import type {
   SharedV3Warning,
 } from "@ai-sdk/provider";
 import type { InferredHttpClient } from "./inferredHttpClient";
-import type { ChatMessage, ChatCompletionRequest } from "./types";
+import type { ChatMessage, ChatCompletionRequest, ChatCompletionChunk } from "./types";
 
 /**
  * Convert a LanguageModelV3Prompt (array of typed messages) into the
@@ -205,8 +205,12 @@ export class LatticeLanguageModel implements LanguageModelV3 {
   /**
    * Streaming generation via POST /v1/chat/completions with stream:true.
    *
-   * Emits proper V3 stream lifecycle events:
-   *   stream-start → response-metadata → text-start → text-delta* → text-end → finish
+   * Uses the same TransformStream pattern as official AI SDK providers
+   * (@ai-sdk/openai, @ai-sdk/anthropic) to ensure stream lifecycle events
+   * are properly ordered through the pipe chain:
+   *   start: stream-start
+   *   transform: response-metadata → text-start → text-delta* → text-end
+   *   flush: finish (+ text-end if needed)
    */
   async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
     const req: ChatCompletionRequest = {
@@ -222,102 +226,101 @@ export class LatticeLanguageModel implements LanguageModelV3 {
       req.top_p = options.topP;
     }
 
-    const client = this.client;
     const modelId = this.modelId;
     const warnings = collectWarnings(options);
-
-    // Use a stable ID scoped to this stream instance (no global counter)
     const contentId = "text-0";
 
-    const stream = new ReadableStream<LanguageModelV3StreamPart>({
+    // Convert the async generator into a ReadableStream (source)
+    const client = this.client;
+    const sourceStream = new ReadableStream<ChatCompletionChunk>({
       async start(controller) {
-        // Emit stream-start with warnings (expected by AI SDK pipeline)
-        controller.enqueue({
-          type: "stream-start",
-          warnings,
-        });
-
-        let outputTokens = 0;
-        let started = false;
-        let lastUsage:
-          | { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-          | undefined;
-        let responseMetadataSent = false;
-
         try {
           for await (const chunk of client.chatCompletionsStream(req)) {
-            const choice = chunk.choices?.[0];
-            if (!choice) continue;
-
-            // Emit response-metadata on first chunk from the server
-            if (!responseMetadataSent && chunk.id) {
-              responseMetadataSent = true;
-              controller.enqueue({
-                type: "response-metadata",
-                id: chunk.id,
-                modelId: chunk.model ?? modelId,
-                timestamp: new Date(chunk.created * 1000),
-              });
-            }
-
-            const delta = choice.delta?.content ?? "";
-
-            if (!started && delta) {
-              controller.enqueue({ type: "text-start", id: contentId });
-              started = true;
-            }
-
-            if (delta) {
-              outputTokens++;
-              controller.enqueue({ type: "text-delta", id: contentId, delta });
-            }
-
-            // Track usage from final chunk
-            if (chunk.usage) {
-              lastUsage = chunk.usage;
-            }
-
-            // Check for finish
-            if (choice.finish_reason) {
-              if (started) {
-                controller.enqueue({ type: "text-end", id: contentId });
-              }
-
-              controller.enqueue({
-                type: "finish",
-                finishReason: mapFinishReason(choice.finish_reason),
-                usage: buildUsage(
-                  lastUsage?.prompt_tokens || undefined,
-                  lastUsage?.completion_tokens || outputTokens,
-                ),
-              });
-              break;
-            }
+            controller.enqueue(chunk);
           }
-
-          // If stream ended without finish_reason, close gracefully
-          if (started) {
-            controller.enqueue({ type: "text-end", id: contentId });
-          }
-          controller.enqueue({
-            type: "finish",
-            finishReason: { unified: "stop", raw: undefined },
-            usage: buildUsage(undefined, outputTokens || undefined),
-          });
         } catch (error) {
-          // Close any open text block before erroring
-          if (started) {
-            controller.enqueue({ type: "text-end", id: contentId });
-          }
-          controller.enqueue({
-            type: "error",
-            error: error instanceof Error ? error : new Error(String(error)),
-          });
-        } finally {
-          controller.close();
+          controller.error(error);
+          return;
         }
+        controller.close();
       },
     });
+
+    // Transform SSE chunks into V3 stream events (matches @ai-sdk/openai pattern)
+    let started = false;
+    let finished = false;
+    let outputTokens = 0;
+    let lastUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number } | undefined;
+    let responseMetadataSent = false;
+
+    const stream = sourceStream.pipeThrough(
+      new TransformStream<ChatCompletionChunk, LanguageModelV3StreamPart>({
+        start(controller) {
+          controller.enqueue({ type: "stream-start", warnings });
+        },
+
+        transform(chunk, controller) {
+          const choice = chunk.choices?.[0];
+          if (!choice) return;
+
+          // Emit response-metadata on first chunk
+          if (!responseMetadataSent && chunk.id) {
+            responseMetadataSent = true;
+            controller.enqueue({
+              type: "response-metadata",
+              id: chunk.id,
+              modelId: chunk.model ?? modelId,
+              timestamp: new Date(chunk.created * 1000),
+            });
+          }
+
+          const delta = choice.delta?.content ?? "";
+
+          if (!started && delta) {
+            controller.enqueue({ type: "text-start", id: contentId });
+            started = true;
+          }
+
+          if (delta) {
+            outputTokens++;
+            controller.enqueue({ type: "text-delta", id: contentId, delta });
+          }
+
+          if (chunk.usage) {
+            lastUsage = chunk.usage;
+          }
+
+          if (choice.finish_reason) {
+            if (started) {
+              controller.enqueue({ type: "text-end", id: contentId });
+            }
+            controller.enqueue({
+              type: "finish",
+              finishReason: mapFinishReason(choice.finish_reason),
+              usage: buildUsage(
+                lastUsage?.prompt_tokens || undefined,
+                lastUsage?.completion_tokens || outputTokens,
+              ),
+            });
+            finished = true;
+          }
+        },
+
+        flush(controller) {
+          // Close gracefully if stream ended without a finish_reason chunk
+          if (!finished) {
+            if (started) {
+              controller.enqueue({ type: "text-end", id: contentId });
+            }
+            controller.enqueue({
+              type: "finish",
+              finishReason: { unified: "stop", raw: undefined },
+              usage: buildUsage(undefined, outputTokens || undefined),
+            });
+          }
+        },
+      }),
+    );
 
     return { stream };
   }
