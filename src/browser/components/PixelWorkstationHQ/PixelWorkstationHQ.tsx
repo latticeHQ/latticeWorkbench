@@ -12,7 +12,7 @@ import {
 import { cn } from "@/common/lib/utils";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
 import { useMinionContext, toMinionSelection } from "@/browser/contexts/MinionContext";
-import { useMinionSidebarState, useMinionUsage, useMinionStoreRaw } from "@/browser/stores/MinionStore";
+import { useMinionSidebarState, useMinionUsage, useMinionStoreRaw, useMinionState as useMinionFullState } from "@/browser/stores/MinionStore";
 import { resolveCrewColor } from "@/common/constants/ui";
 import { sortCrewsByLinkedList } from "@/common/utils/crews";
 import type { FrontendMinionMetadata } from "@/common/types/minion";
@@ -33,6 +33,105 @@ import {
 } from "./sprites";
 import { AnimatedMinion, type MinionState } from "./AnimatedMinion";
 import { MinionToolBadges, MinionModelBadge } from "./MinionToolBadges";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Thinking vs typing state detection
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Short model name for cloud snippet display. */
+function shortModelName(model: string | null | undefined): string | null {
+  if (!model) return null;
+  const m = model.toLowerCase();
+  if (m.includes("opus"))   return "Opus";
+  if (m.includes("sonnet")) return "Sonnet";
+  if (m.includes("haiku"))  return "Haiku";
+  if (m.includes("gpt-4o")) return "GPT-4o";
+  if (m.includes("gpt-4"))  return "GPT-4";
+  if (m.includes("o3"))     return "o3";
+  if (m.includes("o1"))     return "o1";
+  if (m.includes("gemini")) return "Gemini";
+  if (m.includes("codex"))  return "Codex";
+  // Fallback: last segment after "/" or ":"
+  const seg = model.split(/[/:]/);
+  const last = seg[seg.length - 1] ?? model;
+  return last.length > 20 ? last.slice(0, 18) + ".." : last;
+}
+
+/** Find last active tool name from messages (most recent pending/executing). */
+function lastToolSnippet(messages: Array<{ type: string; toolName?: string; status?: string }>): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.type === "tool" && m.toolName) {
+      const name = m.toolName;
+      if (m.status === "pending" || m.status === "executing") {
+        return name;
+      }
+      // Recently completed tool — still useful as context
+      if (m.status === "completed" && i >= messages.length - 3) {
+        return name;
+      }
+    }
+  }
+  return null;
+}
+
+interface DerivedMinionInfo {
+  state: MinionState;
+  cloudLabel: string | undefined;
+  cloudSnippet: string | undefined;
+}
+
+/**
+ * Derive the visual MinionState + cloud content from sidebar + full state.
+ *
+ * - "thinking" = agent is streaming but no output tokens yet (model reasoning)
+ *               OR thinkingLevel is active and token count is 0
+ * - "typing"   = agent is streaming and tokens are flowing
+ * - "done"     = task reported complete
+ * - "waiting"  = awaiting user question
+ * - "idle"     = everything else
+ */
+function useDerivedMinionInfo(minionId: string, ws: FrontendMinionMetadata): DerivedMinionInfo {
+  const sidebar = useMinionSidebarState(minionId);
+  const full = useMinionFullState(minionId);
+  const live = sidebar.canInterrupt || sidebar.isStarting;
+  const waiting = !live && sidebar.awaitingUserQuestion;
+  const done = ws.taskStatus === "reported";
+
+  if (!live && !waiting && done) {
+    return { state: "done", cloudLabel: undefined, cloudSnippet: undefined };
+  }
+  if (waiting) {
+    return { state: "waiting", cloudLabel: undefined, cloudSnippet: undefined };
+  }
+  if (live) {
+    const tokenCount = full.streamingTokenCount ?? 0;
+    const tps = full.streamingTPS ?? 0;
+    const thinkingLevel = full.currentThinkingLevel;
+    const isThinking = thinkingLevel && thinkingLevel !== "off" && tokenCount === 0;
+    const model = shortModelName(full.currentModel);
+    const toolName = lastToolSnippet(full.messages as Array<{ type: string; toolName?: string; status?: string }>);
+
+    if (isThinking) {
+      return {
+        state: "thinking",
+        cloudLabel: "Thinking",
+        cloudSnippet: model ?? undefined,
+      };
+    }
+
+    // Streaming/typing — show tool name if executing, otherwise tok/s
+    const tpsStr = tps > 0 ? `${Math.round(tps)} tok/s` : null;
+    const snippet = toolName ?? tpsStr ?? model ?? undefined;
+    return {
+      state: "typing",
+      cloudLabel: "Streaming",
+      cloudSnippet: snippet,
+    };
+  }
+
+  return { state: "idle", cloudLabel: undefined, cloudSnippet: undefined };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline step classifier (same as ProjectHQOverview)
@@ -89,7 +188,7 @@ function getTimeOfDay(): TimeOfDay {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Live pulse dot
+// Live pulse dot (kept for inline status badges)
 // ─────────────────────────────────────────────────────────────────────────────
 function LiveDot({ size = "md" }: { size?: "sm" | "md" }) {
   const s = size === "sm" ? "h-1.5 w-1.5" : "h-2 w-2";
@@ -198,7 +297,7 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen }: {
   const cost    = getTotalCost(usage.sessionTotal) ?? 0;
   const tok     = usage.totalTokens;
 
-  const minionState: MinionState = live ? "typing" : done ? "done" : waiting ? "waiting" : "idle";
+  const { state: minionState, cloudLabel, cloudSnippet } = useDerivedMinionInfo(ws.id, ws);
 
   const sorted = useMemo(
     () => [...sidekicks].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
@@ -211,7 +310,7 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen }: {
       onClick={() => onOpen(ws)}
       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") onOpen(ws); }}
       className={cn(
-        "group/sn relative flex flex-col rounded-lg border cursor-pointer select-none overflow-hidden",
+        "group/sn relative flex flex-col rounded-lg border cursor-pointer select-none",
         "transition-all duration-150 border-border/40 bg-background/55",
         "hover:border-border hover:bg-background hover:shadow-md hover:shadow-black/25",
         live    && "border-[var(--color-exec-mode)]/40 bg-[var(--color-exec-mode)]/4 shadow-sm",
@@ -221,19 +320,21 @@ function PixelWorkstationCard({ ws, sidekicks, accent, onOpen }: {
       )}
     >
       {/* Top accent bar */}
-      <div className="h-[2.5px] w-full shrink-0" style={{
+      <div className="h-[2.5px] w-full shrink-0 rounded-t-lg" style={{
         background: live ? "var(--color-exec-mode)" : waiting ? "#f59e0b" : done ? "var(--color-success)" : accent,
         opacity: done ? 0.3 : live ? 1 : 0.65,
       }} />
 
-      <div className="flex flex-col gap-1.5 p-2">
+      <div className="flex flex-col gap-2.5 p-3">
         {/* ── Minion SVG + Tool Badges ── */}
-        <div className="flex items-start gap-2">
-          <div className="relative shrink-0">
+        <div className="flex items-start gap-3">
+          <div className="relative shrink-0 flex flex-col items-center">
             <AnimatedMinion
               crewColor={accent}
               state={minionState}
-              size={64}
+              size={110}
+              cloudLabel={cloudLabel}
+              cloudSnippet={cloudSnippet}
             />
             {/* Waiting bubble overlay */}
             {waiting && (
@@ -322,11 +423,11 @@ function SharedCrewStationCard({ minions, accent, onOpen }: {
   onOpen: (ws: FrontendMinionMetadata) => void;
 }) {
   return (
-    <div className="flex flex-col gap-2 p-2">
+    <div className="flex flex-col gap-3 p-3">
       {/* ── Per-minion cards with animated SVG + tool badges ── */}
       <div
-        className="grid gap-2"
-        style={{ gridTemplateColumns: minions.length > 1 ? "repeat(auto-fill, minmax(160px, 1fr))" : "1fr" }}
+        className="grid gap-4"
+        style={{ gridTemplateColumns: minions.length > 1 ? "repeat(auto-fill, minmax(200px, 1fr))" : "1fr" }}
       >
         {minions.map(ws => (
           <MinionCrewCard key={ws.id} ws={ws} accent={accent} onOpen={onOpen} />
@@ -348,14 +449,14 @@ function MinionCrewCard({ ws, accent, onOpen }: {
   const queued  = ws.taskStatus === "queued";
   const title   = ws.title ?? ws.name;
   const cost    = getTotalCost(usage.sessionTotal) ?? 0;
-  const minionState: MinionState = live ? "typing" : done ? "done" : waiting ? "waiting" : "idle";
+  const { state: minionState, cloudLabel, cloudSnippet } = useDerivedMinionInfo(ws.id, ws);
 
   return (
     <button
       type="button"
       onClick={() => onOpen(ws)}
       className={cn(
-        "group/card relative flex flex-col items-center gap-1.5 rounded-lg px-2 py-2 text-center w-full",
+        "group/card relative flex flex-col items-center gap-2 rounded-xl px-3 py-3 text-center w-full",
         "transition-all duration-150 cursor-pointer border border-transparent",
         "hover:bg-white/5 hover:border-border/30",
         live    && "bg-[var(--color-exec-mode)]/4 border-[var(--color-exec-mode)]/20",
@@ -365,14 +466,15 @@ function MinionCrewCard({ ws, accent, onOpen }: {
       )}
     >
       {/* Animated SVG minion */}
-      <div className="relative">
+      <div className="relative flex flex-col items-center">
         <AnimatedMinion
           crewColor={accent}
           state={minionState}
-          size={48}
+          size={96}
+          cloudLabel={cloudLabel}
+          cloudSnippet={cloudSnippet}
         />
         {/* Status overlays */}
-        {live && <LiveDot size="sm" />}
         {waiting && (
           <div className="absolute -top-1 -right-1 text-[9px] font-bold text-amber-400 animate-bounce">?</div>
         )}
@@ -385,7 +487,7 @@ function MinionCrewCard({ ws, accent, onOpen }: {
 
       {/* Title */}
       <span className={cn(
-        "w-full text-[9px] font-medium leading-tight truncate",
+        "w-full text-[11px] font-semibold leading-tight truncate",
         live ? "text-foreground" : "text-foreground/55"
       )}>
         {live
@@ -394,10 +496,10 @@ function MinionCrewCard({ ws, accent, onOpen }: {
       </span>
 
       {/* Model badge + cost */}
-      <div className="flex items-center gap-1 flex-wrap justify-center">
+      <div className="flex items-center gap-1.5 flex-wrap justify-center">
         <MinionModelBadge ws={ws} />
         {cost > 0 && (
-          <span className="text-[7px] tabular-nums" style={{ color: `${accent}55` }}>
+          <span className="text-[9px] tabular-nums" style={{ color: `${accent}55` }}>
             ${formatCostWithDollar(cost)}
           </span>
         )}
@@ -542,7 +644,7 @@ function HQPhaseGroup({
 
   return (
     <div className={cn(
-      "w-full rounded-xl overflow-hidden transition-all duration-200",
+      "w-full rounded-xl transition-all duration-200",
       phaseActive
         ? "border border-border/60 shadow-sm"
         : "border border-border/40"
@@ -585,8 +687,8 @@ function HQPhaseGroup({
 
       {/* Stage boxes — 2-column widget grid */}
       <div
-        className="grid gap-6 p-5 items-start"
-        style={{ gridTemplateColumns: "repeat(2, 1fr)" }}
+        className="grid gap-6 p-6 items-start"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))" }}
       >
         {phaseSections.map((sec, logicalIdx) => (
           <HQStageBox
@@ -914,8 +1016,8 @@ export function PixelWorkstationHQ({ projectPath, projectName: _pn }: {
             <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-foreground/45 flex-1">Unsectioned</span>
             <span className="text-[9px] font-semibold text-muted/40 bg-muted/10 px-1.5 py-0.5 rounded">{unsectioned.length}</span>
           </div>
-          <div className="p-2 grid gap-1.5"
-            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(195px, 1fr))" }}>
+          <div className="p-4 grid gap-3"
+            style={{ gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))" }}>
             {unsectioned.map(ws => (
               <PixelWorkstationCard key={ws.id} ws={ws}
                 sidekicks={childrenByParent.get(ws.id) ?? []}
