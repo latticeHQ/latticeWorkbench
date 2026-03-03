@@ -52,7 +52,7 @@ ESBUILD_CLI_FLAGS := --bundle --format=esm --platform=node --target=node20 --out
 include fmt.mk
 
 .PHONY: all build dev start clean help
-.PHONY: build-renderer version build-icons build-static
+.PHONY: build-renderer version build-icons build-static build-inferred
 .PHONY: lint lint-fix typecheck typecheck-react-native static-check
 .PHONY: test test-unit test-integration test-watch test-coverage test-e2e test-e2e-perf smoke-test
 .PHONY: dist dist-mac dist-win dist-linux install-mac-arm64
@@ -194,7 +194,7 @@ start: node_modules/.installed build-main build-preload build-static ## Build an
 	@NODE_ENV=development bunx electron --remote-debugging-port=9222 .
 
 ## Build targets (can run in parallel)
-build: node_modules/.installed src/version.ts build-renderer build-main build-preload build-icons build-static ## Build all targets
+build: node_modules/.installed src/version.ts build-renderer build-main build-preload build-icons build-static build-inferred ## Build all targets
 
 build-main: node_modules/.installed dist/cli/index.js dist/cli/api.mjs ## Build main process
 
@@ -254,6 +254,35 @@ build-static: ## Copy static assets to dist
 	          node_modules/typescript/lib/lib.es2023*.d.ts; do \
 		cp "$$f" "dist/typescript-lib/$$(basename $$f).txt"; \
 	done
+
+# Lattice Inference Go binary — build from sibling repo if Go is available.
+# The binary is also auto-built at runtime by inferredBinaryPath.ts, but
+# building here ensures it's ready before the first app launch.
+# Detection order: env var > sibling dir > worktree main repo sibling
+LATTICE_INFERENCE_DIR ?= $(shell \
+	if [ -f "$(CURDIR)/../latticeInference/go.mod" ]; then echo "$(CURDIR)/../latticeInference"; \
+	elif [ -f "$(CURDIR)/.git" ]; then \
+		main_repo=$$(sed -n 's|gitdir: \(.*\)/\.git/worktrees/.*|\1|p' "$(CURDIR)/.git"); \
+		if [ -n "$$main_repo" ] && [ -f "$$main_repo/../latticeInference/go.mod" ]; then \
+			echo "$$main_repo/../latticeInference"; \
+		fi; \
+	fi)
+
+build-inferred: ## Build the latticeinference Go binary from source
+	@if [ -z "$(LATTICE_INFERENCE_DIR)" ]; then \
+		echo "⏭  latticeInference source not found (looked at ../latticeInference) — skipping"; \
+		echo "   Set LATTICE_INFERENCE_DIR or clone latticeInference as a sibling directory"; \
+		exit 0; \
+	fi
+	@if ! command -v go >/dev/null 2>&1; then \
+		echo "⏭  Go not installed — skipping latticeinference build"; \
+		echo "   Install Go 1.21+ from https://go.dev/dl/"; \
+		exit 0; \
+	fi
+	@echo "Building latticeinference from $(LATTICE_INFERENCE_DIR)..."
+	@mkdir -p dist/inference/bin
+	@cd "$(LATTICE_INFERENCE_DIR)" && go build -ldflags "-s -w" -o "$(CURDIR)/dist/inference/bin/latticeinference" ./cmd/latticeinference
+	@echo "✅ dist/inference/bin/latticeinference"
 
 # Always regenerate version file (marked as .PHONY above)
 version: ## Generate version file

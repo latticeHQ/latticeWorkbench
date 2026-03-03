@@ -23,6 +23,10 @@ import type { InferenceService } from "./inferenceService";
 // ─── Types ────────────────────────────────────────────────────────────
 
 export interface InferenceSetupStatus {
+  goBinaryFound: boolean;
+  goBinaryPath: string | null;
+  goInstalled: boolean;
+  sourceRepoFound: boolean;
   venvExists: boolean;
   venvPath: string;
   systemPythonFound: boolean;
@@ -38,6 +42,7 @@ export interface InferenceSetupStatus {
 }
 
 export type SetupPhase =
+  | "building-binary"
   | "detecting-python"
   | "creating-venv"
   | "installing-deps"
@@ -60,6 +65,54 @@ export type SetupStreamEvent =
 /** Default venv path for lattice inference Python environment. */
 function getInferenceVenvDir(): string {
   return path.join(os.homedir(), ".lattice", "inference-venv");
+}
+
+/** Check if Go toolchain is installed. */
+function isGoInstalled(): boolean {
+  try {
+    const result = execSync("which go", { encoding: "utf-8", timeout: 5000 }).trim();
+    return !!result;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find the latticeInference source repository.
+ * Checks sibling directories and worktree-resolved paths.
+ */
+function findLatticeInferenceSource(): string | null {
+  // Env var override
+  const envDir = process.env.LATTICE_INFERENCE_DIR;
+  if (envDir && fs.existsSync(path.join(envDir, "go.mod"))) {
+    return envDir;
+  }
+
+  // Sibling directory
+  const siblingFromCwd = path.resolve(process.cwd(), "..", "latticeInference");
+  if (fs.existsSync(path.join(siblingFromCwd, "go.mod"))) {
+    return siblingFromCwd;
+  }
+
+  // Worktree: resolve via .git file to find main repo's sibling
+  try {
+    const dotGit = path.join(process.cwd(), ".git");
+    if (fs.existsSync(dotGit) && fs.statSync(dotGit).isFile()) {
+      const gitContent = fs.readFileSync(dotGit, "utf-8").trim();
+      const match = gitContent.match(/gitdir:\s*(.+)/);
+      if (match) {
+        const mainRepoDir = path.resolve(match[1], "..", "..");
+        const siblingFromMain = path.resolve(mainRepoDir, "..", "latticeInference");
+        if (fs.existsSync(path.join(siblingFromMain, "go.mod"))) {
+          return siblingFromMain;
+        }
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  return null;
 }
 
 function isAppleSilicon(): boolean {
@@ -126,6 +179,20 @@ export class InferenceSetupService {
    * This is a synchronous (non-streaming) status snapshot.
    */
   async checkSetupStatus(): Promise<InferenceSetupStatus> {
+    // Check Go binary
+    let goBinaryFound = false;
+    let goBinaryPath: string | null = null;
+    try {
+      const { getInferredBinaryPath } = await import("./inferredBinaryPath");
+      goBinaryPath = getInferredBinaryPath();
+      goBinaryFound = true;
+    } catch {
+      // Binary not found (and auto-build failed or unavailable)
+    }
+
+    const goInstalled = isGoInstalled();
+    const sourceRepoFound = findLatticeInferenceSource() !== null;
+
     const venvPath = getInferenceVenvDir();
     const venvPython = path.join(venvPath, "bin", "python3");
     const venvExists = fs.existsSync(venvPython);
@@ -155,7 +222,10 @@ export class InferenceSetupService {
     }
 
     let error: string | null = null;
-    if (!systemPythonPath) {
+    if (!goBinaryFound && !goInstalled && !sourceRepoFound) {
+      error =
+        "latticeinference binary not found. Install Go 1.21+ and ensure the latticeInference repo is available, or run 'make build-inferred'.";
+    } else if (!systemPythonPath) {
       error =
         "Python 3 not found. Install Python 3.10+ from python.org or via Homebrew: brew install python@3.12";
     } else if (!pythonVersionOk) {
@@ -163,6 +233,10 @@ export class InferenceSetupService {
     }
 
     return {
+      goBinaryFound,
+      goBinaryPath,
+      goInstalled,
+      sourceRepoFound,
       venvExists,
       venvPath,
       systemPythonFound: !!systemPythonPath,
@@ -196,6 +270,75 @@ export class InferenceSetupService {
     end: () => void
   ): Promise<void> {
     try {
+      // ─── Phase 0: Ensure Go binary ───────────────────────────────
+      let binaryPath: string | null = null;
+      try {
+        const { getInferredBinaryPath } = await import("./inferredBinaryPath");
+        binaryPath = getInferredBinaryPath();
+      } catch {
+        // Not found — try to build
+      }
+
+      if (!binaryPath) {
+        push({
+          type: "phase",
+          phase: "building-binary",
+          message: "Building latticeinference binary...",
+        });
+
+        const sourceDir = findLatticeInferenceSource();
+        if (!sourceDir) {
+          push({
+            type: "result",
+            success: false,
+            message:
+              "latticeinference source not found.\n\nClone the latticeInference repo as a sibling directory:\n  git clone <repo-url> ../latticeInference",
+          });
+          end();
+          return;
+        }
+
+        if (!isGoInstalled()) {
+          push({
+            type: "result",
+            success: false,
+            message:
+              "Go is not installed.\n\nInstall Go 1.21+ from https://go.dev/dl/ or via Homebrew:\n  brew install go",
+          });
+          end();
+          return;
+        }
+
+        push({ type: "stdout", data: `Building from ${sourceDir}...\n` });
+
+        const buildOk = await this.spawnAndStream(
+          "go",
+          ["build", "-ldflags", "-s -w", "-o", path.join(process.cwd(), "dist", "inference", "bin", "latticeinference"), "./cmd/latticeinference"],
+          push,
+          120_000, // 2 min timeout for Go build
+          sourceDir
+        );
+
+        if (!buildOk) {
+          push({
+            type: "result",
+            success: false,
+            message: "Failed to build latticeinference binary. Check the output above for errors.",
+          });
+          end();
+          return;
+        }
+
+        push({ type: "stdout", data: "Go binary built successfully.\n" });
+      } else {
+        push({
+          type: "phase",
+          phase: "building-binary",
+          message: "Go binary found.",
+        });
+        push({ type: "stdout", data: `Using binary: ${binaryPath}\n` });
+      }
+
       // ─── Phase 1: Detect Python ────────────────────────────────
       push({
         type: "phase",
@@ -378,7 +521,8 @@ export class InferenceSetupService {
     command: string,
     args: string[],
     push: (event: SetupStreamEvent) => void,
-    timeout: number
+    timeout: number,
+    cwd?: string
   ): Promise<boolean> {
     return new Promise<boolean>((resolve) => {
       let resolved = false;
@@ -389,6 +533,7 @@ export class InferenceSetupService {
       };
 
       const child = spawn(command, args, {
+        cwd,
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           ...process.env,
