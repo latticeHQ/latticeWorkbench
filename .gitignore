@@ -136,3 +136,4 @@ jobs/
 # Claude worktrees
 .claude/worktrees/
 
+/AppleWWDRCAG3.cer
