@@ -44,6 +44,7 @@ import { ServerAccessSection } from "./sections/ServerAccessSection";
 import { KeybindsSection } from "./sections/KeybindsSection";
 import { InboxesSettingsSection } from "./sections/InboxesSettingsSection";
 import { ArchivedSection } from "./sections/ArchivedSection";
+import { LatticeInferenceSection } from "./sections/LatticeInferenceSection";
 import type { SettingsSection } from "./types";
 
 const BASE_SECTIONS: SettingsSection[] = [
@@ -70,6 +71,12 @@ const BASE_SECTIONS: SettingsSection[] = [
     label: "Models",
     icon: <Cpu className="h-4 w-4" />,
     component: ModelsSection,
+  },
+  {
+    id: "local-inference",
+    label: "Local Inference",
+    icon: <BrainCircuit className="h-4 w-4" />,
+    component: LatticeInferenceSection,
   },
   {
     id: "mcp",
