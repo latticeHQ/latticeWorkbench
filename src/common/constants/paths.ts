@@ -40,6 +40,11 @@ export function migrateLegacyLatticeHome(): void {
  *
  * Note: This file is only used by main process code, but lives in constants/
  * for organizational purposes. The process.env access is safe.
+ *
+ * MAS Sandbox: The entitlements.mas.plist grants a temporary-exception for
+ * absolute-path read-write at "/", so ~/.lattice is accessible even in the
+ * App Sandbox. If Apple ever revokes this exception, fall back to
+ * app.getPath('userData') from Electron instead.
  */
 export function getLatticeHome(): string {
   // eslint-disable-next-line no-restricted-syntax, no-restricted-globals
