@@ -67,7 +67,6 @@ import { AboutDialogProvider } from "./contexts/AboutDialogContext";
 import { ConfirmDialogProvider, useConfirmDialog } from "./contexts/ConfirmDialogContext";
 import { AboutDialog } from "./components/About/AboutDialog";
 import { SettingsPage } from "@/browser/components/Settings/SettingsPage";
-import { AnalyticsDashboard } from "@/browser/components/analytics/AnalyticsDashboard";
 import { SshPromptDialog } from "./components/SshPromptDialog";
 import { SplashScreenProvider } from "./components/splashScreens/SplashScreenProvider";
 import { TutorialProvider } from "./contexts/TutorialContext";
@@ -105,9 +104,6 @@ function AppInner() {
   const {
     currentMinionId,
     currentSettingsSection,
-    isAnalyticsOpen,
-    navigateToAnalytics,
-    navigateFromAnalytics,
   } = useRouter();
   const { theme, setTheme, toggleTheme } = useTheme();
   const { open: openSettings, isOpen: isSettingsOpen } = useSettings();
@@ -708,11 +704,7 @@ function AppInner() {
         openSettings();
       } else if (matchesKeybind(e, KEYBINDS.OPEN_ANALYTICS)) {
         e.preventDefault();
-        if (isAnalyticsOpen) {
-          navigateFromAnalytics();
-        } else {
-          navigateToAnalytics();
-        }
+        openSettings("analytics");
       } else if (matchesKeybind(e, KEYBINDS.NAVIGATE_BACK)) {
         e.preventDefault();
         void navigate(-1);
@@ -732,9 +724,6 @@ function AppInner() {
     closeCommandPalette,
     openCommandPalette,
     openSettings,
-    isAnalyticsOpen,
-    navigateToAnalytics,
-    navigateFromAnalytics,
     navigate,
   ]);
   // Mouse back/forward buttons (buttons 3 and 4)
@@ -975,13 +964,8 @@ function AppInner() {
           <WindowsToolchainBanner />
           <RosettaBanner />
           <div className="mobile-layout flex flex-1 overflow-hidden">
-            {/* Route-driven settings and analytics render in the main pane so project/minion navigation stays visible. */}
-            {isAnalyticsOpen ? (
-              <AnalyticsDashboard
-                leftSidebarCollapsed={sidebarCollapsed}
-                onToggleLeftSidebarCollapsed={handleToggleSidebar}
-              />
-            ) : currentSettingsSection ? (
+            {/* Route-driven settings render in the main pane so project/minion navigation stays visible. */}
+            {currentSettingsSection ? (
               <SettingsPage
                 leftSidebarCollapsed={sidebarCollapsed}
                 onToggleLeftSidebarCollapsed={handleToggleSidebar}
