@@ -4,7 +4,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useDroppable, useDndContext } from "@dnd-kit/core";
-import { BarChart3, ChevronDown, Plus, Terminal } from "lucide-react";
+import { ChevronDown, Plus, Terminal } from "lucide-react";
 import type { TabType } from "@/browser/types/workbenchPanel";
 import { isDesktopMode, DESKTOP_TITLEBAR_HEIGHT_CLASS } from "@/browser/hooks/useDesktopTitlebar";
 
@@ -54,8 +54,6 @@ interface WorkbenchPanelTabStripProps {
   onAddProfileTerminal?: (profileId: string, profileName: string) => void;
   /** Enabled + installed terminal profiles to show in the "+" dropdown */
   terminalProfiles?: TerminalProfileItem[];
-  /** Called when user clicks the analytics button to open the analytics dashboard */
-  onOpenAnalytics?: () => void;
 }
 
 /**
@@ -154,7 +152,6 @@ export const WorkbenchPanelTabStrip: React.FC<WorkbenchPanelTabStripProps> = ({
   onAddTerminal,
   onAddProfileTerminal,
   terminalProfiles,
-  onOpenAnalytics,
 }) => {
   const { active } = useDndContext();
   const activeData = active?.data.current as TabDragData | undefined;
@@ -232,20 +229,6 @@ export const WorkbenchPanelTabStrip: React.FC<WorkbenchPanelTabStripProps> = ({
           </TooltipTrigger>
           <TooltipContent side="bottom">New terminal</TooltipContent>
         </Tooltip>
-      )}
-      {onOpenAnalytics && (
-        <button
-          type="button"
-          className={cn(
-            "text-muted hover:bg-hover hover:text-foreground flex shrink-0 items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors",
-            isDesktop && "titlebar-no-drag"
-          )}
-          onClick={onOpenAnalytics}
-          aria-label="Open analytics"
-        >
-          <BarChart3 className="h-3 w-3" />
-          Analytics
-        </button>
       )}
     </div>
   );
