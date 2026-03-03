@@ -16,7 +16,7 @@
 import { EventEmitter } from "events";
 import * as os from "os";
 import * as path from "path";
-import type { LanguageModelV2 } from "@ai-sdk/provider";
+import type { LanguageModelV3 } from "@ai-sdk/provider";
 import { InferredProcessManager } from "./inferredProcessManager";
 import { InferredHttpClient } from "./inferredHttpClient";
 import { HfDownloader } from "./hfDownloader";
@@ -207,10 +207,10 @@ export class InferenceService extends EventEmitter {
   // ─── Language Model (AI SDK bridge) ─────────────────────────────────
 
   /**
-   * Get the LanguageModelV2 for the given model.
+   * Get the LanguageModelV3 for the given model.
    * Uses the Go binary's OpenAI-compatible API under the hood.
    */
-  getLanguageModel(modelId?: string): LanguageModelV2 {
+  getLanguageModel(modelId?: string): LanguageModelV3 {
     const id = modelId ?? this._loadedModelId;
     if (!id) {
       throw new Error("No model loaded. Call loadModel() first.");
