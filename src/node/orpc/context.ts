@@ -34,6 +34,8 @@ import type { SshPromptService } from "@/node/services/sshPromptService";
 import type { AnalyticsService } from "@/node/services/analytics/analyticsService";
 import type { KanbanService } from "@/node/services/kanbanService";
 import type { ExoService } from "@/node/services/exoService";
+import type { InferenceService } from "@/node/services/inference/inferenceService";
+import type { InferenceSetupService } from "@/node/services/inference/inferenceSetupService";
 import type { SchedulerService } from "@/node/services/schedulerService";
 import type { SyncService } from "@/node/services/syncService";
 import type { InboxService } from "@/node/services/inboxService";
@@ -74,6 +76,8 @@ export interface ORPCContext {
   analyticsService: AnalyticsService;
   kanbanService: KanbanService;
   exoService: ExoService;
+  inferenceService: InferenceService;
+  inferenceSetupService: InferenceSetupService;
   schedulerService: SchedulerService;
   syncService: SyncService;
   inboxService: InboxService;

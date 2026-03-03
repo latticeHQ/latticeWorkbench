@@ -4174,6 +4174,143 @@ export const router = (authToken?: string) => {
         }),
     },
 
+    // Lattice Inference — local on-device LLM inference engine
+    latticeInference: {
+      getStatus: t
+        .input(schemas.latticeInference.getStatus.input)
+        .output(schemas.latticeInference.getStatus.output)
+        .handler(async ({ context }) => {
+          const svc = context.inferenceService;
+          if (!svc.isAvailable) {
+            return {
+              available: false,
+              loadedModelId: null,
+              cachedModels: [],
+              loadedModels: [],
+              modelsLoaded: 0,
+              maxLoadedModels: 0,
+              memoryBudgetBytes: 0,
+              estimatedVramBytes: 0,
+            };
+          }
+          const models = await svc.listModels();
+          const pool = await svc.getPoolStatus();
+          return {
+            available: true,
+            loadedModelId: svc.loadedModelId,
+            cachedModels: models,
+            loadedModels: pool.loadedModels,
+            modelsLoaded: pool.modelsLoaded,
+            maxLoadedModels: pool.maxLoadedModels,
+            memoryBudgetBytes: pool.memoryBudgetBytes,
+            estimatedVramBytes: pool.estimatedVramBytes,
+          };
+        }),
+      listModels: t
+        .input(schemas.latticeInference.listModels.input)
+        .output(schemas.latticeInference.listModels.output)
+        .handler(async ({ context }) => {
+          return context.inferenceService.listModels();
+        }),
+      pullModel: t
+        .input(schemas.latticeInference.pullModel.input)
+        .output(schemas.latticeInference.pullModel.output)
+        .handler(async ({ context, input }) => {
+          const modelDir = await context.inferenceService.pullModel(input.modelId);
+          return { modelDir };
+        }),
+      deleteModel: t
+        .input(schemas.latticeInference.deleteModel.input)
+        .output(schemas.latticeInference.deleteModel.output)
+        .handler(async ({ context, input }) => {
+          await context.inferenceService.deleteModel(input.modelId);
+        }),
+      loadModel: t
+        .input(schemas.latticeInference.loadModel.input)
+        .output(schemas.latticeInference.loadModel.output)
+        .handler(async ({ context, input }) => {
+          await context.inferenceService.loadModel(input.modelId, input.backend);
+        }),
+      unloadModel: t
+        .input(schemas.latticeInference.unloadModel.input)
+        .output(schemas.latticeInference.unloadModel.output)
+        .handler(async ({ context, input }) => {
+          await context.inferenceService.unloadModel(input.modelId);
+        }),
+      getClusterStatus: t
+        .input(schemas.latticeInference.getClusterStatus.input)
+        .output(schemas.latticeInference.getClusterStatus.output)
+        .handler(async ({ context }) => {
+          return context.inferenceService.getClusterStatus();
+        }),
+      getClusterNodes: t
+        .input(schemas.latticeInference.getClusterNodes.input)
+        .output(schemas.latticeInference.getClusterNodes.output)
+        .handler(async ({ context }) => {
+          return context.inferenceService.getClusterNodes();
+        }),
+      getMetrics: t
+        .input(schemas.latticeInference.getMetrics.input)
+        .output(schemas.latticeInference.getMetrics.output)
+        .handler(async ({ context }) => {
+          return context.inferenceService.getMetrics();
+        }),
+      runBenchmark: t
+        .input(schemas.latticeInference.runBenchmark.input)
+        .output(schemas.latticeInference.runBenchmark.output)
+        .handler(async ({ context, input }) => {
+          return context.inferenceService.runBenchmark(input.modelId);
+        }),
+      onDownloadProgress: t
+        .input(schemas.latticeInference.onDownloadProgress.input)
+        .output(schemas.latticeInference.onDownloadProgress.output)
+        .handler(async function* ({ context, signal }) {
+          if (signal?.aborted) return;
+
+          const queue = createAsyncEventQueue<{
+            fileName: string;
+            downloadedBytes: number;
+            totalBytes: number;
+          }>();
+
+          const handler = (progress: {
+            fileName: string;
+            downloadedBytes: number;
+            totalBytes: number;
+          }) => {
+            queue.push(progress);
+          };
+
+          context.inferenceService.on("download-progress", handler);
+          const onAbort = () => queue.end();
+          if (signal) signal.addEventListener("abort", onAbort, { once: true });
+
+          try {
+            yield* queue.iterate();
+          } finally {
+            signal?.removeEventListener("abort", onAbort);
+            queue.end();
+            context.inferenceService.off("download-progress", handler);
+          }
+        }),
+    },
+
+    // Inference Setup — Python environment setup wizard
+    inferenceSetup: {
+      checkStatus: t
+        .input(schemas.inferenceSetup.checkStatus.input)
+        .output(schemas.inferenceSetup.checkStatus.output)
+        .handler(async ({ context }) => {
+          return context.inferenceSetupService.checkSetupStatus();
+        }),
+      runSetup: t
+        .input(schemas.inferenceSetup.runSetup.input)
+        .output(schemas.inferenceSetup.runSetup.output)
+        .handler(async function* ({ context }) {
+          yield* context.inferenceSetupService.runSetup();
+        }),
+    },
+
     // Scheduler — cron/interval job scheduling for automated agent tasks
     scheduler: {
       list: t

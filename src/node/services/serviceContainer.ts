@@ -65,6 +65,8 @@ import { PolicyService } from "@/node/services/policyService";
 import { ServerAuthService } from "@/node/services/serverAuthService";
 import { KanbanService } from "@/node/services/kanbanService";
 import { ExoService } from "@/node/services/exoService";
+import { InferenceService } from "@/node/services/inference/inferenceService";
+import { InferenceSetupService } from "@/node/services/inference/inferenceSetupService";
 import { SchedulerService } from "@/node/services/schedulerService";
 import { SyncService } from "@/node/services/syncService";
 import { InboxService } from "@/node/services/inboxService";
@@ -133,6 +135,8 @@ export class ServiceContainer {
   public readonly serverAuthService: ServerAuthService;
   public readonly kanbanService: KanbanService;
   public readonly exoService: ExoService;
+  public readonly inferenceService: InferenceService;
+  public readonly inferenceSetupService: InferenceSetupService;
   public readonly schedulerService: SchedulerService;
   public readonly syncService: SyncService;
   public readonly inboxService: InboxService;
@@ -220,6 +224,11 @@ export class ServiceContainer {
     this.ptyService = new PTYService();
     this.kanbanService = new KanbanService(config);
     this.exoService = new ExoService();
+    // Lattice Inference — local on-device LLM inference engine
+    this.inferenceService = new InferenceService(config.rootDir);
+    this.inferenceSetupService = new InferenceSetupService(this.inferenceService);
+    // Wire inference service into the model factory so `lattice-inference:*` model strings work
+    this.aiService.setInferenceService(this.inferenceService);
     // Inbox service — manages channel adapters (Telegram, Slack, etc.)
     this.inboxService = new InboxService(config);
     // Wire agent dispatch dependencies into inbox service (setter injection
@@ -349,6 +358,14 @@ export class ServiceContainer {
 
     // Initialize sync (verifies repo if configured, starts auto-sync watcher)
     this.syncService.initialize();
+
+    // Initialize local inference engine (startup-safe: never crashes the app).
+    // The Go binary may not be installed — that's fine, isAvailable will be false.
+    try {
+      await this.inferenceService.initialize();
+    } catch (error) {
+      log.warn("[ServiceContainer] Failed to initialize inference service", { error });
+    }
 
     // Refresh Lattice SSH config in background (handles binary path changes on restart)
     // Skip getLatticeInfo() to avoid caching "unavailable" if lattice isn't installed yet
@@ -596,6 +613,8 @@ export class ServiceContainer {
       analyticsService: this.analyticsService,
       kanbanService: this.kanbanService,
       exoService: this.exoService,
+      inferenceService: this.inferenceService,
+      inferenceSetupService: this.inferenceSetupService,
       schedulerService: this.schedulerService,
       syncService: this.syncService,
       inboxService: this.inboxService,
@@ -634,6 +653,7 @@ export class ServiceContainer {
 
     await this.analyticsService.dispose();
     this.exoService.dispose();
+    await this.inferenceService.dispose();
     this.policyService.dispose();
     this.mcpServerManager.dispose();
     await this.mcpOauthService.dispose();

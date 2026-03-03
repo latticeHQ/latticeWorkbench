@@ -93,6 +93,16 @@ export const PROVIDER_DEFINITIONS = {
     requiresApiKey: false,
     isSubprocess: true,
   },
+  // Lattice Inference — local on-device LLM inference via the latticeinference Go binary.
+  // Spawns Python ML workers (MLX on Apple Silicon, llama.cpp on NVIDIA/CPU).
+  // No API key needed; the Go binary runs locally.
+  "lattice-inference": {
+    displayName: "Lattice Inference",
+    import: () => Promise.resolve({}),
+    factoryName: "",
+    requiresApiKey: false,
+    isSubprocess: true,
+  },
 } as const satisfies Record<string, ProviderDefinition>;
 
 /**
