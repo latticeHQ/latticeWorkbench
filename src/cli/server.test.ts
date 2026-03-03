@@ -98,6 +98,8 @@ async function createTestServer(): Promise<TestServerHandle> {
     schedulerService: services.schedulerService,
     syncService: services.syncService,
     inboxService: services.inboxService,
+    inferenceService: services.inferenceService,
+    inferenceSetupService: services.inferenceSetupService,
   };
 
   // Use the actual createOrpcServer function

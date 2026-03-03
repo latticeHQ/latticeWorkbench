@@ -28,6 +28,7 @@ import type { AnthropicCacheTtl } from "@/common/utils/ai/cacheStrategy";
 import { LATTICE_APP_ATTRIBUTION_TITLE, LATTICE_APP_ATTRIBUTION_URL } from "@/constants/appAttribution";
 import { resolveProviderCredentials } from "@/node/utils/providerRequirements";
 import { createClaudeCodeModel } from "./claudeCodeSubprocess";
+import type { InferenceService } from "./inference/inferenceService";
 import { EnvHttpProxyAgent, type Dispatcher } from "undici";
 
 // ---------------------------------------------------------------------------
@@ -373,6 +374,7 @@ export class ProviderModelFactory {
   private readonly policyService?: PolicyService;
   codexOauthService?: CodexOauthService;
   anthropicOauthService?: AnthropicOauthService;
+  inferenceService?: InferenceService;
 
   constructor(
     config: Config,
@@ -454,6 +456,26 @@ export class ProviderModelFactory {
               ? "streaming"
               : "agentic"; // default
         return Ok(createClaudeCodeModel(modelId, ccMode) as unknown as LanguageModel);
+      }
+
+      // Handle Lattice Inference — local on-device LLM via the latticeinference Go binary.
+      // Model creation is handled via InferenceService which bridges to the Go binary's
+      // OpenAI-compatible API through the LatticeLanguageModel LanguageModelV2 implementation.
+      if (providerName === "lattice-inference") {
+        if (!this.inferenceService) {
+          return Err({
+            type: "runtime_not_ready",
+            message: "Lattice Inference service is not initialized",
+          });
+        }
+        if (!this.inferenceService.isAvailable) {
+          return Err({
+            type: "runtime_not_ready",
+            message:
+              "Lattice Inference engine is not running. Check that the latticeinference binary is installed.",
+          });
+        }
+        return Ok(this.inferenceService.getLanguageModel(modelId) as unknown as LanguageModel);
       }
 
       // Backend config is authoritative for Anthropic prompt cache TTL on any
