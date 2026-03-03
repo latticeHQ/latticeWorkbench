@@ -1,31 +1,36 @@
 /**
- * Lattice Language Model — Custom Vercel AI SDK LanguageModelV2 implementation.
+ * Lattice Language Model — Custom Vercel AI SDK LanguageModelV3 implementation.
  *
  * Bridges the Go binary's OpenAI-compatible HTTP API to the Vercel AI SDK's
- * LanguageModelV2 interface. This allows lattice-inference to work seamlessly
+ * LanguageModelV3 interface. This allows lattice-inference to work seamlessly
  * with `streamText()`, `generateText()`, and all other AI SDK primitives.
+ *
+ * Uses V3 spec directly (not V2) to avoid the AI SDK's V2→V3 Proxy adapter
+ * which can drop stream lifecycle events causing "text part X not found" errors.
  *
  * Architecture: AI SDK -> LatticeLanguageModel -> InferredHttpClient -> Go binary -> Python worker
  */
 
 import type {
-  LanguageModelV2,
-  LanguageModelV2CallOptions,
-  LanguageModelV2CallWarning,
-  LanguageModelV2Content,
-  LanguageModelV2FinishReason,
-  LanguageModelV2Message,
-  LanguageModelV2StreamPart,
-  LanguageModelV2Usage,
+  LanguageModelV3,
+  LanguageModelV3CallOptions,
+  LanguageModelV3Content,
+  LanguageModelV3FinishReason,
+  LanguageModelV3GenerateResult,
+  LanguageModelV3Message,
+  LanguageModelV3StreamPart,
+  LanguageModelV3StreamResult,
+  LanguageModelV3Usage,
+  SharedV3Warning,
 } from "@ai-sdk/provider";
 import type { InferredHttpClient } from "./inferredHttpClient";
 import type { ChatMessage, ChatCompletionRequest } from "./types";
 
 /**
- * Convert a LanguageModelV2Prompt (array of typed messages) into the
+ * Convert a LanguageModelV3Prompt (array of typed messages) into the
  * simple {role, content}[] format expected by the OpenAI-compatible API.
  */
-function convertPrompt(messages: LanguageModelV2Message[]): ChatMessage[] {
+function convertPrompt(messages: LanguageModelV3Message[]): ChatMessage[] {
   const result: ChatMessage[] = [];
 
   for (const msg of messages) {
@@ -33,24 +38,26 @@ function convertPrompt(messages: LanguageModelV2Message[]): ChatMessage[] {
       result.push({ role: "system", content: msg.content });
     } else if (msg.role === "user") {
       const text = msg.content
-        .filter((p) => p.type === "text")
+        .filter((p): p is { type: "text"; text: string } => p.type === "text")
         .map((p) => p.text)
         .join("");
       if (text) result.push({ role: "user", content: text });
     } else if (msg.role === "assistant") {
       const text = msg.content
-        .filter((p) => p.type === "text")
+        .filter((p): p is { type: "text"; text: string } => p.type === "text")
         .map((p) => p.text)
         .join("");
       if (text) result.push({ role: "assistant", content: text });
     } else if (msg.role === "tool") {
       const text = msg.content
         .map((p) => {
-          if (p.output.type === "text" || p.output.type === "error-text") {
-            return p.output.value;
+          if (p.type !== "tool-result") return "";
+          const output = p.output;
+          if (output.type === "text" || output.type === "error-text") {
+            return output.value;
           }
-          if (p.output.type === "json" || p.output.type === "error-json") {
-            return JSON.stringify(p.output.value);
+          if (output.type === "json" || output.type === "error-json") {
+            return JSON.stringify(output.value);
           }
           return "";
         })
@@ -63,17 +70,87 @@ function convertPrompt(messages: LanguageModelV2Message[]): ChatMessage[] {
   return result;
 }
 
-let streamIdCounter = 0;
-function nextStreamId(): string {
-  return `lattice-${++streamIdCounter}`;
+/**
+ * Build V3 usage from raw token counts.
+ */
+function buildUsage(
+  inputTokens?: number,
+  outputTokens?: number,
+): LanguageModelV3Usage {
+  return {
+    inputTokens: {
+      total: inputTokens,
+      noCache: undefined,
+      cacheRead: undefined,
+      cacheWrite: undefined,
+    },
+    outputTokens: {
+      total: outputTokens,
+      text: undefined,
+      reasoning: undefined,
+    },
+  };
 }
 
 /**
- * Custom LanguageModelV2 that communicates with the Go inference binary
- * via its OpenAI-compatible HTTP API.
+ * Build V3 finish reason from raw string.
  */
-export class LatticeLanguageModel implements LanguageModelV2 {
-  readonly specificationVersion = "v2" as const;
+function mapFinishReason(reason: string): LanguageModelV3FinishReason {
+  let unified: LanguageModelV3FinishReason["unified"];
+  switch (reason) {
+    case "stop":
+    case "eos":
+    case "end_of_text":
+      unified = "stop";
+      break;
+    case "length":
+    case "max_tokens":
+      unified = "length";
+      break;
+    case "content_filter":
+      unified = "content-filter";
+      break;
+    default:
+      unified = "stop";
+      break;
+  }
+  return { unified, raw: reason };
+}
+
+/**
+ * Collect warnings for unsupported options.
+ */
+function collectWarnings(options: LanguageModelV3CallOptions): SharedV3Warning[] {
+  const warnings: SharedV3Warning[] = [];
+
+  if (options.tools && options.tools.length > 0) {
+    warnings.push({
+      type: "unsupported",
+      feature: "tool-calls",
+      details: "Lattice Inference does not support tool calls. Tools will be ignored.",
+    });
+  }
+
+  if (options.responseFormat?.type === "json") {
+    warnings.push({
+      type: "unsupported",
+      feature: "json-response-format",
+      details: "Lattice Inference does not support JSON response format. Using plain text.",
+    });
+  }
+
+  return warnings;
+}
+
+/**
+ * Custom LanguageModelV3 that communicates with the Go inference binary
+ * via its OpenAI-compatible HTTP API.
+ *
+ * Uses V3 spec directly to avoid the AI SDK's V2→V3 Proxy adapter
+ * which can drop stream lifecycle events.
+ */
+export class LatticeLanguageModel implements LanguageModelV3 {
+  readonly specificationVersion = "v3" as const;
   readonly provider = "lattice-inference";
   readonly modelId: string;
   readonly supportedUrls: Record<string, RegExp[]> = {};
@@ -88,13 +165,7 @@ export class LatticeLanguageModel implements LanguageModelV2 {
   /**
    * Non-streaming generation via POST /v1/chat/completions.
    */
-  async doGenerate(options: LanguageModelV2CallOptions): Promise<{
-    content: Array<LanguageModelV2Content>;
-    finishReason: LanguageModelV2FinishReason;
-    usage: LanguageModelV2Usage;
-    warnings: Array<LanguageModelV2CallWarning>;
-    response?: { id?: string; timestamp?: Date; modelId?: string };
-  }> {
+  async doGenerate(options: LanguageModelV3CallOptions): Promise<LanguageModelV3GenerateResult> {
     const req: ChatCompletionRequest = {
       model: this.modelId,
       messages: convertPrompt(options.prompt),
@@ -111,22 +182,17 @@ export class LatticeLanguageModel implements LanguageModelV2 {
     const resp = await this.client.chatCompletions(req);
     const choice = resp.choices[0];
 
-    const content: LanguageModelV2Content[] = [
+    const content: LanguageModelV3Content[] = [
       { type: "text", text: choice?.message?.content ?? "" },
     ];
 
-    const finishReason = mapFinishReason(choice?.finish_reason ?? "stop");
-
-    const usage: LanguageModelV2Usage = {
-      inputTokens: resp.usage?.prompt_tokens || undefined,
-      outputTokens: resp.usage?.completion_tokens || undefined,
-      totalTokens: resp.usage?.total_tokens || undefined,
-    };
-
     return {
       content,
-      finishReason,
-      usage,
+      finishReason: mapFinishReason(choice?.finish_reason ?? "stop"),
+      usage: buildUsage(
+        resp.usage?.prompt_tokens || undefined,
+        resp.usage?.completion_tokens || undefined,
+      ),
       warnings: collectWarnings(options),
       response: {
         id: resp.id,
@@ -139,13 +205,10 @@ export class LatticeLanguageModel implements LanguageModelV2 {
   /**
    * Streaming generation via POST /v1/chat/completions with stream:true.
    *
-   * Parses SSE chunks from the Go binary and maps them to
-   * AI SDK LanguageModelV2StreamPart events.
+   * Emits proper V3 stream lifecycle events:
+   *   stream-start → response-metadata → text-start → text-delta* → text-end → finish
    */
-  async doStream(options: LanguageModelV2CallOptions): Promise<{
-    stream: ReadableStream<LanguageModelV2StreamPart>;
-    response?: { headers?: Record<string, string> };
-  }> {
+  async doStream(options: LanguageModelV3CallOptions): Promise<LanguageModelV3StreamResult> {
     const req: ChatCompletionRequest = {
       model: this.modelId,
       messages: convertPrompt(options.prompt),
@@ -161,20 +224,41 @@ export class LatticeLanguageModel implements LanguageModelV2 {
 
     const client = this.client;
     const modelId = this.modelId;
-    const contentId = nextStreamId();
+    const warnings = collectWarnings(options);
 
-    const stream = new ReadableStream<LanguageModelV2StreamPart>({
+    // Use a stable ID scoped to this stream instance (no global counter)
+    const contentId = "text-0";
+
+    const stream = new ReadableStream<LanguageModelV3StreamPart>({
       async start(controller) {
+        // Emit stream-start with warnings (expected by AI SDK pipeline)
+        controller.enqueue({
+          type: "stream-start",
+          warnings,
+        });
+
         let outputTokens = 0;
         let started = false;
         let lastUsage:
           | { prompt_tokens: number; completion_tokens: number; total_tokens: number }
           | undefined;
+        let responseMetadataSent = false;
 
         try {
           for await (const chunk of client.chatCompletionsStream(req)) {
             const choice = chunk.choices?.[0];
             if (!choice) continue;
+
+            // Emit response-metadata on first chunk from the server
+            if (!responseMetadataSent && chunk.id) {
+              responseMetadataSent = true;
+              controller.enqueue({
+                type: "response-metadata",
+                id: chunk.id,
+                modelId: chunk.model ?? modelId,
+                timestamp: new Date(chunk.created * 1000),
+              });
+            }
 
             const delta = choice.delta?.content ?? "";
 
@@ -202,16 +286,11 @@ export class LatticeLanguageModel implements LanguageModelV2 {
               controller.enqueue({
                 type: "finish",
                 finishReason: mapFinishReason(choice.finish_reason),
-                usage: {
-                  inputTokens: lastUsage?.prompt_tokens || undefined,
-                  outputTokens: lastUsage?.completion_tokens || outputTokens,
-                  totalTokens: lastUsage?.total_tokens || undefined,
-                },
-                response: {
-                  modelId,
-                  timestamp: new Date(),
-                },
-              } as unknown as LanguageModelV2StreamPart);
+                usage: buildUsage(
+                  lastUsage?.prompt_tokens || undefined,
+                  lastUsage?.completion_tokens || outputTokens,
+                ),
+              });
               break;
             }
           }
@@ -219,21 +298,21 @@ export class LatticeLanguageModel implements LanguageModelV2 {
           // If stream ended without finish_reason, close gracefully
           if (started) {
             controller.enqueue({ type: "text-end", id: contentId });
-            controller.enqueue({
-              type: "finish",
-              finishReason: "stop" as LanguageModelV2FinishReason,
-              usage: {
-                inputTokens: undefined,
-                outputTokens,
-                totalTokens: undefined,
-              },
-            } as unknown as LanguageModelV2StreamPart);
           }
+          controller.enqueue({
+            type: "finish",
+            finishReason: { unified: "stop", raw: undefined },
+            usage: buildUsage(undefined, outputTokens || undefined),
+          });
         } catch (error) {
+          // Close any open text block before erroring
+          if (started) {
+            controller.enqueue({ type: "text-end", id: contentId });
+          }
           controller.enqueue({
             type: "error",
-            error: error instanceof Error ? error.message : String(error),
-          } as unknown as LanguageModelV2StreamPart);
+            error: error instanceof Error ? error : new Error(String(error)),
+          });
         } finally {
           controller.close();
         }
@@ -242,46 +321,4 @@ export class LatticeLanguageModel implements LanguageModelV2 {
 
     return { stream };
   }
-}
-
-/**
- * Map OpenAI finish reasons to AI SDK finish reasons.
- */
-function mapFinishReason(reason: string): LanguageModelV2FinishReason {
-  switch (reason) {
-    case "stop":
-    case "eos":
-    case "end_of_text":
-      return "stop";
-    case "length":
-    case "max_tokens":
-      return "length";
-    case "content_filter":
-      return "content-filter";
-    default:
-      return "stop";
-  }
-}
-
-/**
- * Collect warnings for unsupported options.
- */
-function collectWarnings(options: LanguageModelV2CallOptions): LanguageModelV2CallWarning[] {
-  const warnings: LanguageModelV2CallWarning[] = [];
-
-  if (options.tools && options.tools.length > 0) {
-    warnings.push({
-      type: "other",
-      message: "Lattice Inference does not support tool calls. Tools will be ignored.",
-    });
-  }
-
-  if (options.responseFormat?.type === "json") {
-    warnings.push({
-      type: "other",
-      message: "Lattice Inference does not support JSON response format. Using plain text.",
-    });
-  }
-
-  return warnings;
 }

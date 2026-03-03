@@ -4195,6 +4195,30 @@ export const router = (authToken?: string) => {
           }
           const models = await svc.listModels();
           const pool = await svc.getPoolStatus();
+
+          // Auto-sync any loaded models into the provider config so they
+          // appear as selectable models in the Models settings page.
+          if (pool.loadedModels.length > 0) {
+            try {
+              const providerConfig = context.providerService.getConfig();
+              const existingModels = providerConfig["lattice-inference"]?.models ?? [];
+              const existingIds = new Set(
+                existingModels.map((e) => (typeof e === "string" ? e : e.id)),
+              );
+              const newModels = pool.loadedModels
+                .map((lm) => lm.model_id)
+                .filter((id) => !existingIds.has(id));
+              if (newModels.length > 0) {
+                context.providerService.setModels("lattice-inference", [
+                  ...existingModels,
+                  ...newModels,
+                ]);
+              }
+            } catch {
+              // Non-critical — status is returned even if sync fails
+            }
+          }
+
           return {
             available: true,
             loadedModelId: svc.loadedModelId,
@@ -4230,6 +4254,25 @@ export const router = (authToken?: string) => {
         .output(schemas.latticeInference.loadModel.output)
         .handler(async ({ context, input }) => {
           await context.inferenceService.loadModel(input.modelId, input.backend);
+
+          // Auto-register the loaded model in the provider config so it
+          // appears in the Models settings page as a selectable model.
+          try {
+            const providerConfig = context.providerService.getConfig();
+            const existingModels = providerConfig["lattice-inference"]?.models ?? [];
+            const alreadyRegistered = existingModels.some((entry) => {
+              const id = typeof entry === "string" ? entry : entry.id;
+              return id === input.modelId;
+            });
+            if (!alreadyRegistered) {
+              context.providerService.setModels("lattice-inference", [
+                ...existingModels,
+                input.modelId,
+              ]);
+            }
+          } catch {
+            // Non-critical — model is loaded even if registration fails
+          }
         }),
       unloadModel: t
         .input(schemas.latticeInference.unloadModel.input)
