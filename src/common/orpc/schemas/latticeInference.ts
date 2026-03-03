@@ -87,6 +87,10 @@ export const BenchmarkResultSchema = z.object({
 // ─── Setup ──────────────────────────────────────────────────────────
 
 export const InferenceSetupStatusSchema = z.object({
+  goBinaryFound: z.boolean(),
+  goBinaryPath: z.string().nullable(),
+  goInstalled: z.boolean(),
+  sourceRepoFound: z.boolean(),
   venvExists: z.boolean(),
   venvPath: z.string(),
   systemPythonFound: z.boolean(),
