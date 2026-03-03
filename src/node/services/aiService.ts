@@ -60,6 +60,7 @@ import type { ToolPolicy } from "@/common/utils/tools/toolPolicy";
 import type { PTCEventWithParent } from "@/node/services/tools/code_execution";
 import { MockAiStreamPlayer } from "./mock/mockAiStreamPlayer";
 import { ProviderModelFactory, modelCostsIncluded } from "./providerModelFactory";
+import type { InferenceService } from "./inference/inferenceService";
 import { wrapToolsWithSystem1 } from "./system1ToolWrapper";
 import { prepareMessagesForProvider } from "./messagePipeline";
 import { resolveAgentForStream } from "./agentResolution";
@@ -211,6 +212,9 @@ export class AIService extends EventEmitter {
   }
   setAnthropicOauthService(service: AnthropicOauthService): void {
     this.providerModelFactory.anthropicOauthService = service;
+  }
+  setInferenceService(service: InferenceService): void {
+    this.providerModelFactory.inferenceService = service;
   }
   setMCPServerManager(manager: MCPServerManager): void {
     this.mcpServerManager = manager;

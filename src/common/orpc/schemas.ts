@@ -292,6 +292,8 @@ export {
   terminal,
   terminalProfiles,
   inference,
+  latticeInference,
+  inferenceSetup,
   inbox,
   kanban,
   scheduler,
