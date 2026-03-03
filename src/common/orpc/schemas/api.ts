@@ -37,6 +37,21 @@ import {
 } from "./kanban";
 import { ExoStatusSchema } from "./inference";
 import {
+  LatticeInferenceStatusSchema,
+  DownloadProgressSchema,
+  ClusterStateSchema,
+  ClusterNodeSchema,
+  BenchmarkResultSchema,
+  InferenceSetupStatusSchema,
+  SetupStreamEventSchema,
+  PullModelInputSchema,
+  LoadModelInputSchema,
+  UnloadModelInputSchema,
+  DeleteModelInputSchema,
+  BenchmarkInputSchema,
+  LatticeModelInfoSchema,
+} from "./latticeInference";
+import {
   ScheduledJobRunSchema,
   ScheduledJobWithStateSchema,
   SchedulerCreateInputSchema,
@@ -1678,6 +1693,79 @@ export const inference = {
   subscribe: {
     input: z.void(),
     output: eventIterator(ExoStatusSchema),
+  },
+};
+
+// Lattice Inference — local on-device LLM inference engine
+
+export const latticeInference = {
+  /** Get overall inference engine status + loaded/cached models */
+  getStatus: {
+    input: z.void(),
+    output: LatticeInferenceStatusSchema,
+  },
+  /** List cached models */
+  listModels: {
+    input: z.void(),
+    output: z.array(LatticeModelInfoSchema),
+  },
+  /** Pull (download) a model from HuggingFace */
+  pullModel: {
+    input: PullModelInputSchema,
+    output: z.object({ modelDir: z.string() }),
+  },
+  /** Delete a cached model */
+  deleteModel: {
+    input: DeleteModelInputSchema,
+    output: z.void(),
+  },
+  /** Load a model into the worker pool */
+  loadModel: {
+    input: LoadModelInputSchema,
+    output: z.void(),
+  },
+  /** Unload a model from the worker pool */
+  unloadModel: {
+    input: UnloadModelInputSchema,
+    output: z.void(),
+  },
+  /** Get cluster status */
+  getClusterStatus: {
+    input: z.void(),
+    output: ClusterStateSchema.nullable(),
+  },
+  /** Get cluster nodes */
+  getClusterNodes: {
+    input: z.void(),
+    output: z.array(ClusterNodeSchema),
+  },
+  /** Get Prometheus metrics */
+  getMetrics: {
+    input: z.void(),
+    output: z.string(),
+  },
+  /** Run inference benchmark */
+  runBenchmark: {
+    input: BenchmarkInputSchema,
+    output: BenchmarkResultSchema,
+  },
+  /** Subscribe to download progress events */
+  onDownloadProgress: {
+    input: z.void(),
+    output: eventIterator(DownloadProgressSchema),
+  },
+};
+
+export const inferenceSetup = {
+  /** Check Python/venv/deps setup status */
+  checkStatus: {
+    input: z.void(),
+    output: InferenceSetupStatusSchema,
+  },
+  /** Run the full setup wizard (streaming) */
+  runSetup: {
+    input: z.void(),
+    output: eventIterator(SetupStreamEventSchema),
   },
 };
 
