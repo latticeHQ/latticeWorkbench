@@ -118,6 +118,36 @@ function getConn(): DuckDBConnection {
   return conn;
 }
 
+/**
+ * Migrate stale DuckDB schemas from previous versions.
+ *
+ * Older builds created `ingest_watermarks` with a `workspace_id` column
+ * instead of `minion_id`. Since `CREATE TABLE IF NOT EXISTS` won't alter
+ * an existing table, we detect the old schema and drop-recreate both tables
+ * so the next backfill pass rebuilds cleanly.
+ */
+async function migrateStaleSchemas(activeConn: DuckDBConnection): Promise<void> {
+  try {
+    const result = await activeConn.run(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_name = 'ingest_watermarks' AND column_name = 'workspace_id'
+    `);
+    const rows = await result.getRowObjectsJS();
+
+    if (rows.length > 0) {
+      // Old schema detected — drop both tables so they get recreated with the
+      // correct column names. Data loss is limited to cached analytics which
+      // will be re-ingested on the next backfill cycle.
+      await activeConn.run("DROP TABLE IF EXISTS ingest_watermarks");
+      await activeConn.run("DROP TABLE IF EXISTS events");
+    }
+  } catch {
+    // If information_schema isn't available (shouldn't happen with DuckDB),
+    // silently continue — the CREATE TABLE IF NOT EXISTS will handle it.
+  }
+}
+
 async function handleInit(data: InitData): Promise<void> {
   assert(data.dbPath.trim().length > 0, "init requires a non-empty dbPath");
   assert(instance == null && conn == null, "analytics worker init must only run once per process");
@@ -127,6 +157,10 @@ async function handleInit(data: InitData): Promise<void> {
   conn = await createdInstance.connect();
 
   const activeConn = getConn();
+
+  // Migrate stale schemas before table creation
+  await migrateStaleSchemas(activeConn);
+
   await activeConn.run(CREATE_EVENTS_TABLE_SQL);
   await activeConn.run(CREATE_WATERMARK_TABLE_SQL);
 }
