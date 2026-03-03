@@ -20,6 +20,7 @@ import {
   Inbox,
   Archive,
   Network,
+  BarChart3,
 } from "lucide-react";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { useOnboardingPause } from "@/browser/components/splashScreens/SplashScreenProvider";
@@ -45,6 +46,7 @@ import { KeybindsSection } from "./sections/KeybindsSection";
 import { InboxesSettingsSection } from "./sections/InboxesSettingsSection";
 import { ArchivedSection } from "./sections/ArchivedSection";
 import { LatticeInferenceSection } from "./sections/LatticeInferenceSection";
+import { AnalyticsSection } from "./sections/AnalyticsSection";
 import type { SettingsSection } from "./types";
 
 const BASE_SECTIONS: SettingsSection[] = [
@@ -137,6 +139,12 @@ const BASE_SECTIONS: SettingsSection[] = [
     label: "Keybinds",
     icon: <Keyboard className="h-4 w-4" />,
     component: KeybindsSection,
+  },
+  {
+    id: "analytics",
+    label: "Analytics",
+    icon: <BarChart3 className="h-4 w-4" />,
+    component: AnalyticsSection,
   },
   {
     id: "archived",

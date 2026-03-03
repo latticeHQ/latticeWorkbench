@@ -14,7 +14,6 @@ import {
 } from "@/browser/hooks/usePersistedState";
 import { useFeatureFlags } from "@/browser/contexts/FeatureFlagsContext";
 import { useAPI } from "@/browser/contexts/API";
-import { useRouter } from "@/browser/contexts/RouterContext";
 import { CostsTab } from "./WorkbenchPanel/CostsTab";
 
 import { ReviewPanel } from "./WorkbenchPanel/CodeReview/ReviewPanel";
@@ -279,8 +278,6 @@ interface WorkbenchPanelTabsetNodeProps {
   onAddProfileTerminal?: (profileId: string, profileName: string) => void;
   /** Enabled + installed terminal profiles for the "+" dropdown */
   terminalProfiles?: TerminalProfileItem[];
-  /** Handler to open the analytics dashboard */
-  onOpenAnalytics?: () => void;
   /** Handler to close a terminal tab */
   onCloseTerminal: (tab: TabType) => void;
   /** Handler to remove a terminal tab after the session exits */
@@ -489,7 +486,6 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
           onAddTerminal={props.onAddTerminal}
           onAddProfileTerminal={props.onAddProfileTerminal}
           terminalProfiles={props.terminalProfiles}
-          onOpenAnalytics={props.onOpenAnalytics}
         />
       </SortableContext>
       <div
@@ -738,9 +734,6 @@ const WorkbenchPanelComponent: React.FC<WorkbenchPanelProps> = ({
   // Stats tab feature flag
   const { statsTabState } = useFeatureFlags();
   const statsTabEnabled = Boolean(statsTabState?.enabled);
-
-  // Analytics navigation — exposed as a quick-launch button in the tab strip
-  const { navigateToAnalytics } = useRouter();
 
   // Read last-used focused tab for better defaults when initializing a new layout.
   const initialActiveTab = React.useMemo<TabType>(() => {
@@ -1514,7 +1507,6 @@ const WorkbenchPanelComponent: React.FC<WorkbenchPanelProps> = ({
         terminalProfiles={
           node.tabs.some((t) => isTerminalTab(t)) ? terminalProfileItems : undefined
         }
-        onOpenAnalytics={node.tabs.some((t) => isTerminalTab(t)) ? undefined : navigateToAnalytics}
         onCloseTerminal={handleCloseTerminal}
         onTerminalExit={removeTerminalTab}
         terminalTitles={terminalTitles}
