@@ -115,7 +115,7 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   // "Process is not in an inherited sandbox" (SIGTRAP) because it can't inherit
   // the App Sandbox profile. Use /usr/bin/script to allocate a real PTY instead.
   if (isMAS) {
-    log.info(`[PTY] MAS build detected — bypassing node-pty, using /usr/bin/script fallback`);
+    log.info(`[PTY] MAS build detected — bypassing node-pty, using direct shell fallback`);
     try {
       return spawnScriptPty(request, env);
     } catch (scriptErr) {
@@ -173,32 +173,34 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
 }
 
 /**
- * MAS sandbox fallback: spawn a shell via /usr/bin/script which allocates a real PTY
- * internally, then wrap it in an IPty-compatible interface.
+ * MAS sandbox fallback: spawn an interactive shell directly via masSpawn()
+ * and wrap it in an IPty-compatible interface.
  *
- * /usr/bin/script -q /dev/null <shell> creates a pseudo-TTY and runs the shell inside it.
- * This works even when node-pty's forkpty() is blocked by the sandbox.
+ * The MAS sandbox blocks PTY allocation (openpty/posix_openpt/forkpty) which
+ * breaks both node-pty's spawn-helper and /usr/bin/script. So we spawn the
+ * shell directly with -i (force interactive) over piped stdio. This gives us
+ * a working terminal without full PTY capabilities (no cursor movement, no
+ * resize), but commands, output, and colors (via TERM=xterm-256color) work.
  */
 function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty {
   const shell = request.command;
   const shellArgs = request.args;
 
-  // Use /usr/bin/script to create a PTY wrapper
-  // -q = quiet (no "Script started" message)
-  // /dev/null = don't save transcript
-  const scriptArgs = ["-q", "/dev/null", shell, ...shellArgs];
+  // Force interactive mode since we don't have a real PTY.
+  // -i makes zsh/bash show a prompt and accept commands even with piped stdio.
+  const forceInteractiveArgs = ["-i", ...shellArgs];
 
-  const child = masSpawn("/usr/bin/script", scriptArgs, {
+  const child = masSpawn(shell, forceInteractiveArgs, {
     cwd: request.cwd,
     env: env as Record<string, string>,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
   if (!child.pid) {
-    throw new Error("Failed to spawn /usr/bin/script — no PID");
+    throw new Error(`Failed to spawn ${shell} — no PID`);
   }
 
-  log.info(`[PTY] MAS script fallback spawned: pid=${child.pid}`);
+  log.info(`[PTY] MAS direct shell fallback spawned: pid=${child.pid}, shell=${shell}`);
 
   // Create an IPty-compatible wrapper
   const ptyObj: IPty = {
@@ -232,7 +234,7 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
     },
 
     resize: (_cols: number, _rows: number) => {
-      // script doesn't support dynamic resize, but update our tracked values
+      // No PTY = no resize support, but track values for the UI
       (ptyObj as any).cols = _cols;
       (ptyObj as any).rows = _rows;
     },
