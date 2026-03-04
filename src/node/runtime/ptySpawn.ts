@@ -296,7 +296,9 @@ function spawnMasPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty {
     },
 
     write: (data: string) => {
-      child.stdin?.write(data);
+      // Pipe doesn't have terminal ICRNL translation. Translate \r → \n
+      // so the shell receives proper line terminators for command execution.
+      child.stdin?.write(data.replace(/\r/g, "\n"));
       // Local echo for piped stdio
       for (const listener of dataListeners) {
         for (const ch of data) {

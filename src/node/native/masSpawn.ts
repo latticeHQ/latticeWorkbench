@@ -14,6 +14,7 @@ import { EventEmitter } from "events";
 import * as net from "net";
 import * as path from "path";
 import type { Readable, Writable } from "stream";
+import * as tty from "tty";
 
 // Lazy-loaded native addon
 let nativeAddon: NativeAddon | null = null;
@@ -415,8 +416,11 @@ export function masSpawnPty(
 
   console.log(`[masSpawnPty] PTY spawned: pid=${result.pid}, masterFd=${result.masterFd}`);
 
-  // Create a duplex socket from the master fd
-  const masterSocket = new net.Socket({ fd: result.masterFd, readable: true, writable: true });
+  // PTY master fds are TTY type — net.Socket rejects them ("Unsupported fd type: TTY")
+  // because libuv's uv_guess_handle() returns UV_TTY. tty.ReadStream explicitly creates
+  // a TTY handle which works correctly for PTY masters. It extends net.Socket (duplex),
+  // so both .on('data') reading and .write() work.
+  const masterSocket = new tty.ReadStream(result.masterFd) as unknown as net.Socket;
 
   return {
     pid: result.pid,
