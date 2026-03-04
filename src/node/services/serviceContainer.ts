@@ -6,6 +6,7 @@ import {
   LATTICE_HELP_CHAT_MINION_NAME,
   LATTICE_HELP_CHAT_MINION_TITLE,
 } from "@/common/constants/latticeChat";
+import { getLatticeSSHDir, getLatticeBinDir } from "@/common/constants/paths";
 import { getLatticeHelpChatProjectPath } from "@/node/constants/latticeChat";
 import { getInboxesProjectPath } from "@/node/constants/inboxProject";
 import {
@@ -331,6 +332,16 @@ export class ServiceContainer {
   }
 
   async initialize(): Promise<void> {
+    // Ensure Lattice-managed directories exist (SSH keys, binaries, etc.)
+    // In MAS sandbox, these live inside the container at ~/.lattice/
+    // and are always writable without special entitlements.
+    await Promise.all([
+      fsPromises.mkdir(getLatticeSSHDir(), { recursive: true, mode: 0o700 }),
+      fsPromises.mkdir(getLatticeBinDir(), { recursive: true, mode: 0o755 }),
+    ]).catch((err) => {
+      log.warn("[ServiceContainer] Failed to create Lattice directories", { error: err });
+    });
+
     await this.extensionMetadata.initialize();
     // Check config-level telemetry preference before initializing
     if (!this.config.getTelemetryEnabled()) {

@@ -144,12 +144,23 @@ function getDefaultUsername(): string {
   }
 }
 
+/**
+ * Default identity files to check, in priority order.
+ * Lattice-managed keys (~/.lattice/ssh/) are checked first — these are inside
+ * the App Sandbox container and always accessible. Fallback to ~/.ssh/ for
+ * non-sandboxed environments (CLI mode, dev builds, non-MAS distribution).
+ */
 const DEFAULT_IDENTITY_FILES = [
-  "~/.ssh/id_rsa",
+  // Lattice-managed keys (sandbox-safe, always accessible)
+  "~/.lattice/ssh/id_ed25519",
+  "~/.lattice/ssh/id_ecdsa",
+  "~/.lattice/ssh/id_rsa",
+  // System SSH keys (accessible outside sandbox only)
+  "~/.ssh/id_ed25519",
   "~/.ssh/id_ecdsa",
   "~/.ssh/id_ecdsa_sk",
-  "~/.ssh/id_ed25519",
   "~/.ssh/id_ed25519_sk",
+  "~/.ssh/id_rsa",
   "~/.ssh/id_dsa",
 ];
 function expandLocalPath(value: string): string {

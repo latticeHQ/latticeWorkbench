@@ -41,10 +41,10 @@ export function migrateLegacyLatticeHome(): void {
  * Note: This file is only used by main process code, but lives in constants/
  * for organizational purposes. The process.env access is safe.
  *
- * MAS Sandbox: The entitlements.mas.plist grants a temporary-exception for
- * absolute-path read-write at "/", so ~/.lattice is accessible even in the
- * App Sandbox. If Apple ever revokes this exception, fall back to
- * app.getPath('userData') from Electron instead.
+ * MAS Sandbox: In the App Sandbox, os.homedir() returns the container home
+ * (~/Library/Containers/<bundleId>/Data/), so ~/.lattice naturally lands
+ * inside the sandbox container. No temporary-exception entitlements needed.
+ * User projects are accessed via NSOpenPanel (files.user-selected.read-write).
  */
 export function getLatticeHome(): string {
   // eslint-disable-next-line no-restricted-syntax, no-restricted-globals
@@ -154,6 +154,38 @@ export function getLatticeProjectsDir(rootDir?: string): string {
 export function getLatticeSyncDir(rootDir?: string): string {
   const root = rootDir ?? getLatticeHome();
   return join(root, ".sync");
+}
+
+/**
+ * Get the SSH directory for Lattice-managed SSH keys and config.
+ * Example: ~/.lattice/ssh/
+ *
+ * In MAS sandbox this is inside the container — no filesystem exceptions needed.
+ * Users can generate new SSH keys here or import existing ones via file picker.
+ * Git operations use GIT_SSH_COMMAND pointing to keys in this directory.
+ *
+ * Contents:
+ *   ~/.lattice/ssh/id_ed25519      - Private key
+ *   ~/.lattice/ssh/id_ed25519.pub  - Public key
+ *   ~/.lattice/ssh/known_hosts     - Known host keys
+ *   ~/.lattice/ssh/config          - SSH config overrides
+ *
+ * @param rootDir - Optional root directory (defaults to getLatticeHome())
+ */
+export function getLatticeSSHDir(rootDir?: string): string {
+  const root = rootDir ?? getLatticeHome();
+  return join(root, "ssh");
+}
+
+/**
+ * Get the directory for Lattice-managed binaries (askpass helpers, etc.).
+ * Example: ~/.lattice/bin/
+ *
+ * @param rootDir - Optional root directory (defaults to getLatticeHome())
+ */
+export function getLatticeBinDir(rootDir?: string): string {
+  const root = rootDir ?? getLatticeHome();
+  return join(root, "bin");
 }
 
 /**

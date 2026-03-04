@@ -109,12 +109,17 @@ const AGENT_KEY_TYPE_PRIORITY: Record<LatticeMdKeyType, number> = {
   "ecdsa-p521": 3,
 };
 
-/** Default paths to check for signing keys, in order of preference */
+/** Default paths to check for signing keys, in order of preference.
+ * Lattice-managed keys are checked first (sandbox-safe), then system SSH keys.
+ */
 export function getDefaultKeyPaths(): string[] {
+  const latticeHome = getLatticeHome();
   return [
-    join(getLatticeHome(), "message_signing_key"), // Explicit lattice key (any supported type, symlink-friendly)
-    join(homedir(), ".ssh", "id_ed25519"), // SSH Ed25519
-    join(homedir(), ".ssh", "id_ecdsa"), // SSH ECDSA
+    join(latticeHome, "message_signing_key"), // Explicit lattice key (any supported type, symlink-friendly)
+    join(latticeHome, "ssh", "id_ed25519"), // Lattice-managed SSH Ed25519 (sandbox-safe)
+    join(latticeHome, "ssh", "id_ecdsa"), // Lattice-managed SSH ECDSA (sandbox-safe)
+    join(homedir(), ".ssh", "id_ed25519"), // System SSH Ed25519 (outside sandbox — fallback)
+    join(homedir(), ".ssh", "id_ecdsa"), // System SSH ECDSA (outside sandbox — fallback)
   ];
 }
 

@@ -7,6 +7,7 @@ import * as fs from "fs/promises";
 import * as os from "os";
 import * as path from "path";
 import SSHConfig, { glob } from "ssh-config";
+import { getLatticeSSHDir } from "@/common/constants/paths";
 import { log } from "@/node/services/log";
 import { getErrorMessage } from "@/common/utils/errors";
 
@@ -248,14 +249,12 @@ function toStringArray(value: ComputedConfigValue | undefined): string[] {
   return [];
 }
 
-async function loadSSHConfig(): Promise<SSHConfig | null> {
-  const homeDir = getHomeDir();
-  const configPath = path.join(homeDir, ".ssh", "config");
-
+/**
+ * Read and parse a single SSH config file, returning null on ENOENT or error.
+ */
+async function readSSHConfigFile(configPath: string): Promise<string | null> {
   try {
-    const content = await fs.readFile(configPath, "utf8");
-    const parsed = SSHConfig.parse(content);
-    return parsed;
+    return await fs.readFile(configPath, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException | undefined)?.code !== "ENOENT") {
       log.debug("Failed to read SSH config", {
@@ -263,6 +262,40 @@ async function loadSSHConfig(): Promise<SSHConfig | null> {
         error: getErrorMessage(error),
       });
     }
+    return null;
+  }
+}
+
+/**
+ * Load SSH config from both Lattice-managed (~/.lattice/ssh/config) and
+ * system (~/.ssh/config) locations. Lattice config is loaded first so its
+ * directives take priority (matching OpenSSH's first-match-wins semantics).
+ *
+ * In MAS sandbox, ~/.ssh/config is inaccessible, so only the Lattice
+ * config will be loaded — which is expected and sufficient.
+ */
+async function loadSSHConfig(): Promise<SSHConfig | null> {
+  const homeDir = getHomeDir();
+  const latticeConfigPath = path.join(getLatticeSSHDir(), "config");
+  const systemConfigPath = path.join(homeDir, ".ssh", "config");
+
+  const [latticeContent, systemContent] = await Promise.all([
+    readSSHConfigFile(latticeConfigPath),
+    readSSHConfigFile(systemConfigPath),
+  ]);
+
+  // Combine both configs (Lattice first for priority, matching OpenSSH first-match-wins)
+  const combined = [latticeContent, systemContent].filter(Boolean).join("\n");
+  if (!combined) {
+    return null;
+  }
+
+  try {
+    return SSHConfig.parse(combined);
+  } catch (error) {
+    log.debug("Failed to parse combined SSH config", {
+      error: getErrorMessage(error),
+    });
     return null;
   }
 }

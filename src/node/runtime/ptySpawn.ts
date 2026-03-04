@@ -71,7 +71,9 @@ function resolvePathEnv(env: NodeJS.ProcessEnv, pathEnvOverride?: string): strin
     ];
     const pathSet = new Set(basePath.split(":"));
     const missing = essential.filter((p) => !pathSet.has(p));
-    return missing.length > 0 ? `${basePath}:${missing.join(":")}` : basePath;
+    // PREPEND so Homebrew/user-installed tools are found before /usr/bin shims.
+    // In MAS sandbox, /usr/bin/git is an xcrun shim that fails; Homebrew git works.
+    return missing.length > 0 ? `${missing.join(":")}:${basePath}` : basePath;
   }
 
   return basePath;
@@ -92,9 +94,11 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   const mergedEnv: NodeJS.ProcessEnv = { ...process.env, ...request.env };
   const pathEnv = resolvePathEnv(mergedEnv, request.pathEnv);
 
-  // In MAS sandbox, $HOME points to container. Set to real home so spawned
-  // shells find .zshrc/.bashrc and load the user's full environment.
-  const realHome = process.platform === "darwin" ? getRealHome() : undefined;
+  // NOTE: Do NOT override HOME to the real user home in MAS sandbox.
+  // Apple's App Sandbox requires all file I/O to stay inside the container
+  // (~/Library/Containers/<bundleId>/Data/). Overriding HOME would require
+  // the rejected temporary-exception entitlement. Spawned shells won't find
+  // ~/.zshrc but will start with defaults; tools are discoverable via PATH.
 
   // Ensure SHELL is set — MAS sandbox may not inherit it from launchd.
   // node-pty and spawned processes rely on SHELL for subshell invocations.
@@ -106,7 +110,6 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
     TERM: "xterm-256color",
     SHELL: shellEnv,
     ...(pathEnv ? { PATH: pathEnv } : {}),
-    ...(realHome ? { HOME: realHome } : {}),
   };
 
   try {

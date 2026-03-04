@@ -22,7 +22,7 @@ if (process.platform === "darwin") {
   const currentPath = process.env.PATH ?? "";
   const realHome = (() => {
     // In MAS sandbox, $HOME is ~/Library/Containers/<bundleId>/Data/
-    // Extract the real home from that path
+    // Extract the real user home for PATH entries (tool binaries live there).
     const home = require("os").homedir() as string;
     const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
     return containerMatch ? containerMatch[1] : home;
@@ -47,25 +47,43 @@ if (process.platform === "darwin") {
   const pathSet = new Set(currentPath.split(":"));
   const missing = essentialPaths.filter((p) => !pathSet.has(p));
   if (missing.length > 0) {
-    process.env.PATH = `${currentPath}:${missing.join(":")}`;
-    console.debug(`[fix-path] Appended ${missing.length} essential paths to PATH`);
+    // PREPEND so Homebrew/user-installed tools are found before /usr/bin shims.
+    // Critical for MAS sandbox: /usr/bin/git is an xcrun shim that fails in
+    // App Sandbox, but /opt/homebrew/bin/git works directly.
+    process.env.PATH = `${missing.join(":")}:${currentPath}`;
+    console.debug(`[fix-path] Prepended ${missing.length} essential paths to PATH`);
   }
 
-  // Fix HOME for MAS sandbox — all subprocesses (MCP servers, bash exec,
-  // terminals) inherit process.env. Without this, tools can't find config
-  // files (~/.config/), npx cache, or user-local bins.
-  // Electron's own data paths (app.getPath) use Cocoa APIs, not $HOME,
-  // so this change only affects subprocess spawning.
-  const currentHome = process.env.HOME ?? "";
-  if (currentHome.includes("/Library/Containers/")) {
-    process.env.HOME = realHome;
-    console.debug(`[fix-path] Corrected HOME from container to ${realHome}`);
-  }
+  // NOTE: Do NOT override process.env.HOME in MAS sandbox.
+  // Apple requires MAS apps to operate within the App Sandbox container.
+  // $HOME = ~/Library/Containers/<bundleId>/Data/ is intentional — all app
+  // data (config, sessions, logs) lives inside the container via os.homedir().
+  // Overriding HOME to the real user home would require the rejected
+  // com.apple.security.temporary-exception.files.absolute-path.read-write
+  // entitlement. Subprocess tool binaries are still discoverable via PATH
+  // (essentialPaths above includes realHome-based paths for execution).
 
   // Ensure SHELL is set — launchd/MAS may not provide it.
   if (!process.env.SHELL?.trim()) {
     process.env.SHELL = "/bin/zsh";
     console.debug("[fix-path] Set SHELL to /bin/zsh (was unset)");
+  }
+
+  // Configure SSH/Git to use Lattice-managed SSH directory.
+  // In MAS sandbox, ~/.ssh/ is outside the container and inaccessible.
+  // Lattice stores its own SSH keys/config in ~/.lattice/ssh/ (inside container).
+  // GIT_SSH_COMMAND tells git to use Lattice's known_hosts and identity files.
+  const latticeHome = require("os").homedir() as string;
+  const latticeSSHDir = require("path").join(latticeHome, ".lattice", "ssh") as string;
+  const latticeKnownHosts = require("path").join(latticeSSHDir, "known_hosts") as string;
+
+  // Only set GIT_SSH_COMMAND if not already overridden by user
+  if (!process.env.GIT_SSH_COMMAND) {
+    // Use Lattice's known_hosts file; auto-accept new host keys for smoother UX.
+    // Identity files are auto-discovered by ssh from ~/.lattice/ssh/ via the
+    // IdentityFile directives or default key names.
+    process.env.GIT_SSH_COMMAND = `ssh -o UserKnownHostsFile=${latticeKnownHosts} -o StrictHostKeyChecking=accept-new`;
+    console.debug(`[fix-path] Set GIT_SSH_COMMAND to use ${latticeKnownHosts}`);
   }
 }
 
@@ -90,6 +108,14 @@ import {
   screen,
   shell,
 } from "electron";
+
+// MAS sandbox prevents the GPU helper process from initializing its seatbelt
+// profile (Mach port rendezvous permission denied), causing exit_code=5 crash
+// loops. Disable the GPU process entirely for MAS builds — the app uses software
+// rendering via SwiftShader/ANGLE which is perfectly adequate for a dev-tools UI.
+if (process.mas) {
+  app.disableHardwareAcceleration();
+}
 
 // Increase renderer V8 heap limit from default ~4GB to 8GB.
 // At ~3.9GB usage, the default limit causes frequent Mark-Compact GC cycles

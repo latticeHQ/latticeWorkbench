@@ -19,6 +19,7 @@ import * as path from "path";
 import * as os from "os";
 import { spawn } from "child_process";
 import { HOST_KEY_APPROVAL_TIMEOUT_MS } from "@/common/constants/ssh";
+import { getLatticeSSHDir } from "@/common/constants/paths";
 import { formatSshEndpoint } from "@/common/utils/ssh/formatSshEndpoint";
 import { log } from "@/node/services/log";
 import type { SshPromptService } from "@/node/services/sshPromptService";
@@ -46,8 +47,13 @@ export function appendOpenSSHHostKeyPolicyArgs(args: string[]): void {
     return;
   }
 
-  args.push("-o", "StrictHostKeyChecking=no");
-  args.push("-o", "UserKnownHostsFile=/dev/null");
+  // Use Lattice-managed known_hosts instead of /dev/null.
+  // In MAS sandbox, ~/.ssh/ is inaccessible; ~/.lattice/ssh/ is inside the container.
+  // accept-new: auto-accept first-time host keys (smoother UX than prompting)
+  // but reject changed keys (MITM protection).
+  const latticeKnownHosts = path.join(getLatticeSSHDir(), "known_hosts");
+  args.push("-o", "StrictHostKeyChecking=accept-new");
+  args.push("-o", `UserKnownHostsFile=${latticeKnownHosts}`);
 }
 
 /**

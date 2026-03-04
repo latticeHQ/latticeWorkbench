@@ -6,13 +6,13 @@ This is the compass. Every decision — by a human or a minion — runs through 
 
 ## Who We Are
 
-We build for AI agents the way Apple builds for humans.
+We build for minions the way Apple builds for humans.
 
 Apple asked: "What does a human need to do their best work?" and then obsessed over every detail of that answer — the screen, the keyboard, the software, the integration between them. They didn't build computers. They built experiences for humans.
 
-We ask: **"What does an AI agent need to do its best work?"** and then obsess over every detail of that answer — the identity, the tools, the governance, the runtime, the communication layer, the integration between them. We don't build software. We build an ecosystem where AI agents thrive.
+We ask: **"What does a minion need to do its best work?"** and then obsess over every detail of that answer — the identity, the tools, the governance, the runtime, the communication layer, the integration between them. We don't build software. We build an ecosystem where minions thrive.
 
-And because humans command those agents, the human experience must be equally obsessive. Two audiences. One standard.
+And because humans command those minions, the human experience must be equally obsessive. Two audiences. One standard.
 
 ## The Feel
 
@@ -22,26 +22,26 @@ Everything we make should feel like this:
 
 **Weight.** Even on screen, Lattice should feel like it has mass. Not heavy — substantial. Like picking up a well-made tool. Every interaction should feel considered, not generated. Intentional, not accidental.
 
-**Trust.** You should be able to close your laptop, go to sleep, and know your workforce is running correctly. Not because you're monitoring it — because the system was designed so that trust is structural. Open enforcement. Visible costs. Auditable decisions. Constraints that exist because they enable autonomy, not restrict it.
+**Trust.** You should be able to close your laptop, go to sleep, and know your minions are running correctly. Not because you're monitoring them — because the system was designed so that trust is structural. Open enforcement. Visible costs. Auditable decisions. Constraints that exist because they enable autonomy, not restrict it.
 
 If someone uses Lattice and feels anxious, we failed. If they feel like they need to babysit, we failed. If they feel calm and in command — that's the feel.
 
 ## The Direction
 
-### We build infrastructure for AI agents to exist as first-class workers.
+### We build infrastructure for minions to exist as first-class members of any organization.
 
-Not tools. Not assistants. Not copilots. **Workers.** With:
+Not tools. Not assistants. Not copilots. **Minions.** With:
 
-- **Identity.** Every agent has a cryptographic identity. Not a shared API key. A real identity that can be verified, audited, and revoked.
-- **Memory.** Every agent has persistent context. It remembers what it did, why it did it, and what it learned.
-- **Tools.** Every agent has access to the tools it needs — and only the tools it needs. The enforcement is structural.
+- **Identity.** Every minion has a cryptographic identity. Not a shared API key. A real identity that can be verified, audited, and revoked.
+- **Memory.** Every minion has persistent context. It remembers what it did, why it did it, and what it learned.
+- **Tools.** Every minion has access to the tools it needs — and only the tools it needs. The enforcement is structural.
 - **Governance.** Every action is authorized, logged, and auditable. Not as overhead — as foundation.
-- **Communication.** Agents talk to each other, to humans, across channels. They exist in the organization, not beside it.
-- **Physical presence.** Eventually. When the software earns it. Agents that can print, fabricate, sense, move. The same identity and governance that applies to a coding minion applies to a robotics minion. The infrastructure is the same.
+- **Communication.** Minions talk to each other, to humans, across channels. They exist in the organization, not beside it.
+- **Physical presence.** Eventually. When the software earns it. Minions that can print, fabricate, sense, move. The same identity and governance that applies to a coding minion applies to a robotics minion. The infrastructure is the same.
 
 ### The ecosystem expands. The feel doesn't change.
 
-Every new capability — a new MCP server, a new agent type, a new hardware device, a new integration — must feel like it was always part of Lattice. Not bolted on. Not an add-on. Native. Like it grew there.
+Every new capability — a new MCP server, a new minion type, a new hardware device, a new integration — must feel like it was always part of Lattice. Not bolted on. Not an add-on. Native. Like it grew there.
 
 If a new feature makes the system feel more complex, it's wrong. New capabilities should make the system feel more capable, not more complicated. That's the difference.
 
