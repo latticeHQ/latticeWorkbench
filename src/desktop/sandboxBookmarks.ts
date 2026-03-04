@@ -81,6 +81,11 @@ export class SandboxBookmarkService {
       }
     }
 
+    // Also check if any bookmark covers home (e.g. "/" covers /Users/username)
+    if (!homeRestored && this.entries.length > 0) {
+      homeRestored = this.isAccessible(getRealHome());
+    }
+
     return homeRestored;
   }
 
@@ -122,8 +127,13 @@ export class SandboxBookmarkService {
     if (this.isMAS && result.bookmarks && result.bookmarks.length > 0) {
       const bookmarkData = result.bookmarks[0];
       const realHome = getRealHome();
+      // Treat the selection as "home" if it IS the home dir or an ancestor of it
+      // (e.g. selecting "/" covers /Users/onchainengineer)
+      const normalizedSelected = selectedPath.endsWith("/") ? selectedPath : `${selectedPath}/`;
       const isHome =
-        selectedPath === realHome || selectedPath === `${realHome}/`;
+        selectedPath === realHome ||
+        selectedPath === `${realHome}/` ||
+        realHome.startsWith(normalizedSelected);
 
       const entry: BookmarkEntry = {
         path: selectedPath,
@@ -167,7 +177,9 @@ export class SandboxBookmarkService {
    */
   hasHomeAccess(): boolean {
     if (!this.isMAS) return true;
-    return this.entries.some((e) => e.isHome);
+    // Check explicit isHome flag OR if any bookmark path covers the real home
+    if (this.entries.some((e) => e.isHome)) return true;
+    return this.isAccessible(getRealHome());
   }
 
   /**
@@ -231,6 +243,32 @@ export class SandboxBookmarkService {
         console.warn("[sandbox-bookmarks] Invalid bookmarks file format, ignoring");
         return [];
       }
+      // Migrate: fix isHome for entries that are ancestors of home (e.g. "/")
+      const realHome = getRealHome();
+      let migrated = false;
+      for (const entry of data.entries) {
+        if (!entry.isHome) {
+          const norm = entry.path.endsWith("/") ? entry.path : `${entry.path}/`;
+          if (entry.path === realHome || entry.path === `${realHome}/` || realHome.startsWith(norm)) {
+            entry.isHome = true;
+            migrated = true;
+          }
+        }
+      }
+      if (migrated) {
+        // Persist the fixed entries
+        try {
+          const dir = path.dirname(this.bookmarksPath);
+          if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+          }
+          fs.writeFileSync(this.bookmarksPath, JSON.stringify({ version: 1, entries: data.entries }, null, 2), "utf-8");
+          console.log("[sandbox-bookmarks] Migrated bookmark isHome flags");
+        } catch {
+          // Best-effort migration
+        }
+      }
+
       return data.entries;
     } catch (err) {
       console.error("[sandbox-bookmarks] Failed to load bookmarks:", err);

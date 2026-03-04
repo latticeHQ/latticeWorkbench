@@ -632,7 +632,11 @@ async function loadServices(): Promise<void> {
 
   // MAS sandbox: restore security-scoped bookmarks BEFORE services initialize.
   // This grants filesystem access to previously bookmarked directories (e.g. home).
+  const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+  console.log(`[startup] process.mas=${isMAS}, HOME=${process.env.HOME}, __dirname=${__dirname}`);
+
   const homeRestored = sandboxBookmarks.restoreAll();
+  console.log(`[startup] sandboxBookmarks.restoreAll() returned homeRestored=${homeRestored}, isSandboxed=${sandboxBookmarks.isSandboxed}`);
   if (homeRestored && sandboxBookmarks.isSandboxed) {
     // Home directory bookmark was restored — set HOME to the real user home
     // so all subprocess tool lookups, dotfile reads, and git operations work.

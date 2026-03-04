@@ -108,9 +108,14 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   };
 
   // Try the preferred node-pty variant first.
+  const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+  log.info(`[PTY] Spawning: cmd=${request.command}, args=${request.args.join(" ")}, cwd=${request.cwd}, mas=${isMAS}, HOME=${process.env.HOME ?? "unset"}`);
+
   const pty = loadNodePty(request.runtimeLabel, request.preferElectronBuild);
   try {
-    return pty.spawn(request.command, request.args, spawnOpts);
+    const result = pty.spawn(request.command, request.args, spawnOpts);
+    log.info(`[PTY] Spawn succeeded: pid=${result.pid}`);
+    return result;
   } catch (primaryErr) {
     const primaryErrMsg = getErrorMessage(primaryErr);
     log.error(`[PTY] Primary node-pty spawn failed for ${request.runtimeLabel}:`, primaryErr);

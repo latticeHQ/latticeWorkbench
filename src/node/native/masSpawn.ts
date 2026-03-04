@@ -44,6 +44,8 @@ function loadNativeAddon(): NativeAddon {
     const isPackaged = __dirname.includes("app.asar");
     const possiblePaths: string[] = [];
 
+    console.log(`[masSpawn] Loading native addon: __dirname=${__dirname}, isPackaged=${isPackaged}`);
+
     if (isPackaged) {
       // Packaged Electron: .node file is in app.asar.unpacked (native addons can't load from asar)
       const asarUnpackedRoot = __dirname.split("app.asar")[0] + "app.asar.unpacked";
@@ -62,17 +64,20 @@ function loadNativeAddon(): NativeAddon {
 
     for (const addonPath of possiblePaths) {
       try {
+        console.log(`[masSpawn] Trying addon path: ${addonPath}`);
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         nativeAddon = require(addonPath) as NativeAddon;
+        console.log(`[masSpawn] Native addon loaded successfully from: ${addonPath}`);
         return nativeAddon;
-      } catch {
-        // Try next path
+      } catch (loadErr) {
+        console.log(`[masSpawn] Failed to load from ${addonPath}: ${loadErr}`);
       }
     }
 
     throw new Error(`lattice_spawn.node not found in: ${possiblePaths.join(", ")}`);
   } catch (err) {
     nativeAddonLoadError = err instanceof Error ? err : new Error(String(err));
+    console.error(`[masSpawn] FATAL: Could not load native addon:`, nativeAddonLoadError.message);
     throw nativeAddonLoadError;
   }
 }
@@ -163,6 +168,7 @@ class NsTaskChildProcess extends EventEmitter {
       this.signalCode = null;
     }
 
+    console.log(`[masSpawn] Process pid=${this._pid} exited: code=${this.exitCode}, signal=${this.signalCode}`);
     this.emit("exit", this.exitCode, this.signalCode);
 
     // Emit "close" after a microtask to let stdio drain
@@ -220,6 +226,8 @@ export function masSpawn(
   if (!isMAS()) {
     return spawn(command, args, options ?? {});
   }
+
+  console.log(`[masSpawn] MAS spawn: command=${command}, args=${JSON.stringify(args.slice(0, 2))}${args.length > 2 ? "..." : ""}, cwd=${options?.cwd ?? "inherit"}`);
 
   // MAS: use NSTask via native addon
   const addon = loadNativeAddon();
@@ -280,7 +288,9 @@ export function masSpawn(
     });
 
     nsProc = new NsTaskChildProcess(result, addon);
+    console.log(`[masSpawn] NSTask spawned pid=${result.pid}, stdinFd=${result.stdinFd}, stdoutFd=${result.stdoutFd}, stderrFd=${result.stderrFd}`);
   } catch (err) {
+    console.error(`[masSpawn] NSTask spawn FAILED:`, err instanceof Error ? err.message : String(err));
     // Emit error event like child_process.spawn does
     const errProc = new EventEmitter() as unknown as ChildProcess;
     (errProc as any).pid = undefined;
