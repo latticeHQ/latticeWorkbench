@@ -3,7 +3,6 @@ import { log } from "@/node/services/log";
 import { getErrorMessage } from "@/common/utils/errors";
 import { getRealHome } from "@/common/utils/masHome";
 import { masSpawn } from "@/node/native/masSpawn";
-import { EventEmitter } from "events";
 
 interface PtySpawnRequest {
   runtimeLabel: string;
@@ -196,7 +195,6 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
   log.info(`[PTY] MAS script fallback spawned: pid=${child.pid}`);
 
   // Create an IPty-compatible wrapper
-  const emitter = new EventEmitter();
   const ptyObj: IPty = {
     pid: child.pid,
     cols: request.cols,
@@ -234,7 +232,7 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
     },
 
     kill: (signal?: string) => {
-      child.kill(signal ?? "SIGTERM");
+      child.kill((signal ?? "SIGTERM") as NodeJS.Signals);
     },
 
     clear: () => {
