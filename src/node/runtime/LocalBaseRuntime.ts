@@ -81,7 +81,8 @@ export abstract class LocalBaseRuntime implements Runtime {
       );
     }
 
-    const bashPath = getBashPath();
+    // Use absolute path on macOS to avoid PATH resolution issues in MAS sandbox.
+    const bashPath = process.platform === "darwin" ? "/bin/bash" : getBashPath();
     const spawnCommand = bashPath;
 
     // Match RemoteRuntime behavior: ensure non-interactive env vars are set inside the shell.
@@ -123,6 +124,10 @@ export abstract class LocalBaseRuntime implements Runtime {
       }
     }
 
+    // In MAS sandbox, detached:true calls setsid() which can be blocked (EPERM).
+    // Disable detached mode for MAS — minor tradeoff: background child cleanup is less reliable.
+    const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+
     const childProcess = spawn(spawnCommand, spawnArgs, {
       cwd,
       env: {
@@ -137,7 +142,8 @@ export abstract class LocalBaseRuntime implements Runtime {
       // the entire process group (including all backgrounded children) via process.kill(-pid).
       // NOTE: detached:true does NOT cause bash to wait for background jobs when using 'exit' event
       // instead of 'close' event. The 'exit' event fires when bash exits, ignoring background children.
-      detached: true,
+      // EXCEPTION: MAS sandbox may block setsid() — disable detached to avoid EPERM.
+      detached: !isMAS,
       // Prevent console window from appearing on Windows (WSL bash spawns steal focus otherwise)
       windowsHide: true,
     });
@@ -469,7 +475,8 @@ export abstract class LocalBaseRuntime implements Runtime {
     const loggers = createLineBufferedLoggers(initLogger);
 
     return new Promise<void>((resolve) => {
-      const bashPath = getBashPath();
+      const bashPath = process.platform === "darwin" ? "/bin/bash" : getBashPath();
+      const isMASHook = !!(process as NodeJS.Process & { mas?: boolean }).mas;
       const proc = spawn(bashPath, ["-c", `"${hookPath}"`], {
         cwd: minionPath,
         stdio: ["ignore", "pipe", "pipe"],
@@ -480,7 +487,8 @@ export abstract class LocalBaseRuntime implements Runtime {
         // Prevent console window from appearing on Windows
         windowsHide: true,
         // Spawn as a detached process group leader so we can reliably cancel the hook.
-        detached: true,
+        // EXCEPTION: MAS sandbox may block setsid() — disable detached to avoid EPERM.
+        detached: !isMASHook,
       });
 
       let aborted = false;

@@ -119,9 +119,14 @@ export class BashExecutionService {
       `BashExecutionService: Script: ${script.substring(0, 100)}${script.length > 100 ? "..." : ""}`
     );
 
-    const bashPath = getBashPath();
+    // Use absolute path on macOS to avoid PATH resolution issues in MAS sandbox.
+    const bashPath = process.platform === "darwin" ? "/bin/bash" : getBashPath();
     const spawnCommand = bashPath;
     const spawnArgs = ["-c", script];
+
+    // In MAS sandbox, detached:true calls setsid() which may be blocked (EPERM).
+    const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+    const detached = isMAS ? false : (config.detached ?? true);
 
     const child = spawn(spawnCommand, spawnArgs, {
       cwd: config.cwd,
@@ -130,7 +135,8 @@ export class BashExecutionService {
       // Spawn as detached process group leader to prevent zombie processes
       // When bash spawns background processes, detached:true allows killing
       // the entire group via process.kill(-pid)
-      detached: config.detached ?? true,
+      // EXCEPTION: MAS sandbox may block setsid() — disable detached to avoid EPERM.
+      detached,
       // Prevent console window from appearing on Windows (WSL bash spawns steal focus otherwise)
       windowsHide: true,
     });
