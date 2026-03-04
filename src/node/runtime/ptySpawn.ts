@@ -108,10 +108,32 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
     env,
   };
 
-  // Try the preferred node-pty variant first.
   const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
   log.info(`[PTY] Spawning: cmd=${request.command}, args=${request.args.join(" ")}, cwd=${request.cwd}, mas=${isMAS}, HOME=${process.env.HOME ?? "unset"}`);
 
+  // MAS sandbox: skip node-pty entirely. Its spawn-helper binary crashes with
+  // "Process is not in an inherited sandbox" (SIGTRAP) because it can't inherit
+  // the App Sandbox profile. Use /usr/bin/script to allocate a real PTY instead.
+  if (isMAS) {
+    log.info(`[PTY] MAS build detected — bypassing node-pty, using /usr/bin/script fallback`);
+    try {
+      return spawnScriptPty(request, env);
+    } catch (scriptErr) {
+      const scriptErrMsg = getErrorMessage(scriptErr);
+      log.error(`[PTY] MAS script fallback failed:`, scriptErr);
+
+      if (request.logLocalEnv) {
+        log.error(`Local PTY spawn config: ${request.command} ${request.args.join(" ")} (cwd: ${request.cwd})`);
+        log.error(`process.env.HOME: ${process.env.HOME ?? "undefined"}`);
+        log.error(`process.env.SHELL: ${process.env.SHELL ?? "undefined"}`);
+        log.error(`process.env.PATH: ${process.env.PATH ?? process.env.Path ?? "undefined"}`);
+      }
+
+      throw new Error(`Failed to spawn ${request.runtimeLabel} terminal in MAS sandbox: ${scriptErrMsg}`);
+    }
+  }
+
+  // Non-MAS: use node-pty as normal
   const pty = loadNodePty(request.runtimeLabel, request.preferElectronBuild);
   try {
     const result = pty.spawn(request.command, request.args, spawnOpts);
@@ -121,9 +143,7 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
     const primaryErrMsg = getErrorMessage(primaryErr);
     log.error(`[PTY] Primary node-pty spawn failed for ${request.runtimeLabel}:`, primaryErr);
 
-    // If EPERM, the native module's forkpty() may be blocked in this context
-    // (e.g. Electron-rebuilt module in MAS sandbox, or codesigning mismatch).
-    // Try the alternate node-pty variant before giving up — the NAPI-based
+    // If EPERM, try the alternate node-pty variant — the NAPI-based
     // @lydell/node-pty may succeed where the Electron build fails, or vice versa.
     if (primaryErrMsg.includes("EPERM")) {
       try {
@@ -134,26 +154,12 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
         }
       } catch (altErr) {
         log.error(`[PTY] Alternate node-pty variant also failed:`, altErr);
-        // Fall through to original error reporting
-      }
-    }
-
-    // MAS sandbox fallback: use /usr/bin/script to allocate a PTY via masSpawn().
-    // `script -q /dev/null <shell>` creates a real PTY internally, giving the shell
-    // proper line editing, colors, and terminal behavior — even when forkpty() is blocked.
-    if (isMAS) {
-      log.info(`[PTY] Attempting MAS fallback via /usr/bin/script for ${request.runtimeLabel}`);
-      try {
-        return spawnScriptPty(request, env);
-      } catch (scriptErr) {
-        log.error(`[PTY] MAS script fallback also failed:`, scriptErr);
-        // Fall through to error reporting
       }
     }
 
     const printableArgs = request.args.length > 0 ? ` ${request.args.join(" ")}` : "";
     const cmd = `${request.command}${printableArgs}`;
-    const details = `cmd="${cmd}", cwd="${request.cwd}", platform="${process.platform}", mas=${isMAS}`;
+    const details = `cmd="${cmd}", cwd="${request.cwd}", platform="${process.platform}"`;
 
     if (request.logLocalEnv) {
       log.error(`Local PTY spawn config: ${cmd} (cwd: ${request.cwd})`);
