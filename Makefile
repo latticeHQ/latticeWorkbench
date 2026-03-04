@@ -52,7 +52,7 @@ ESBUILD_CLI_FLAGS := --bundle --format=esm --platform=node --target=node20 --out
 include fmt.mk
 
 .PHONY: all build dev start clean help
-.PHONY: build-renderer version build-icons build-static build-inferred
+.PHONY: build-renderer version build-icons build-static build-inferred build-mcp-bundles
 .PHONY: lint lint-fix typecheck typecheck-react-native static-check
 .PHONY: test test-unit test-integration test-watch test-coverage test-e2e test-e2e-perf smoke-test
 .PHONY: dist dist-mac dist-mas dist-mas-dev dist-win dist-linux install-mac-arm64
@@ -194,7 +194,7 @@ start: node_modules/.installed build-main build-preload build-static ## Build an
 	@NODE_ENV=development bunx electron --remote-debugging-port=9222 .
 
 ## Build targets (can run in parallel)
-build: node_modules/.installed src/version.ts build-renderer build-main build-preload build-icons build-static build-inferred ## Build all targets
+build: node_modules/.installed src/version.ts build-renderer build-main build-preload build-icons build-static build-inferred build-mcp-bundles ## Build all targets
 
 build-main: node_modules/.installed dist/cli/index.js dist/cli/api.mjs ## Build main process
 
@@ -283,6 +283,17 @@ build-inferred: ## Build the latticeinference Go binary from source
 	@mkdir -p dist/inference/bin
 	@cd "$(LATTICE_INFERENCE_DIR)" && go build -ldflags "-s -w" -o "$(CURDIR)/dist/inference/bin/latticeinference" ./cmd/latticeinference
 	@echo "✅ dist/inference/bin/latticeinference"
+
+# Bundle MCP servers as standalone JS files for packaged Electron.
+# In development, Bun runs the .ts source directly. In packaged builds,
+# src/ doesn't exist in the asar — these bundles are placed in asarUnpack
+# so the Bun subprocess can access them as real files.
+build-mcp-bundles: node_modules/.installed ## Bundle MCP servers for packaged Electron
+	@echo "Bundling MCP servers..."
+	@mkdir -p dist/mcp-server dist/notebooklm-mcp
+	@bun build src/mcp-server/index.ts --target=bun --outdir=dist/mcp-server --sourcemap=external 2>&1 || echo "⚠️  MCP server bundle failed (non-fatal)"
+	@bun build src/notebooklm-mcp/index.ts --target=bun --outdir=dist/notebooklm-mcp --sourcemap=external 2>&1 || echo "⚠️  NotebookLM MCP bundle failed (non-fatal)"
+	@echo "✅ MCP server bundles ready"
 
 # Always regenerate version file (marked as .PHONY above)
 version: ## Generate version file
