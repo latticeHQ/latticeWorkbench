@@ -641,6 +641,14 @@ async function loadServices(): Promise<void> {
     console.log(`[sandbox-bookmarks] Set HOME to ${realHome} (bookmark restored)`);
   }
 
+  // MAS first-run: prompt for home directory access BEFORE services.initialize().
+  // services.initialize() starts MCP servers and other subprocess-dependent services.
+  // Without a home directory bookmark, these fail with EPERM in the sandbox.
+  // The prompt must happen here — after restoreAll() but before initialize().
+  if (sandboxBookmarks.isSandboxed && !sandboxBookmarks.hasHomeAccess()) {
+    await promptForHomeDirectoryAccess();
+  }
+
   services = new ServiceContainerClass(config);
   // Desktop bootstrap owns interactive host-key trust policy
   setOpenSSHHostKeyPolicyMode("strict");
@@ -866,6 +874,12 @@ async function loadServices(): Promise<void> {
 async function promptForHomeDirectoryAccess(): Promise<void> {
   const realHome = getRealHome();
 
+  // Hide splash screen temporarily so the dialog is visible.
+  // The splash has alwaysOnTop: true which can obscure native dialogs.
+  if (splashWindow) {
+    splashWindow.hide();
+  }
+
   const { response } = await dialog.showMessageBox({
     type: "info",
     title: "Lattice needs access to your files",
@@ -883,6 +897,8 @@ async function promptForHomeDirectoryAccess(): Promise<void> {
 
   if (response !== 0) {
     console.log("[sandbox-bookmarks] User skipped home directory grant");
+    // Re-show splash for the rest of startup
+    if (splashWindow) splashWindow.show();
     return;
   }
 
@@ -891,6 +907,9 @@ async function promptForHomeDirectoryAccess(): Promise<void> {
     buttonLabel: "Grant Access",
     defaultPath: realHome,
   });
+
+  // Re-show splash for the rest of startup
+  if (splashWindow) splashWindow.show();
 
   if (selectedPath) {
     // Update HOME now that we have access
@@ -1116,12 +1135,8 @@ if (gotTheLock) {
         await showSplashScreen(); // Wait for splash to actually load
       }
       await loadServices();
-
-      // MAS first-run: prompt for home directory access if not already bookmarked.
-      // One home directory bookmark unlocks projects, dotfiles, CLI tools, etc.
-      if (sandboxBookmarks.isSandboxed && !sandboxBookmarks.hasHomeAccess()) {
-        await promptForHomeDirectoryAccess();
-      }
+      // Note: MAS first-run home directory prompt now happens inside loadServices(),
+      // before services.initialize(), so MCP servers and terminals have access.
 
       createWindow();
       createTray();
