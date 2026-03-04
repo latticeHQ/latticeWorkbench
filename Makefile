@@ -450,7 +450,9 @@ dist-mas: build ## Build Mac App Store .pkg (arm64)
 
 dist-mas-dev: build ## Build MAS development .app for local testing (arm64)
 	@echo "Building MAS development build (arm64)..."
-	@bun x electron-builder --mac mas-dev --arm64 --publish never
+	@bun x electron-builder --mac mas-dev --arm64 --publish never \
+		-c.mas.provisioningProfile=Lattice_MAS_Development.provisionprofile \
+		-c.mas.type=development
 	@echo "✅ MAS dev build complete"
 
 dist-win: build ## Build Windows distributable
