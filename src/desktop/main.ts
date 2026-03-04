@@ -763,10 +763,11 @@ async function loadServices(): Promise<void> {
   // Start HTTP/WS API server for CLI access (unless explicitly disabled)
   if (process.env.LATTICE_NO_API_SERVER !== "1") {
     const lockfile = new ServerLockfile(config.rootDir);
+    console.log(`[${timestamp()}] API server lockfile path: ${config.rootDir}/server.lock`);
     const existing = await lockfile.read();
 
     if (existing) {
-      console.log(`[${timestamp()}] API server already running at ${existing.baseUrl}, skipping`);
+      console.log(`[${timestamp()}] API server already running at ${existing.baseUrl} (pid=${existing.pid}), skipping`);
     } else {
       try {
         const loadedConfig = config.loadConfigOrDefault();
@@ -787,6 +788,8 @@ async function loadServices(): Promise<void> {
         const port = envPort ?? configuredPort ?? 0;
         const host = configuredBindHost ?? "127.0.0.1";
 
+        console.log(`[${timestamp()}] API server starting: host=${host}, port=${port}, configuredPort=${configuredPort ?? "none"}, envPort=${envPort ?? "none"}`);
+
         const serverInfo = await services.serverService.startServer({
           latticeHome: config.rootDir,
           context: orpcContext,
@@ -796,7 +799,7 @@ async function loadServices(): Promise<void> {
           serveStatic,
           port,
         });
-        console.log(`[${timestamp()}] API server started at ${serverInfo.baseUrl}`);
+        console.log(`[${timestamp()}] API server started at ${serverInfo.baseUrl} (port=${serverInfo.port})`);
       } catch (error) {
         console.error(`[${timestamp()}] Failed to start API server:`, error);
         // Non-fatal - continue without API server

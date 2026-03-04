@@ -229,9 +229,40 @@ export function masSpawn(
 
   console.log(`[masSpawn] MAS spawn: command=${command}, args=${JSON.stringify(args.slice(0, 2))}${args.length > 2 ? "..." : ""}, cwd=${options?.cwd ?? "inherit"}`);
 
-  // MAS: use NSTask via native addon
-  const addon = loadNativeAddon();
+  // Strategy: Try NSTask native addon first (handles sandbox inheritance correctly).
+  // If the addon can't load (packaging/codesign issue), fall back to regular spawn()
+  // which may work since detached:true (the main EPERM cause) is already disabled.
+  let addon: NativeAddon | null = null;
+  try {
+    addon = loadNativeAddon();
+  } catch (addonErr) {
+    console.warn(`[masSpawn] Native addon unavailable, falling back to child_process.spawn: ${addonErr instanceof Error ? addonErr.message : String(addonErr)}`);
+  }
 
+  // Fallback: use regular spawn (without detached:true, which was the EPERM cause)
+  if (!addon) {
+    console.log(`[masSpawn] Using child_process.spawn fallback for: ${command}`);
+    const safeOptions = { ...(options ?? {}), detached: false };
+    const child = spawn(command, args, safeOptions);
+    child.on("error", (err) => {
+      console.error(`[masSpawn] child_process.spawn fallback FAILED:`, err.message);
+    });
+    child.on("exit", (code, signal) => {
+      console.log(`[masSpawn] child_process.spawn fallback exited: code=${code}, signal=${signal}`);
+    });
+    return child;
+  }
+
+  // NSTask path: use native addon
+  return spawnViaNSTask(addon, command, args, options);
+}
+
+function spawnViaNSTask(
+  addon: NativeAddon,
+  command: string,
+  args: string[],
+  options?: SpawnOptions
+): ChildProcess {
   // Determine which stdio channels to create
   const stdio = options?.stdio;
   let wantStdin = true;
@@ -275,38 +306,28 @@ export function masSpawn(
     stderr: wantStderr,
   };
 
-  // We need a stable reference for the exit callback closure.
-  // The exit callback fires asynchronously (via TSFN), so nsProc will
-  // always be assigned before it's called.
   let nsProc: NsTaskChildProcess | null = null;
 
   try {
     const result = addon.spawn(command, args, nativeOpts, (code: number, signal: number) => {
-      // This fires asynchronously on the Node.js event loop via TSFN.
-      // nsProc is guaranteed to be set by now.
       nsProc!._onExit(code, signal);
     });
 
     nsProc = new NsTaskChildProcess(result, addon);
     console.log(`[masSpawn] NSTask spawned pid=${result.pid}, stdinFd=${result.stdinFd}, stdoutFd=${result.stdoutFd}, stderrFd=${result.stderrFd}`);
   } catch (err) {
-    console.error(`[masSpawn] NSTask spawn FAILED:`, err instanceof Error ? err.message : String(err));
-    // Emit error event like child_process.spawn does
-    const errProc = new EventEmitter() as unknown as ChildProcess;
-    (errProc as any).pid = undefined;
-    (errProc as any).stdin = null;
-    (errProc as any).stdout = null;
-    (errProc as any).stderr = null;
-    (errProc as any).exitCode = null;
-    (errProc as any).signalCode = null;
-    (errProc as any).killed = false;
-    (errProc as any).kill = () => false;
-    process.nextTick(() => {
-      errProc.emit("error", err instanceof Error ? err : new Error(String(err)));
+    console.error(`[masSpawn] NSTask spawn FAILED, falling back to child_process.spawn:`, err instanceof Error ? err.message : String(err));
+    // Fall back to regular spawn instead of returning a broken error process
+    const safeOptions = { ...(options ?? {}), detached: false };
+    const child = spawn(command, args, safeOptions);
+    child.on("error", (spawnErr) => {
+      console.error(`[masSpawn] child_process.spawn fallback also FAILED:`, spawnErr.message);
     });
-    return errProc;
+    child.on("exit", (code, signal) => {
+      console.log(`[masSpawn] child_process.spawn fallback exited: code=${code}, signal=${signal}`);
+    });
+    return child;
   }
 
-  // Cast to ChildProcess — NsTaskChildProcess implements the required interface
   return nsProc as unknown as ChildProcess;
 }

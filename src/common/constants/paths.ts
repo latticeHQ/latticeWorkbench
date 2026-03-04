@@ -6,6 +6,18 @@ const LEGACY_LATTICE_DIR_NAME = ".clattice";
 const LATTICE_DIR_NAME = ".lattice";
 
 /**
+ * Snapshot of the original homedir captured at module load time — before
+ * main.ts overrides process.env.HOME to the real user home for child processes.
+ *
+ * In the MAS sandbox, os.homedir() returns the container path
+ * (~/Library/Containers/<bundleId>/Data/) at load time. After the HOME
+ * override, homedir() would return /Users/<username> instead. We need the
+ * container path for .lattice data (lockfile, config, sessions) so it stays
+ * isolated from any non-MAS Lattice installation on the same machine.
+ */
+const ORIGINAL_HOME = homedir();
+
+/**
  * Migrate from the legacy ~/.clattice directory into ~/.lattice for rebranded installs.
  * Called on startup to preserve data created by earlier releases.
  *
@@ -14,8 +26,8 @@ const LATTICE_DIR_NAME = ".lattice";
  * This ensures old scripts/tools referencing ~/.clattice continue working.
  */
 export function migrateLegacyLatticeHome(): void {
-  const oldPath = join(homedir(), LEGACY_LATTICE_DIR_NAME);
-  const newPath = join(homedir(), LATTICE_DIR_NAME);
+  const oldPath = join(ORIGINAL_HOME, LEGACY_LATTICE_DIR_NAME);
+  const newPath = join(ORIGINAL_HOME, LATTICE_DIR_NAME);
 
   // If .lattice exists, we're done (already migrated or fresh install)
   if (existsSync(newPath)) {
@@ -57,7 +69,11 @@ export function getLatticeHome(): string {
   // Use -dev suffix only when explicitly in development mode
   // eslint-disable-next-line no-restricted-syntax, no-restricted-globals
   const suffix = process.env.NODE_ENV === "development" ? "-dev" : "";
-  return join(homedir(), baseName + suffix);
+
+  // Use ORIGINAL_HOME (captured at module load, before any HOME override).
+  // In MAS sandbox this is the container path — keeping .lattice data isolated
+  // from non-MAS installs even after we override HOME for child processes.
+  return join(ORIGINAL_HOME, baseName + suffix);
 }
 
 /**

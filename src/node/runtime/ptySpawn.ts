@@ -2,6 +2,8 @@ import type { IPty } from "node-pty";
 import { log } from "@/node/services/log";
 import { getErrorMessage } from "@/common/utils/errors";
 import { getRealHome } from "@/common/utils/masHome";
+import { masSpawn } from "@/node/native/masSpawn";
+import { EventEmitter } from "events";
 
 interface PtySpawnRequest {
   runtimeLabel: string;
@@ -137,9 +139,21 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
       }
     }
 
+    // MAS sandbox fallback: use /usr/bin/script to allocate a PTY via masSpawn().
+    // `script -q /dev/null <shell>` creates a real PTY internally, giving the shell
+    // proper line editing, colors, and terminal behavior — even when forkpty() is blocked.
+    if (isMAS) {
+      log.info(`[PTY] Attempting MAS fallback via /usr/bin/script for ${request.runtimeLabel}`);
+      try {
+        return spawnScriptPty(request, env);
+      } catch (scriptErr) {
+        log.error(`[PTY] MAS script fallback also failed:`, scriptErr);
+        // Fall through to error reporting
+      }
+    }
+
     const printableArgs = request.args.length > 0 ? ` ${request.args.join(" ")}` : "";
     const cmd = `${request.command}${printableArgs}`;
-    const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
     const details = `cmd="${cmd}", cwd="${request.cwd}", platform="${process.platform}", mas=${isMAS}`;
 
     if (request.logLocalEnv) {
@@ -151,4 +165,85 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
 
     throw new Error(`Failed to spawn ${request.runtimeLabel} terminal (${details}): ${primaryErrMsg}`);
   }
+}
+
+/**
+ * MAS sandbox fallback: spawn a shell via /usr/bin/script which allocates a real PTY
+ * internally, then wrap it in an IPty-compatible interface.
+ *
+ * /usr/bin/script -q /dev/null <shell> creates a pseudo-TTY and runs the shell inside it.
+ * This works even when node-pty's forkpty() is blocked by the sandbox.
+ */
+function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty {
+  const shell = request.command;
+  const shellArgs = request.args;
+
+  // Use /usr/bin/script to create a PTY wrapper
+  // -q = quiet (no "Script started" message)
+  // /dev/null = don't save transcript
+  const scriptArgs = ["-q", "/dev/null", shell, ...shellArgs];
+
+  const child = masSpawn("/usr/bin/script", scriptArgs, {
+    cwd: request.cwd,
+    env: env as Record<string, string>,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  if (!child.pid) {
+    throw new Error("Failed to spawn /usr/bin/script — no PID");
+  }
+
+  log.info(`[PTY] MAS script fallback spawned: pid=${child.pid}`);
+
+  // Create an IPty-compatible wrapper
+  const emitter = new EventEmitter();
+  const ptyObj: IPty = {
+    pid: child.pid,
+    cols: request.cols,
+    rows: request.rows,
+    process: shell,
+    handleFlowControl: false,
+
+    onData: (listener: (data: string) => void) => {
+      // stdout carries the PTY output (script merges stdout+stderr through the PTY)
+      child.stdout?.on("data", (chunk: Buffer) => {
+        listener(chunk.toString("utf-8"));
+      });
+      // Also capture stderr for any script errors
+      child.stderr?.on("data", (chunk: Buffer) => {
+        listener(chunk.toString("utf-8"));
+      });
+      return { dispose: () => { child.stdout?.removeAllListeners("data"); child.stderr?.removeAllListeners("data"); } };
+    },
+
+    onExit: (listener: (e: { exitCode: number; signal?: number }) => void) => {
+      child.on("exit", (code: number | null, signal: string | null) => {
+        listener({ exitCode: code ?? 0, signal: signal ? parseInt(signal, 10) || undefined : undefined });
+      });
+      return { dispose: () => { child.removeAllListeners("exit"); } };
+    },
+
+    write: (data: string) => {
+      child.stdin?.write(data);
+    },
+
+    resize: (_cols: number, _rows: number) => {
+      // script doesn't support dynamic resize, but update our tracked values
+      (ptyObj as any).cols = _cols;
+      (ptyObj as any).rows = _rows;
+    },
+
+    kill: (signal?: string) => {
+      child.kill(signal ?? "SIGTERM");
+    },
+
+    clear: () => {
+      // No-op for script-based PTY
+    },
+
+    pause: () => { child.stdout?.pause(); },
+    resume: () => { child.stdout?.resume(); },
+  } as IPty;
+
+  return ptyObj;
 }
