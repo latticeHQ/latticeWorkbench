@@ -40,6 +40,10 @@ module.exports = async function (context) {
       return;
     }
 
+    // Locale variant suffixes that Electron 38+ ships as symlinks or stubs.
+    // codesign cannot handle these — remove unconditionally.
+    const VARIANT_SUFFIXES = ["_FEMININE", "_MASCULINE", "_NEUTER"];
+
     for (const name of names) {
       const fullPath = path.join(dir, name);
 
@@ -58,13 +62,23 @@ module.exports = async function (context) {
           continue;
         }
 
-        // For real directories, check locale.pak exists and is valid
+        // Remove variant locale directories unconditionally — they contain
+        // symlinked locale.pak files that codesign fails to sign.
+        const baseName = name.replace(".lproj", "");
+        if (VARIANT_SUFFIXES.some((s) => baseName.endsWith(s))) {
+          fs.rmSync(fullPath, { recursive: true, force: true });
+          fixed++;
+          continue;
+        }
+
+        // For real directories, check locale.pak exists and is a real file
         if (lstat.isDirectory()) {
           const pakPath = path.join(fullPath, "locale.pak");
           let pakOk = false;
           try {
-            fs.statSync(pakPath); // follows symlinks
-            pakOk = true;
+            const pakLstat = fs.lstatSync(pakPath);
+            // Reject symlinked locale.pak — codesign can't sign through symlinks
+            pakOk = !pakLstat.isSymbolicLink();
           } catch {
             pakOk = false;
           }
