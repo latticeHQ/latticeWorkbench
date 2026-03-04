@@ -2,14 +2,36 @@
  * electron-builder afterPack hook to fix locale symlinks in Electron Framework.
  *
  * Electron 38+ ships locale variant directories (_MASCULINE, _NEUTER, _FEMININE)
- * as symlinks. macOS codesign cannot handle these during MAS signing, failing with
- * "No such file or directory" errors.
+ * as symlinks. macOS codesign cannot handle symlinks during MAS signing, failing
+ * with "No such file or directory" errors.
  *
- * This script removes ALL symlinked lproj entries and any lproj dirs where
- * locale.pak is missing or broken.
+ * This script replaces symlinked .lproj directories with real copies of their
+ * targets so codesign can sign them. Directories with missing/broken locale.pak
+ * are removed entirely. Variant locale directories (_FEMININE, _MASCULINE,
+ * _NEUTER) are removed unconditionally as they are always problematic.
  */
 const fs = require("fs");
 const path = require("path");
+
+// Locale variant suffixes that Electron 38+ ships as symlinks or stubs.
+// These are always problematic for codesign — remove unconditionally.
+const VARIANT_SUFFIXES = ["_FEMININE", "_MASCULINE", "_NEUTER"];
+
+/**
+ * Recursively copy a directory from src to dest.
+ */
+function copyDirSync(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirSync(srcPath, destPath);
+    } else {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
 
 module.exports = async function (context) {
   if (context.electronPlatformName !== "mas") return;
@@ -28,7 +50,8 @@ module.exports = async function (context) {
     return;
   }
 
-  let fixed = 0;
+  let replaced = 0;
+  let removed = 0;
 
   function fixLocalesIn(dir) {
     if (!fs.existsSync(dir)) return;
@@ -39,10 +62,6 @@ module.exports = async function (context) {
     } catch {
       return;
     }
-
-    // Locale variant suffixes that Electron 38+ ships as symlinks or stubs.
-    // codesign cannot handle these — remove unconditionally.
-    const VARIANT_SUFFIXES = ["_FEMININE", "_MASCULINE", "_NEUTER"];
 
     for (const name of names) {
       const fullPath = path.join(dir, name);
@@ -55,19 +74,55 @@ module.exports = async function (context) {
       }
 
       if (name.endsWith(".lproj")) {
-        // Remove ANY symlinked lproj — codesign can't handle them
-        if (lstat.isSymbolicLink()) {
-          fs.rmSync(fullPath, { force: true });
-          fixed++;
-          continue;
-        }
-
         // Remove variant locale directories unconditionally — they contain
         // symlinked locale.pak files that codesign fails to sign.
         const baseName = name.replace(".lproj", "");
         if (VARIANT_SUFFIXES.some((s) => baseName.endsWith(s))) {
           fs.rmSync(fullPath, { recursive: true, force: true });
-          fixed++;
+          removed++;
+          continue;
+        }
+
+        if (lstat.isSymbolicLink()) {
+          // Resolve symlink target and replace with real copy
+          let targetPath;
+          try {
+            targetPath = fs.realpathSync(fullPath);
+          } catch {
+            // Broken symlink — remove it
+            fs.rmSync(fullPath, { force: true });
+            removed++;
+            continue;
+          }
+
+          // Check if target is a valid directory with locale.pak
+          let targetIsDir = false;
+          let hasPak = false;
+          try {
+            targetIsDir = fs.statSync(targetPath).isDirectory();
+          } catch {
+            fs.rmSync(fullPath, { force: true });
+            removed++;
+            continue;
+          }
+
+          if (targetIsDir) {
+            try {
+              fs.statSync(path.join(targetPath, "locale.pak"));
+              hasPak = true;
+            } catch {
+              hasPak = false;
+            }
+          }
+
+          // Remove symlink, replace with real copy if valid
+          fs.rmSync(fullPath, { force: true });
+          if (targetIsDir && hasPak) {
+            copyDirSync(targetPath, fullPath);
+            replaced++;
+          } else {
+            removed++;
+          }
           continue;
         }
 
@@ -77,15 +132,31 @@ module.exports = async function (context) {
           let pakOk = false;
           try {
             const pakLstat = fs.lstatSync(pakPath);
-            // Reject symlinked locale.pak — codesign can't sign through symlinks
-            pakOk = !pakLstat.isSymbolicLink();
+            if (pakLstat.isSymbolicLink()) {
+              // locale.pak itself is a symlink — replace with real copy
+              let realPak;
+              try {
+                realPak = fs.realpathSync(pakPath);
+                fs.rmSync(pakPath, { force: true });
+                fs.copyFileSync(realPak, pakPath);
+                replaced++;
+                pakOk = true;
+              } catch {
+                // Broken symlink — remove the directory
+                fs.rmSync(fullPath, { recursive: true, force: true });
+                removed++;
+                continue;
+              }
+            } else {
+              pakOk = true;
+            }
           } catch {
             pakOk = false;
           }
 
           if (!pakOk) {
             fs.rmSync(fullPath, { recursive: true, force: true });
-            fixed++;
+            removed++;
             continue;
           }
         }
@@ -116,11 +187,13 @@ module.exports = async function (context) {
   );
   fixLocalesIn(resourcesPath);
 
-  if (fixed > 0) {
-    console.log(
-      `  • fix-mas-locales: Removed ${fixed} symlinked/broken locale entries`
-    );
+  const parts = [];
+  if (replaced > 0) parts.push(`replaced ${replaced} symlinks with copies`);
+  if (removed > 0) parts.push(`removed ${removed} broken/variant entries`);
+
+  if (parts.length > 0) {
+    console.log(`  • fix-mas-locales: ${parts.join(", ")}`);
   } else {
-    console.log("  • fix-mas-locales: No broken locales found");
+    console.log("  • fix-mas-locales: No locale symlinks found");
   }
 };
