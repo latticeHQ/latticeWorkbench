@@ -202,6 +202,9 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
 
   log.info(`[PTY] MAS direct shell fallback spawned: pid=${child.pid}, shell=${shell}`);
 
+  // Track data listeners for local echo (piped stdio doesn't echo keystrokes)
+  const dataListeners: Array<(data: string) => void> = [];
+
   // Create an IPty-compatible wrapper
   const ptyObj: IPty = {
     pid: child.pid,
@@ -211,15 +214,21 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
     handleFlowControl: false,
 
     onData: (listener: (data: string) => void) => {
-      // stdout carries the PTY output (script merges stdout+stderr through the PTY)
+      dataListeners.push(listener);
+      // stdout carries shell output
       child.stdout?.on("data", (chunk: Buffer) => {
         listener(chunk.toString("utf-8"));
       });
-      // Also capture stderr for any script errors
+      // stderr carries shell errors (zshrc warnings etc.)
       child.stderr?.on("data", (chunk: Buffer) => {
         listener(chunk.toString("utf-8"));
       });
-      return { dispose: () => { child.stdout?.removeAllListeners("data"); child.stderr?.removeAllListeners("data"); } };
+      return { dispose: () => {
+        const idx = dataListeners.indexOf(listener);
+        if (idx >= 0) dataListeners.splice(idx, 1);
+        child.stdout?.removeAllListeners("data");
+        child.stderr?.removeAllListeners("data");
+      } };
     },
 
     onExit: (listener: (e: { exitCode: number; signal?: number }) => void) => {
@@ -231,6 +240,30 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
 
     write: (data: string) => {
       child.stdin?.write(data);
+
+      // Local echo: piped stdio doesn't echo keystrokes, so we do it manually.
+      // Without a real PTY, the terminal (xterm.js) won't see what the user types.
+      for (const listener of dataListeners) {
+        for (const ch of data) {
+          if (ch === "\r") {
+            // Enter: echo newline
+            listener("\r\n");
+          } else if (ch === "\x7f" || ch === "\b") {
+            // Backspace: move cursor back, overwrite with space, move back
+            listener("\b \b");
+          } else if (ch === "\x03") {
+            // Ctrl+C: echo ^C and newline
+            listener("^C\r\n");
+          } else if (ch === "\x04") {
+            // Ctrl+D: echo ^D
+            listener("^D");
+          } else if (ch.charCodeAt(0) >= 32) {
+            // Printable characters: echo as-is
+            listener(ch);
+          }
+          // Other control chars (arrows, tab, etc.): don't echo
+        }
+      }
     },
 
     resize: (_cols: number, _rows: number) => {
