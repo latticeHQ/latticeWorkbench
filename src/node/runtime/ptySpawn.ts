@@ -2,7 +2,7 @@ import type { IPty } from "node-pty";
 import { log } from "@/node/services/log";
 import { getErrorMessage } from "@/common/utils/errors";
 import { getRealHome } from "@/common/utils/masHome";
-import { masSpawn } from "@/node/native/masSpawn";
+import { masSpawn, masSpawnPty } from "@/node/native/masSpawn";
 
 interface PtySpawnRequest {
   runtimeLabel: string;
@@ -115,12 +115,12 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   // "Process is not in an inherited sandbox" (SIGTRAP) because it can't inherit
   // the App Sandbox profile. Use /usr/bin/script to allocate a real PTY instead.
   if (isMAS) {
-    log.info(`[PTY] MAS build detected — bypassing node-pty, using direct shell fallback`);
+    log.info(`[PTY] MAS build detected — using native PTY via posix_openpt`);
     try {
-      return spawnScriptPty(request, env);
+      return spawnMasPty(request, env);
     } catch (scriptErr) {
       const scriptErrMsg = getErrorMessage(scriptErr);
-      log.error(`[PTY] MAS script fallback failed:`, scriptErr);
+      log.error(`[PTY] MAS PTY spawn failed:`, scriptErr);
 
       if (request.logLocalEnv) {
         log.error(`Local PTY spawn config: ${request.command} ${request.args.join(" ")} (cwd: ${request.cwd})`);
@@ -173,26 +173,91 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
 }
 
 /**
- * MAS sandbox fallback: spawn an interactive shell directly via masSpawn()
- * and wrap it in an IPty-compatible interface.
+ * MAS sandbox PTY: uses posix_openpt() from the native addon to create a real
+ * PTY pair, then posix_spawn() with the slave as the child's controlling terminal.
  *
- * The MAS sandbox blocks PTY allocation (openpty/posix_openpt/forkpty) which
- * breaks both node-pty's spawn-helper and /usr/bin/script. So we spawn the
- * shell directly with -i (force interactive) over piped stdio. This gives us
- * a working terminal without full PTY capabilities (no cursor movement, no
- * resize), but commands, output, and colors (via TERM=xterm-256color) work.
+ * This gives full terminal support: echo, line editing, cursor movement, resize,
+ * Ctrl+C/D signals — exactly like node-pty, but without the unsigned spawn-helper binary.
+ *
+ * Falls back to direct shell spawn (piped stdio + local echo) if the addon is unavailable.
  */
-function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty {
+function spawnMasPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty {
   const shell = request.command;
   const shellArgs = request.args;
 
-  // Force interactive mode since we don't have a real PTY.
-  // -i makes zsh/bash show a prompt and accept commands even with piped stdio.
-  const forceInteractiveArgs = ["-i", ...shellArgs];
+  // Build env for the native addon
+  const envRecord: Record<string, string> = {};
+  for (const [key, val] of Object.entries(env)) {
+    if (val !== undefined) envRecord[key] = val;
+  }
 
+  // Try the proper PTY approach first (posix_openpt from the addon)
+  try {
+    const handle = masSpawnPty(shell, shellArgs, {
+      cwd: request.cwd,
+      env: envRecord,
+      cols: request.cols,
+      rows: request.rows,
+    });
+
+    log.info(`[PTY] MAS native PTY spawned: pid=${handle.pid}, masterFd=${handle.masterFd}, shell=${shell}`);
+
+    const ptyObj: IPty = {
+      pid: handle.pid,
+      cols: request.cols,
+      rows: request.rows,
+      process: shell,
+      handleFlowControl: false,
+
+      onData: (listener: (data: string) => void) => {
+        // The master socket carries all PTY I/O (both directions via one fd)
+        handle.master.on("data", (chunk: Buffer) => {
+          listener(chunk.toString("utf-8"));
+        });
+        return { dispose: () => { handle.master.removeAllListeners("data"); } };
+      },
+
+      onExit: (listener: (e: { exitCode: number; signal?: number }) => void) => {
+        handle.onExit((code, signal) => {
+          listener({ exitCode: code, signal: signal || undefined });
+        });
+        return { dispose: () => { /* no-op, single callback */ } };
+      },
+
+      write: (data: string) => {
+        handle.master.write(data);
+      },
+
+      resize: (cols: number, rows: number) => {
+        handle.resize(cols, rows);
+        (ptyObj as any).cols = cols;
+        (ptyObj as any).rows = rows;
+      },
+
+      kill: (signal?: string) => {
+        const sigMap: Record<string, number> = {
+          SIGTERM: 15, SIGKILL: 9, SIGINT: 2, SIGHUP: 1, SIGQUIT: 3,
+        };
+        handle.kill(sigMap[signal ?? "SIGTERM"] ?? 15);
+      },
+
+      clear: () => { /* no-op */ },
+      pause: () => { handle.master.pause(); },
+      resume: () => { handle.master.resume(); },
+    } as IPty;
+
+    return ptyObj;
+  } catch (ptyErr) {
+    log.warn(`[PTY] Native PTY spawn failed, falling back to piped shell:`, ptyErr);
+  }
+
+  // Fallback: direct shell spawn with piped stdio + local echo
+  log.info(`[PTY] Using piped shell fallback for MAS (no PTY)`);
+
+  const forceInteractiveArgs = ["-i", ...shellArgs];
   const child = masSpawn(shell, forceInteractiveArgs, {
     cwd: request.cwd,
-    env: env as Record<string, string>,
+    env: envRecord,
     stdio: ["pipe", "pipe", "pipe"],
   });
 
@@ -200,12 +265,10 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
     throw new Error(`Failed to spawn ${shell} — no PID`);
   }
 
-  log.info(`[PTY] MAS direct shell fallback spawned: pid=${child.pid}, shell=${shell}`);
+  log.info(`[PTY] MAS piped shell fallback spawned: pid=${child.pid}, shell=${shell}`);
 
-  // Track data listeners for local echo (piped stdio doesn't echo keystrokes)
   const dataListeners: Array<(data: string) => void> = [];
 
-  // Create an IPty-compatible wrapper
   const ptyObj: IPty = {
     pid: child.pid,
     cols: request.cols,
@@ -215,14 +278,8 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
 
     onData: (listener: (data: string) => void) => {
       dataListeners.push(listener);
-      // stdout carries shell output
-      child.stdout?.on("data", (chunk: Buffer) => {
-        listener(chunk.toString("utf-8"));
-      });
-      // stderr carries shell errors (zshrc warnings etc.)
-      child.stderr?.on("data", (chunk: Buffer) => {
-        listener(chunk.toString("utf-8"));
-      });
+      child.stdout?.on("data", (chunk: Buffer) => { listener(chunk.toString("utf-8")); });
+      child.stderr?.on("data", (chunk: Buffer) => { listener(chunk.toString("utf-8")); });
       return { dispose: () => {
         const idx = dataListeners.indexOf(listener);
         if (idx >= 0) dataListeners.splice(idx, 1);
@@ -240,34 +297,18 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
 
     write: (data: string) => {
       child.stdin?.write(data);
-
-      // Local echo: piped stdio doesn't echo keystrokes, so we do it manually.
-      // Without a real PTY, the terminal (xterm.js) won't see what the user types.
+      // Local echo for piped stdio
       for (const listener of dataListeners) {
         for (const ch of data) {
-          if (ch === "\r") {
-            // Enter: echo newline
-            listener("\r\n");
-          } else if (ch === "\x7f" || ch === "\b") {
-            // Backspace: move cursor back, overwrite with space, move back
-            listener("\b \b");
-          } else if (ch === "\x03") {
-            // Ctrl+C: echo ^C and newline
-            listener("^C\r\n");
-          } else if (ch === "\x04") {
-            // Ctrl+D: echo ^D
-            listener("^D");
-          } else if (ch.charCodeAt(0) >= 32) {
-            // Printable characters: echo as-is
-            listener(ch);
-          }
-          // Other control chars (arrows, tab, etc.): don't echo
+          if (ch === "\r") listener("\r\n");
+          else if (ch === "\x7f" || ch === "\b") listener("\b \b");
+          else if (ch === "\x03") listener("^C\r\n");
+          else if (ch.charCodeAt(0) >= 32) listener(ch);
         }
       }
     },
 
     resize: (_cols: number, _rows: number) => {
-      // No PTY = no resize support, but track values for the UI
       (ptyObj as any).cols = _cols;
       (ptyObj as any).rows = _rows;
     },
@@ -276,10 +317,7 @@ function spawnScriptPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty 
       child.kill((signal ?? "SIGTERM") as NodeJS.Signals);
     },
 
-    clear: () => {
-      // No-op for script-based PTY
-    },
-
+    clear: () => { /* no-op */ },
     pause: () => { child.stdout?.pause(); },
     resume: () => { child.stdout?.resume(); },
   } as IPty;

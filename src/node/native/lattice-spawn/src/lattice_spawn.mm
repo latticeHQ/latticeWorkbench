@@ -15,6 +15,8 @@
 #import <Foundation/Foundation.h>
 #include <unistd.h>
 #include <signal.h>
+#include <thread>
+#include <crt_externs.h>    // _NSGetEnviron for posix_spawn
 
 /**
  * spawn(command: string, args: string[], options: object, exitCallback: function)
@@ -221,6 +223,249 @@ static Napi::Value Spawn(const Napi::CallbackInfo& info) {
 }
 
 /**
+ * spawn_pty(command: string, args: string[], options: object, exitCallback: function)
+ *
+ * Like spawn(), but allocates a real PTY pair. The shell runs on the slave
+ * end with full terminal support (echo, line editing, cursor, signals).
+ *
+ * Returns: { pid: number, masterFd: number }
+ *   masterFd is the read/write PTY master. Caller owns it.
+ *
+ * This is the proper MAS sandbox solution: posix_openpt() is called from
+ * within the sandboxed main process, so the child properly inherits the
+ * sandbox. This avoids the spawn-helper crash (unsigned binary) and the
+ * /usr/bin/script failure (can't allocate PTY from a child process).
+ */
+#include <util.h>       // forkpty / openpty on macOS
+#include <termios.h>
+#include <sys/ioctl.h>
+#include <spawn.h>
+
+static Napi::Value SpawnPty(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+
+  // ── Validate arguments ──
+  if (info.Length() < 4) {
+    Napi::TypeError::New(env, "spawn_pty requires 4 arguments: command, args, options, exitCallback")
+      .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  if (!info[0].IsString() || !info[1].IsArray() || !info[2].IsObject() || !info[3].IsFunction()) {
+    Napi::TypeError::New(env, "spawn_pty(command: string, args: string[], options: object, cb: function)")
+      .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  // ── Parse command & args ──
+  std::string command = info[0].As<Napi::String>().Utf8Value();
+  Napi::Array argsArray = info[1].As<Napi::Array>();
+  Napi::Object options = info[2].As<Napi::Object>();
+  Napi::Function exitCallback = info[3].As<Napi::Function>();
+
+  // Build C-style argv: [command, ...args, NULL]
+  std::vector<std::string> argStrings;
+  argStrings.push_back(command);
+  for (uint32_t i = 0; i < argsArray.Length(); i++) {
+    Napi::Value val = argsArray.Get(i);
+    if (val.IsString()) {
+      argStrings.push_back(val.As<Napi::String>().Utf8Value());
+    }
+  }
+  std::vector<char*> argv;
+  for (auto& s : argStrings) argv.push_back(const_cast<char*>(s.c_str()));
+  argv.push_back(nullptr);
+
+  // ── Parse options ──
+  std::string cwd;
+  if (options.Has("cwd") && options.Get("cwd").IsString()) {
+    cwd = options.Get("cwd").As<Napi::String>().Utf8Value();
+  }
+
+  int cols = 80;
+  if (options.Has("cols") && options.Get("cols").IsNumber()) {
+    cols = options.Get("cols").As<Napi::Number>().Int32Value();
+  }
+  int rows = 24;
+  if (options.Has("rows") && options.Get("rows").IsNumber()) {
+    rows = options.Get("rows").As<Napi::Number>().Int32Value();
+  }
+
+  // ── Parse environment ──
+  std::vector<std::string> envStrings;
+  if (options.Has("env") && options.Get("env").IsObject()) {
+    Napi::Object envObj = options.Get("env").As<Napi::Object>();
+    Napi::Array envKeys = envObj.GetPropertyNames();
+    for (uint32_t i = 0; i < envKeys.Length(); i++) {
+      Napi::Value keyVal = envKeys.Get(i);
+      if (!keyVal.IsString()) continue;
+      std::string key = keyVal.As<Napi::String>().Utf8Value();
+      Napi::Value val = envObj.Get(key);
+      if (val.IsString()) {
+        envStrings.push_back(key + "=" + val.As<Napi::String>().Utf8Value());
+      }
+    }
+  }
+  std::vector<char*> envp;
+  for (auto& s : envStrings) envp.push_back(const_cast<char*>(s.c_str()));
+  envp.push_back(nullptr);
+
+  // ── Create PTY pair ──
+  int masterFd = -1;
+  int slaveFd = -1;
+
+  // Set initial terminal size
+  struct winsize ws;
+  memset(&ws, 0, sizeof(ws));
+  ws.ws_col = cols;
+  ws.ws_row = rows;
+
+  // openpty creates both master and slave fds
+  if (openpty(&masterFd, &slaveFd, nullptr, nullptr, &ws) < 0) {
+    std::string errMsg = std::string("openpty failed: ") + strerror(errno);
+    Napi::Error::New(env, errMsg).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  // ── Set up posix_spawn to run shell on the slave PTY ──
+  posix_spawn_file_actions_t actions;
+  posix_spawn_file_actions_init(&actions);
+
+  // Child: close master fd (parent's end)
+  posix_spawn_file_actions_addclose(&actions, masterFd);
+
+  // Child: dup slave fd to stdin/stdout/stderr
+  posix_spawn_file_actions_adddup2(&actions, slaveFd, STDIN_FILENO);
+  posix_spawn_file_actions_adddup2(&actions, slaveFd, STDOUT_FILENO);
+  posix_spawn_file_actions_adddup2(&actions, slaveFd, STDERR_FILENO);
+
+  // Child: close the original slave fd (now duped to 0/1/2)
+  if (slaveFd > STDERR_FILENO) {
+    posix_spawn_file_actions_addclose(&actions, slaveFd);
+  }
+
+  // Child: chdir if requested
+  if (!cwd.empty()) {
+    posix_spawn_file_actions_addchdir_np(&actions, cwd.c_str());
+  }
+
+  // Set POSIX_SPAWN_SETSID so child becomes session leader
+  // (makes the slave PTY the controlling terminal)
+  posix_spawnattr_t attrs;
+  posix_spawnattr_init(&attrs);
+  posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSID);
+
+  // ── Spawn ──
+  pid_t pid = 0;
+  int spawnRet = posix_spawn(
+    &pid,
+    command.c_str(),
+    &actions,
+    &attrs,
+    argv.data(),
+    envStrings.empty() ? *_NSGetEnviron() : envp.data()
+  );
+
+  posix_spawn_file_actions_destroy(&actions);
+  posix_spawnattr_destroy(&attrs);
+
+  if (spawnRet != 0) {
+    close(masterFd);
+    close(slaveFd);
+    std::string errMsg = std::string("posix_spawn failed: ") + strerror(spawnRet);
+    Napi::Error::New(env, errMsg).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  // Parent: close slave fd (child has it)
+  close(slaveFd);
+
+  // ── Set up exit monitoring via waitpid on a background thread ──
+  auto tsfn = Napi::ThreadSafeFunction::New(
+    env,
+    exitCallback,
+    "lattice_spawn_pty_exit",
+    0, 1
+  );
+  auto tsfnCopy = tsfn;
+  pid_t childPid = pid;
+
+  // Monitor child exit on a detached thread
+  std::thread([tsfnCopy, childPid]() mutable {
+    int status = 0;
+    waitpid(childPid, &status, 0);
+
+    struct ExitInfo {
+      int exitCode;
+      int signalNum;
+    };
+    ExitInfo* data = new ExitInfo;
+
+    if (WIFEXITED(status)) {
+      data->exitCode = WEXITSTATUS(status);
+      data->signalNum = 0;
+    } else if (WIFSIGNALED(status)) {
+      data->exitCode = 0;
+      data->signalNum = WTERMSIG(status);
+    } else {
+      data->exitCode = -1;
+      data->signalNum = 0;
+    }
+
+    auto callbackFn = [](Napi::Env cbEnv, Napi::Function jsCallback, ExitInfo* d) {
+      jsCallback.Call({
+        Napi::Number::New(cbEnv, d->exitCode),
+        Napi::Number::New(cbEnv, d->signalNum)
+      });
+      delete d;
+    };
+
+    napi_status callStatus = tsfnCopy.BlockingCall(data, callbackFn);
+    if (callStatus != napi_ok) {
+      delete data;
+    }
+    tsfnCopy.Release();
+  }).detach();
+
+  // ── Build result ──
+  int dupMasterFd = dup(masterFd);
+  close(masterFd);
+
+  Napi::Object result = Napi::Object::New(env);
+  result.Set("pid", Napi::Number::New(env, pid));
+  result.Set("masterFd", Napi::Number::New(env, dupMasterFd));
+
+  return result;
+}
+
+/**
+ * resize_pty(masterFd: number, cols: number, rows: number) → void
+ *
+ * Resize the PTY window. Sends SIGWINCH to the child process group.
+ */
+static Napi::Value ResizePty(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+
+  if (info.Length() < 3) {
+    Napi::TypeError::New(env, "resize_pty requires 3 arguments: masterFd, cols, rows")
+      .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  int fd = info[0].As<Napi::Number>().Int32Value();
+  int cols = info[1].As<Napi::Number>().Int32Value();
+  int rows = info[2].As<Napi::Number>().Int32Value();
+
+  struct winsize ws;
+  memset(&ws, 0, sizeof(ws));
+  ws.ws_col = cols;
+  ws.ws_row = rows;
+
+  ioctl(fd, TIOCSWINSZ, &ws);
+
+  return env.Undefined();
+}
+
+/**
  * kill(pid: number, signal?: number) → number
  *
  * Send a signal to a process. Returns 0 on success, -1 on error.
@@ -250,6 +495,8 @@ static Napi::Value Kill(const Napi::CallbackInfo& info) {
  */
 static Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("spawn", Napi::Function::New(env, Spawn));
+  exports.Set("spawn_pty", Napi::Function::New(env, SpawnPty));
+  exports.Set("resize_pty", Napi::Function::New(env, ResizePty));
   exports.Set("kill", Napi::Function::New(env, Kill));
   return exports;
 }

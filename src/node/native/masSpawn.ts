@@ -33,6 +33,20 @@ interface NativeAddon {
     exitCallback: (code: number, signal: number) => void
   ): { pid: number; stdinFd: number; stdoutFd: number; stderrFd: number };
 
+  spawn_pty(
+    command: string,
+    args: string[],
+    options: {
+      cwd?: string;
+      env?: Record<string, string>;
+      cols?: number;
+      rows?: number;
+    },
+    exitCallback: (code: number, signal: number) => void
+  ): { pid: number; masterFd: number };
+
+  resize_pty(masterFd: number, cols: number, rows: number): void;
+
   kill(pid: number, signal?: number): number;
 }
 
@@ -330,4 +344,94 @@ function spawnViaNSTask(
   }
 
   return nsProc as unknown as ChildProcess;
+}
+
+/**
+ * Result from masSpawnPty — a real PTY session.
+ */
+export interface MasPtyHandle {
+  pid: number;
+  masterFd: number;
+  /** Readable/writable socket connected to the PTY master fd */
+  master: net.Socket;
+  /** Kill the child process */
+  kill(signal?: number): number;
+  /** Resize the PTY */
+  resize(cols: number, rows: number): void;
+  /** Fires when child exits: (code, signal) */
+  onExit: (callback: (code: number, signal: number) => void) => void;
+}
+
+/**
+ * Spawn a process with a real PTY (master/slave pair) in the MAS sandbox.
+ *
+ * Uses posix_openpt() from the native addon to create the PTY pair, then
+ * posix_spawn() with the slave as stdin/stdout/stderr + POSIX_SPAWN_SETSID
+ * so the child gets a proper controlling terminal.
+ *
+ * Returns a handle with the master fd as a read/write socket, plus resize support.
+ */
+export function masSpawnPty(
+  command: string,
+  args: string[],
+  options: {
+    cwd?: string;
+    env?: Record<string, string>;
+    cols?: number;
+    rows?: number;
+  }
+): MasPtyHandle {
+  const addon = loadNativeAddon();
+
+  // Build env (same logic as masSpawn — NSTask doesn't auto-inherit)
+  let env: Record<string, string> | undefined;
+  if (options.env) {
+    env = {};
+    for (const [key, val] of Object.entries(options.env)) {
+      if (val !== undefined) {
+        env[key] = String(val);
+      }
+    }
+  } else {
+    env = {};
+    for (const [key, val] of Object.entries(process.env)) {
+      if (val !== undefined) {
+        env[key] = val;
+      }
+    }
+  }
+
+  let exitCallback: ((code: number, signal: number) => void) | null = null;
+
+  const result = addon.spawn_pty(command, args, {
+    cwd: options.cwd,
+    env,
+    cols: options.cols ?? 80,
+    rows: options.rows ?? 24,
+  }, (code: number, signal: number) => {
+    console.log(`[masSpawnPty] Process pid=${result.pid} exited: code=${code}, signal=${signal}`);
+    if (exitCallback) exitCallback(code, signal);
+  });
+
+  console.log(`[masSpawnPty] PTY spawned: pid=${result.pid}, masterFd=${result.masterFd}`);
+
+  // Create a duplex socket from the master fd
+  const masterSocket = new net.Socket({ fd: result.masterFd, readable: true, writable: true });
+
+  return {
+    pid: result.pid,
+    masterFd: result.masterFd,
+    master: masterSocket,
+    kill: (signal?: number) => addon.kill(result.pid, signal ?? 15),
+    resize: (cols: number, rows: number) => {
+      try {
+        addon.resize_pty(result.masterFd, cols, rows);
+      } catch {
+        // Ignore resize errors (fd may be closed)
+      }
+    },
+    onExit: (callback: (code: number, signal: number) => void) => {
+      exitCallback = callback;
+    },
+  };
 }
