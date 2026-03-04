@@ -1,5 +1,6 @@
 // Enable source map support for better error stack traces in production
 import "source-map-support/register";
+import { getRealHome } from "../common/utils/masHome";
 
 // Fix PATH on macOS when launched from Finder (not terminal).
 // GUI apps inherit minimal PATH from launchd, missing Homebrew tools like git-lfs.
@@ -133,7 +134,6 @@ import { getTitleBarOptions } from "./titleBarOptions";
 import { isUpdateInstallInProgress } from "./updateInstallState";
 import { getErrorMessage } from "@/common/utils/errors";
 import { SandboxBookmarkService } from "./sandboxBookmarks";
-import { getRealHome } from "../common/utils/masHome";
 import { setSandboxCallbacks } from "../node/orpc/router";
 
 // Global sandbox bookmark service — initialized once, used across startup and pickers.
