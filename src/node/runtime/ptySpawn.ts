@@ -2,7 +2,6 @@ import type { IPty } from "node-pty";
 import { log } from "@/node/services/log";
 import { getErrorMessage } from "@/common/utils/errors";
 import { getRealHome } from "@/common/utils/masHome";
-import { masSpawn, masSpawnPty } from "@/node/native/masSpawn";
 
 interface PtySpawnRequest {
   runtimeLabel: string;
@@ -111,26 +110,17 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
   log.info(`[PTY] Spawning: cmd=${request.command}, args=${request.args.join(" ")}, cwd=${request.cwd}, mas=${isMAS}, HOME=${process.env.HOME ?? "unset"}`);
 
-  // MAS sandbox: skip node-pty entirely. Its spawn-helper binary crashes with
-  // "Process is not in an inherited sandbox" (SIGTRAP) because it can't inherit
-  // the App Sandbox profile. Use /usr/bin/script to allocate a real PTY instead.
+  // MAS sandbox: local PTY is not viable. node-pty's spawn-helper crashes (unsigned
+  // binary can't inherit sandbox), and even with a native PTY via posix_openpt(), the
+  // sandbox blocks execution of non-system binaries (brew, node, npm, cargo, etc.).
+  // SSH runtime is the correct solution — it provides a full unsandboxed terminal.
   if (isMAS) {
-    log.info(`[PTY] MAS build detected — using native PTY via posix_openpt`);
-    try {
-      return spawnMasPty(request, env);
-    } catch (scriptErr) {
-      const scriptErrMsg = getErrorMessage(scriptErr);
-      log.error(`[PTY] MAS PTY spawn failed:`, scriptErr);
-
-      if (request.logLocalEnv) {
-        log.error(`Local PTY spawn config: ${request.command} ${request.args.join(" ")} (cwd: ${request.cwd})`);
-        log.error(`process.env.HOME: ${process.env.HOME ?? "undefined"}`);
-        log.error(`process.env.SHELL: ${process.env.SHELL ?? "undefined"}`);
-        log.error(`process.env.PATH: ${process.env.PATH ?? process.env.Path ?? "undefined"}`);
-      }
-
-      throw new Error(`Failed to spawn ${request.runtimeLabel} terminal in MAS sandbox: ${scriptErrMsg}`);
-    }
+    log.info(`[PTY] MAS build detected — local terminal not available, SSH runtime required`);
+    throw new Error(
+      `Local terminal is not available in the App Store build. ` +
+      `Please use SSH runtime instead: enable Remote Login in System Settings → General → Sharing, ` +
+      `then configure your minion to use SSH runtime (localhost).`
+    );
   }
 
   // Non-MAS: use node-pty as normal
@@ -172,157 +162,3 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   }
 }
 
-/**
- * MAS sandbox PTY: uses posix_openpt() from the native addon to create a real
- * PTY pair, then posix_spawn() with the slave as the child's controlling terminal.
- *
- * This gives full terminal support: echo, line editing, cursor movement, resize,
- * Ctrl+C/D signals — exactly like node-pty, but without the unsigned spawn-helper binary.
- *
- * Falls back to direct shell spawn (piped stdio + local echo) if the addon is unavailable.
- */
-function spawnMasPty(request: PtySpawnRequest, env: NodeJS.ProcessEnv): IPty {
-  const shell = request.command;
-  const shellArgs = request.args;
-
-  // Build env for the native addon
-  const envRecord: Record<string, string> = {};
-  for (const [key, val] of Object.entries(env)) {
-    if (val !== undefined) envRecord[key] = val;
-  }
-
-  // Try the proper PTY approach first (posix_openpt from the addon)
-  try {
-    const handle = masSpawnPty(shell, shellArgs, {
-      cwd: request.cwd,
-      env: envRecord,
-      cols: request.cols,
-      rows: request.rows,
-    });
-
-    log.info(`[PTY] MAS native PTY spawned: pid=${handle.pid}, masterFd=${handle.masterFd}, shell=${shell}`);
-
-    const ptyObj: IPty = {
-      pid: handle.pid,
-      cols: request.cols,
-      rows: request.rows,
-      process: shell,
-      handleFlowControl: false,
-
-      onData: (listener: (data: string) => void) => {
-        // The master socket carries all PTY I/O (both directions via one fd)
-        handle.master.on("data", (chunk: Buffer) => {
-          listener(chunk.toString("utf-8"));
-        });
-        return { dispose: () => { handle.master.removeAllListeners("data"); } };
-      },
-
-      onExit: (listener: (e: { exitCode: number; signal?: number }) => void) => {
-        handle.onExit((code, signal) => {
-          listener({ exitCode: code, signal: signal || undefined });
-        });
-        return { dispose: () => { /* no-op, single callback */ } };
-      },
-
-      write: (data: string) => {
-        handle.master.write(data);
-      },
-
-      resize: (cols: number, rows: number) => {
-        handle.resize(cols, rows);
-        (ptyObj as any).cols = cols;
-        (ptyObj as any).rows = rows;
-      },
-
-      kill: (signal?: string) => {
-        const sigMap: Record<string, number> = {
-          SIGTERM: 15, SIGKILL: 9, SIGINT: 2, SIGHUP: 1, SIGQUIT: 3,
-        };
-        handle.kill(sigMap[signal ?? "SIGTERM"] ?? 15);
-      },
-
-      clear: () => { /* no-op */ },
-      pause: () => { handle.master.pause(); },
-      resume: () => { handle.master.resume(); },
-    } as IPty;
-
-    return ptyObj;
-  } catch (ptyErr) {
-    log.warn(`[PTY] Native PTY spawn failed, falling back to piped shell:`, ptyErr);
-  }
-
-  // Fallback: direct shell spawn with piped stdio + local echo
-  log.info(`[PTY] Using piped shell fallback for MAS (no PTY)`);
-
-  const forceInteractiveArgs = ["-i", ...shellArgs];
-  const child = masSpawn(shell, forceInteractiveArgs, {
-    cwd: request.cwd,
-    env: envRecord,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  if (!child.pid) {
-    throw new Error(`Failed to spawn ${shell} — no PID`);
-  }
-
-  log.info(`[PTY] MAS piped shell fallback spawned: pid=${child.pid}, shell=${shell}`);
-
-  const dataListeners: Array<(data: string) => void> = [];
-
-  const ptyObj: IPty = {
-    pid: child.pid,
-    cols: request.cols,
-    rows: request.rows,
-    process: shell,
-    handleFlowControl: false,
-
-    onData: (listener: (data: string) => void) => {
-      dataListeners.push(listener);
-      child.stdout?.on("data", (chunk: Buffer) => { listener(chunk.toString("utf-8")); });
-      child.stderr?.on("data", (chunk: Buffer) => { listener(chunk.toString("utf-8")); });
-      return { dispose: () => {
-        const idx = dataListeners.indexOf(listener);
-        if (idx >= 0) dataListeners.splice(idx, 1);
-        child.stdout?.removeAllListeners("data");
-        child.stderr?.removeAllListeners("data");
-      } };
-    },
-
-    onExit: (listener: (e: { exitCode: number; signal?: number }) => void) => {
-      child.on("exit", (code: number | null, signal: string | null) => {
-        listener({ exitCode: code ?? 0, signal: signal ? parseInt(signal, 10) || undefined : undefined });
-      });
-      return { dispose: () => { child.removeAllListeners("exit"); } };
-    },
-
-    write: (data: string) => {
-      // Pipe doesn't have terminal ICRNL translation. Translate \r → \n
-      // so the shell receives proper line terminators for command execution.
-      child.stdin?.write(data.replace(/\r/g, "\n"));
-      // Local echo for piped stdio
-      for (const listener of dataListeners) {
-        for (const ch of data) {
-          if (ch === "\r") listener("\r\n");
-          else if (ch === "\x7f" || ch === "\b") listener("\b \b");
-          else if (ch === "\x03") listener("^C\r\n");
-          else if (ch.charCodeAt(0) >= 32) listener(ch);
-        }
-      }
-    },
-
-    resize: (_cols: number, _rows: number) => {
-      (ptyObj as any).cols = _cols;
-      (ptyObj as any).rows = _rows;
-    },
-
-    kill: (signal?: string) => {
-      child.kill((signal ?? "SIGTERM") as NodeJS.Signals);
-    },
-
-    clear: () => { /* no-op */ },
-    pause: () => { child.stdout?.pause(); },
-    resume: () => { child.stdout?.resume(); },
-  } as IPty;
-
-  return ptyObj;
-}
