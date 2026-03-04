@@ -3,7 +3,7 @@ import type { CrewConfig } from "@/common/types/project";
 import { DEFAULT_CREW_COLOR, DEFAULT_PIPELINE_CREWS } from "@/common/constants/ui";
 import { sortCrewsByLinkedList } from "@/common/utils/crews";
 import { formatSshEndpoint } from "@/common/utils/ssh/formatSshEndpoint";
-import { spawn } from "child_process";
+import { masSpawn } from "@/node/native/masSpawn";
 import { randomBytes } from "crypto";
 import { validateProjectPath, isGitRepository } from "@/node/utils/pathUtils";
 import { listLocalBranches, detectDefaultTrunkBranch } from "@/node/git";
@@ -510,12 +510,14 @@ export class ProjectService {
             })
           : undefined;
 
-      const child = spawn("git", ["clone", "--progress", "--", cloneUrl, cloneWorkPath], {
+      const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+      const child = masSpawn("git", ["clone", "--progress", "--", cloneUrl, cloneWorkPath], {
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env, GIT_TERMINAL_PROMPT: "0", ...(askpass?.env ?? {}) },
         // Detached children become process-group leaders on Unix so we can
         // reliably terminate clone helpers (ssh, shells) as a full tree.
-        detached: process.platform !== "win32",
+        // EXCEPTION: MAS uses NSTask which doesn't support detached/process groups.
+        detached: !isMAS && process.platform !== "win32",
       });
 
       const stderrChunks: string[] = [];

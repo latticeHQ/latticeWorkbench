@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { masSpawn } from "@/node/native/masSpawn";
 import * as fs from "fs";
 import * as fsPromises from "fs/promises";
 import * as path from "path";
@@ -124,11 +124,12 @@ export abstract class LocalBaseRuntime implements Runtime {
       }
     }
 
-    // In MAS sandbox, detached:true calls setsid() which can be blocked (EPERM).
-    // Disable detached mode for MAS — minor tradeoff: background child cleanup is less reliable.
+    // In MAS sandbox, child_process.spawn() can fail with EPERM because libuv's
+    // posix_spawn doesn't propagate sandbox inheritance attributes. Use masSpawn()
+    // which delegates to NSTask on MAS builds.
     const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
 
-    const childProcess = spawn(spawnCommand, spawnArgs, {
+    const childProcess = masSpawn(spawnCommand, spawnArgs, {
       cwd,
       env: {
         ...process.env,
@@ -142,7 +143,7 @@ export abstract class LocalBaseRuntime implements Runtime {
       // the entire process group (including all backgrounded children) via process.kill(-pid).
       // NOTE: detached:true does NOT cause bash to wait for background jobs when using 'exit' event
       // instead of 'close' event. The 'exit' event fires when bash exits, ignoring background children.
-      // EXCEPTION: MAS sandbox may block setsid() — disable detached to avoid EPERM.
+      // EXCEPTION: MAS uses NSTask which doesn't support detached/process groups.
       detached: !isMAS,
       // Prevent console window from appearing on Windows (WSL bash spawns steal focus otherwise)
       windowsHide: true,
@@ -152,9 +153,9 @@ export abstract class LocalBaseRuntime implements Runtime {
     const disposable = new DisposableProcess(childProcess);
 
     // Convert Node.js streams to Web Streams
-    const stdout = Readable.toWeb(childProcess.stdout) as unknown as ReadableStream<Uint8Array>;
-    const stderr = Readable.toWeb(childProcess.stderr) as unknown as ReadableStream<Uint8Array>;
-    const stdin = Writable.toWeb(childProcess.stdin) as unknown as WritableStream<Uint8Array>;
+    const stdout = Readable.toWeb(childProcess.stdout!) as unknown as ReadableStream<Uint8Array>;
+    const stderr = Readable.toWeb(childProcess.stderr!) as unknown as ReadableStream<Uint8Array>;
+    const stdin = Writable.toWeb(childProcess.stdin!) as unknown as WritableStream<Uint8Array>;
 
     // No stream cleanup in DisposableProcess - streams close naturally when process exits
     // bash.ts handles cleanup after waiting for exitCode
@@ -477,7 +478,7 @@ export abstract class LocalBaseRuntime implements Runtime {
     return new Promise<void>((resolve) => {
       const bashPath = process.platform === "darwin" ? "/bin/bash" : getBashPath();
       const isMASHook = !!(process as NodeJS.Process & { mas?: boolean }).mas;
-      const proc = spawn(bashPath, ["-c", `"${hookPath}"`], {
+      const proc = masSpawn(bashPath, ["-c", `"${hookPath}"`], {
         cwd: minionPath,
         stdio: ["ignore", "pipe", "pipe"],
         env: {
@@ -487,7 +488,7 @@ export abstract class LocalBaseRuntime implements Runtime {
         // Prevent console window from appearing on Windows
         windowsHide: true,
         // Spawn as a detached process group leader so we can reliably cancel the hook.
-        // EXCEPTION: MAS sandbox may block setsid() — disable detached to avoid EPERM.
+        // EXCEPTION: MAS uses NSTask which doesn't support detached/process groups.
         detached: !isMASHook,
       });
 
@@ -513,11 +514,11 @@ export abstract class LocalBaseRuntime implements Runtime {
         onAbort();
       }
 
-      proc.stdout.on("data", (data: Buffer) => {
+      proc.stdout?.on("data", (data: Buffer) => {
         loggers.stdout.append(data.toString());
       });
 
-      proc.stderr.on("data", (data: Buffer) => {
+      proc.stderr?.on("data", (data: Buffer) => {
         loggers.stderr.append(data.toString());
       });
 

@@ -1,7 +1,7 @@
-import { spawn } from "child_process";
 import type { ChildProcess } from "child_process";
 import { log } from "./log";
 import { getBashPath } from "@/node/utils/main/bashPath";
+import { masSpawn } from "@/node/native/masSpawn";
 
 /**
  * Configuration for bash execution
@@ -124,18 +124,19 @@ export class BashExecutionService {
     const spawnCommand = bashPath;
     const spawnArgs = ["-c", script];
 
-    // In MAS sandbox, detached:true calls setsid() which may be blocked (EPERM).
+    // In MAS sandbox, child_process.spawn() can fail with EPERM. masSpawn()
+    // uses NSTask on MAS builds which properly propagates sandbox attributes.
     const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
     const detached = isMAS ? false : (config.detached ?? true);
 
-    const child = spawn(spawnCommand, spawnArgs, {
+    const child = masSpawn(spawnCommand, spawnArgs, {
       cwd: config.cwd,
       env: this.createBashEnvironment(config.secrets),
       stdio: ["ignore", "pipe", "pipe"],
       // Spawn as detached process group leader to prevent zombie processes
       // When bash spawns background processes, detached:true allows killing
       // the entire group via process.kill(-pid)
-      // EXCEPTION: MAS sandbox may block setsid() — disable detached to avoid EPERM.
+      // EXCEPTION: MAS uses NSTask which doesn't support detached/process groups.
       detached,
       // Prevent console window from appearing on Windows (WSL bash spawns steal focus otherwise)
       windowsHide: true,

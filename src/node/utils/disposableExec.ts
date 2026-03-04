@@ -1,5 +1,6 @@
-import { exec, execFileSync, spawn } from "child_process";
+import { exec, execFileSync } from "child_process";
 import type { ChildProcess } from "child_process";
+import { masSpawn } from "@/node/native/masSpawn";
 
 export function killProcessTree(pid: number): void {
   if (!Number.isFinite(pid) || pid <= 0) {
@@ -172,9 +173,12 @@ export interface ExecAsyncOptions {
  * using proc = execAsync("nohup bash -c ...", { shell: getBashPath() });
  */
 export function execAsync(command: string, options?: ExecAsyncOptions): DisposableExec {
-  // Child processes inherit process.env automatically, which includes
-  // the enriched PATH set by initShellEnv() at startup
-  const child = exec(command, { shell: options?.shell });
+  // In MAS sandbox, use masSpawn to go through NSTask for sandbox attribute propagation.
+  const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+  const shell = options?.shell ?? (process.platform === "darwin" ? "/bin/bash" : undefined);
+  const child = isMAS
+    ? masSpawn(shell ?? "/bin/bash", ["-c", command], { stdio: ["pipe", "pipe", "pipe"] })
+    : exec(command, { shell: options?.shell });
   const promise = new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
     let stdout = "";
     let stderr = "";
@@ -252,7 +256,7 @@ export function execFileAsync(
   args: string[],
   options?: ExecFileAsyncOptions
 ): DisposableExec {
-  const child = spawn(file, args, {
+  const child = masSpawn(file, args, {
     stdio: ["ignore", "pipe", "pipe"],
     env: options?.env ? { ...process.env, ...options.env } : undefined,
   });

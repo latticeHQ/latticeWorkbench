@@ -273,6 +273,7 @@
     },
     "files": [
       "dist/**/*",
+      "src/node/native/lattice-spawn/build/**/*.node",
       "!**/node_modules/electron/**",
       "!**/node_modules/@electron/**"
     ],
@@ -284,7 +285,8 @@
       "**/node_modules/node-pty/**/*.node",
       "**/node_modules/@lydell/node-pty*/**/*.node",
       "**/node_modules/@duckdb/**/*.node",
-      "**/node_modules/ssh2/**/*.node"
+      "**/node_modules/ssh2/**/*.node",
+      "**/src/node/native/lattice-spawn/build/**/*.node"
     ],
     "mac": {
       "category": "public.app-category.developer-tools",

@@ -15,6 +15,7 @@ ELECTRON_PATH="$PROJECT_ROOT/node_modules/electron"
 NODE_PTY_PATH="$PROJECT_ROOT/node_modules/node-pty"
 DUCKDB_NODE_API_PATH="$PROJECT_ROOT/node_modules/@duckdb/node-api"
 DUCKDB_NODE_BINDINGS_PATH="$PROJECT_ROOT/node_modules/@duckdb/node-bindings"
+LATTICE_SPAWN_PATH="$PROJECT_ROOT/src/node/native/lattice-spawn"
 
 # 1) Skip in headless/benchmark mode (no Electron UI needed)
 if [ "${LATTICE_HEADLESS:-}" = "1" ]; then
@@ -117,4 +118,24 @@ if [ "$HAS_DUCKDB" = "1" ]; then
   fi
 else
   echo "ℹ️  DuckDB packages missing – skipping DuckDB rebuild"
+fi
+
+# 8) Build lattice-spawn NSTask addon (macOS only, once per version/platform)
+if [ "$PLATFORM" = "Darwin" ] && [ -d "$LATTICE_SPAWN_PATH" ]; then
+  LATTICE_SPAWN_STAMP_FILE="$STAMP_DIR/lattice-spawn-${ELECTRON_VERSION}-${PLATFORM}-${ARCH}.stamp"
+  if [ -f "$LATTICE_SPAWN_STAMP_FILE" ]; then
+    echo "✅ lattice-spawn already built on ${PLATFORM}/${ARCH} – skipping"
+  else
+    echo "🔧 Building lattice-spawn NSTask addon on ${PLATFORM}/${ARCH}..."
+    (cd "$LATTICE_SPAWN_PATH" && $REBUILD_CMD node-gyp rebuild) || {
+      echo "⚠️  Failed to build lattice-spawn"
+      echo "   MAS sandbox process spawning may not work."
+      echo "   Run 'make rebuild-lattice-spawn' manually to fix."
+      exit 0
+    }
+    touch "$LATTICE_SPAWN_STAMP_FILE"
+    echo "✅ lattice-spawn built successfully (cached at $LATTICE_SPAWN_STAMP_FILE)"
+  fi
+else
+  echo "ℹ️  Skipping lattice-spawn (macOS only)"
 fi

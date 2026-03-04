@@ -112,11 +112,21 @@ mobile/node_modules/.installed: mobile/package.json mobile/bun.lock
 ensure-deps: node_modules/.installed
 
 # Rebuild native modules for Electron
-rebuild-native: node_modules/.installed ## Rebuild native modules (node-pty, DuckDB) for Electron
+rebuild-native: node_modules/.installed rebuild-lattice-spawn ## Rebuild native modules (node-pty, DuckDB, lattice-spawn) for Electron
 	@echo "Rebuilding native modules for Electron..."
 	@npx @electron/rebuild -f -m node_modules/node-pty
 	@npx @electron/rebuild -f -m node_modules/@duckdb/node-bindings
 	@echo "Native modules rebuilt successfully"
+
+# Build lattice-spawn NSTask addon (macOS only)
+rebuild-lattice-spawn: node_modules/.installed ## Build lattice-spawn native addon for NSTask process spawning
+ifeq ($(shell uname -s),Darwin)
+	@echo "Building lattice-spawn native addon..."
+	@cd src/node/native/lattice-spawn && npx node-gyp rebuild
+	@echo "lattice-spawn built successfully"
+else
+	@echo "Skipping lattice-spawn (macOS only)"
+endif
 
 # Run compiled CLI with trailing arguments (builds only if missing)
 lattice: ## Run the compiled lattice CLI (e.g., make lattice server --port 3000)
