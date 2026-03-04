@@ -3,6 +3,8 @@ import "source-map-support/register";
 
 // Fix PATH on macOS when launched from Finder (not terminal).
 // GUI apps inherit minimal PATH from launchd, missing Homebrew tools like git-lfs.
+// MAS sandbox further restricts PATH since $HOME is redirected to the container,
+// causing shell-env to fail (can't find .zshrc/.bashrc).
 // Must run before any child process spawns. Failures are silently ignored.
 if (process.platform === "darwin") {
   try {
@@ -11,6 +13,42 @@ if (process.platform === "darwin") {
   } catch (e) {
     // App works with existing PATH; debug log for troubleshooting
     console.debug("[fix-path] Failed to enrich PATH:", e);
+  }
+
+  // Ensure common macOS binary directories are always in PATH.
+  // In MAS sandbox, fix-path often fails because $HOME points to the container
+  // and shell rc files aren't found. This guarantees CLI tools (claude, git,
+  // brew, bun, cargo, etc.) are discoverable regardless.
+  const currentPath = process.env.PATH ?? "";
+  const realHome = (() => {
+    // In MAS sandbox, $HOME is ~/Library/Containers/<bundleId>/Data/
+    // Extract the real home from that path
+    const home = require("os").homedir() as string;
+    const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
+    return containerMatch ? containerMatch[1] : home;
+  })();
+
+  const essentialPaths = [
+    "/opt/homebrew/bin",        // Apple Silicon Homebrew
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",           // Intel Homebrew / common tools
+    "/usr/local/sbin",
+    `${realHome}/.bun/bin`,     // Bun
+    `${realHome}/.cargo/bin`,   // Rust/Cargo
+    `${realHome}/.local/bin`,   // pipx, user-local bins
+    `${realHome}/.npm-global/bin`, // npm global
+    `${realHome}/.nvm/current/bin`, // NVM current
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+  ];
+
+  const pathSet = new Set(currentPath.split(":"));
+  const missing = essentialPaths.filter((p) => !pathSet.has(p));
+  if (missing.length > 0) {
+    process.env.PATH = `${currentPath}:${missing.join(":")}`;
+    console.debug(`[fix-path] Appended ${missing.length} essential paths to PATH`);
   }
 }
 
