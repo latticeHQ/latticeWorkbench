@@ -7,6 +7,16 @@ import * as fs from "fs/promises";
 import { spawnSync } from "child_process";
 import { homedir } from "os";
 
+/**
+ * Get the real user home directory, bypassing MAS sandbox container redirect.
+ * In MAS sandbox, os.homedir() returns ~/Library/Containers/<bundleId>/Data/
+ */
+function getRealHome(): string {
+  const home = homedir();
+  const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
+  return containerMatch ? containerMatch[1] : home;
+}
+
 /** Known installation paths for GUI editors on macOS */
 const MACOS_APP_PATHS: Record<string, string[]> = {
   cursor: ["/Applications/Cursor.app/Contents/Resources/app/bin/cursor", "/usr/local/bin/cursor"],
@@ -80,7 +90,7 @@ export async function findCommandWithAliases(
   if (knownPaths && process.platform === "darwin") {
     for (const rawPath of knownPaths) {
       // Expand ~ to home directory (Node fs doesn't expand tilde)
-      const knownPath = rawPath.startsWith("~") ? rawPath.replace("~", homedir()) : rawPath;
+      const knownPath = rawPath.startsWith("~") ? rawPath.replace("~", getRealHome()) : rawPath;
       try {
         const stats = await fs.stat(knownPath);
         if (stats.isFile() && (stats.mode & 0o111) !== 0) {
