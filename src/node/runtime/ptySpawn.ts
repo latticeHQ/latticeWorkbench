@@ -81,7 +81,6 @@ function resolvePathEnv(env: NodeJS.ProcessEnv, pathEnvOverride?: string): strin
 }
 
 export function spawnPtyProcess(request: PtySpawnRequest): IPty {
-  const pty = loadNodePty(request.runtimeLabel, request.preferElectronBuild);
   const mergedEnv: NodeJS.ProcessEnv = { ...process.env, ...request.env };
   const pathEnv = resolvePathEnv(mergedEnv, request.pathEnv);
 
@@ -100,28 +99,51 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
     ...(pathEnv ? { PATH: pathEnv } : {}),
   };
 
+  const spawnOpts = {
+    name: "xterm-256color",
+    cols: request.cols,
+    rows: request.rows,
+    cwd: request.cwd,
+    env,
+  };
+
+  // Try the preferred node-pty variant first.
+  const pty = loadNodePty(request.runtimeLabel, request.preferElectronBuild);
   try {
-    return pty.spawn(request.command, request.args, {
-      name: "xterm-256color",
-      cols: request.cols,
-      rows: request.rows,
-      cwd: request.cwd,
-      env,
-    });
-  } catch (err) {
-    log.error(`[PTY] Failed to spawn ${request.runtimeLabel} terminal:`, err);
+    return pty.spawn(request.command, request.args, spawnOpts);
+  } catch (primaryErr) {
+    const primaryErrMsg = getErrorMessage(primaryErr);
+    log.error(`[PTY] Primary node-pty spawn failed for ${request.runtimeLabel}:`, primaryErr);
+
+    // If EPERM, the native module's forkpty() may be blocked in this context
+    // (e.g. Electron-rebuilt module in MAS sandbox, or codesigning mismatch).
+    // Try the alternate node-pty variant before giving up — the NAPI-based
+    // @lydell/node-pty may succeed where the Electron build fails, or vice versa.
+    if (primaryErrMsg.includes("EPERM")) {
+      try {
+        const altPty = loadNodePty(request.runtimeLabel, !request.preferElectronBuild);
+        if (altPty !== pty) {
+          log.info(`[PTY] Retrying with alternate node-pty variant...`);
+          return altPty.spawn(request.command, request.args, spawnOpts);
+        }
+      } catch (altErr) {
+        log.error(`[PTY] Alternate node-pty variant also failed:`, altErr);
+        // Fall through to original error reporting
+      }
+    }
 
     const printableArgs = request.args.length > 0 ? ` ${request.args.join(" ")}` : "";
     const cmd = `${request.command}${printableArgs}`;
-    const details = `cmd="${cmd}", cwd="${request.cwd}", platform="${process.platform}"`;
-    const errMessage = getErrorMessage(err);
+    const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+    const details = `cmd="${cmd}", cwd="${request.cwd}", platform="${process.platform}", mas=${isMAS}`;
 
     if (request.logLocalEnv) {
       log.error(`Local PTY spawn config: ${cmd} (cwd: ${request.cwd})`);
+      log.error(`process.env.HOME: ${process.env.HOME ?? "undefined"}`);
       log.error(`process.env.SHELL: ${process.env.SHELL ?? "undefined"}`);
       log.error(`process.env.PATH: ${process.env.PATH ?? process.env.Path ?? "undefined"}`);
     }
 
-    throw new Error(`Failed to spawn ${request.runtimeLabel} terminal (${details}): ${errMessage}`);
+    throw new Error(`Failed to spawn ${request.runtimeLabel} terminal (${details}): ${primaryErrMsg}`);
   }
 }

@@ -21,6 +21,7 @@ import type {
 import { RuntimeError as RuntimeErrorClass } from "./Runtime";
 import { NON_INTERACTIVE_ENV_VARS } from "@/common/constants/env";
 import { getBashPath } from "@/node/utils/main/bashPath";
+import { getRealHome } from "@/common/utils/masHome";
 import { shellQuote } from "@/common/utils/shell";
 import { EXIT_CODE_ABORTED, EXIT_CODE_TIMEOUT } from "@/common/constants/exitCodes";
 import { DisposableProcess, killProcessTree } from "@/node/utils/disposableExec";
@@ -95,9 +96,32 @@ export abstract class LocalBaseRuntime implements Runtime {
     const spawnArgs = ["-c", `${nonInteractivePrelude}\n${command}`];
 
     const defaultPath = "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
-    const effectivePath =
+    let effectivePath =
       (options.env?.PATH && options.env.PATH.length > 0 ? options.env.PATH : process.env.PATH) ??
       defaultPath;
+
+    // On macOS, enrich PATH with common binary directories.
+    // GUI apps launched from Dock/Launchpad inherit a minimal PATH from launchd.
+    // In MAS sandbox, PATH may be missing Homebrew, Bun, Cargo, etc.
+    // MCP servers and bash commands need these to find git, bun, and other tools.
+    if (process.platform === "darwin") {
+      const realHome = getRealHome();
+      const essential = [
+        "/opt/homebrew/bin",
+        "/opt/homebrew/sbin",
+        "/usr/local/bin",
+        "/usr/local/sbin",
+        `${realHome}/.bun/bin`,
+        `${realHome}/.cargo/bin`,
+        `${realHome}/.local/bin`,
+        `${realHome}/.nvm/current/bin`,
+      ];
+      const pathSet = new Set(effectivePath.split(":"));
+      const missing = essential.filter((p) => !pathSet.has(p));
+      if (missing.length > 0) {
+        effectivePath = `${missing.join(":")}:${effectivePath}`;
+      }
+    }
 
     const childProcess = spawn(spawnCommand, spawnArgs, {
       cwd,

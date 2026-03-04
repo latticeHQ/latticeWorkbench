@@ -4,7 +4,9 @@
 
 import * as os from "os";
 import * as path from "path";
+import { existsSync } from "fs";
 import type { Config } from "@/node/config";
+import { getRealHome } from "@/common/utils/masHome";
 import { HistoryService } from "@/node/services/historyService";
 import { InitStateManager } from "@/node/services/initStateManager";
 import { ProviderService } from "@/node/services/providerService";
@@ -51,6 +53,56 @@ export interface CoreServices {
 }
 
 /**
+ * Find a JavaScript runtime (bun or node) accessible from the MAS sandbox.
+ *
+ * In the MAS sandbox, the only accessible paths are:
+ *   - The app's own container (~/.lattice/ inside ~/Library/Containers/...)
+ *   - Security-scoped bookmarked paths (typically the user's home directory)
+ *   - System paths (/usr/bin, /bin, etc.)
+ *
+ * bun/node installed under ~ are accessible after the home directory bookmark is granted.
+ * System-wide installations (/opt/homebrew, /usr/local) may also be accessible.
+ */
+function findMasJsRuntime(): { command: string; isBun: boolean } | null {
+  const realHome = getRealHome();
+
+  // Prefer bun — recommended for Lattice, typically installed under home directory.
+  const bunPath = path.join(realHome, ".bun", "bin", "bun");
+  if (existsSync(bunPath)) {
+    return { command: bunPath, isBun: true };
+  }
+
+  // Try node from home-directory-based version managers (accessible via bookmark).
+  const homeNodePaths = [
+    path.join(realHome, ".volta", "bin", "node"),
+    path.join(realHome, ".nvm", "current", "bin", "node"),
+    path.join(realHome, ".local", "bin", "node"),
+    path.join(realHome, ".nodenv", "shims", "node"),
+  ];
+  for (const nodePath of homeNodePaths) {
+    if (existsSync(nodePath)) {
+      return { command: nodePath, isBun: false };
+    }
+  }
+
+  // Try system-wide installations — may not be accessible in sandbox without
+  // additional bookmarks, but worth checking (stat will return false if blocked).
+  const systemPaths = [
+    "/opt/homebrew/bin/bun",
+    "/opt/homebrew/bin/node",
+    "/usr/local/bin/bun",
+    "/usr/local/bin/node",
+  ];
+  for (const p of systemPaths) {
+    if (existsSync(p)) {
+      return { command: p, isBun: p.endsWith("/bun") };
+    }
+  }
+
+  return null;
+}
+
+/**
  * Built-in MCP servers that ship with Lattice.
  *
  * These are always available in every minion — they cannot be disabled
@@ -92,16 +144,30 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
   }
 
   // Choose the JS runtime for MCP servers:
-  //   - MAS sandbox: bun/node at ~/.bun/bin or /opt/homebrew/bin are outside the
-  //     sandbox container and trigger EPERM. Use Electron's own Node.js via
-  //     ELECTRON_RUN_AS_NODE=1 — the app binary is always accessible in the sandbox.
+  //   - MAS sandbox: CANNOT re-execute the Electron binary (ELECTRON_RUN_AS_NODE=1).
+  //     The signed binary has entitlements (JIT, unsigned memory, library validation,
+  //     DYLD, bookmarks) beyond the two allowed for sandbox child processes
+  //     (app-sandbox + inherit). macOS aborts such children → EPERM.
+  //     Instead, use bun/node from the user's system, accessible via security-scoped
+  //     bookmarks after the home directory grant.
   //   - Non-MAS packaged: prefer bun (faster startup), fall back to node.
   //   - Dev mode: use bun (handles .ts natively).
   let runPrefix: string;
   if (isPackaged && process.mas) {
-    // process.execPath = /Applications/Lattice.app/Contents/MacOS/Lattice
-    // With ELECTRON_RUN_AS_NODE=1, it behaves as a standard Node.js runtime.
-    runPrefix = `ELECTRON_RUN_AS_NODE=1 ${JSON.stringify(process.execPath)}`;
+    const masRuntime = findMasJsRuntime();
+    if (masRuntime) {
+      runPrefix = masRuntime.isBun
+        ? `${JSON.stringify(masRuntime.command)} run`
+        : JSON.stringify(masRuntime.command);
+    } else {
+      // No bun/node found. Log warning — MCP servers will fail to start.
+      console.warn(
+        "[MAS] No bun or node found in accessible paths. MCP servers will not work. " +
+          "Install bun: curl -fsSL https://bun.sh/install | bash"
+      );
+      // Use a placeholder that will produce a clear error when exec'd.
+      runPrefix = "echo 'Error: No JavaScript runtime (bun/node) found for MCP servers.' && exit 1 #";
+    }
   } else {
     runPrefix = "bun run";
   }
