@@ -145,6 +145,15 @@ export class ServiceContainer {
   private readonly ptyService: PTYService;
   public readonly idleCompactionService: IdleCompactionService;
 
+  /** Sandbox bookmark callbacks — set from desktop/main.ts for MAS builds */
+  private sandboxBookmarkCallbacks?: {
+    isSandboxed: () => boolean;
+    hasHomeAccess: () => boolean;
+    getEntries: () => ReadonlyArray<{ path: string; isHome: boolean; createdAt: string }>;
+    requestHomeAccess: () => Promise<string | null>;
+    requestDirectoryAccess: () => Promise<string | null>;
+  };
+
   constructor(config: Config) {
     this.config = config;
 
@@ -647,6 +656,14 @@ export class ServiceContainer {
 
   setTerminalWindowManager(manager: TerminalWindowManager): void {
     this.terminalService.setTerminalWindowManager(manager);
+  }
+
+  setSandboxBookmarkCallbacks(callbacks: NonNullable<typeof this.sandboxBookmarkCallbacks>): void {
+    this.sandboxBookmarkCallbacks = callbacks;
+  }
+
+  getSandboxBookmarkCallbacks() {
+    return this.sandboxBookmarkCallbacks;
   }
 
   /**

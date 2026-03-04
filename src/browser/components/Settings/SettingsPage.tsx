@@ -11,6 +11,7 @@ import {
   Keyboard,
   Layout,
   Container,
+  FolderOpen,
   BrainCircuit,
   Shield,
   ShieldCheck,
@@ -47,6 +48,7 @@ import { InboxesSettingsSection } from "./sections/InboxesSettingsSection";
 import { ArchivedSection } from "./sections/ArchivedSection";
 import { LatticeInferenceSection } from "./sections/LatticeInferenceSection";
 import { AnalyticsSection } from "./sections/AnalyticsSection";
+import { FilesystemAccessSection } from "./sections/FilesystemAccessSection";
 import type { SettingsSection } from "./types";
 
 const BASE_SECTIONS: SettingsSection[] = [
@@ -109,6 +111,12 @@ const BASE_SECTIONS: SettingsSection[] = [
     label: "Runtimes",
     icon: <Container className="h-4 w-4" />,
     component: RuntimesSection,
+  },
+  {
+    id: "filesystem-access",
+    label: "Filesystem Access",
+    icon: <FolderOpen className="h-4 w-4" />,
+    component: FilesystemAccessSection,
   },
   {
     id: "lattice",

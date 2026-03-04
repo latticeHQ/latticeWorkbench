@@ -1,6 +1,7 @@
 import type { IPty } from "node-pty";
 import { log } from "@/node/services/log";
 import { getErrorMessage } from "@/common/utils/errors";
+import { getRealHome } from "@/common/utils/masHome";
 
 interface PtySpawnRequest {
   runtimeLabel: string;
@@ -79,26 +80,13 @@ function resolvePathEnv(env: NodeJS.ProcessEnv, pathEnvOverride?: string): strin
   return basePath;
 }
 
-/**
- * Get the real user home directory, bypassing MAS sandbox container redirect.
- * In MAS sandbox, $HOME is ~/Library/Containers/<bundleId>/Data/
- */
-function getRealHome(): string {
-  const home = require("os").homedir() as string;
-  const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
-  return containerMatch ? containerMatch[1] : home;
-}
-
 export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   const pty = loadNodePty(request.runtimeLabel, request.preferElectronBuild);
   const mergedEnv: NodeJS.ProcessEnv = { ...process.env, ...request.env };
   const pathEnv = resolvePathEnv(mergedEnv, request.pathEnv);
 
-  // NOTE: Do NOT override HOME to the real user home in MAS sandbox.
-  // Apple's App Sandbox requires all file I/O to stay inside the container
-  // (~/Library/Containers/<bundleId>/Data/). Overriding HOME would require
-  // the rejected temporary-exception entitlement. Spawned shells won't find
-  // ~/.zshrc but will start with defaults; tools are discoverable via PATH.
+  // HOME for MAS sandbox is set in main.ts loadServices() after security-scoped
+  // bookmarks restore access. PTY spawn inherits the corrected process.env.HOME.
 
   // Ensure SHELL is set — MAS sandbox may not inherit it from launchd.
   // node-pty and spawned processes rely on SHELL for subshell invocations.

@@ -37,5 +37,9 @@
     <!-- DYLD env vars (fix-path, native module resolution) -->
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
+
+    <!-- Security-scoped bookmarks: persist user-granted filesystem access across launches -->
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
 </dict>
 </plist>

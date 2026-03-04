@@ -4830,7 +4830,57 @@ export const router = (authToken?: string) => {
           }),
       },
     },
+
+    sandbox: {
+      getInfo: t
+        .input(schemas.sandbox.getInfo.input)
+        .output(schemas.sandbox.getInfo.output)
+        .handler(() => {
+          const callbacks = getSandboxCallbacks();
+          if (!callbacks) {
+            return { isSandboxed: false, hasHomeAccess: true, entries: [] };
+          }
+          return {
+            isSandboxed: callbacks.isSandboxed(),
+            hasHomeAccess: callbacks.hasHomeAccess(),
+            entries: [...callbacks.getEntries()],
+          };
+        }),
+      requestHomeAccess: t
+        .input(schemas.sandbox.requestHomeAccess.input)
+        .output(schemas.sandbox.requestHomeAccess.output)
+        .handler(async () => {
+          const callbacks = getSandboxCallbacks();
+          if (!callbacks) return null;
+          return callbacks.requestHomeAccess();
+        }),
+      requestDirectoryAccess: t
+        .input(schemas.sandbox.requestDirectoryAccess.input)
+        .output(schemas.sandbox.requestDirectoryAccess.output)
+        .handler(async () => {
+          const callbacks = getSandboxCallbacks();
+          if (!callbacks) return null;
+          return callbacks.requestDirectoryAccess();
+        }),
+    },
   });
 };
+
+// Global sandbox bookmark callbacks — set from ServiceContainer
+let _sandboxCallbacks: {
+  isSandboxed: () => boolean;
+  hasHomeAccess: () => boolean;
+  getEntries: () => ReadonlyArray<{ path: string; isHome: boolean; createdAt: string }>;
+  requestHomeAccess: () => Promise<string | null>;
+  requestDirectoryAccess: () => Promise<string | null>;
+} | null = null;
+
+export function setSandboxCallbacks(callbacks: NonNullable<typeof _sandboxCallbacks>): void {
+  _sandboxCallbacks = callbacks;
+}
+
+function getSandboxCallbacks() {
+  return _sandboxCallbacks;
+}
 
 export type AppRouter = ReturnType<typeof router>;

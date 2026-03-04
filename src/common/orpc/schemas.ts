@@ -303,5 +303,6 @@ export {
   voice,
   window,
   minion,
+  sandbox,
 } from "./schemas/api";
 export type { MinionSendMessageOutput } from "./schemas/api";

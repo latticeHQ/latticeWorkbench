@@ -2262,3 +2262,28 @@ export const ssh = {
     },
   },
 };
+
+const SandboxBookmarkEntrySchema = z.object({
+  path: z.string(),
+  isHome: z.boolean(),
+  createdAt: z.string(),
+});
+
+export const sandbox = {
+  getInfo: {
+    input: z.void(),
+    output: z.object({
+      isSandboxed: z.boolean(),
+      hasHomeAccess: z.boolean(),
+      entries: z.array(SandboxBookmarkEntrySchema),
+    }),
+  },
+  requestHomeAccess: {
+    input: z.void(),
+    output: z.string().nullable(),
+  },
+  requestDirectoryAccess: {
+    input: z.void(),
+    output: z.string().nullable(),
+  },
+};

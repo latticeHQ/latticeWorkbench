@@ -276,11 +276,19 @@ type RuntimeAvailabilityMap = Record<RuntimeMode, RuntimeAvailabilityStatus>;
 export async function checkRuntimeAvailability(
   projectPath: string
 ): Promise<RuntimeAvailabilityMap> {
+  // MAS sandbox: Docker socket (/var/run/docker.sock) and CLI (/usr/local/bin/docker)
+  // are system paths outside the home directory. Security-scoped bookmarks can't cover
+  // them, so Docker and Devcontainer runtimes are unavailable in App Store builds.
+  // GitHub/Homebrew builds are unaffected — Docker works fully.
+  const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+  const masDockerReason =
+    "Docker is not available in Mac App Store builds. Use SSH runtime for remote containers, or install Lattice via GitHub/Homebrew for full Docker support.";
+
   const [isGit, dockerAvailable, devcontainerCliInfo, devcontainerConfigs] = await Promise.all([
     isGitRepository(projectPath),
-    isDockerAvailable(),
-    checkDevcontainerCliVersion(),
-    scanDevcontainerConfigs(projectPath),
+    isMAS ? Promise.resolve(false) : isDockerAvailable(),
+    isMAS ? Promise.resolve(null) : checkDevcontainerCliVersion(),
+    isMAS ? Promise.resolve([]) : scanDevcontainerConfigs(projectPath),
   ]);
 
   const devcontainerConfigInfo = buildDevcontainerConfigInfo(devcontainerConfigs);
@@ -289,7 +297,9 @@ export async function checkRuntimeAvailability(
 
   // Determine devcontainer availability
   let devcontainerAvailability: RuntimeAvailabilityStatus;
-  if (!isGit) {
+  if (isMAS) {
+    devcontainerAvailability = { available: false, reason: masDockerReason };
+  } else if (!isGit) {
     devcontainerAvailability = { available: false, reason: gitRequiredReason };
   } else if (!devcontainerCliInfo) {
     devcontainerAvailability = {
@@ -312,11 +322,13 @@ export async function checkRuntimeAvailability(
     local: { available: true },
     worktree: isGit ? { available: true } : { available: false, reason: gitRequiredReason },
     ssh: isGit ? { available: true } : { available: false, reason: gitRequiredReason },
-    docker: !isGit
-      ? { available: false, reason: gitRequiredReason }
-      : !dockerAvailable
-        ? { available: false, reason: "Docker daemon not running" }
-        : { available: true },
+    docker: isMAS
+      ? { available: false, reason: masDockerReason }
+      : !isGit
+        ? { available: false, reason: gitRequiredReason }
+        : !dockerAvailable
+          ? { available: false, reason: "Docker daemon not running" }
+          : { available: true },
     devcontainer: devcontainerAvailability,
   };
 }

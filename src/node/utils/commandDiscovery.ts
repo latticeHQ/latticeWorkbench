@@ -5,17 +5,7 @@
 
 import * as fs from "fs/promises";
 import { spawnSync } from "child_process";
-import { homedir } from "os";
-
-/**
- * Get the real user home directory, bypassing MAS sandbox container redirect.
- * In MAS sandbox, os.homedir() returns ~/Library/Containers/<bundleId>/Data/
- */
-function getRealHome(): string {
-  const home = homedir();
-  const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
-  return containerMatch ? containerMatch[1] : home;
-}
+import { getRealHome } from "@/common/utils/masHome";
 
 /** Known installation paths for GUI editors on macOS */
 const MACOS_APP_PATHS: Record<string, string[]> = {

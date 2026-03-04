@@ -91,16 +91,29 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
       : path.resolve(__dirname, "../../notebooklm-mcp/index.ts");
   }
 
-  // In packaged mode, use "bun run" for the bundled .js file.
-  // In dev mode, use "bun run" for the .ts source (Bun handles TS natively).
+  // Choose the JS runtime for MCP servers:
+  //   - MAS sandbox: bun/node at ~/.bun/bin or /opt/homebrew/bin are outside the
+  //     sandbox container and trigger EPERM. Use Electron's own Node.js via
+  //     ELECTRON_RUN_AS_NODE=1 — the app binary is always accessible in the sandbox.
+  //   - Non-MAS packaged: prefer bun (faster startup), fall back to node.
+  //   - Dev mode: use bun (handles .ts natively).
+  let runPrefix: string;
+  if (isPackaged && process.mas) {
+    // process.execPath = /Applications/Lattice.app/Contents/MacOS/Lattice
+    // With ELECTRON_RUN_AS_NODE=1, it behaves as a standard Node.js runtime.
+    runPrefix = `ELECTRON_RUN_AS_NODE=1 ${JSON.stringify(process.execPath)}`;
+  } else {
+    runPrefix = "bun run";
+  }
+
   const servers: Record<string, string> = {
-    lattice: `bun run ${latticeMcpServerPath}`,
+    lattice: `${runPrefix} ${latticeMcpServerPath}`,
   };
 
   // NotebookLM: built-in but toggleable via config (default: enabled).
   const nlmEnabled = config?.loadConfigOrDefault().notebooklm?.enabled ?? true;
   if (nlmEnabled) {
-    servers.notebooklm = `bun run ${notebooklmMcpServerPath}`;
+    servers.notebooklm = `${runPrefix} ${notebooklmMcpServerPath}`;
   }
 
   return servers;

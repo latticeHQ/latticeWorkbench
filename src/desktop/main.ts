@@ -20,13 +20,9 @@ if (process.platform === "darwin") {
   // and shell rc files aren't found. This guarantees CLI tools (claude, git,
   // brew, bun, cargo, etc.) are discoverable regardless.
   const currentPath = process.env.PATH ?? "";
-  const realHome = (() => {
-    // In MAS sandbox, $HOME is ~/Library/Containers/<bundleId>/Data/
-    // Extract the real user home for PATH entries (tool binaries live there).
-    const home = require("os").homedir() as string;
-    const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
-    return containerMatch ? containerMatch[1] : home;
-  })();
+  // getRealHome() is imported at the top of the file.
+  // It extracts /Users/<username> from the MAS sandbox container path.
+  const realHome = getRealHome();
 
   const essentialPaths = [
     "/opt/homebrew/bin",        // Apple Silicon Homebrew
@@ -54,14 +50,9 @@ if (process.platform === "darwin") {
     console.debug(`[fix-path] Prepended ${missing.length} essential paths to PATH`);
   }
 
-  // NOTE: Do NOT override process.env.HOME in MAS sandbox.
-  // Apple requires MAS apps to operate within the App Sandbox container.
-  // $HOME = ~/Library/Containers/<bundleId>/Data/ is intentional — all app
-  // data (config, sessions, logs) lives inside the container via os.homedir().
-  // Overriding HOME to the real user home would require the rejected
-  // com.apple.security.temporary-exception.files.absolute-path.read-write
-  // entitlement. Subprocess tool binaries are still discoverable via PATH
-  // (essentialPaths above includes realHome-based paths for execution).
+  // HOME override for MAS sandbox is handled LATER in loadServices() after
+  // security-scoped bookmarks are restored. The bookmark grants access to the
+  // real home directory, allowing HOME to be set to /Users/<username>/.
 
   // Ensure SHELL is set — launchd/MAS may not provide it.
   if (!process.env.SHELL?.trim()) {
@@ -141,6 +132,12 @@ import windowStateKeeper from "electron-window-state";
 import { getTitleBarOptions } from "./titleBarOptions";
 import { isUpdateInstallInProgress } from "./updateInstallState";
 import { getErrorMessage } from "@/common/utils/errors";
+import { SandboxBookmarkService } from "./sandboxBookmarks";
+import { getRealHome } from "../common/utils/masHome";
+import { setSandboxCallbacks } from "../node/orpc/router";
+
+// Global sandbox bookmark service — initialized once, used across startup and pickers.
+const sandboxBookmarks = new SandboxBookmarkService();
 
 // React DevTools for development profiling
 // Using dynamic import() to avoid loading electron-devtools-installer at module init time
@@ -633,6 +630,17 @@ async function loadServices(): Promise<void> {
   /* eslint-enable no-restricted-syntax */
   config = new ConfigClass();
 
+  // MAS sandbox: restore security-scoped bookmarks BEFORE services initialize.
+  // This grants filesystem access to previously bookmarked directories (e.g. home).
+  const homeRestored = sandboxBookmarks.restoreAll();
+  if (homeRestored && sandboxBookmarks.isSandboxed) {
+    // Home directory bookmark was restored — set HOME to the real user home
+    // so all subprocess tool lookups, dotfile reads, and git operations work.
+    const realHome = getRealHome();
+    process.env.HOME = realHome;
+    console.log(`[sandbox-bookmarks] Set HOME to ${realHome} (bookmark restored)`);
+  }
+
   services = new ServiceContainerClass(config);
   // Desktop bootstrap owns interactive host-key trust policy
   setOpenSSHHostKeyPolicyMode("strict");
@@ -784,14 +792,51 @@ async function loadServices(): Promise<void> {
     }
   }
 
+  // Expose sandbox bookmark operations to Settings UI via oRPC
+  const bookmarkCallbacks = {
+    isSandboxed: () => sandboxBookmarks.isSandboxed,
+    hasHomeAccess: () => sandboxBookmarks.hasHomeAccess(),
+    getEntries: () =>
+      sandboxBookmarks.getEntries().map((e) => ({
+        path: e.path,
+        isHome: e.isHome,
+        createdAt: e.createdAt,
+      })),
+    requestHomeAccess: async () => {
+      const win = BrowserWindow.getFocusedWindow();
+      return sandboxBookmarks.requestBookmark(win, {
+        title: "Select Your Home Directory",
+        buttonLabel: "Grant Access",
+        defaultPath: getRealHome(),
+      });
+    },
+    requestDirectoryAccess: async () => {
+      const win = BrowserWindow.getFocusedWindow();
+      return sandboxBookmarks.requestBookmark(win, {
+        title: "Grant Directory Access",
+        buttonLabel: "Grant Access",
+      });
+    },
+  };
+  services.setSandboxBookmarkCallbacks(bookmarkCallbacks);
+  setSandboxCallbacks(bookmarkCallbacks);
+
   // Set TerminalWindowManager for desktop mode (pop-out terminal windows)
   const terminalWindowManager = new TerminalWindowManagerClass(config);
   services.setProjectDirectoryPicker(async () => {
     const win = BrowserWindow.getFocusedWindow();
     if (!win) return null;
 
+    // Use SandboxBookmarkService for MAS builds to persist directory access.
+    // For non-MAS builds, this falls through to a normal dialog.
+    if (sandboxBookmarks.isSandboxed) {
+      return sandboxBookmarks.requestBookmark(win, {
+        title: "Select Project Directory",
+        buttonLabel: "Select Project",
+      });
+    }
+
     const res = await dialog.showOpenDialog(win, {
-      // Hide hidden entries so the new-project picker stays focused on visible folders.
       properties: ["openDirectory", "createDirectory"],
       title: "Select Project Directory",
       buttonLabel: "Select Project",
@@ -811,6 +856,49 @@ async function loadServices(): Promise<void> {
 
   const loadTime = Date.now() - startTime;
   console.log(`[${timestamp()}] Services loaded in ${loadTime}ms`);
+}
+
+/**
+ * MAS first-run: Ask the user to grant access to their home directory.
+ * This is shown once on first launch. The bookmark persists across relaunches.
+ * User can skip — the app works with limited access (project-by-project grants).
+ */
+async function promptForHomeDirectoryAccess(): Promise<void> {
+  const realHome = getRealHome();
+
+  const { response } = await dialog.showMessageBox({
+    type: "info",
+    title: "Lattice needs access to your files",
+    message: "Grant access to your home directory?",
+    detail:
+      "Lattice needs access to your home directory to find projects, " +
+      "CLI tools (git, node, bun), and configuration files (.gitconfig, .ssh, etc.).\n\n" +
+      "You'll be asked to select your home folder in the next step. " +
+      "This is a one-time setup — access persists across app launches.\n\n" +
+      "You can skip this and grant access to individual project folders later.",
+    buttons: ["Grant Access", "Skip for Now"],
+    defaultId: 0,
+    cancelId: 1,
+  });
+
+  if (response !== 0) {
+    console.log("[sandbox-bookmarks] User skipped home directory grant");
+    return;
+  }
+
+  const selectedPath = await sandboxBookmarks.requestBookmark(null, {
+    title: "Select Your Home Directory",
+    buttonLabel: "Grant Access",
+    defaultPath: realHome,
+  });
+
+  if (selectedPath) {
+    // Update HOME now that we have access
+    process.env.HOME = getRealHome();
+    console.log(`[sandbox-bookmarks] Home directory granted: ${selectedPath}`);
+  } else {
+    console.log("[sandbox-bookmarks] User cancelled home directory picker");
+  }
 }
 
 function createWindow() {
@@ -1028,6 +1116,13 @@ if (gotTheLock) {
         await showSplashScreen(); // Wait for splash to actually load
       }
       await loadServices();
+
+      // MAS first-run: prompt for home directory access if not already bookmarked.
+      // One home directory bookmark unlocks projects, dotfiles, CLI tools, etc.
+      if (sandboxBookmarks.isSandboxed && !sandboxBookmarks.hasHomeAccess()) {
+        await promptForHomeDirectoryAccess();
+      }
+
       createWindow();
       createTray();
       // Note: splash closes in ready-to-show event handler
@@ -1099,6 +1194,7 @@ if (gotTheLock) {
 
   app.on("before-quit", () => {
     console.log(`[${timestamp()}] App before-quit - cleaning up...`);
+    sandboxBookmarks.stopAccessingAll();
     if (services) {
       void services.serverService.stopServer();
       void services.shutdown();

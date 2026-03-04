@@ -38,6 +38,7 @@ import { log } from "./log";
 import { ServerLockfile } from "./serverLockfile";
 import { getLatticeHome } from "@/common/constants/paths";
 import type { ClaudeCodeExecutionMode } from "@/common/types/claudeCodeMode";
+import { getRealHome } from "@/common/utils/masHome";
 
 // ────────────────────────────────────────────────────────────────────────────
 // Claude CLI stream-json event types
@@ -150,10 +151,7 @@ export async function findClaudeBinary(): Promise<string | null> {
 
   // ── Step 2: common installation paths ──
   // Covers: native installer, npm global, Volta, nvm, fnm, Homebrew, bun, pnpm, Scoop, winget.
-  // In MAS sandbox, os.homedir() returns the container path — use real home for path probing.
-  const rawHome = os.homedir();
-  const containerMatch = rawHome.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
-  const home = containerMatch ? containerMatch[1] : rawHome;
+  const home = getRealHome();
   const commonPaths = isWindows
     ? [
         // Windows common paths

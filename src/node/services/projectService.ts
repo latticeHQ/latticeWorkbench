@@ -338,6 +338,14 @@ export class ProjectService {
         existingStat = await fsPromises.stat(normalizedPath);
       } catch (error) {
         const err = error as NodeJS.ErrnoException;
+        if (err.code === "EPERM" || err.code === "EACCES") {
+          const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+          return Err(
+            isMAS
+              ? `Permission denied accessing "${normalizedPath}". Grant access to this directory in Settings → Filesystem Access, or re-launch Lattice to grant home directory access.`
+              : `Permission denied accessing "${normalizedPath}". Check file permissions.`
+          );
+        }
         if (err.code !== "ENOENT") {
           throw error;
         }

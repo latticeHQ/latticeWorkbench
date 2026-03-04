@@ -54,11 +54,25 @@ export abstract class LocalBaseRuntime implements Runtime {
     // Use the specified working directory (must be a specific minion path)
     const cwd = options.cwd;
 
-    // Check if working directory exists before spawning
-    // This prevents confusing ENOENT errors from spawn()
+    // Check if working directory exists and is accessible before spawning.
+    // This prevents confusing ENOENT/EPERM errors from spawn().
     try {
       await fsPromises.access(cwd);
     } catch (err) {
+      const nodeErr = err as NodeJS.ErrnoException;
+      if (nodeErr.code === "EPERM" || nodeErr.code === "EACCES") {
+        // MAS sandbox: directory exists but isn't accessible.
+        // This happens when security-scoped bookmarks haven't been granted.
+        const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+        const hint = isMAS
+          ? " Grant access to this directory in Settings → Filesystem Access, or re-launch Lattice and grant home directory access."
+          : "";
+        throw new RuntimeErrorClass(
+          `Permission denied accessing directory: ${cwd}.${hint}`,
+          "exec",
+          err instanceof Error ? err : undefined
+        );
+      }
       throw new RuntimeErrorClass(
         `Working directory does not exist: ${cwd}`,
         "exec",
@@ -152,6 +166,15 @@ export abstract class LocalBaseRuntime implements Runtime {
       });
 
       childProcess.on("error", (err) => {
+        const nodeErr = err as NodeJS.ErrnoException;
+        if (nodeErr.code === "EPERM" || nodeErr.code === "EACCES") {
+          const isMAS = !!(process as NodeJS.Process & { mas?: boolean }).mas;
+          const hint = isMAS
+            ? " Grant access to this directory in Settings → Filesystem Access, or re-launch Lattice and grant home directory access."
+            : "";
+          reject(new RuntimeErrorClass(`Permission denied executing command in ${cwd}.${hint}`, "exec", err));
+          return;
+        }
         reject(new RuntimeErrorClass(`Failed to execute command: ${err.message}`, "exec", err));
       });
     });

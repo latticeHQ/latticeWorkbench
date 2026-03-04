@@ -278,7 +278,7 @@ async function generateIconsetPngs() {
       },
     ];
 
-    if (size <= 256) {
+    if (size <= 512) {
       const retina = size * 2;
       outputs.push({
         file: path.join(ICONSET_DIR, `icon_${size}x${size}@2x.png`),
