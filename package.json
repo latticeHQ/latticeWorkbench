@@ -332,6 +332,12 @@
         "ElectronTeamID": "4K8CVP69DX"
       }
     },
+    "masDev": {
+      "entitlements": "build/entitlements.mas.plist",
+      "entitlementsInherit": "build/entitlements.mas.inherit.plist",
+      "provisioningProfile": "Lattice_MAS_Development.provisionprofile",
+      "type": "development"
+    },
     "afterPack": "scripts/fix-mas-locales.js",
     "npmRebuild": false,
     "buildDependenciesFromSource": false
