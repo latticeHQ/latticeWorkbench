@@ -234,8 +234,6 @@ Deploy departments from community templates. One command gives you a governed de
 
 See [AGENTS.md](./AGENTS.md) for development setup and guidelines.
 
-See [BUILD_REFERENCE.md](./BUILD_REFERENCE.md) for build system documentation.
-
 ## License
 
 Lattice is licensed under [MIT](./LICENSE).
@@ -246,7 +244,7 @@ Lattice is licensed under [MIT](./LICENSE).
 
 **[Lattice — From idea to company. One command.](https://latticeruntime.com)**
 
-Deploy your company. Your minions. Your models. Your hardware.
+Your company. Your minions. Your models. Your hardware.
 
 ```
 brew install latticehq/lattice/lattice
