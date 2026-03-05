@@ -9,6 +9,16 @@
 import { statSync } from "fs";
 import { homedir } from "os";
 import { log } from "@/node/services/log";
+
+/**
+ * Get the real user home directory, bypassing MAS sandbox container redirect.
+ * In MAS sandbox, os.homedir() returns ~/Library/Containers/<bundleId>/Data/
+ */
+function getRealHome(): string {
+  const home = homedir();
+  const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
+  return containerMatch ? containerMatch[1] : home;
+}
 import { findCommandWithAliases } from "@/node/utils/commandDiscovery";
 import {
   TERMINAL_PROFILE_DEFINITIONS,
@@ -138,7 +148,7 @@ export class TerminalProfileService {
       // like ~/.exo/bin/ and rely on the user manually updating their shell rc.
       if (!command.includes("/") && definition.knownPaths) {
         for (const kp of definition.knownPaths) {
-          const expanded = kp.startsWith("~") ? kp.replace("~", homedir()) : kp;
+          const expanded = kp.startsWith("~") ? kp.replace("~", getRealHome()) : kp;
           try {
             const st = statSync(expanded);
             if (st.isFile() && (st.mode & 0o111) !== 0) {

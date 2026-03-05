@@ -150,7 +150,10 @@ export async function findClaudeBinary(): Promise<string | null> {
 
   // ── Step 2: common installation paths ──
   // Covers: native installer, npm global, Volta, nvm, fnm, Homebrew, bun, pnpm, Scoop, winget.
-  const home = os.homedir();
+  // In MAS sandbox, os.homedir() returns the container path — use real home for path probing.
+  const rawHome = os.homedir();
+  const containerMatch = rawHome.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
+  const home = containerMatch ? containerMatch[1] : rawHome;
   const commonPaths = isWindows
     ? [
         // Windows common paths
@@ -335,7 +338,10 @@ function buildFilteredEnvFrom(
       env[key] = value;
     }
   }
-  env.HOME ??= os.homedir();
+  // In MAS sandbox, os.homedir() returns the container path — use real home
+  const rawHome = os.homedir();
+  const match = rawHome.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
+  env.HOME ??= match ? match[1] : rawHome;
   return env;
 }
 
