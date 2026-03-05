@@ -50,6 +50,23 @@ if (process.platform === "darwin") {
     process.env.PATH = `${currentPath}:${missing.join(":")}`;
     console.debug(`[fix-path] Appended ${missing.length} essential paths to PATH`);
   }
+
+  // Fix HOME for MAS sandbox — all subprocesses (MCP servers, bash exec,
+  // terminals) inherit process.env. Without this, tools can't find config
+  // files (~/.config/), npx cache, or user-local bins.
+  // Electron's own data paths (app.getPath) use Cocoa APIs, not $HOME,
+  // so this change only affects subprocess spawning.
+  const currentHome = process.env.HOME ?? "";
+  if (currentHome.includes("/Library/Containers/")) {
+    process.env.HOME = realHome;
+    console.debug(`[fix-path] Corrected HOME from container to ${realHome}`);
+  }
+
+  // Ensure SHELL is set — launchd/MAS may not provide it.
+  if (!process.env.SHELL?.trim()) {
+    process.env.SHELL = "/bin/zsh";
+    console.debug("[fix-path] Set SHELL to /bin/zsh (was unset)");
+  }
 }
 
 import { randomBytes } from "crypto";
