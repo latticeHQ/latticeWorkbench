@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Sets up macOS code signing and notarization from GitHub secrets
-# Usage: ./scripts/setup-macos-signing.sh
+# Sets up macOS code signing and notarization credentials.
+# Works in both CI (writes to $GITHUB_ENV) and local (exports to shell).
+#
+# Usage: source ./scripts/setup-macos-signing.sh   # local
+#        ./scripts/setup-macos-signing.sh           # CI (GITHUB_ENV)
 #
 # Required environment variables:
 #   MACOS_CERTIFICATE          - Base64-encoded .p12 certificate
@@ -11,25 +14,33 @@
 
 set -euo pipefail
 
+# Helper: set env var for both CI (GITHUB_ENV) and local (export)
+set_env() {
+  local key="$1" val="$2"
+  export "$key=$val"
+  if [ -n "${GITHUB_ENV:-}" ]; then
+    echo "$key=$val" >> "$GITHUB_ENV"
+  fi
+}
+
 # Setup code signing certificate
 if [ -n "${MACOS_CERTIFICATE:-}" ]; then
   echo "Setting up code signing certificate..."
   echo "$MACOS_CERTIFICATE" | base64 -D >/tmp/certificate.p12
-  echo "CSC_LINK=/tmp/certificate.p12" >>"$GITHUB_ENV"
-  echo "CSC_KEY_PASSWORD=$MACOS_CERTIFICATE_PWD" >>"$GITHUB_ENV"
+  set_env "CSC_LINK" "/tmp/certificate.p12"
+  set_env "CSC_KEY_PASSWORD" "$MACOS_CERTIFICATE_PWD"
 else
-  echo "⚠️  No code signing certificate provided - building unsigned"
+  echo "No code signing certificate provided — electron-builder will auto-detect from Keychain"
 fi
 
 # Setup notarization credentials
 if [ -n "${AC_APIKEY_ID:-}" ]; then
   echo "Setting up notarization credentials..."
   echo "$AC_APIKEY_P8_BASE64" | base64 -D >/tmp/AuthKey.p8
-  # shellcheck disable=SC2129 # Multiple appends are clearer than a grouped block here
-  echo "APPLE_API_KEY=/tmp/AuthKey.p8" >>"$GITHUB_ENV"
-  echo "APPLE_API_KEY_ID=$AC_APIKEY_ID" >>"$GITHUB_ENV"
-  echo "APPLE_API_ISSUER=$AC_APIKEY_ISSUER_ID" >>"$GITHUB_ENV"
-  echo "✅ Notarization credentials configured"
+  set_env "APPLE_API_KEY" "/tmp/AuthKey.p8"
+  set_env "APPLE_API_KEY_ID" "$AC_APIKEY_ID"
+  set_env "APPLE_API_ISSUER" "$AC_APIKEY_ISSUER_ID"
+  echo "Notarization credentials configured"
 else
-  echo "⚠️  No notarization credentials - skipping notarization"
+  echo "No notarization credentials — build will not be notarized"
 fi
