@@ -71,6 +71,7 @@ import { SchedulerService } from "@/node/services/schedulerService";
 import { SyncService } from "@/node/services/syncService";
 import { InboxService } from "@/node/services/inboxService";
 import { TelegramAdapter } from "@/node/services/inbox/telegramAdapter";
+import { BrowserService } from "@/node/services/browserService";
 import type { ORPCContext } from "@/node/orpc/context";
 
 const LATTICE_HELP_CHAT_WELCOME_MESSAGE_ID = "lattice-chat-welcome";
@@ -140,6 +141,7 @@ export class ServiceContainer {
   public readonly schedulerService: SchedulerService;
   public readonly syncService: SyncService;
   public readonly inboxService: InboxService;
+  public readonly browserService: BrowserService;
   public readonly sshPromptService = new SshPromptService();
   private readonly ptyService: PTYService;
   public readonly idleCompactionService: IdleCompactionService;
@@ -240,6 +242,9 @@ export class ServiceContainer {
     this.terminalService = new TerminalService(config, this.ptyService);
     // Wire kanban service into terminal service for lifecycle tracking
     this.terminalService.setKanbanService(this.kanbanService);
+    // Browser service — per-minion headless browser sessions via agent-browser
+    this.browserService = new BrowserService(config);
+    this.minionService.setBrowserService(this.browserService);
     // Scheduler service — late-binds minion service to send agent messages
     this.schedulerService = new SchedulerService(config);
     this.schedulerService.setMinionService(this.minionService);
@@ -618,6 +623,7 @@ export class ServiceContainer {
       schedulerService: this.schedulerService,
       syncService: this.syncService,
       inboxService: this.inboxService,
+      browserService: this.browserService,
     };
   }
 
@@ -650,6 +656,7 @@ export class ServiceContainer {
     // This must happen first — once PTYs are killed the screen state is lost.
     await this.terminalService.saveAllSessions();
     this.terminalService.closeAllSessions();
+    this.browserService.closeAllSessions();
 
     await this.analyticsService.dispose();
     this.exoService.dispose();

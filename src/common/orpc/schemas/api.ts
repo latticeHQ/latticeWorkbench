@@ -28,6 +28,10 @@ import {
   TerminalSessionSchema,
 } from "./terminal";
 import {
+  BrowserActionResultSchema,
+  BrowserSessionInfoSchema,
+} from "./browser";
+import {
   KanbanArchivedBufferOutputSchema,
   KanbanCardSchema,
   KanbanGetArchivedBufferInputSchema,
@@ -1539,6 +1543,59 @@ export const terminal = {
   openNative: {
     input: z.object({ minionId: z.string() }),
     output: z.void(),
+  },
+};
+
+// Browser — Per-minion headless browser sessions via agent-browser
+
+export const browser = {
+  navigate: {
+    input: z.object({ minionId: z.string(), url: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  snapshot: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  screenshot: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  click: {
+    input: z.object({ minionId: z.string(), ref: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  fill: {
+    input: z.object({ minionId: z.string(), ref: z.string(), value: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  type: {
+    input: z.object({ minionId: z.string(), text: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  scrollUp: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  scrollDown: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  back: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  forward: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+  close: {
+    input: z.object({ minionId: z.string() }),
+    output: z.void(),
+  },
+  sessionInfo: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserSessionInfoSchema.nullable(),
   },
 };
 

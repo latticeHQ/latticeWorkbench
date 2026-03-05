@@ -39,6 +39,7 @@ import type { InferenceSetupService } from "@/node/services/inference/inferenceS
 import type { SchedulerService } from "@/node/services/schedulerService";
 import type { SyncService } from "@/node/services/syncService";
 import type { InboxService } from "@/node/services/inboxService";
+import type { BrowserService } from "@/node/services/browserService";
 
 export interface ORPCContext {
   config: Config;
@@ -81,5 +82,6 @@ export interface ORPCContext {
   schedulerService: SchedulerService;
   syncService: SyncService;
   inboxService: InboxService;
+  browserService: BrowserService;
   headers?: IncomingHttpHeaders;
 }

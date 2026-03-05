@@ -989,6 +989,8 @@ export class MinionService extends EventEmitter {
   private mcpServerManager?: MCPServerManager;
   // Optional terminal service for cleanup on minion removal
   private terminalService?: TerminalService;
+  // Optional browser service for cleanup on minion removal
+  private browserService?: import("@/node/services/browserService").BrowserService;
   private readonly sessionTimingService?: SessionTimingService;
   private minionLifecycleHooks?: MinionLifecycleHooks;
   private taskService?: TaskService;
@@ -1006,6 +1008,13 @@ export class MinionService extends EventEmitter {
    */
   setTerminalService(terminalService: TerminalService): void {
     this.terminalService = terminalService;
+  }
+
+  /**
+   * Set the browser service for cleanup on minion removal.
+   */
+  setBrowserService(browserService: import("@/node/services/browserService").BrowserService): void {
+    this.browserService = browserService;
   }
 
   setMinionLifecycleHooks(hooks: MinionLifecycleHooks): void {
@@ -2037,6 +2046,8 @@ export class MinionService extends EventEmitter {
 
       // Close any terminal sessions for this minion
       this.terminalService?.closeMinionSessions(minionId);
+      // Close any browser sessions for this minion
+      this.browserService?.closeMinionSessions(minionId);
 
       // Remove from config
       await this.config.removeMinion(minionId);
@@ -2464,6 +2475,8 @@ export class MinionService extends EventEmitter {
 
       // Archiving hides minion UI; do not leave terminal PTYs running headless.
       this.terminalService?.closeMinionSessions(minionId);
+      // Close browser sessions — no reason to keep headless browsers for benched minions.
+      this.browserService?.closeMinionSessions(minionId);
 
       await this.config.editConfig((config) => {
         const projectConfig = config.projects.get(projectPath);
