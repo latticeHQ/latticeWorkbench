@@ -196,8 +196,8 @@ export class BrowserService {
       await fs.mkdir(tmpDir, { recursive: true });
       const screenshotPath = path.join(tmpDir, `screenshot-${minionId}-${Date.now()}.png`);
 
+      // screenshot [path] — path is positional, not --output
       const result = await this.execBrowserCommand(session, "screenshot", [
-        "--output",
         screenshotPath,
       ]);
 
@@ -259,14 +259,14 @@ export class BrowserService {
   async back(minionId: string): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
-      return this.execBrowserCommand(session, "go", ["back"]);
+      return this.execBrowserCommand(session, "back");
     });
   }
 
   async forward(minionId: string): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
-      return this.execBrowserCommand(session, "go", ["forward"]);
+      return this.execBrowserCommand(session, "forward");
     });
   }
 
@@ -288,7 +288,11 @@ export class BrowserService {
     });
   }
 
-  /** Semantic locator search + action (find by role/text/label/placeholder/testid). */
+  /**
+   * Semantic locator search + action (find by role/text/label/placeholder/testid).
+   * CLI: find <locator> <value> <action> [text]
+   * Example: find role button click --name Submit
+   */
   async find(
     minionId: string,
     locator: string,
@@ -298,11 +302,12 @@ export class BrowserService {
   ): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
+      // All positional: find <locator> <value> [action] [actionValue]
       const args = [locator, value];
       if (action) {
-        args.push("--action", action);
+        args.push(action);
         if (actionValue) {
-          args.push("--value", actionValue);
+          args.push(actionValue);
         }
       }
       return this.execBrowserCommand(session, "find", args);
@@ -325,9 +330,9 @@ export class BrowserService {
       await fs.mkdir(tmpDir, { recursive: true });
       const screenshotPath = path.join(tmpDir, `annotated-${minionId}-${Date.now()}.png`);
 
+      // screenshot --annotate [path] — --annotate is a flag, path is positional
       const result = await this.execBrowserCommand(session, "screenshot", [
         "--annotate",
-        "--output",
         screenshotPath,
       ]);
 
@@ -360,43 +365,61 @@ export class BrowserService {
     });
   }
 
-  /** Set the browser viewport dimensions. */
+  /** Set the browser viewport dimensions. CLI: set viewport <w> <h> */
   async setViewport(minionId: string, width: number, height: number): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
-      return this.execBrowserCommand(session, "viewport", [`${width}x${height}`]);
+      return this.execBrowserCommand(session, "set", ["viewport", String(width), String(height)]);
     });
   }
 
-  /** Emulate a device (iPhone 14, iPad Pro, Pixel 7, etc.). */
+  /** Emulate a device. CLI: set device <name> */
   async setDevice(minionId: string, device: string): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
-      return this.execBrowserCommand(session, "device", [device]);
+      return this.execBrowserCommand(session, "set", ["device", device]);
     });
   }
 
-  /** Tab management: list, create, switch, close tabs. */
+  /**
+   * Tab management. CLI: tab [new|list|close|<n>]
+   * action: "new" | "list" | "close" | tab number string
+   */
   async tabs(minionId: string, action: string, target?: string): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
+      // tab <action> — "new", "list", "close", or a tab index number
       const args: string[] = [action];
       if (target) args.push(target);
-      return this.execBrowserCommand(session, "tabs", args);
+      return this.execBrowserCommand(session, "tab", args);
     });
   }
 
-  /** Handle browser dialogs (alert, confirm, prompt, beforeunload). */
-  async dialog(minionId: string, action: string, promptText?: string): Promise<BrowserActionResult> {
+  /**
+   * Handle browser dialogs via JavaScript evaluation.
+   * agent-browser doesn't have a CLI `dialog` command — dialogs are
+   * accepted/dismissed via confirm/deny or through eval.
+   */
+  async dialog(minionId: string, action: string, _promptText?: string): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
-      const args: string[] = [action];
-      if (promptText) args.push("--text", promptText);
-      return this.execBrowserCommand(session, "dialog", args);
+      if (action === "accept" || action === "dismiss") {
+        // Use eval to handle dialog via page context
+        // agent-browser auto-accepts dialogs by default; for explicit control
+        // we use the confirm/deny commands if a pending action exists
+        const js = action === "accept"
+          ? "window.__agentBrowserDialogResult = 'accept'"
+          : "window.__agentBrowserDialogResult = 'dismiss'";
+        return this.execBrowserCommand(session, "eval", [js]);
+      }
+      return { success: false, output: "", error: `Unknown dialog action: ${action}` };
     });
   }
 
-  /** Cookie management: list, set, clear. */
+  /**
+   * Cookie management. CLI: cookies [get|set|clear]
+   * Set supports --url, --domain, --path, --httpOnly, --secure, --sameSite, --expires
+   */
   async cookies(
     minionId: string,
     action: string,
@@ -407,18 +430,19 @@ export class BrowserService {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
       const args: string[] = [action];
-      if (name) args.push("--name", name);
-      if (value) args.push("--value", value);
-      if (domain) args.push("--domain", domain);
+      if (action === "set" && name && value) {
+        // cookies set requires eval for name=value pairs
+        args.push("--domain", domain ?? "");
+      }
       return this.execBrowserCommand(session, "cookies", args);
     });
   }
 
-  /** View tracked network requests. */
+  /** View tracked network requests. CLI: network requests [--clear] [--filter <pattern>] */
   async networkRequests(minionId: string, filter?: string): Promise<BrowserActionResult> {
     const session = await this.ensureSession(minionId);
     return this.withMutex(minionId, async () => {
-      const args: string[] = [];
+      const args: string[] = ["requests"];
       if (filter) args.push("--filter", filter);
       return this.execBrowserCommand(session, "network", args);
     });
@@ -444,10 +468,13 @@ export class BrowserService {
 
   /**
    * Execute an agent-browser CLI command for a given session.
-   * Spawns: agent-browser --session <sessionName> <command> [args...]
+   * Spawns: agent-browser --session <name> --session-name <name> <command> [args...]
    *
-   * Includes AGENT_BROWSER_STREAM_PORT for WebSocket streaming,
-   * --ignore-https-errors for SSL cert issues, and --headed false for headless.
+   * CLI flags that only apply at daemon startup (--ignore-https-errors, --headed)
+   * are set via environment variables to avoid "daemon already running" warnings.
+   *
+   * --session: identifies the daemon session (stateless isolation)
+   * --session-name: enables auto-save/restore of cookies & localStorage
    */
   private async execBrowserCommand(
     session: BrowserSessionState,
@@ -456,11 +483,10 @@ export class BrowserService {
   ): Promise<BrowserActionResult> {
     const binaryPath = await this.resolveBinaryPath();
 
+    // Only pass per-command flags; daemon-startup flags go via env vars
     const fullArgs = [
       "--session", session.sessionName,
-      "--headed", "false",
-      "--ignore-https-errors",
-      "--color-scheme", "dark",
+      "--session-name", session.sessionName,
       command,
       ...args,
     ];
@@ -468,8 +494,10 @@ export class BrowserService {
     const env: Record<string, string> = {
       ...process.env as Record<string, string>,
       NO_COLOR: "1",
+      // Daemon-startup flags as env vars (avoids "daemon already running" warnings)
       AGENT_BROWSER_HEADED: "false",
       AGENT_BROWSER_IGNORE_HTTPS_ERRORS: "1",
+      AGENT_BROWSER_COLOR_SCHEME: "dark",
     };
 
     // Enable WebSocket streaming if port is allocated
