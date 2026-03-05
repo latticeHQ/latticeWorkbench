@@ -59,15 +59,40 @@ export interface CoreServices {
  * projects, terminals, analytics, etc.).
  */
 function getBuiltinInlineServers(config?: Config): Record<string, string> {
-  // Resolve path to the bundled lattice MCP server.
-  // In dev:   __dirname = src/node/services/  → ../../mcp-server/ = src/mcp-server/
-  // In build: __dirname = dist/node/services/ → ../../../src/mcp-server/ (back to source)
-  // Bun can run .ts files natively, so we always point to the source .ts file.
-  const inDist = __dirname.includes(`${path.sep}dist${path.sep}`) || __dirname.endsWith(`${path.sep}dist`);
-  const latticeMcpServerPath = inDist
-    ? path.resolve(__dirname, "../../../src/mcp-server/index.ts")
-    : path.resolve(__dirname, "../../mcp-server/index.ts");
+  // Resolve paths to the bundled MCP servers.
+  //
+  // Three environments:
+  //   1. Dev (unbundled):  __dirname = src/node/services/ → ../../mcp-server/index.ts
+  //   2. Dev (compiled):   __dirname = dist/node/services/ → ../../../src/mcp-server/index.ts
+  //   3. Packaged Electron: __dirname inside app.asar — src/ doesn't exist in the archive
+  //      and Bun can't access files inside .asar anyway.  Use the pre-bundled JS files
+  //      in app.asar.unpacked/dist/mcp-server/ instead.
+  //
+  // Detection: if __dirname contains "app.asar" we're in a packaged Electron app.
+  const isPackaged = __dirname.includes(`app.asar${path.sep}`) || __dirname.includes("app.asar/");
 
+  let latticeMcpServerPath: string;
+  let notebooklmMcpServerPath: string;
+
+  if (isPackaged) {
+    // Packaged Electron: use bundled JS from app.asar.unpacked/dist/
+    // Bun subprocess can only read real files, not virtual .asar entries.
+    const asarUnpackedRoot = __dirname.split("app.asar")[0] + "app.asar.unpacked";
+    latticeMcpServerPath = path.join(asarUnpackedRoot, "dist", "mcp-server", "index.js");
+    notebooklmMcpServerPath = path.join(asarUnpackedRoot, "dist", "notebooklm-mcp", "index.js");
+  } else {
+    // Development: point to .ts source files (Bun runs them natively).
+    const inDist = __dirname.includes(`${path.sep}dist${path.sep}`) || __dirname.endsWith(`${path.sep}dist`);
+    latticeMcpServerPath = inDist
+      ? path.resolve(__dirname, "../../../src/mcp-server/index.ts")
+      : path.resolve(__dirname, "../../mcp-server/index.ts");
+    notebooklmMcpServerPath = inDist
+      ? path.resolve(__dirname, "../../../src/notebooklm-mcp/index.ts")
+      : path.resolve(__dirname, "../../notebooklm-mcp/index.ts");
+  }
+
+  // In packaged mode, use "bun run" for the bundled .js file.
+  // In dev mode, use "bun run" for the .ts source (Bun handles TS natively).
   const servers: Record<string, string> = {
     lattice: `bun run ${latticeMcpServerPath}`,
   };
@@ -75,9 +100,6 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
   // NotebookLM: built-in but toggleable via config (default: enabled).
   const nlmEnabled = config?.loadConfigOrDefault().notebooklm?.enabled ?? true;
   if (nlmEnabled) {
-    const notebooklmMcpServerPath = inDist
-      ? path.resolve(__dirname, "../../../src/notebooklm-mcp/index.ts")
-      : path.resolve(__dirname, "../../notebooklm-mcp/index.ts");
     servers.notebooklm = `bun run ${notebooklmMcpServerPath}`;
   }
 

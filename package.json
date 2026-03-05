@@ -279,6 +279,8 @@
     "asarUnpack": [
       "dist/**/*.wasm",
       "dist/**/*.map",
+      "dist/mcp-server/**",
+      "dist/notebooklm-mcp/**",
       "**/node_modules/node-pty/**/*.node",
       "**/node_modules/@lydell/node-pty*/**/*.node",
       "**/node_modules/@duckdb/**/*.node",
