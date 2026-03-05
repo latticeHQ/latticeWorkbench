@@ -127,6 +127,7 @@ export async function createTestEnvironment(): Promise<TestEnvironment> {
     inboxService: services.inboxService,
     inferenceService: services.inferenceService,
     inferenceSetupService: services.inferenceSetupService,
+    browserService: services.browserService,
   };
   const orpc = createOrpcTestClient(orpcContext);
 

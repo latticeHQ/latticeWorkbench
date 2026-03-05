@@ -140,6 +140,15 @@ export {
   TerminalSessionSchema,
 } from "./schemas/terminal";
 
+// Browser schemas
+export {
+  BrowserActionResultSchema,
+  BrowserElementRefSchema,
+  BrowserScreenshotSchema,
+  BrowserSessionInfoSchema,
+  BrowserSnapshotSchema,
+} from "./schemas/browser";
+
 // Kanban schemas
 export {
   KanbanArchivedBufferOutputSchema,
@@ -290,6 +299,7 @@ export {
   type SignatureEnvelope,
   ssh,
   terminal,
+  browser,
   terminalProfiles,
   inference,
   latticeInference,

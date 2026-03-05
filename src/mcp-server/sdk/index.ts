@@ -22,6 +22,7 @@ export * as minion from "./minion";
 export * as project from "./project";
 export * as terminal from "./terminal";
 export * as terminalProfiles from "./terminal-profiles";
+export * as browser from "./browser";
 export * as config from "./config";
 export * as agents from "./agents";
 export * as tasks from "./tasks";

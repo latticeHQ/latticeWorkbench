@@ -45,6 +45,7 @@ const CATEGORIES: Record<string, string> = {
   kanban: "[Minion-scoped] Kanban board: view and move minion task cards between workflow columns (queued → active → completed → archived). Parent: minion.",
   scheduler: "[Project-scoped] Task scheduler: create/manage cron or interval automated tasks that run in minions. Parent: project.",
   sync: "[Global] Git sync: push/pull Lattice state to remote repos, manage GitHub auth, configure sync categories.",
+  browser: "[Minion-scoped] Headless browser: navigate, snapshot (accessibility tree with refs), screenshot, click, fill, type, scroll. Each minion gets its own isolated browser instance via agent-browser. Parent: minion.",
   discovery: "[Global] Tool discovery: search and browse the tool catalog (this category). Start here with list_tool_categories.",
 };
 
