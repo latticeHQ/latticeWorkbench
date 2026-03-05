@@ -1678,32 +1678,14 @@ export function getAvailableTools(
     // Lattice SDK progressive disclosure (code execution pattern)
     "lattice_list_categories",
     "lattice_search_tools",
-    // Browser tools — per-minion headless browser via agent-browser
+    // Browser tools — core set loaded directly (5 tools)
+    // Additional browser tools (20) are available via SDK progressive disclosure:
+    //   lattice_search_tools({ query: "browser" }) → file_read SDK → bash code execution
     "browser_navigate",
     "browser_snapshot",
     "browser_screenshot",
-    "browser_annotated_screenshot",
     "browser_click",
     "browser_fill",
-    "browser_type",
-    "browser_press",
-    "browser_hover",
-    "browser_scroll",
-    "browser_find",
-    "browser_wait",
-    "browser_eval",
-    "browser_set_viewport",
-    "browser_set_device",
-    "browser_tabs",
-    "browser_dialog",
-    "browser_cookies",
-    "browser_network_requests",
-    "browser_drag",
-    "browser_select_option",
-    "browser_back",
-    "browser_forward",
-    "browser_close",
-    "browser_session_info",
   ];
 
   // Add provider-specific tools
