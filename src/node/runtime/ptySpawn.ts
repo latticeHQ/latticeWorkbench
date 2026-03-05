@@ -49,11 +49,41 @@ function resolvePathEnv(env: NodeJS.ProcessEnv, pathEnvOverride?: string): strin
     return pathEnvOverride;
   }
 
-  return (
+  const basePath =
     env.PATH ??
     env.Path ??
-    (process.platform === "win32" ? undefined : "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin")
-  );
+    (process.platform === "win32" ? undefined : "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin");
+
+  // On macOS, ensure common binary directories are always included.
+  // In MAS sandbox, PATH may be minimal and missing Homebrew, Bun, Cargo, etc.
+  if (process.platform === "darwin" && basePath) {
+    const realHome = getRealHome();
+    const essential = [
+      "/opt/homebrew/bin",
+      "/opt/homebrew/sbin",
+      "/usr/local/bin",
+      "/usr/local/sbin",
+      `${realHome}/.bun/bin`,
+      `${realHome}/.cargo/bin`,
+      `${realHome}/.local/bin`,
+      `${realHome}/.npm-global/bin`,
+    ];
+    const pathSet = new Set(basePath.split(":"));
+    const missing = essential.filter((p) => !pathSet.has(p));
+    return missing.length > 0 ? `${basePath}:${missing.join(":")}` : basePath;
+  }
+
+  return basePath;
+}
+
+/**
+ * Get the real user home directory, bypassing MAS sandbox container redirect.
+ * In MAS sandbox, $HOME is ~/Library/Containers/<bundleId>/Data/
+ */
+function getRealHome(): string {
+  const home = require("os").homedir() as string;
+  const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
+  return containerMatch ? containerMatch[1] : home;
 }
 
 export function spawnPtyProcess(request: PtySpawnRequest): IPty {
@@ -61,10 +91,15 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   const mergedEnv: NodeJS.ProcessEnv = { ...process.env, ...request.env };
   const pathEnv = resolvePathEnv(mergedEnv, request.pathEnv);
 
+  // In MAS sandbox, $HOME points to container. Set to real home so spawned
+  // shells find .zshrc/.bashrc and load the user's full environment.
+  const realHome = process.platform === "darwin" ? getRealHome() : undefined;
+
   const env: NodeJS.ProcessEnv = {
     ...mergedEnv,
     TERM: "xterm-256color",
     ...(pathEnv ? { PATH: pathEnv } : {}),
+    ...(realHome ? { HOME: realHome } : {}),
   };
 
   try {
