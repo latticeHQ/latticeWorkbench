@@ -149,14 +149,16 @@ function AnimatedMinionEyes() {
         <g clipPath="url(#ls-lid-l)">
           <circle cx="58" cy="43" r="22" fill="#F9FAFB" />
           <motion.circle
-            cx={leftIrisCx[0]} cy={leftIrisCy[0]}
+            cx={58} cy={43}
             r="12" fill="#92700C"
+            initial={{ cx: leftIrisCx[0], cy: leftIrisCy[0] }}
             animate={{ cx: leftIrisCx, cy: leftIrisCy }}
             transition={pupilTransition(0)}
           />
           <motion.circle
-            cx={leftPupilCx[0]} cy={leftPupilCy[0]}
+            cx={58} cy={43}
             r="5.5" fill="#0C0F1A"
+            initial={{ cx: leftPupilCx[0], cy: leftPupilCy[0] }}
             animate={{ cx: leftPupilCx, cy: leftPupilCy }}
             transition={pupilTransition(0)}
           />
@@ -175,14 +177,16 @@ function AnimatedMinionEyes() {
         <g clipPath="url(#ls-lid-r)">
           <circle cx="142" cy="43" r="22" fill="#F9FAFB" />
           <motion.circle
-            cx={rightIrisCx[0]} cy={rightIrisCy[0]}
+            cx={142} cy={43}
             r="12" fill="#92700C"
+            initial={{ cx: rightIrisCx[0], cy: rightIrisCy[0] }}
             animate={{ cx: rightIrisCx, cy: rightIrisCy }}
             transition={pupilTransition(0.2)}
           />
           <motion.circle
-            cx={rightPupilCx[0]} cy={rightPupilCy[0]}
+            cx={142} cy={43}
             r="5.5" fill="#0C0F1A"
+            initial={{ cx: rightPupilCx[0], cy: rightPupilCy[0] }}
             animate={{ cx: rightPupilCx, cy: rightPupilCy }}
             transition={pupilTransition(0.2)}
           />
