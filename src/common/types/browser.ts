@@ -8,6 +8,7 @@
 import type { z } from "zod";
 import type {
   BrowserActionResultSchema,
+  BrowserAnnotatedScreenshotSchema,
   BrowserElementRefSchema,
   BrowserScreenshotSchema,
   BrowserSessionInfoSchema,
@@ -22,6 +23,9 @@ export type BrowserSnapshot = z.infer<typeof BrowserSnapshotSchema>;
 
 /** Base64-encoded screenshot of the current page. */
 export type BrowserScreenshot = z.infer<typeof BrowserScreenshotSchema>;
+
+/** Annotated screenshot with numbered element labels overlaid. */
+export type BrowserAnnotatedScreenshot = z.infer<typeof BrowserAnnotatedScreenshotSchema>;
 
 /** Metadata about a minion's active browser session. */
 export type BrowserSessionInfo = z.infer<typeof BrowserSessionInfoSchema>;

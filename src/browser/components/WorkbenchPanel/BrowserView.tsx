@@ -1,13 +1,17 @@
 /**
- * BrowserView — Main browser panel for a minion.
+ * BrowserView — Main interactive browser panel for a minion.
  *
- * Displays the minion's headless browser session with:
+ * Supports two modes:
+ * 1. **Live streaming** — WebSocket connection to agent-browser's STREAM_PORT,
+ *    rendering JPEG frames on a <canvas> with interactive mouse/keyboard/scroll.
+ * 2. **Screenshot fallback** — Static screenshots via API when streaming is unavailable.
+ *
+ * Also provides:
  * - URL bar for navigation
- * - Toolbar with back/forward/refresh/screenshot/snapshot actions
- * - Dual view mode: Screenshot (visual) or Accessibility Tree
- * - Empty state when no session is active
- *
- * All API calls go through the oRPC browser routes added in Phase 1.
+ * - Toolbar with back/forward/refresh/screenshot/annotated/snapshot/viewport
+ * - Accessibility tree view
+ * - Viewport presets (Desktop / Tablet / Mobile)
+ * - Status bar showing connection state, dimensions, FPS
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -15,9 +19,14 @@ import {
   ArrowLeft,
   ArrowRight,
   Camera,
+  ChevronDown,
   Globe,
   Loader2,
+  Monitor,
   RefreshCw,
+  Smartphone,
+  Tablet,
+  Tag,
   TreeDeciduous,
   X,
 } from "lucide-react";
@@ -25,7 +34,25 @@ import { useAPI } from "@/browser/contexts/API";
 import { cn } from "@/common/lib/utils";
 import type { BrowserActionResult, BrowserSessionInfo } from "@/common/types/browser";
 
-type ViewMode = "screenshot" | "tree";
+type ViewMode = "live" | "screenshot" | "tree";
+
+/** Viewport presets for responsive testing. */
+const VIEWPORT_PRESETS = [
+  { label: "Desktop", width: 1280, height: 720, icon: Monitor },
+  { label: "Tablet", width: 768, height: 1024, icon: Tablet },
+  { label: "Mobile", width: 375, height: 812, icon: Smartphone },
+] as const;
+
+/** WebSocket frame message from agent-browser stream. */
+interface StreamFrame {
+  type: "frame";
+  data: string; // base64 JPEG
+  metadata?: {
+    deviceWidth?: number;
+    deviceHeight?: number;
+    fps?: number;
+  };
+}
 
 interface BrowserViewProps {
   minionId: string;
@@ -40,26 +67,36 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
   const [urlInput, setUrlInput] = useState("");
   const [screenshotBase64, setScreenshotBase64] = useState<string | null>(null);
   const [snapshotRaw, setSnapshotRaw] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<ViewMode>("screenshot");
+  const [viewMode, setViewMode] = useState<ViewMode>("live");
   const [isLoading, setIsLoading] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [showViewportMenu, setShowViewportMenu] = useState(false);
+  const [activeViewport, setActiveViewport] = useState<(typeof VIEWPORT_PRESETS)[number]>(VIEWPORT_PRESETS[0]);
+
+  // Streaming state
+  const [wsConnected, setWsConnected] = useState(false);
+  const [streamFps, setStreamFps] = useState(0);
+  const [streamDimensions, setStreamDimensions] = useState<{ w: number; h: number } | null>(null);
 
   const urlInputRef = useRef<HTMLInputElement>(null);
-  const autoRefreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const frameCountRef = useRef(0);
+  const fpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   // ── Session polling ────────────────────────────────────────────────────
   const fetchSessionInfo = useCallback(async () => {
     if (!api) return;
     try {
       const info = await api.browser.sessionInfo({ minionId });
-      // Only update state if data actually changed to avoid unnecessary re-renders
       setSessionInfo((prev) => {
         if (
           prev?.url === info?.url &&
           prev?.isActive === info?.isActive &&
-          prev?.sessionName === info?.sessionName
+          prev?.sessionName === info?.sessionName &&
+          prev?.streamPort === info?.streamPort
         ) {
           return prev;
         }
@@ -81,7 +118,254 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     return () => clearInterval(interval);
   }, [visible, api, fetchSessionInfo]);
 
-  // ── Screenshot (fire-and-forget safe) ─────────────────────────────────
+  // ── WebSocket streaming ────────────────────────────────────────────────
+  useEffect(() => {
+    const streamPort = sessionInfo?.streamPort;
+    if (!visible || !streamPort || viewMode !== "live") {
+      // Clean up WebSocket if switching away or not visible
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+        setWsConnected(false);
+      }
+      return;
+    }
+
+    // Create reusable Image element for frame decoding
+    if (!imgRef.current) {
+      imgRef.current = new Image();
+    }
+
+    const wsUrl = `ws://localhost:${streamPort}`;
+    let ws: WebSocket;
+
+    try {
+      ws = new WebSocket(wsUrl);
+    } catch {
+      setWsConnected(false);
+      return;
+    }
+
+    ws.binaryType = "arraybuffer";
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsConnected(true);
+      setError(null);
+      frameCountRef.current = 0;
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const msg: StreamFrame = JSON.parse(
+          typeof event.data === "string" ? event.data : new TextDecoder().decode(event.data)
+        );
+
+        if (msg.type === "frame" && msg.data) {
+          frameCountRef.current++;
+
+          // Update dimensions from metadata
+          if (msg.metadata?.deviceWidth && msg.metadata?.deviceHeight) {
+            setStreamDimensions((prev) => {
+              if (prev?.w === msg.metadata!.deviceWidth && prev?.h === msg.metadata!.deviceHeight) {
+                return prev;
+              }
+              return { w: msg.metadata!.deviceWidth!, h: msg.metadata!.deviceHeight! };
+            });
+          }
+
+          // Decode and draw frame on canvas
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+
+          const img = imgRef.current!;
+          img.onload = () => {
+            const ctx = canvas.getContext("2d");
+            if (!ctx) return;
+
+            // Resize canvas to match frame dimensions
+            if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+              canvas.width = img.naturalWidth;
+              canvas.height = img.naturalHeight;
+            }
+
+            ctx.drawImage(img, 0, 0);
+          };
+          img.src = `data:image/jpeg;base64,${msg.data}`;
+        }
+      } catch {
+        // Ignore malformed frames
+      }
+    };
+
+    ws.onerror = () => {
+      setWsConnected(false);
+    };
+
+    ws.onclose = () => {
+      setWsConnected(false);
+      wsRef.current = null;
+    };
+
+    // FPS counter
+    fpsIntervalRef.current = setInterval(() => {
+      setStreamFps(frameCountRef.current);
+      frameCountRef.current = 0;
+    }, 1000);
+
+    return () => {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+      wsRef.current = null;
+      setWsConnected(false);
+      if (fpsIntervalRef.current) {
+        clearInterval(fpsIntervalRef.current);
+        fpsIntervalRef.current = null;
+      }
+    };
+  }, [visible, sessionInfo?.streamPort, viewMode]);
+
+  // ── Canvas input handlers — send mouse/keyboard events to WebSocket ────
+  const sendWsMessage = useCallback((msg: object) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(msg));
+    }
+  }, []);
+
+  /** Compute coordinates scaled to the actual page dimensions. */
+  const getScaledCoords = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const canvas = canvasRef.current;
+      if (!canvas) return { x: 0, y: 0 };
+
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+
+      return {
+        x: Math.round((e.clientX - rect.left) * scaleX),
+        y: Math.round((e.clientY - rect.top) * scaleY),
+      };
+    },
+    []
+  );
+
+  const handleCanvasMouseDown = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const { x, y } = getScaledCoords(e);
+      sendWsMessage({
+        type: "input_mouse",
+        eventType: "mousePressed",
+        x,
+        y,
+        button: e.button === 2 ? "right" : "left",
+        clickCount: 1,
+      });
+    },
+    [getScaledCoords, sendWsMessage]
+  );
+
+  const handleCanvasMouseUp = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const { x, y } = getScaledCoords(e);
+      sendWsMessage({
+        type: "input_mouse",
+        eventType: "mouseReleased",
+        x,
+        y,
+        button: e.button === 2 ? "right" : "left",
+        clickCount: 1,
+      });
+    },
+    [getScaledCoords, sendWsMessage]
+  );
+
+  const handleCanvasMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Only send move events when button is pressed (dragging)
+      if (e.buttons === 0) return;
+      const { x, y } = getScaledCoords(e);
+      sendWsMessage({
+        type: "input_mouse",
+        eventType: "mouseMoved",
+        x,
+        y,
+      });
+    },
+    [getScaledCoords, sendWsMessage]
+  );
+
+  const handleCanvasClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      const { x, y } = getScaledCoords(e);
+      sendWsMessage({
+        type: "input_mouse",
+        eventType: "mousePressed",
+        x,
+        y,
+        button: "left",
+        clickCount: e.detail || 1,
+      });
+      sendWsMessage({
+        type: "input_mouse",
+        eventType: "mouseReleased",
+        x,
+        y,
+        button: "left",
+        clickCount: e.detail || 1,
+      });
+    },
+    [getScaledCoords, sendWsMessage]
+  );
+
+  const handleCanvasWheel = useCallback(
+    (e: React.WheelEvent<HTMLCanvasElement>) => {
+      const { x, y } = getScaledCoords(e as unknown as React.MouseEvent<HTMLCanvasElement>);
+      sendWsMessage({
+        type: "input_mouse",
+        eventType: "mouseWheel",
+        x,
+        y,
+        deltaX: e.deltaX,
+        deltaY: e.deltaY,
+      });
+    },
+    [getScaledCoords, sendWsMessage]
+  );
+
+  const handleCanvasKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      sendWsMessage({
+        type: "input_keyboard",
+        eventType: "keyDown",
+        key: e.key,
+        code: e.code,
+        modifiers:
+          (e.altKey ? 1 : 0) |
+          (e.ctrlKey ? 2 : 0) |
+          (e.metaKey ? 4 : 0) |
+          (e.shiftKey ? 8 : 0),
+      });
+    },
+    [sendWsMessage]
+  );
+
+  const handleCanvasKeyUp = useCallback(
+    (e: React.KeyboardEvent<HTMLCanvasElement>) => {
+      e.preventDefault();
+      sendWsMessage({
+        type: "input_keyboard",
+        eventType: "keyUp",
+        key: e.key,
+        code: e.code,
+      });
+    },
+    [sendWsMessage]
+  );
+
+  // ── Screenshot (fire-and-forget for background use) ────────────────────
   const takeScreenshot = useCallback(async () => {
     if (!api) return;
     setIsCapturing(true);
@@ -89,10 +373,9 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
       const result = await api.browser.screenshot({ minionId });
       if (result.success && result.screenshot) {
         setScreenshotBase64(result.screenshot.base64);
-        setViewMode("screenshot");
       }
     } catch {
-      // Silently fail for auto-screenshots; user can retry manually
+      // Silently fail for auto-screenshots
     } finally {
       setIsCapturing(false);
     }
@@ -105,7 +388,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
       const targetUrl = url ?? urlInput.trim();
       if (!targetUrl) return;
 
-      // Auto-prefix with https:// if no protocol
       const normalizedUrl =
         targetUrl.startsWith("http://") || targetUrl.startsWith("https://")
           ? targetUrl
@@ -121,10 +403,16 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
         if (result.success) {
           setUrlInput(normalizedUrl);
           setSessionInfo((prev) =>
-            prev ? { ...prev, url: normalizedUrl } : { minionId, sessionName: "", url: normalizedUrl, isActive: true }
+            prev
+              ? { ...prev, url: normalizedUrl }
+              : { minionId, sessionName: "", url: normalizedUrl, isActive: true, streamPort: null }
           );
-          // Fire-and-forget: take screenshot in background, don't block the UI
-          takeScreenshot().catch(() => {});
+          // Refresh session info to get stream port
+          fetchSessionInfo();
+          // If not in live mode, take a screenshot
+          if (viewMode !== "live") {
+            takeScreenshot().catch(() => {});
+          }
         } else {
           setError(result.error ?? "Navigation failed");
         }
@@ -134,7 +422,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
         setIsLoading(false);
       }
     },
-    [api, minionId, urlInput, takeScreenshot]
+    [api, minionId, urlInput, takeScreenshot, fetchSessionInfo, viewMode]
   );
 
   const handleBack = useCallback(async () => {
@@ -143,14 +431,13 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     try {
       await api.browser.back({ minionId });
       await fetchSessionInfo();
-      // Fire-and-forget screenshot
-      takeScreenshot().catch(() => {});
+      if (viewMode !== "live") takeScreenshot().catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Back navigation failed");
     } finally {
       setIsLoading(false);
     }
-  }, [api, minionId, fetchSessionInfo, takeScreenshot]);
+  }, [api, minionId, fetchSessionInfo, takeScreenshot, viewMode]);
 
   const handleForward = useCallback(async () => {
     if (!api) return;
@@ -158,16 +445,15 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     try {
       await api.browser.forward({ minionId });
       await fetchSessionInfo();
-      // Fire-and-forget screenshot
-      takeScreenshot().catch(() => {});
+      if (viewMode !== "live") takeScreenshot().catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Forward navigation failed");
     } finally {
       setIsLoading(false);
     }
-  }, [api, minionId, fetchSessionInfo, takeScreenshot]);
+  }, [api, minionId, fetchSessionInfo, takeScreenshot, viewMode]);
 
-  // ── Manual screenshot (user-initiated, shows loading) ─────────────────
+  // ── Manual screenshot (user-initiated) ─────────────────────────────────
   const handleScreenshot = useCallback(async () => {
     if (!api) return;
     setIsLoading(true);
@@ -181,6 +467,29 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Screenshot failed");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [api, minionId]);
+
+  // ── Annotated screenshot ───────────────────────────────────────────────
+  const handleAnnotatedScreenshot = useCallback(async () => {
+    if (!api) return;
+    setIsLoading(true);
+    try {
+      const result = await api.browser.annotatedScreenshot({ minionId });
+      if (result.success && result.annotatedScreenshot) {
+        setScreenshotBase64(result.annotatedScreenshot.base64);
+        setViewMode("screenshot");
+      } else if (result.success && result.screenshot) {
+        // Fallback to regular screenshot if annotated not supported
+        setScreenshotBase64(result.screenshot.base64);
+        setViewMode("screenshot");
+      } else {
+        setError(result.error ?? "Annotated screenshot failed");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Annotated screenshot failed");
     } finally {
       setIsLoading(false);
     }
@@ -215,25 +524,30 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
       setSnapshotRaw(null);
       setUrlInput("");
       setError(null);
+      setWsConnected(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to close browser session");
     }
   }, [api, minionId]);
 
-  // ── Auto-refresh ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (autoRefresh && visible && sessionInfo?.isActive) {
-      autoRefreshTimerRef.current = setInterval(() => {
-        takeScreenshot().catch(() => {});
-      }, 3000);
-    }
-    return () => {
-      if (autoRefreshTimerRef.current) {
-        clearInterval(autoRefreshTimerRef.current);
-        autoRefreshTimerRef.current = null;
+  // ── Viewport presets ───────────────────────────────────────────────────
+  const handleSetViewport = useCallback(
+    async (preset: (typeof VIEWPORT_PRESETS)[number]) => {
+      if (!api) return;
+      setActiveViewport(preset);
+      setShowViewportMenu(false);
+      try {
+        await api.browser.setViewport({
+          minionId,
+          width: preset.width,
+          height: preset.height,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Viewport change failed");
       }
-    };
-  }, [autoRefresh, visible, sessionInfo?.isActive, takeScreenshot]);
+    },
+    [api, minionId]
+  );
 
   // ── URL input key handler ──────────────────────────────────────────────
   const handleUrlKeyDown = useCallback(
@@ -245,6 +559,14 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     },
     [handleNavigate]
   );
+
+  // Close viewport menu on click outside
+  useEffect(() => {
+    if (!showViewportMenu) return;
+    const handler = () => setShowViewportMenu(false);
+    window.addEventListener("click", handler);
+    return () => window.removeEventListener("click", handler);
+  }, [showViewportMenu]);
 
   // ── Empty state (no active session) ────────────────────────────────────
   if (!sessionInfo?.isActive && !isLoading) {
@@ -283,6 +605,8 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
   }
 
   // ── Active session view ────────────────────────────────────────────────
+  const ViewportIcon = activeViewport.icon;
+
   return (
     <div className="flex h-full flex-col">
       {/* URL bar */}
@@ -327,6 +651,15 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
 
         <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
+        {/* View mode buttons */}
+        <ToolbarButton
+          onClick={() => setViewMode("live")}
+          disabled={isLoading}
+          active={viewMode === "live"}
+          title="Live Stream"
+        >
+          <Monitor className="h-3.5 w-3.5" />
+        </ToolbarButton>
         <ToolbarButton
           onClick={handleScreenshot}
           disabled={isLoading}
@@ -334,6 +667,13 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
           title="Screenshot"
         >
           <Camera className="h-3.5 w-3.5" />
+        </ToolbarButton>
+        <ToolbarButton
+          onClick={handleAnnotatedScreenshot}
+          disabled={isLoading}
+          title="Annotated Screenshot"
+        >
+          <Tag className="h-3.5 w-3.5" />
         </ToolbarButton>
         <ToolbarButton
           onClick={handleSnapshot}
@@ -346,15 +686,52 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
 
         <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
-        <label className="flex cursor-pointer items-center gap-1 text-xs text-[var(--color-muted)]">
-          <input
-            type="checkbox"
-            checked={autoRefresh}
-            onChange={(e) => setAutoRefresh(e.target.checked)}
-            className="h-3 w-3"
-          />
-          Auto
-        </label>
+        {/* Viewport presets dropdown */}
+        <div className="relative">
+          <button
+            type="button"
+            className={cn(
+              "flex items-center gap-0.5 rounded p-1 text-xs text-[var(--color-muted)] transition-colors",
+              "hover:bg-[var(--color-background)] hover:text-[var(--color-foreground)]"
+            )}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowViewportMenu((v) => !v);
+            }}
+            title="Viewport presets"
+          >
+            <ViewportIcon className="h-3.5 w-3.5" />
+            <ChevronDown className="h-2.5 w-2.5" />
+          </button>
+          {showViewportMenu && (
+            <div className="absolute left-0 top-full z-20 mt-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
+              {VIEWPORT_PRESETS.map((preset) => {
+                const Icon = preset.icon;
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    className={cn(
+                      "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs",
+                      "hover:bg-[var(--color-background)]",
+                      activeViewport.label === preset.label && "text-[var(--color-accent)]"
+                    )}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSetViewport(preset);
+                    }}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                    <span>{preset.label}</span>
+                    <span className="ml-auto text-[var(--color-muted)]">
+                      {preset.width}×{preset.height}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         <div className="flex-1" />
 
@@ -385,6 +762,48 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
           </div>
         )}
 
+        {/* Live streaming canvas */}
+        {viewMode === "live" && (
+          <div className="flex h-full flex-col">
+            <div className="flex flex-1 items-start justify-center overflow-auto p-2">
+              {wsConnected ? (
+                <canvas
+                  ref={canvasRef}
+                  className="max-w-full cursor-pointer rounded border border-[var(--color-border)]"
+                  style={{ imageRendering: "auto" }}
+                  tabIndex={0}
+                  onClick={handleCanvasClick}
+                  onMouseDown={handleCanvasMouseDown}
+                  onMouseUp={handleCanvasMouseUp}
+                  onMouseMove={handleCanvasMouseMove}
+                  onWheel={handleCanvasWheel}
+                  onKeyDown={handleCanvasKeyDown}
+                  onKeyUp={handleCanvasKeyUp}
+                  onContextMenu={(e) => e.preventDefault()}
+                />
+              ) : (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-[var(--color-muted)]">
+                  <Loader2 className="h-6 w-6 animate-spin opacity-50" />
+                  <p className="text-xs">Connecting to live stream...</p>
+                  <p className="text-xs opacity-50">
+                    {sessionInfo?.streamPort
+                      ? `Port ${sessionInfo.streamPort}`
+                      : "Waiting for stream port allocation"}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-2 text-xs text-[var(--color-accent)] underline hover:no-underline"
+                    onClick={handleScreenshot}
+                  >
+                    Take a screenshot instead
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Static screenshot view */}
         {viewMode === "screenshot" && screenshotBase64 && (
           <div className="flex h-full items-start justify-center overflow-auto p-2">
             <img
@@ -403,6 +822,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
           </div>
         )}
 
+        {/* Accessibility tree view */}
         {viewMode === "tree" && snapshotRaw && (
           <pre className="h-full overflow-auto whitespace-pre-wrap p-3 font-mono text-xs text-[var(--color-foreground)]">
             {snapshotRaw}
@@ -414,6 +834,35 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
             <TreeDeciduous className="h-8 w-8 opacity-30" />
             <p className="text-xs">Click the tree icon to take an accessibility snapshot</p>
           </div>
+        )}
+      </div>
+
+      {/* Status bar */}
+      <div className="flex items-center gap-3 border-t border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-[10px] text-[var(--color-muted)]">
+        {/* Connection status */}
+        <span className="flex items-center gap-1">
+          <span
+            className={cn(
+              "inline-block h-1.5 w-1.5 rounded-full",
+              wsConnected ? "bg-green-500" : sessionInfo?.isActive ? "bg-yellow-500" : "bg-zinc-500"
+            )}
+          />
+          {wsConnected ? "Connected" : sessionInfo?.isActive ? "Session active" : "Disconnected"}
+        </span>
+
+        {/* Dimensions */}
+        {streamDimensions && (
+          <span>
+            {streamDimensions.w}×{streamDimensions.h}
+          </span>
+        )}
+
+        {/* FPS */}
+        {wsConnected && <span>{streamFps}fps</span>}
+
+        {/* Stream port */}
+        {sessionInfo?.streamPort && (
+          <span className="ml-auto">Port {sessionInfo.streamPort}</span>
         )}
       </div>
     </div>

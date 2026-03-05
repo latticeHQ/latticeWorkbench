@@ -1597,6 +1597,136 @@ export const browser = {
     input: z.object({ minionId: z.string() }),
     output: BrowserSessionInfoSchema.nullable(),
   },
+
+  // ── Phase 3: Full feature set from agent-browser ──
+
+  /** Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc.). */
+  press: {
+    input: z.object({ minionId: z.string(), key: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Hover over an element by snapshot ref. */
+  hover: {
+    input: z.object({ minionId: z.string(), ref: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Semantic locator search — find element by role/label/text and perform action. */
+  find: {
+    input: z.object({
+      minionId: z.string(),
+      locator: z.string().describe("Locator type: role, text, label, placeholder, testid"),
+      value: z.string().describe("Value to match"),
+      action: z.string().optional().describe("Action to perform: click, fill, check, etc."),
+      actionValue: z.string().optional().describe("Value for action (e.g., text to fill)"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Wait for a condition: selector visible, text appears, URL matches, or fixed time. */
+  wait: {
+    input: z.object({
+      minionId: z.string(),
+      target: z.string().describe("What to wait for: CSS selector, text, URL pattern, or time in ms"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Take an annotated screenshot with numbered labels on interactive elements. */
+  annotatedScreenshot: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Execute JavaScript on the page and return the result. */
+  eval: {
+    input: z.object({
+      minionId: z.string(),
+      js: z.string().describe("JavaScript expression to evaluate in page context"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Set the browser viewport dimensions. */
+  setViewport: {
+    input: z.object({
+      minionId: z.string(),
+      width: z.number(),
+      height: z.number(),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Emulate a device (iPhone 14, iPad, Pixel 7, etc.). */
+  setDevice: {
+    input: z.object({
+      minionId: z.string(),
+      device: z.string().describe("Device name, e.g. 'iPhone 14', 'iPad Pro', 'Pixel 7'"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Tab management: list, create, switch, close tabs. */
+  tabs: {
+    input: z.object({
+      minionId: z.string(),
+      action: z.enum(["list", "new", "switch", "close"]).default("list"),
+      target: z.string().optional().describe("Tab index or URL for switch/new"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Handle browser dialogs (alert, confirm, prompt, beforeunload). */
+  dialog: {
+    input: z.object({
+      minionId: z.string(),
+      action: z.enum(["accept", "dismiss"]),
+      promptText: z.string().optional().describe("Text to enter for prompt dialogs"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Cookie management: list, set, clear cookies. */
+  cookies: {
+    input: z.object({
+      minionId: z.string(),
+      action: z.enum(["list", "set", "clear"]).default("list"),
+      name: z.string().optional(),
+      value: z.string().optional(),
+      domain: z.string().optional(),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** View tracked network requests. */
+  networkRequests: {
+    input: z.object({
+      minionId: z.string(),
+      filter: z.string().optional().describe("URL pattern to filter requests"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Drag and drop from one element to another. */
+  drag: {
+    input: z.object({
+      minionId: z.string(),
+      sourceRef: z.string().describe("Source element ref"),
+      targetRef: z.string().describe("Target element ref"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Select an option from a <select> dropdown. */
+  selectOption: {
+    input: z.object({
+      minionId: z.string(),
+      ref: z.string().describe("Select element ref"),
+      value: z.string().describe("Option value or label to select"),
+    }),
+    output: BrowserActionResultSchema,
+  },
 };
 
 // Terminal Profiles — CLI tool detection, install recipes, user config
