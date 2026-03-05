@@ -30,6 +30,7 @@ import {
   createLatticeListCategoriesTool,
   createLatticeSearchToolsTool,
 } from "@/node/services/tools/lattice_sdk_discovery";
+import { createBrowserTools } from "@/node/services/tools/browser";
 import { wrapWithInitWait } from "@/node/services/tools/wrapWithInitWait";
 import { withHooks, type HookConfig } from "@/node/services/tools/withHooks";
 import { log } from "@/node/services/log";
@@ -47,6 +48,7 @@ import type { MinionChatMessage } from "@/common/orpc/types";
 import type { FileState } from "@/node/services/agentSession";
 import type { AgentDefinitionDescriptor } from "@/common/types/agentDefinition";
 import type { AgentSkillDescriptor } from "@/common/types/agentSkill";
+import type { BrowserService } from "@/node/services/browserService";
 
 /**
  * Configuration for tools that need runtime context
@@ -95,6 +97,8 @@ export interface ToolConfiguration {
   availableSidekicks?: AgentDefinitionDescriptor[];
   /** Available skills for the agent_skill_read tool description (dynamic context) */
   availableSkills?: AgentSkillDescriptor[];
+  /** Browser service for per-minion headless browser tools */
+  browserService?: BrowserService;
 }
 
 /**
@@ -315,6 +319,9 @@ export async function getToolsForModel(
     bash_background_terminate: wrap(createBashBackgroundTerminateTool(config)),
 
     web_fetch: wrap(createWebFetchTool(config)),
+
+    // Browser tools — per-minion headless browser via agent-browser
+    ...createBrowserTools(config),
   };
 
   // Non-runtime tools execute immediately (no init wait needed)
