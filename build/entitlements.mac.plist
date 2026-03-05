@@ -2,13 +2,32 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- ── Electron/V8 Runtime ──────────────────────────────────────── -->
+
+    <!-- JIT compilation for V8 JavaScript engine -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
+
+    <!-- Unsigned executable memory pages for V8 JIT-compiled code -->
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
     <true/>
+
+    <!-- ── Native Modules & Dynamic Loading ─────────────────────────── -->
+
+    <!-- Load native .node binaries not signed with app team identity
+         (node-pty, DuckDB, ssh2, cpu-features, iconv-corefoundation) -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- DYLD_* environment variables for fix-path and module resolution -->
     <key>com.apple.security.cs.allow-dyld-environment-variables</key>
     <true/>
-    <key>com.apple.security.cs.disable-library-validation</key>
+
+    <!-- ── Automation & Integration ─────────────────────────────────── -->
+
+    <!-- Send Apple Events to other apps (open in editor, Finder reveal,
+         Terminal.app integration, IDE automation) -->
+    <key>com.apple.security.automation.apple-events</key>
     <true/>
 </dict>
 </plist>

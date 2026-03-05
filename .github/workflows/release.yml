@@ -1,0 +1,278 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 1.0.4). Leave blank to auto-bump patch."
+        required: false
+        type: string
+      bump:
+        description: "Bump type (ignored if version is set)"
+        required: false
+        default: "patch"
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      draft:
+        description: "Create as draft release"
+        required: false
+        default: true
+        type: boolean
+
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "20"
+
+jobs:
+  # ── Build macOS (arm64 + x64) ──────────────────────────────────────────
+  build-mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Setup signing credentials
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          AC_APIKEY_P8_BASE64: ${{ secrets.AC_APIKEY_P8_BASE64 }}
+          AC_APIKEY_ID: ${{ secrets.AC_APIKEY_ID }}
+          AC_APIKEY_ISSUER_ID: ${{ secrets.AC_APIKEY_ISSUER_ID }}
+        run: |
+          chmod +x scripts/setup-macos-signing.sh
+          source scripts/setup-macos-signing.sh
+
+      - name: Build application
+        run: make build
+
+      - name: Build macOS distributables (arm64)
+        run: bun x electron-builder --mac --arm64 --publish never
+
+      - name: Build macOS distributables (x64)
+        run: bun x electron-builder --mac --x64 --publish never
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-mac
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/*.blockmap
+            release/*.yml
+          retention-days: 5
+
+  # ── Build Windows (x64 + arm64) ────────────────────────────────────────
+  build-win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build application
+        run: make build
+        shell: bash
+
+      - name: Build Windows distributables (x64)
+        run: bun x electron-builder --win --x64 --publish never
+
+      - name: Build Windows distributables (arm64)
+        run: bun x electron-builder --win --arm64 --publish never
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-win
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/*.yml
+          retention-days: 5
+
+  # ── Build Linux (x64 + arm64) ──────────────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build application
+        run: make build
+
+      - name: Build Linux distributables (x64)
+        run: bun x electron-builder --linux --x64 --publish never
+
+      - name: Build Linux distributables (arm64)
+        run: bun x electron-builder --linux --arm64 --publish never
+
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: |
+            release/*.AppImage
+            release/*.yml
+          retention-days: 5
+
+  # ── Publish GitHub Release ─────────────────────────────────────────────
+  publish:
+    needs: [build-mac, build-win, build-linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ -n "${{ inputs.version }}" ]]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            CURRENT=$(jq -r '.version' package.json)
+            IFS='.' read -r MAJ MIN PAT <<< "$CURRENT"
+            case "${{ inputs.bump || 'patch' }}" in
+              major) echo "version=$((MAJ+1)).0.0" >> "$GITHUB_OUTPUT" ;;
+              minor) echo "version=${MAJ}.$((MIN+1)).0" >> "$GITHUB_OUTPUT" ;;
+              *)     echo "version=${MAJ}.${MIN}.$((PAT+1))" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Generate checksums
+        id: checksums
+        run: |
+          cd release-artifacts
+          echo "checksums<<DELIM" >> "$GITHUB_OUTPUT"
+          for f in *.dmg *.zip *.exe *.AppImage; do
+            [[ -f "$f" ]] || continue
+            SHA=$(sha256sum "$f" | awk '{print $1}')
+            echo "| \`$f\` | \`$SHA\` |" >> "$GITHUB_OUTPUT"
+          done
+          echo "DELIM" >> "$GITHUB_OUTPUT"
+
+      - name: Extract changelog
+        id: changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "notes<<DELIM" >> "$GITHUB_OUTPUT"
+          if [[ -f CHANGELOG.md ]]; then
+            # Try to extract the specific version section
+            awk "/^## \[${VERSION}\]/{found=1;next} /^## \[/{found=0} found{print}" CHANGELOG.md >> "$GITHUB_OUTPUT"
+          fi
+          echo "DELIM" >> "$GITHUB_OUTPUT"
+
+      - name: Build download table
+        id: downloads
+        run: |
+          cd release-artifacts
+          echo "table<<DELIM" >> "$GITHUB_OUTPUT"
+          for f in *.dmg *.zip *.exe *.AppImage; do
+            [[ -f "$f" ]] || continue
+            case "$f" in
+              *.dmg|*.zip) PLATFORM="macOS" ;;
+              *.exe) PLATFORM="Windows" ;;
+              *.AppImage) PLATFORM="Linux" ;;
+            esac
+            if [[ "$f" == *"arm64"* ]]; then ARCH="Apple Silicon / ARM64"
+            elif [[ "$f" == *"x64"* || "$f" == *"x86_64"* ]]; then ARCH="Intel x64"
+            else ARCH="Universal"; fi
+            echo "| ${PLATFORM} | ${ARCH} | \`${f}\` |" >> "$GITHUB_OUTPUT"
+          done
+          echo "DELIM" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TAG="v${VERSION}"
+          REPO="${{ github.repository }}"
+          DRAFT_FLAG=""
+          if [[ "${{ inputs.draft }}" == "true" ]]; then
+            DRAFT_FLAG="--draft"
+          fi
+
+          NOTES=$(cat <<'NOTES_EOF'
+          ## What's New
+
+          ${{ steps.changelog.outputs.notes }}
+
+          ## Downloads
+
+          | Platform | Architecture | File |
+          |----------|-------------|------|
+          ${{ steps.downloads.outputs.table }}
+
+          ## Install
+
+          | Platform | Instructions |
+          |----------|-------------|
+          | **macOS** | Open the DMG and drag **Lattice** to Applications. |
+          | **macOS (Homebrew)** | `brew install --cask latticehq/lattice/lattice-workbench` |
+          | **Windows** | Run the installer. SmartScreen may warn — click "More info" then "Run anyway". |
+          | **Linux** | `chmod +x Lattice-*.AppImage && ./Lattice-*.AppImage` |
+
+          ## SHA-256 Checksums
+
+          | File | SHA-256 |
+          |------|---------|
+          ${{ steps.checksums.outputs.checksums }}
+
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ steps.version.outputs.version }}...${TAG}
+          NOTES_EOF
+          )
+
+          gh release create "$TAG" \
+            --repo "$REPO" \
+            --title "Lattice v${VERSION}" \
+            --notes "$NOTES" \
+            $DRAFT_FLAG \
+            release-artifacts/*.{dmg,zip,exe,AppImage,blockmap,yml}
