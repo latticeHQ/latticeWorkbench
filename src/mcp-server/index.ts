@@ -55,6 +55,7 @@ import { registerInboxTools } from "./tools/inbox";
 import { registerKanbanTools } from "./tools/kanban";
 import { registerSchedulerTools } from "./tools/scheduler";
 import { registerSyncTools } from "./tools/sync";
+import { registerBrowserTools } from "./tools/browser";
 
 // Discovery, resources, prompts
 import { registerDiscoveryTools, toolCatalog } from "./tools/discovery";
@@ -158,6 +159,7 @@ async function main(): Promise<void> {
   registerAndCatalog(mcpServer, "kanban", () => registerKanbanTools(mcpServer, client));
   registerAndCatalog(mcpServer, "scheduler", () => registerSchedulerTools(mcpServer, client));
   registerAndCatalog(mcpServer, "sync", () => registerSyncTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "browser", () => registerBrowserTools(mcpServer, client));
 
   // Register discovery tools (search_tools + list_tool_categories)
   // These tools use the populated toolCatalog to enable progressive disclosure.

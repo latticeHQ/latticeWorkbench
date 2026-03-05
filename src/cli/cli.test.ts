@@ -97,6 +97,7 @@ async function createTestServer(authToken?: string): Promise<TestServerHandle> {
     inboxService: services.inboxService,
     inferenceService: services.inferenceService,
     inferenceSetupService: services.inferenceSetupService,
+    browserService: services.browserService,
   };
 
   // Use the actual createOrpcServer function

@@ -3884,6 +3884,82 @@ export const router = (authToken?: string) => {
       },
     },
 
+    // Browser — Per-minion headless browser sessions via agent-browser
+    browser: {
+      navigate: t
+        .input(schemas.browser.navigate.input)
+        .output(schemas.browser.navigate.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.navigate(input.minionId, input.url);
+        }),
+      snapshot: t
+        .input(schemas.browser.snapshot.input)
+        .output(schemas.browser.snapshot.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.snapshot(input.minionId);
+        }),
+      screenshot: t
+        .input(schemas.browser.screenshot.input)
+        .output(schemas.browser.screenshot.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.screenshot(input.minionId);
+        }),
+      click: t
+        .input(schemas.browser.click.input)
+        .output(schemas.browser.click.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.click(input.minionId, input.ref);
+        }),
+      fill: t
+        .input(schemas.browser.fill.input)
+        .output(schemas.browser.fill.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.fill(input.minionId, input.ref, input.value);
+        }),
+      type: t
+        .input(schemas.browser.type.input)
+        .output(schemas.browser.type.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.type(input.minionId, input.text);
+        }),
+      scrollUp: t
+        .input(schemas.browser.scrollUp.input)
+        .output(schemas.browser.scrollUp.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.scrollUp(input.minionId);
+        }),
+      scrollDown: t
+        .input(schemas.browser.scrollDown.input)
+        .output(schemas.browser.scrollDown.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.scrollDown(input.minionId);
+        }),
+      back: t
+        .input(schemas.browser.back.input)
+        .output(schemas.browser.back.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.back(input.minionId);
+        }),
+      forward: t
+        .input(schemas.browser.forward.input)
+        .output(schemas.browser.forward.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.forward(input.minionId);
+        }),
+      close: t
+        .input(schemas.browser.close.input)
+        .output(schemas.browser.close.output)
+        .handler(async ({ context, input }) => {
+          await context.browserService.closeSession(input.minionId);
+        }),
+      sessionInfo: t
+        .input(schemas.browser.sessionInfo.input)
+        .output(schemas.browser.sessionInfo.output)
+        .handler(({ context, input }) => {
+          return context.browserService.getSessionInfo(input.minionId);
+        }),
+    },
+
     // Terminal Profiles — CLI tool detection, install recipes, user config
     terminalProfiles: {
       list: t
