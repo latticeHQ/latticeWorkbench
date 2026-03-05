@@ -272,7 +272,9 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "!**/node_modules/electron/**",
+      "!**/node_modules/@electron/**"
     ],
     "asarUnpack": [
       "dist/**/*.wasm",
