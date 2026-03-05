@@ -8,7 +8,7 @@
  */
 
 import React from "react";
-import { CircleDot, Clock, Columns3, ExternalLink, FolderTree, Network, RefreshCw, Terminal as TerminalIcon, X } from "lucide-react";
+import { CircleDot, Clock, Columns3, ExternalLink, FolderTree, Globe, Network, RefreshCw, Terminal as TerminalIcon, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { FileIcon } from "../../FileIcon";
 import { formatTabDuration, type ReviewStats } from "./registry";
@@ -112,6 +112,14 @@ export const ExplorerTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
     <FolderTree className="h-3 w-3 shrink-0" />
     Explorer
+  </span>
+);
+
+/** Browser tab label — shows globe icon + "Browser" text. */
+export const BrowserTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Globe className="h-3 w-3 shrink-0" />
+    Browser
   </span>
 );
 

@@ -2,6 +2,7 @@ export const WORKBENCH_PANEL_TABS = [
   "costs",
   "review",
   "terminal",
+  "browser",
   "explorer",
   "stats",
   "output",
