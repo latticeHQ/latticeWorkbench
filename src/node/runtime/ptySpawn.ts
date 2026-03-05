@@ -67,6 +67,7 @@ function resolvePathEnv(env: NodeJS.ProcessEnv, pathEnvOverride?: string): strin
       `${realHome}/.cargo/bin`,
       `${realHome}/.local/bin`,
       `${realHome}/.npm-global/bin`,
+      `${realHome}/.nvm/current/bin`,
     ];
     const pathSet = new Set(basePath.split(":"));
     const missing = essential.filter((p) => !pathSet.has(p));
@@ -95,9 +96,15 @@ export function spawnPtyProcess(request: PtySpawnRequest): IPty {
   // shells find .zshrc/.bashrc and load the user's full environment.
   const realHome = process.platform === "darwin" ? getRealHome() : undefined;
 
+  // Ensure SHELL is set — MAS sandbox may not inherit it from launchd.
+  // node-pty and spawned processes rely on SHELL for subshell invocations.
+  const shellEnv =
+    mergedEnv.SHELL?.trim() || (process.platform === "darwin" ? "/bin/zsh" : "/bin/bash");
+
   const env: NodeJS.ProcessEnv = {
     ...mergedEnv,
     TERM: "xterm-256color",
+    SHELL: shellEnv,
     ...(pathEnv ? { PATH: pathEnv } : {}),
     ...(realHome ? { HOME: realHome } : {}),
   };
