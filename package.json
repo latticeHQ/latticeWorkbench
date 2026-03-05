@@ -330,6 +330,7 @@
         "ElectronTeamID": "4K8CVP69DX"
       }
     },
+    "afterPack": "scripts/fix-mas-locales.js",
     "npmRebuild": false,
     "buildDependenciesFromSource": false
   }
