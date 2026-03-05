@@ -507,6 +507,8 @@ benchmark-terminal: ## Run Terminal-Bench 2.0 with Harbor (use TB_DATASET/TB_CON
 ## Clean
 clean: ## Clean build artifacts
 	@echo "Cleaning build artifacts..."
+	@# Use xattr -cr first on macOS to strip extended attrs that can block rm -rf
+	@if [ "$$(uname)" = "Darwin" ] && [ -d release ]; then xattr -cr release 2>/dev/null || true; fi
 	@rm -rf dist release build/icon.icns build/icon.png
 	@echo "Done!"
 
