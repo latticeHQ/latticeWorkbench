@@ -143,6 +143,24 @@ export const TERMINAL_PROFILE_DEFINITIONS: Record<string, TerminalProfileDefinit
       local: [{ method: "pip", command: "pip install notebooklm-mcp-cli" }],
     },
   },
+  "agent-browser": {
+    id: "agent-browser",
+    displayName: "Agent Browser",
+    command: "agent-browser",
+    description: "Headless browser automation CLI for AI agents — fast Rust/Node.js CLI by Vercel",
+    category: "tool",
+    group: "platform",
+    knownPaths: ["/usr/local/bin/agent-browser", "/opt/homebrew/bin/agent-browser"],
+    install: {
+      local: [
+        { method: "npm", command: "npm install -g agent-browser && agent-browser install" },
+        { method: "brew", command: "brew install agent-browser && agent-browser install" },
+      ],
+      ssh: [
+        { method: "npm", command: "npm install -g agent-browser && agent-browser install --with-deps" },
+      ],
+    },
+  },
   exo: {
     id: "exo",
     displayName: "Exo Cluster",
