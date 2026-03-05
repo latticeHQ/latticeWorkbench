@@ -251,15 +251,30 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     []
   );
 
+  /**
+   * Mouse events use onMouseDown + onMouseUp only (NOT onClick) to avoid
+   * double-firing. CDP requires separate mousePressed → mouseReleased.
+   * A mouseMoved is sent before mousePressed so the browser tracks cursor position.
+   */
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Focus canvas for keyboard events
+      canvasRef.current?.focus();
       const { x, y } = getScaledCoords(e);
+      const button = e.button === 2 ? "right" : "left";
+      // Move cursor first so hover state updates
+      sendWsMessage({
+        type: "input_mouse",
+        eventType: "mouseMoved",
+        x,
+        y,
+      });
       sendWsMessage({
         type: "input_mouse",
         eventType: "mousePressed",
         x,
         y,
-        button: e.button === 2 ? "right" : "left",
+        button,
         clickCount: 1,
       });
     },
@@ -283,8 +298,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
 
   const handleCanvasMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      // Only send move events when button is pressed (dragging)
-      if (e.buttons === 0) return;
       const { x, y } = getScaledCoords(e);
       sendWsMessage({
         type: "input_mouse",
@@ -296,28 +309,8 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     [getScaledCoords, sendWsMessage]
   );
 
-  const handleCanvasClick = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const { x, y } = getScaledCoords(e);
-      sendWsMessage({
-        type: "input_mouse",
-        eventType: "mousePressed",
-        x,
-        y,
-        button: "left",
-        clickCount: e.detail || 1,
-      });
-      sendWsMessage({
-        type: "input_mouse",
-        eventType: "mouseReleased",
-        x,
-        y,
-        button: "left",
-        clickCount: e.detail || 1,
-      });
-    },
-    [getScaledCoords, sendWsMessage]
-  );
+  // No onClick handler — mouseDown + mouseUp is the complete click cycle.
+  // Having both would double-fire every click (4 events instead of 2).
 
   const handleCanvasWheel = useCallback(
     (e: React.WheelEvent<HTMLCanvasElement>) => {
@@ -348,6 +341,16 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
           (e.metaKey ? 4 : 0) |
           (e.shiftKey ? 8 : 0),
       });
+      // Also send char event for printable characters
+      if (e.key.length === 1) {
+        sendWsMessage({
+          type: "input_keyboard",
+          eventType: "char",
+          key: e.key,
+          code: e.code,
+          text: e.key,
+        });
+      }
     },
     [sendWsMessage]
   );
@@ -772,7 +775,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
                   className="max-w-full cursor-pointer rounded border border-[var(--color-border)]"
                   style={{ imageRendering: "auto" }}
                   tabIndex={0}
-                  onClick={handleCanvasClick}
                   onMouseDown={handleCanvasMouseDown}
                   onMouseUp={handleCanvasMouseUp}
                   onMouseMove={handleCanvasMouseMove}
