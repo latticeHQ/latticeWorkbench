@@ -9,16 +9,6 @@
 import { statSync } from "fs";
 import { homedir } from "os";
 import { log } from "@/node/services/log";
-
-/**
- * Get the real user home directory, bypassing MAS sandbox container redirect.
- * In MAS sandbox, os.homedir() returns ~/Library/Containers/<bundleId>/Data/
- */
-function getRealHome(): string {
-  const home = homedir();
-  const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
-  return containerMatch ? containerMatch[1] : home;
-}
 import { findCommandWithAliases } from "@/node/utils/commandDiscovery";
 import {
   TERMINAL_PROFILE_DEFINITIONS,
@@ -33,6 +23,18 @@ import {
   type TerminalProfileWithStatus,
 } from "@/common/types/terminalProfile";
 import type { Config } from "@/node/config";
+
+/**
+ * Get the real user home directory, bypassing MAS sandbox container redirect.
+ * In MAS sandbox, os.homedir() returns ~/Library/Containers/<bundleId>/Data/
+ * Note: This is a safety net — main.ts already sets process.env.HOME at startup,
+ * which makes os.homedir() return the real home for all subsequent calls.
+ */
+function getRealHome(): string {
+  const home = homedir();
+  const containerMatch = home.match(/^(\/Users\/[^/]+)\/Library\/Containers\//);
+  return containerMatch ? containerMatch[1] : home;
+}
 
 type RuntimeType = "local" | "worktree" | "ssh" | "docker" | "devcontainer";
 
