@@ -158,11 +158,13 @@ function AnimatedEyes({ width, height }: { width: number; height: number }) {
         <g clipPath="url(#mes-lid-l)">
           <circle cx="58" cy="43" r="22" fill="#F9FAFB" />
           <motion.circle
+            cx={leftIrisCx[0]} cy={leftIrisCy[0]}
             r="12" fill="#92700C"
             animate={{ cx: leftIrisCx, cy: leftIrisCy }}
             transition={pupilTransition(0)}
           />
           <motion.circle
+            cx={leftPupilCx[0]} cy={leftPupilCy[0]}
             r="5.5" fill="#0C0F1A"
             animate={{ cx: leftPupilCx, cy: leftPupilCy }}
             transition={pupilTransition(0)}
@@ -182,11 +184,13 @@ function AnimatedEyes({ width, height }: { width: number; height: number }) {
         <g clipPath="url(#mes-lid-r)">
           <circle cx="142" cy="43" r="22" fill="#F9FAFB" />
           <motion.circle
+            cx={rightIrisCx[0]} cy={rightIrisCy[0]}
             r="12" fill="#92700C"
             animate={{ cx: rightIrisCx, cy: rightIrisCy }}
             transition={pupilTransition(0.2)}
           />
           <motion.circle
+            cx={rightPupilCx[0]} cy={rightPupilCy[0]}
             r="5.5" fill="#0C0F1A"
             animate={{ cx: rightPupilCx, cy: rightPupilCy }}
             transition={pupilTransition(0.2)}
