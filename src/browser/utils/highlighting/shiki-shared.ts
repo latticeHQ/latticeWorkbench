@@ -15,7 +15,8 @@ export function mapToShikiLang(detectedLang: string): string {
   const mapping: Record<string, string> = {
     text: "plaintext",
     sh: "bash",
-    // Add more mappings as needed
+    env: "ini",
+    dotenv: "ini",
   };
   return mapping[detectedLang] || detectedLang;
 }

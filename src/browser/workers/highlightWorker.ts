@@ -30,6 +30,8 @@ function mapToShikiLang(detectedLang: string): string {
   const mapping: Record<string, string> = {
     text: "plaintext",
     sh: "bash",
+    env: "ini",
+    dotenv: "ini",
   };
   return mapping[detectedLang] || detectedLang;
 }
