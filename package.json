@@ -322,10 +322,6 @@
       "category": "public.app-category.developer-tools",
       "icon": "build/icon.icns",
       "artifactName": "${productName}-${version}-mas-${arch}.${ext}",
-      "binaries": [
-        "dist/**/node_modules/node-pty/build/**/*.node",
-        "dist/**/node_modules/@duckdb/**/*.node"
-      ],
       "extendInfo": {
         "ElectronTeamID": "4K8CVP69DX"
       }
