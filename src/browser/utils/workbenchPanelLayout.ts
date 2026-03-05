@@ -60,7 +60,7 @@ export function getDefaultWorkbenchPanelLayoutState(activeTab: TabType): Workben
   // Default: two-crew split — terminal on top, info tabs on bottom.
   // The bare "terminal" placeholder is promoted to a real "terminal:<sessionId>"
   // by WorkbenchPanel's promoteBareTerminalPlaceholders effect on mount.
-  const bottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "kanban", "issues", "inference", "schedules", "sync"];
+  const bottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "browser", "kanban", "issues", "inference", "schedules", "sync"];
 
   return {
     version: 1,
@@ -139,6 +139,9 @@ export function parseWorkbenchPanelLayoutState(
     if (!layoutContainsTab(raw.root, "sync")) {
       injectTabIntoLayout(raw.root, "sync");
     }
+    if (!layoutContainsTab(raw.root, "browser")) {
+      injectTabIntoLayout(raw.root, "browser");
+    }
 
     // Self-heal: if the split collapsed to a single tabset (e.g. all terminal
     // tabs were removed on a previous reload), restore the two-pane split
@@ -153,7 +156,7 @@ export function parseWorkbenchPanelLayoutState(
       // Ensure both panes have content
       const topTabs: TabType[] =
         terminalTabs.length > 0 ? terminalTabs : ["terminal"];
-      const defaultBottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "kanban", "issues", "inference", "schedules"];
+      const defaultBottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "browser", "kanban", "issues", "inference", "schedules"];
       const bottomTabs: TabType[] =
         infoTabs.length > 0 ? infoTabs : defaultBottomTabs;
 
