@@ -1,6 +1,6 @@
 {
   "name": "lattice",
-  "version": "1.0.3",
+  "version": "0.1.0-beta.1",
   "description": "Lattice - runtime enforcement and identity infrastructure for autonomous ai agents",
   "author": "Lattice",
   "main": "dist/cli/index.js",
@@ -298,7 +298,7 @@
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
-      "notarize": true
+      "notarize": false
     },
     "linux": {
       "target": "AppImage",
@@ -316,7 +316,9 @@
       ]
     },
     "mas": {
-      "target": ["mas"],
+      "target": [
+        "mas"
+      ],
       "entitlements": "build/entitlements.mas.plist",
       "entitlementsInherit": "build/entitlements.mas.inherit.plist",
       "provisioningProfile": "build/embedded.provisionprofile",

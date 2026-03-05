@@ -7,6 +7,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0-beta.1] - 2026-03-05
+
 ### Changed
 - macOS distribution: Developer ID signed + notarized via GitHub Releases
 - Enhanced hardened runtime entitlements for autonomous agent capabilities

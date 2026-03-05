@@ -50,6 +50,7 @@ EXACT_VERSION=""
 PLATFORMS="all"
 SIGN_MAC=true
 DRAFT=false
+PRERELEASE=false
 DRY_RUN=false
 SKIP_BUILD=false
 
@@ -64,6 +65,7 @@ while [[ $# -gt 0 ]]; do
     --linux-only) PLATFORMS="linux"; shift ;;
     --no-sign)  SIGN_MAC=false; shift ;;
     --draft)    DRAFT=true; shift ;;
+    --prerelease) PRERELEASE=true; shift ;;
     --dry-run)  DRY_RUN=true; shift ;;
     --skip-build) SKIP_BUILD=true; shift ;;
     --help|-h)
@@ -291,6 +293,13 @@ if [[ "$DRAFT" == "true" ]]; then
   DRAFT_FLAG="--draft"
 fi
 
+# Auto-detect pre-release from version string (e.g. 0.1.0-beta.1, 1.0.0-rc.1)
+PRERELEASE_FLAG=""
+if [[ "$PRERELEASE" == "true" || "$NEW_VERSION" == *"-"* ]]; then
+  PRERELEASE_FLAG="--prerelease"
+  info "Marking as pre-release (version contains pre-release identifier)"
+fi
+
 # ── Build professional release notes ──────────────────────────────────────────
 
 # Extract "What's New" from CHANGELOG.md [Unreleased] section (now stamped as current version)
@@ -394,6 +403,7 @@ $RELEASE_NOTES
 EOF
 )" \
   $DRAFT_FLAG \
+  $PRERELEASE_FLAG \
   "${ASSETS[@]}"
 
 RELEASE_URL="https://github.com/${REPO}/releases/tag/${TAG}"
