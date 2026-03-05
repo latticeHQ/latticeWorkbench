@@ -3958,6 +3958,105 @@ export const router = (authToken?: string) => {
         .handler(({ context, input }) => {
           return context.browserService.getSessionInfo(input.minionId);
         }),
+
+      // ── Phase 3: Full feature set from agent-browser ──
+
+      press: t
+        .input(schemas.browser.press.input)
+        .output(schemas.browser.press.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.press(input.minionId, input.key);
+        }),
+      hover: t
+        .input(schemas.browser.hover.input)
+        .output(schemas.browser.hover.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.hover(input.minionId, input.ref);
+        }),
+      find: t
+        .input(schemas.browser.find.input)
+        .output(schemas.browser.find.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.find(
+            input.minionId,
+            input.locator,
+            input.value,
+            input.action,
+            input.actionValue,
+          );
+        }),
+      wait: t
+        .input(schemas.browser.wait.input)
+        .output(schemas.browser.wait.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.wait(input.minionId, input.target);
+        }),
+      annotatedScreenshot: t
+        .input(schemas.browser.annotatedScreenshot.input)
+        .output(schemas.browser.annotatedScreenshot.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.annotatedScreenshot(input.minionId);
+        }),
+      eval: t
+        .input(schemas.browser.eval.input)
+        .output(schemas.browser.eval.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.evalJS(input.minionId, input.js);
+        }),
+      setViewport: t
+        .input(schemas.browser.setViewport.input)
+        .output(schemas.browser.setViewport.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.setViewport(input.minionId, input.width, input.height);
+        }),
+      setDevice: t
+        .input(schemas.browser.setDevice.input)
+        .output(schemas.browser.setDevice.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.setDevice(input.minionId, input.device);
+        }),
+      tabs: t
+        .input(schemas.browser.tabs.input)
+        .output(schemas.browser.tabs.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.tabs(input.minionId, input.action, input.target);
+        }),
+      dialog: t
+        .input(schemas.browser.dialog.input)
+        .output(schemas.browser.dialog.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.dialog(input.minionId, input.action, input.promptText);
+        }),
+      cookies: t
+        .input(schemas.browser.cookies.input)
+        .output(schemas.browser.cookies.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.cookies(
+            input.minionId,
+            input.action,
+            input.name,
+            input.value,
+            input.domain,
+          );
+        }),
+      networkRequests: t
+        .input(schemas.browser.networkRequests.input)
+        .output(schemas.browser.networkRequests.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.networkRequests(input.minionId, input.filter);
+        }),
+      drag: t
+        .input(schemas.browser.drag.input)
+        .output(schemas.browser.drag.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.drag(input.minionId, input.sourceRef, input.targetRef);
+        }),
+      selectOption: t
+        .input(schemas.browser.selectOption.input)
+        .output(schemas.browser.selectOption.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.selectOption(input.minionId, input.ref, input.value);
+        }),
     },
 
     // Terminal Profiles — CLI tool detection, install recipes, user config
