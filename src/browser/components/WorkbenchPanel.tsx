@@ -30,6 +30,7 @@ import {
 } from "@/browser/utils/ui/keybinds";
 import { cn } from "@/common/lib/utils";
 import type { ReviewNoteData } from "@/common/types/review";
+import { BrowserTab } from "./WorkbenchPanel/BrowserTab";
 import { TerminalTab } from "./WorkbenchPanel/TerminalTab";
 import {
   WORKBENCH_PANEL_TABS,
@@ -78,6 +79,7 @@ import {
   type TerminalSessionCreateOptions,
 } from "@/browser/utils/terminal";
 import {
+  BrowserTabLabel,
   CostsTabLabel,
   ExplorerTabLabel,
   KanbanTabLabel,
@@ -409,6 +411,8 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
       label = <CostsTabLabel minionId={props.minionId} />;
     } else if (tab === "review") {
       label = <ReviewTabLabel reviewStats={props.reviewStats} />;
+    } else if (tab === "browser") {
+      label = <BrowserTabLabel />;
     } else if (tab === "explorer") {
       label = <ExplorerTabLabel />;
     } else if (tab === "stats") {
@@ -554,6 +558,12 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
         {props.node.activeTab === "output" && (
           <div role="tabpanel" id={outputPanelId} aria-labelledby={outputTabId} className="h-full">
             <OutputTab minionId={props.minionId} />
+          </div>
+        )}
+
+        {props.node.activeTab === "browser" && (
+          <div role="tabpanel" className="h-full">
+            <BrowserTab minionId={props.minionId} visible={true} />
           </div>
         )}
 
