@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld("api", {
     chrome: process.versions.chrome,
     electron: process.versions.electron,
   },
+  isMAS: (process as any).mas === true,
   isE2E: process.env.LATTICE_E2E === "1",
   enableReactPerfProfile: process.env.LATTICE_PROFILE_REACT === "1",
   enableTelemetryInDev: process.env.LATTICE_ENABLE_TELEMETRY_IN_DEV === "1",

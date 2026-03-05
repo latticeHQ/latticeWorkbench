@@ -55,7 +55,7 @@ include fmt.mk
 .PHONY: build-renderer version build-icons build-static build-inferred
 .PHONY: lint lint-fix typecheck typecheck-react-native static-check
 .PHONY: test test-unit test-integration test-watch test-coverage test-e2e test-e2e-perf smoke-test
-.PHONY: dist dist-mac dist-win dist-linux install-mac-arm64
+.PHONY: dist dist-mac dist-mas dist-mas-dev dist-win dist-linux install-mac-arm64
 .PHONY: vscode-ext vscode-ext-install
 .PHONY: storybook storybook-build test-storybook chromatic
 .PHONY: benchmark-terminal
@@ -431,6 +431,16 @@ install-mac-arm64: dist-mac-arm64 ## Build and install macOS arm64 app to /Appli
 	@rm -rf /Applications/lattice.app
 	@cp -R release/mac-arm64/lattice.app /Applications/
 	@echo "Installed lattice.app to /Applications"
+
+dist-mas: build ## Build Mac App Store .pkg (arm64)
+	@echo "Building MAS distribution (arm64)..."
+	@bun x electron-builder --mac mas --arm64 --publish never
+	@echo "✅ MAS .pkg built successfully"
+
+dist-mas-dev: build ## Build MAS development .app for local testing (arm64)
+	@echo "Building MAS development build (arm64)..."
+	@bun x electron-builder --mac mas-dev --arm64 --publish never
+	@echo "✅ MAS dev build complete"
 
 dist-win: build ## Build Windows distributable
 	@bun x electron-builder --win --publish never

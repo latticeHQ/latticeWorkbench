@@ -35,6 +35,12 @@ export class UpdateService {
   private async initialize() {
     // Check if running in Electron Main process
     if (process.versions.electron) {
+      // MAS builds use the App Store for updates — skip electron-updater entirely
+      if ((process as any).mas === true) {
+        log.debug("UpdateService: MAS build — auto-updater disabled (App Store handles updates)");
+        return;
+      }
+
       try {
         // Dynamic import to avoid loading electron-updater in CLI
         // eslint-disable-next-line no-restricted-syntax
@@ -62,6 +68,10 @@ export class UpdateService {
 
   async check(options?: { source?: "auto" | "manual" }): Promise<void> {
     await this.ready;
+    // MAS builds cannot self-update
+    if ((process as any).mas === true) {
+      return;
+    }
     if (this.impl) {
       if (process.versions.electron) {
         try {
