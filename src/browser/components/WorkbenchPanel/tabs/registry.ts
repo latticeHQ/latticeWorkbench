@@ -79,7 +79,7 @@ export interface TabConfig {
 
 /** Static tab configurations (non-terminal tabs) */
 export const TAB_CONFIGS: Record<
-  "costs" | "review" | "explorer" | "stats" | "output" | "kanban" | "issues" | "inference" | "schedules" | "sync",
+  "costs" | "review" | "browser" | "explorer" | "stats" | "output" | "kanban" | "issues" | "inference" | "schedules" | "sync",
   TabConfig
 > = {
   costs: {
@@ -89,6 +89,10 @@ export const TAB_CONFIGS: Record<
   review: {
     name: "Review",
     contentClassName: "overflow-y-auto p-0",
+  },
+  browser: {
+    name: "Browser",
+    contentClassName: "overflow-hidden p-0",
   },
   explorer: {
     name: "Explorer",
@@ -144,6 +148,7 @@ export function getTabConfig(tab: TabType): TabConfig {
   if (
     tab === "costs" ||
     tab === "review" ||
+    tab === "browser" ||
     tab === "explorer" ||
     tab === "stats" ||
     tab === "output" ||

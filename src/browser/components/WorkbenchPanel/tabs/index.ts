@@ -22,6 +22,7 @@ export {
 } from "./registry";
 
 export {
+  BrowserTabLabel,
   CostsTabLabel,
   ExplorerTabLabel,
   KanbanTabLabel,
