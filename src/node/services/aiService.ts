@@ -50,6 +50,7 @@ import type { MinionMCPOverrides } from "@/common/types/mcp";
 import type { MCPServerManager, MCPMinionStats } from "@/node/services/mcpServerManager";
 import { MinionMcpOverridesService } from "./minionMcpOverridesService";
 import type { TaskService } from "@/node/services/taskService";
+import type { BrowserService } from "@/node/services/browserService";
 import { buildProviderOptions, buildRequestHeaders } from "@/common/utils/ai/providerOptions";
 import { sliceMessagesFromLatestCompactionBoundary } from "@/common/utils/messages/compactionBoundary";
 
@@ -166,6 +167,7 @@ export class AIService extends EventEmitter {
   // Debug: captured LLM request payloads for last send per minion
   private lastLlmRequestByMinion = new Map<string, DebugLlmRequestSnapshot>();
   private taskService?: TaskService;
+  private browserService?: BrowserService;
   private extraTools?: Record<string, Tool>;
 
   constructor(
@@ -223,6 +225,10 @@ export class AIService extends EventEmitter {
 
   setTaskService(taskService: TaskService): void {
     this.taskService = taskService;
+  }
+
+  setBrowserService(browserService: BrowserService): void {
+    this.browserService = browserService;
   }
 
   getProvidersConfig(): ProvidersConfigMap | null {
@@ -895,6 +901,7 @@ export class AIService extends EventEmitter {
           // External edit detection callback
           recordFileState,
           taskService: this.taskService,
+          browserService: this.browserService,
           // PTC experiments for inheritance to sidekicks
           experiments,
           // Dynamic context for tool descriptions (moved from system prompt for better model attention)

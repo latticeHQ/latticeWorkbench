@@ -1154,6 +1154,169 @@ export const TOOL_DEFINITIONS = {
     }),
   },
   // #endregion LATTICE_SDK_DISCOVERY
+
+  // #region BROWSER_TOOLS
+  // Per-minion headless browser via agent-browser.
+  // Each minion gets an isolated browser session.
+  browser_navigate: {
+    description:
+      "Navigate the minion's browser to a URL. Creates a browser session if one doesn't exist. " +
+      "Each minion has its own isolated browser with independent cookies and state. " +
+      "ALWAYS use this instead of Bash `open` or `xdg-open` to keep browsing inside the workbench.",
+    schema: z.object({
+      url: z.string().describe("URL to navigate to"),
+    }),
+  },
+  browser_snapshot: {
+    description:
+      "Get an accessibility tree snapshot of the current page with element refs (@e1, @e2, etc.) " +
+      "that can be used with browser_click and browser_fill. Primary way for agents to understand page structure.",
+    schema: z.object({}),
+  },
+  browser_screenshot: {
+    description: "Take a screenshot of the current page. Returns base64-encoded PNG.",
+    schema: z.object({}),
+  },
+  browser_annotated_screenshot: {
+    description:
+      "Take a screenshot with numbered labels overlaid on interactive elements. " +
+      "Returns the image plus annotations mapping numbers to element refs.",
+    schema: z.object({}),
+  },
+  browser_click: {
+    description: "Click an element identified by its snapshot ref (e.g., '@e2'). Get refs from browser_snapshot first.",
+    schema: z.object({
+      ref: z.string().describe("Element reference from snapshot (e.g., '@e2')"),
+    }),
+  },
+  browser_fill: {
+    description: "Fill a form field identified by its snapshot ref with a value. Clears existing content before filling.",
+    schema: z.object({
+      ref: z.string().describe("Element reference from snapshot (e.g., '@e3')"),
+      value: z.string().describe("Value to fill into the element"),
+    }),
+  },
+  browser_type: {
+    description: "Type text into the currently focused element. Unlike fill, this appends text and fires keyboard events.",
+    schema: z.object({
+      text: z.string().describe("Text to type"),
+    }),
+  },
+  browser_press: {
+    description:
+      "Press a keyboard key or combination (Enter, Tab, Escape, ArrowDown, Control+A, Meta+V, Shift+Tab, etc.).",
+    schema: z.object({
+      key: z.string().describe("Key to press (e.g., 'Enter', 'Tab', 'Control+A')"),
+    }),
+  },
+  browser_hover: {
+    description: "Hover over an element by its snapshot ref. Reveals tooltips, dropdowns, or hover states.",
+    schema: z.object({
+      ref: z.string().describe("Element reference from snapshot (e.g., '@e5')"),
+    }),
+  },
+  browser_scroll: {
+    description: "Scroll the page up or down.",
+    schema: z.object({
+      direction: z.enum(["up", "down"]).describe("Scroll direction"),
+    }),
+  },
+  browser_find: {
+    description:
+      "Find an element using semantic locators (by role, text, label, placeholder, or testid) " +
+      "and optionally perform an action on it.",
+    schema: z.object({
+      locator: z.string().describe("Locator type: role, text, label, placeholder, testid"),
+      value: z.string().describe("Value to match against the locator"),
+      action: z.string().nullish().describe("Action to perform: click, fill, check, hover, etc."),
+      actionValue: z.string().nullish().describe("Value for the action (e.g., text to fill)"),
+    }),
+  },
+  browser_wait: {
+    description: "Wait for a condition: CSS selector visible, text appears, URL matches, or fixed time in ms.",
+    schema: z.object({
+      target: z.string().describe("What to wait for: CSS selector, text, URL pattern, or time in ms"),
+    }),
+  },
+  browser_eval: {
+    description: "Execute JavaScript in the page context and return the result.",
+    schema: z.object({
+      js: z.string().describe("JavaScript expression to evaluate in the page context"),
+    }),
+  },
+  browser_set_viewport: {
+    description: "Set the browser viewport dimensions for responsive testing.",
+    schema: z.object({
+      width: z.number().describe("Viewport width in pixels"),
+      height: z.number().describe("Viewport height in pixels"),
+    }),
+  },
+  browser_set_device: {
+    description: "Emulate a device with proper viewport, user agent, and scale factor (e.g. 'iPhone 14', 'iPad Pro').",
+    schema: z.object({
+      device: z.string().describe("Device name (e.g., 'iPhone 14', 'iPad Pro', 'Pixel 7')"),
+    }),
+  },
+  browser_tabs: {
+    description: "Manage browser tabs: list, create, switch, or close tabs.",
+    schema: z.object({
+      action: z.enum(["list", "new", "switch", "close"]).describe("Tab action to perform"),
+      target: z.string().nullish().describe("Tab index or URL (for switch/new)"),
+    }),
+  },
+  browser_dialog: {
+    description: "Handle browser dialogs (alert, confirm, prompt, beforeunload).",
+    schema: z.object({
+      action: z.enum(["accept", "dismiss"]).describe("Accept or dismiss the dialog"),
+      promptText: z.string().nullish().describe("Text to enter for prompt dialogs"),
+    }),
+  },
+  browser_cookies: {
+    description: "Manage cookies: list all, set a cookie, or clear cookies.",
+    schema: z.object({
+      action: z.enum(["list", "set", "clear"]).describe("Cookie action"),
+      name: z.string().nullish().describe("Cookie name (for set)"),
+      value: z.string().nullish().describe("Cookie value (for set)"),
+      domain: z.string().nullish().describe("Cookie domain (for set)"),
+    }),
+  },
+  browser_network_requests: {
+    description: "View tracked network requests. Useful for debugging API calls.",
+    schema: z.object({
+      filter: z.string().nullish().describe("URL pattern to filter requests"),
+    }),
+  },
+  browser_drag: {
+    description: "Drag and drop from one element to another using snapshot refs.",
+    schema: z.object({
+      sourceRef: z.string().describe("Source element reference (e.g., '@e3')"),
+      targetRef: z.string().describe("Target element reference (e.g., '@e7')"),
+    }),
+  },
+  browser_select_option: {
+    description: "Select an option from a <select> dropdown. Matches by option value or visible text.",
+    schema: z.object({
+      ref: z.string().describe("Select element reference (e.g., '@e4')"),
+      value: z.string().describe("Option value or label to select"),
+    }),
+  },
+  browser_back: {
+    description: "Navigate browser history back.",
+    schema: z.object({}),
+  },
+  browser_forward: {
+    description: "Navigate browser history forward.",
+    schema: z.object({}),
+  },
+  browser_close: {
+    description: "Close the minion's browser session and release resources.",
+    schema: z.object({}),
+  },
+  browser_session_info: {
+    description: "Get information about the minion's browser session (URL, status, stream port).",
+    schema: z.object({}),
+  },
+  // #endregion BROWSER_TOOLS
 } as const;
 
 // -----------------------------------------------------------------------------
@@ -1515,6 +1678,32 @@ export function getAvailableTools(
     // Lattice SDK progressive disclosure (code execution pattern)
     "lattice_list_categories",
     "lattice_search_tools",
+    // Browser tools — per-minion headless browser via agent-browser
+    "browser_navigate",
+    "browser_snapshot",
+    "browser_screenshot",
+    "browser_annotated_screenshot",
+    "browser_click",
+    "browser_fill",
+    "browser_type",
+    "browser_press",
+    "browser_hover",
+    "browser_scroll",
+    "browser_find",
+    "browser_wait",
+    "browser_eval",
+    "browser_set_viewport",
+    "browser_set_device",
+    "browser_tabs",
+    "browser_dialog",
+    "browser_cookies",
+    "browser_network_requests",
+    "browser_drag",
+    "browser_select_option",
+    "browser_back",
+    "browser_forward",
+    "browser_close",
+    "browser_session_info",
   ];
 
   // Add provider-specific tools
