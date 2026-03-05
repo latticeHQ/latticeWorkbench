@@ -215,15 +215,22 @@ export function buildGitDiffCommand(
         ? " -M --name-status"
         : " -M";
 
+  // Guard: bail early with empty output if not inside a git repo.
+  // Without this, `git diff` prints its full usage text to stderr,
+  // flooding the console in sandbox / non-repo environments.
+  const repoGuard = "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0; ";
+
   if (diffBase === "--staged") {
     // Staged changes, optionally with unstaged appended as separate diff
     const base = `git diff --staged${flags}${pathFilter}`;
-    return includeUncommitted ? `${base} && git diff HEAD${flags}${pathFilter}` : base;
+    return includeUncommitted
+      ? `${repoGuard}${base} && git diff HEAD${flags}${pathFilter}`
+      : `${repoGuard}${base}`;
   }
 
   if (diffBase === "HEAD") {
     // Uncommitted changes only (working vs HEAD)
-    return `git diff HEAD${flags}${pathFilter}`;
+    return `${repoGuard}git diff HEAD${flags}${pathFilter}`;
   }
 
   // Branch diff: use three-dot for committed only, or merge-base for committed+uncommitted
@@ -232,9 +239,9 @@ export function buildGitDiffCommand(
     // This includes both committed changes on the branch AND uncommitted working changes
     // Single command avoids duplicate hunks from concatenation
     // Stable comparison point: merge-base doesn't change when diffBase ref moves forward
-    return `git diff $(git merge-base ${diffBase} HEAD)${flags}${pathFilter}`;
+    return `${repoGuard}git diff $(git merge-base ${diffBase} HEAD)${flags}${pathFilter}`;
   } else {
     // Three-dot: committed changes only (merge-base to HEAD)
-    return `git diff ${diffBase}...HEAD${flags}${pathFilter}`;
+    return `${repoGuard}git diff ${diffBase}...HEAD${flags}${pathFilter}`;
   }
 }
