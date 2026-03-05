@@ -261,7 +261,13 @@ export class BrowserService {
   ): Promise<BrowserActionResult> {
     const binaryPath = await this.resolveBinaryPath();
 
-    const fullArgs = ["--session", sessionName, "--ignore-https-errors", command, ...args];
+    const fullArgs = [
+      "--session", sessionName,
+      "--headed", "false",
+      "--ignore-https-errors",
+      command,
+      ...args,
+    ];
 
     try {
       const { stdout, stderr } = await execFileAsync(binaryPath, fullArgs, {
@@ -270,6 +276,7 @@ export class BrowserService {
         env: {
           ...process.env,
           NO_COLOR: "1",
+          AGENT_BROWSER_HEADED: "false",
           AGENT_BROWSER_IGNORE_HTTPS_ERRORS: "1",
         },
       });
