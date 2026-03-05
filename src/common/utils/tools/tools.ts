@@ -30,7 +30,7 @@ import {
   createLatticeListCategoriesTool,
   createLatticeSearchToolsTool,
 } from "@/node/services/tools/lattice_sdk_discovery";
-import { createBrowserTools } from "@/node/services/tools/browser";
+import { createCoreBrowserTools } from "@/node/services/tools/browser";
 import { wrapWithInitWait } from "@/node/services/tools/wrapWithInitWait";
 import { withHooks, type HookConfig } from "@/node/services/tools/withHooks";
 import { log } from "@/node/services/log";
@@ -320,8 +320,10 @@ export async function getToolsForModel(
 
     web_fetch: wrap(createWebFetchTool(config)),
 
-    // Browser tools — per-minion headless browser via agent-browser
-    ...createBrowserTools(config),
+    // Browser tools — core set loaded directly (5 tools).
+    // Additional browser tools are available via SDK progressive disclosure
+    // (lattice_search_tools → file_read SDK → bash code execution).
+    ...createCoreBrowserTools(config),
   };
 
   // Non-runtime tools execute immediately (no init wait needed)

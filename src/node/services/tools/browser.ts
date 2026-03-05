@@ -343,10 +343,28 @@ export const createBrowserSessionInfoTool: ToolFactory = (config) =>
   });
 
 /**
- * Create all browser tools as a record keyed by tool name.
- * Suitable for spreading into runtimeTools in getToolsForModel().
+ * Core browser tools loaded directly into every agent context (5 tools).
+ * These cover the fundamental browse-and-interact loop.
+ *
+ * Additional browser tools (20) are available via SDK progressive disclosure:
+ *   lattice_search_tools({ query: "browser" }) → file_read SDK → bash code execution
+ * See: src/mcp-server/sdk/browser.ts
  */
-export function createBrowserTools(config: ToolFactory extends (c: infer C) => unknown ? C : never): Record<string, ReturnType<ToolFactory>> {
+export function createCoreBrowserTools(config: ToolFactory extends (c: infer C) => unknown ? C : never): Record<string, ReturnType<ToolFactory>> {
+  return {
+    browser_navigate: createBrowserNavigateTool(config),
+    browser_snapshot: createBrowserSnapshotTool(config),
+    browser_screenshot: createBrowserScreenshotTool(config),
+    browser_click: createBrowserClickTool(config),
+    browser_fill: createBrowserFillTool(config),
+  };
+}
+
+/**
+ * Create ALL browser tools (25) as a record keyed by tool name.
+ * Used by tests or for full tool registration when progressive disclosure is disabled.
+ */
+export function createAllBrowserTools(config: ToolFactory extends (c: infer C) => unknown ? C : never): Record<string, ReturnType<ToolFactory>> {
   return {
     browser_navigate: createBrowserNavigateTool(config),
     browser_snapshot: createBrowserSnapshotTool(config),
