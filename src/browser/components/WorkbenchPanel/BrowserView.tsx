@@ -42,6 +42,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
   const [snapshotRaw, setSnapshotRaw] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("screenshot");
   const [isLoading, setIsLoading] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
 
@@ -53,12 +54,22 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     if (!api) return;
     try {
       const info = await api.browser.sessionInfo({ minionId });
-      setSessionInfo(info);
+      // Only update state if data actually changed to avoid unnecessary re-renders
+      setSessionInfo((prev) => {
+        if (
+          prev?.url === info?.url &&
+          prev?.isActive === info?.isActive &&
+          prev?.sessionName === info?.sessionName
+        ) {
+          return prev;
+        }
+        return info;
+      });
       if (info?.url) {
-        setUrlInput(info.url);
+        setUrlInput((prev) => (prev === info.url ? prev : info.url!));
       }
     } catch {
-      setSessionInfo(null);
+      setSessionInfo((prev) => (prev === null ? prev : null));
     }
   }, [api, minionId]);
 
@@ -69,6 +80,23 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     const interval = setInterval(fetchSessionInfo, 5000);
     return () => clearInterval(interval);
   }, [visible, api, fetchSessionInfo]);
+
+  // ── Screenshot (fire-and-forget safe) ─────────────────────────────────
+  const takeScreenshot = useCallback(async () => {
+    if (!api) return;
+    setIsCapturing(true);
+    try {
+      const result = await api.browser.screenshot({ minionId });
+      if (result.success && result.screenshot) {
+        setScreenshotBase64(result.screenshot.base64);
+        setViewMode("screenshot");
+      }
+    } catch {
+      // Silently fail for auto-screenshots; user can retry manually
+    } finally {
+      setIsCapturing(false);
+    }
+  }, [api, minionId]);
 
   // ── Navigation ─────────────────────────────────────────────────────────
   const handleNavigate = useCallback(
@@ -95,8 +123,8 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
           setSessionInfo((prev) =>
             prev ? { ...prev, url: normalizedUrl } : { minionId, sessionName: "", url: normalizedUrl, isActive: true }
           );
-          // Auto-take a screenshot after navigating
-          await handleScreenshot();
+          // Fire-and-forget: take screenshot in background, don't block the UI
+          takeScreenshot().catch(() => {});
         } else {
           setError(result.error ?? "Navigation failed");
         }
@@ -106,7 +134,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
         setIsLoading(false);
       }
     },
-    [api, minionId, urlInput]
+    [api, minionId, urlInput, takeScreenshot]
   );
 
   const handleBack = useCallback(async () => {
@@ -115,13 +143,14 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     try {
       await api.browser.back({ minionId });
       await fetchSessionInfo();
-      await handleScreenshot();
+      // Fire-and-forget screenshot
+      takeScreenshot().catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Back navigation failed");
     } finally {
       setIsLoading(false);
     }
-  }, [api, minionId, fetchSessionInfo]);
+  }, [api, minionId, fetchSessionInfo, takeScreenshot]);
 
   const handleForward = useCallback(async () => {
     if (!api) return;
@@ -129,25 +158,31 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     try {
       await api.browser.forward({ minionId });
       await fetchSessionInfo();
-      await handleScreenshot();
+      // Fire-and-forget screenshot
+      takeScreenshot().catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Forward navigation failed");
     } finally {
       setIsLoading(false);
     }
-  }, [api, minionId, fetchSessionInfo]);
+  }, [api, minionId, fetchSessionInfo, takeScreenshot]);
 
-  // ── Screenshot ─────────────────────────────────────────────────────────
+  // ── Manual screenshot (user-initiated, shows loading) ─────────────────
   const handleScreenshot = useCallback(async () => {
     if (!api) return;
+    setIsLoading(true);
     try {
       const result = await api.browser.screenshot({ minionId });
       if (result.success && result.screenshot) {
         setScreenshotBase64(result.screenshot.base64);
         setViewMode("screenshot");
+      } else {
+        setError("Screenshot failed");
       }
-    } catch {
-      // Silently fail for auto-screenshots; user can retry manually
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Screenshot failed");
+    } finally {
+      setIsLoading(false);
     }
   }, [api, minionId]);
 
@@ -189,7 +224,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
   useEffect(() => {
     if (autoRefresh && visible && sessionInfo?.isActive) {
       autoRefreshTimerRef.current = setInterval(() => {
-        handleScreenshot();
+        takeScreenshot().catch(() => {});
       }, 3000);
     }
     return () => {
@@ -198,7 +233,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
         autoRefreshTimerRef.current = null;
       }
     };
-  }, [autoRefresh, visible, sessionInfo?.isActive, handleScreenshot]);
+  }, [autoRefresh, visible, sessionInfo?.isActive, takeScreenshot]);
 
   // ── URL input key handler ──────────────────────────────────────────────
   const handleUrlKeyDown = useCallback(
@@ -344,7 +379,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
 
       {/* Main content area */}
       <div className="relative flex-1 overflow-auto">
-        {isLoading && (
+        {(isLoading || isCapturing) && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--color-background)]/50">
             <Loader2 className="h-6 w-6 animate-spin text-[var(--color-accent)]" />
           </div>
@@ -361,7 +396,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
           </div>
         )}
 
-        {viewMode === "screenshot" && !screenshotBase64 && !isLoading && (
+        {viewMode === "screenshot" && !screenshotBase64 && !isLoading && !isCapturing && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-[var(--color-muted)]">
             <Camera className="h-8 w-8 opacity-30" />
             <p className="text-xs">Click the camera icon to take a screenshot</p>
