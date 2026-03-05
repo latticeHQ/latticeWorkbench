@@ -4,8 +4,8 @@
 
 ### The founding document of the Lattice ecosystem
 
-*Lattice is the open-source platform for building your personal team of AI agents —
-where every minion gets an identity, permissions, compute, and a mission.*
+*Lattice is the open-source platform for deploying companies powered by AI workforces —
+where every department runs autonomously on your own hardware.*
 
 </div>
 
@@ -13,105 +13,257 @@ where every minion gets an identity, permissions, compute, and a mission.*
 
 ## Why This Exists
 
-Software ate the world. AI is eating software. But right now, working with AI agents looks like this: one chat window, one conversation, one task at a time. Copy-paste results between tools. Babysit every step. Hope nothing goes sideways.
+A company used to require an office, a team, and a year of hiring.
 
-That is not how work gets done.
+Then it required a laptop and a dozen SaaS subscriptions.
 
-When a company needs to ship something real, they don't hand one person a chat window. They assemble a team. Specialists with clear roles, defined authority, and the right tools. A senior architect delegates to junior engineers. A project lead coordinates across workstreams. Everyone operates within guardrails — not because guardrails are fun, but because guardrails are what let you trust people to run autonomously.
+Now it requires one command.
 
-Lattice exists because AI agents deserve the same structure.
-
-We are building the infrastructure for **personal AI teams** — your own roster of minions that plan, investigate, build, test, and deploy on your behalf. Not one agent doing everything. A coordinated crew, each with the right skills, the right access, and the right constraints.
-
-Starting with software engineering. Expanding to every knowledge profession that exists.
-
-## The Vision
-
-Everyone gets their own consulting agency.
-
-A developer summons a crew of minions — one scouts the codebase, one architects the solution, one builds it, one writes the tests. They coordinate. They report back. You review the work and ship it.
-
-A lawyer gets a crew that researches case law, drafts briefs, and flags conflicts of interest — all governed by the same ethical walls that bind human associates. A marketing team summons minions that analyze campaign data, draft copy, and A/B test headlines across channels. A startup founder benches a minion after a funding round and summons a new one for product launch.
-
-This is not science fiction. The models are here. The tool-use protocols are here. What is missing is the **operating system** — the layer that gives agents real identity, real permissions, real audit trails, and real deployment infrastructure.
+The models are here. The tool-use protocols are here. What's missing is the layer that organizes AI into something that actually works like a company — departments with clear responsibilities, roles with specific expertise, workflows that move work from idea to delivery, and governance that lets you trust the system enough to walk away.
 
 Lattice is that layer.
 
-## Core Principles
+---
 
-### 1. Open Enforcement
+## What We Believe
 
-The enforcement kernel — identity, authorization, audit, deployment constraints — is open source and inspectable. You don't get security by obscurity. You get security by publishing your enforcement logic and letting the community verify it.
+### 1. Companies are software now.
 
-Every minion that runs through Lattice gets a cryptographic identity. Every tool call is authorized against a policy you define. Every action is logged to an audit trail you own. This is not optional. This is the foundation.
+Music became files. Books became ebooks. Stores became Shopify instances.
 
-### 2. Vendor Neutral
+Companies are next.
 
-Lattice doesn't care which model runs your minions. Claude, GPT, Gemini, Grok, Deepseek, Llama, Mistral, or your own fine-tune running on local hardware — swap freely. The Workbench treats every provider the same. Your minions are loyal to you, not to a model vendor.
+A company is a set of processes, roles, and decisions organized toward a goal. Every part of that sentence can be expressed in code and executed by intelligence. The company itself becomes something you deploy.
 
-### 3. Self-Hosted First
+### 2. Anyone should be able to build a company.
 
-Your agents. Your data. Your infrastructure. Lattice runs on your laptop, your server, your cloud account, or your air-gapped lab. The platform doesn't phone home. There is no SaaS dependency in the critical path. You can run your entire minion roster on a Mac Mini in your closet if that's what the mission requires.
+Not just people with funding, connections, or the ability to hire a team. A student in Lagos. A designer in Osaka. A retiree in Kansas. If you have a vision and a Mac, you can deploy a company that operates with the capacity of a well-funded startup.
 
-### 4. Composable Teams
+Lattice democratizes the ability to build. That's the mission.
 
-A single minion is useful. A coordinated crew is transformative. Lattice is built around the idea that agents work best in structured teams — a senior minion summoning sidekicks for subtasks, a crew organized by practice area, an orchestrator managing the full mission pipeline.
+### 3. Your company should run on your desk.
 
-This is not just a UI metaphor. The runtime enforces delegation chains, the Workbench visualizes team topology in real time, and the audit trail traces every decision back through the chain of command.
+Your photos live on your phone. Your music lives on your laptop. Your company should too.
 
-## The Vocabulary
+Not scattered across 50 SaaS dashboards you barely understand. Not dependent on services that raise prices, change terms, or disappear. On hardware you own, with data you control.
 
-Lattice uses language that reflects how teams actually work:
+A Mac Studio on your desk — or a cluster of Macs connected via Thunderbolt for serious scale. Your entire company inside it. Always on. Always working.
 
-- **Minion** — An AI agent on your roster. It has an identity, a runtime environment, a conversation history, and a mission. Summon one when you need work done.
-- **Crew** — A practice group. Organize your minions by domain — backend crew, security crew, research crew — the same way a consulting firm organizes its partners into practice areas.
-- **Sidekick** — A minion brought in by another minion to handle a subtask. Sidekicks inherit scoped permissions from their parent and report back when the work is done.
-- **Summon** — Deploy a new minion. Pick a model, choose an agent type, configure tools and permissions, and launch.
-- **Bench** — Archive a minion between missions. Its history and configuration are preserved. Pull it off the bench when you need it again.
-- **Mission** — What a minion is working on. A mission has a goal, a context, and a measurable outcome.
-- **Workbench** — Your agency headquarters. The place where you summon minions, organize crews, monitor missions, and review results.
+### 4. Departments, not chatbots.
+
+The AI industry got the abstraction wrong.
+
+A chatbot is a toy. A copilot is a tool. Neither is a company.
+
+A company has structure: departments with clear responsibilities, roles with specific expertise, workflows that move work from idea to delivery. AI should be organized the same way — not as one omniscient assistant, but as a team of specialists who coordinate.
+
+An engineering department that ships code. A marketing department that creates content. A sales department that closes deals. Each with its own space, its own tools, its own budget. Just like a real company. Because it *is* a real company.
+
+### 5. Deploy, don't assemble.
+
+Building a company used to take months of assembling pieces — hiring, onboarding, setting up tools, defining processes. Each piece had to be found, negotiated, and integrated by hand.
+
+Deploying is instant. You choose a company template, describe your vision, and every department comes online in seconds — configured, coordinated, and ready to operate.
+
+The companies of the future won't be assembled. They'll be deployed.
+
+---
+
+## The Product
+
+**Lattice** is an open-source platform that deploys and operates entire companies powered by AI workforces.
+
+You describe the company you want to build. Lattice deploys it.
+
+Every department comes online — engineering, marketing, sales, support, finance — each running as an isolated, autonomous unit. Each department has its own workspace, its own minions, its own tools, its own schedule, its own budget.
+
+The founder is the CEO. Lattice is the company.
+
+---
+
+## Design Principles
+
+### Invisible until needed.
+The best interface is the one that disappears. The company runs. You check in when you want, not when the system demands it. No notification storms. No dashboards to monitor. Results appear. Problems escalate. Everything else happens quietly.
+
+### Opinionated by default, flexible by design.
+A department template deploys with sensible defaults — crew leads, schedules, tools, and pipeline stages. It works out of the box. But every role, every schedule, every tool can be customized. Start with our opinion. Make it yours over time.
+
+### Structure creates freedom.
+Constraints are not limitations. A department with a clear budget won't overspend. A minion with a clear role won't overstep. An audit trail with every action won't miss a mistake. Structure is what lets you trust the system enough to walk away.
+
+### Local first. Cloud optional.
+Your company runs on your hardware. Your data stays on your machine. Cloud is an option for those who want it — never a requirement. Privacy is the default, not a premium feature.
+
+### Open by nature.
+The platform is open source. Company templates are community-created. Anyone can build a "restaurant-in-a-box" or a "law-firm-in-a-box" and share it. The best companies will be the ones the community refines together.
+
+---
+
+## The Architecture
+
+```
+┌──────────────────────────────────────────────────────┐
+│                   Your Hardware                       │
+│                                                      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │            LATTICE RUNTIME                     │  │
+│  │                                                │  │
+│  │  Identity · Authorization · Constraints · Audit│  │
+│  │  Cross-department coordination                 │  │
+│  │  Budget management & cost tracking             │  │
+│  └──────────┬─────────┬─────────┬────────────────┘  │
+│             │         │         │                    │
+│       ┌─────▼──┐ ┌────▼───┐ ┌──▼──────┐            │
+│       │  Eng   │ │ Mktg   │ │ Sales   │  ...        │
+│       │  ════  │ │  ════  │ │  ════   │             │
+│       │Workbnch│ │Workbnch│ │Workbnch │             │
+│       │Instance│ │Instance│ │Instance │             │
+│       └────────┘ └────────┘ └─────────┘             │
+│                                                      │
+│  ┌────────────────────────────────────────────────┐  │
+│  │          LATTICE INFERENCE                     │  │
+│  │  Local AI models on Apple Silicon              │  │
+│  │  Zero API costs · Zero data leakage            │  │
+│  └────────────────────────────────────────────────┘  │
+│                                                      │
+└──────────────────────────────────────────────────────┘
+```
+
+**Runtime** — The backbone. Deploys departments, enforces policies, coordinates cross-department communication, tracks costs. Written in Go. Production-grade. Every minion passes through Runtime's four enforcement gates before it acts: Identity, Authorization, Constraints, Audit.
+
+**Workbench** — The workspace. Each department gets its own instance with its own minions, tools, schedules, and chat history. Fully isolated. Written in TypeScript/React.
+
+**Inference** — The brain. Runs AI models locally on Apple Silicon via MLX. Zero-config multi-node clustering via mDNS. No data leaves your machine. Routine tasks cost nothing.
+
+---
 
 ## The Ecosystem
 
-Lattice is not one repository. It is a coordinated system of components, each with a clear responsibility:
-
 | Component | What It Does | License |
 | --- | --- | --- |
-| [**Lattice Runtime**](https://github.com/latticeHQ/lattice) | The enforcement kernel. Identity, authorization, audit, and deployment constraints. Every minion passes through Runtime's four gates before it acts. | Apache 2.0 |
-| [**Lattice Workbench**](https://github.com/latticeHQ/latticeWorkbench) | Your agency headquarters. Summon minions, organize crews, monitor missions, manage tools. Desktop, web, and CLI. | MIT |
-| [**Lattice Inference**](https://github.com/latticeHQ/lattice-inference) | Local LLM serving. MLX on Apple Silicon, CUDA on NVIDIA, zero-config multi-node clustering. Your minions, your hardware, zero API costs. | Apache 2.0 |
-| [**Lattice Registry**](https://github.com/latticeHQ/lattice-registry) | Community ecosystem. Templates, modules, and infrastructure presets for Docker, Kubernetes, AWS, GCP, and Azure. One command to deploy a governed minion anywhere. | Apache 2.0 |
-| [**Terraform Provider**](https://github.com/latticeHQ/terraform-provider-lattice) | Infrastructure as code for Lattice deployments. Declare your minion fleet in HCL. | MPL 2.0 |
+| [**Lattice Runtime**](https://github.com/latticeHQ/lattice) | The enforcement backbone. Identity, authorization, audit, and deployment constraints. Cross-department coordination and budget management. | Apache 2.0 |
+| [**Lattice Workbench**](https://github.com/latticeHQ/latticeWorkbench) | Department workspace. Deploy minions, organize crews, run pipeline stages, manage tools. Desktop, web, and CLI. | MIT |
+| [**Lattice Inference**](https://github.com/latticeHQ/lattice-inference) | Local AI serving. MLX on Apple Silicon, CUDA on NVIDIA, zero-config multi-node clustering. Your minions, your hardware, zero API costs. | Apache 2.0 |
+| [**Lattice Registry**](https://github.com/latticeHQ/lattice-registry) | Community ecosystem. Company templates, department templates, and infrastructure presets for Docker, Kubernetes, AWS, GCP, and Azure. | Apache 2.0 |
+| [**Terraform Provider**](https://github.com/latticeHQ/terraform-provider-lattice) | Infrastructure as code for Lattice deployments. | MPL 2.0 |
 | [**Homebrew Tap**](https://github.com/latticeHQ/homebrew-lattice) | One-line install on macOS and Linux. | MIT |
 
-### How They Fit Together
+---
 
-**Runtime** is the foundation. It doesn't care where agents come from — Workbench, a CLI script, a CI pipeline, or a third-party tool. If an agent wants identity, authorization, or audit, it goes through Runtime.
+## The Vocabulary
 
-**Workbench** is the primary interface for humans. It's where you think about your minions as a team rather than as individual processes. It connects to Runtime via oRPC for enforcement, to Inference for local models, and to Registry for deployment templates.
+| Term | What It Means |
+| --- | --- |
+| **Minion** | An AI worker. It has an identity, a runtime environment, a conversation history, and work to do. Not "employee" — that's a human term. |
+| **Department** | A business unit — Engineering, Marketing, Sales. Each runs as its own Workbench instance with its own minions, tools, and budget. |
+| **Crew** | A pipeline stage within a department — Intake, Build, Review, Deploy. Organizes how work flows through the department. |
+| **Crew Lead** | The minion that owns a crew. Coordinates work in that stage and can spawn more minions as needed. |
+| **Chief of Staff** | The coordinator across all crews. Daily briefings, task routing, escalation. When you chat with Lattice, you're talking to your CoS. |
+| **Sidekick** | A minion brought in by another minion to handle a subtask. Inherits scoped permissions from their parent. |
+| **Founder** | The human. The CEO. The one who deploys and directs. |
 
-**Inference** is optional but powerful. Plug it in and your minions can run on local hardware with zero data leakage and zero API costs. Unplug it and they fall back to cloud providers seamlessly.
+---
 
-**Registry** is how the community shares. Built a good Docker template for a code review minion? Publish it. Found a solid Kubernetes preset for a multi-minion crew? Share it. The Registry is the package manager for agent infrastructure.
+## The First Company: Lattice Builds Lattice
 
-## Who This Is For
+The first company we deploy on Lattice is **Lattice itself**. The product builds the product. The ultimate proof that it works.
 
-**Today:** Software engineers who want AI agents that actually work in teams — planning, coding, testing, reviewing, and deploying as a coordinated crew rather than a single chat window.
+**Departments (added as needed):**
 
-**Tomorrow:** Every knowledge worker who has ever thought "I need a team for this but I don't have the budget for one." Lawyers, analysts, marketers, researchers, operations teams. The infrastructure is the same. The agent definitions change.
+| Department | What It Does |
+|---|---|
+| **Engineering** | Architecture, implementation, code review, QA, CI/CD, releases |
+| **Product** | Requirements, specs, user stories, roadmap, user research |
+| **Marketing** | Content creation, social media, SEO, growth analytics, brand |
+| **Sales** | Outbound prospecting, lead qualification, pipeline management |
+| **Support** | Community support, issue triage, feedback collection, docs |
+| **Finance** | Cost tracking, cash flow, invoicing, budget management |
+
+We start with Engineering. It builds Lattice. We learn what works from real usage — not idealized dreams. Other departments get added when real needs arise.
+
+**The operating cycle:**
+
+```
+Founder: "Build Lattice — the company deployment platform"
+                    │
+          ┌─────────▼──────────┐
+          │  Chief of Staff    │  Morning briefing, routes work to departments
+          └─────────┬──────────┘
+                    │
+     ┌──────────────┼──────────────┬──────────────┐
+     │              │              │              │
+┌────▼────┐  ┌─────▼─────┐ ┌─────▼─────┐ ┌─────▼─────┐
+│ Product │  │Engineering│ │Marketing  │ │  Sales    │
+│ defines │  │  builds   │ │ spreads   │ │  closes   │
+│ what    │  │  it       │ │ the word  │ │  deals    │
+└────┬────┘  └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+     │              │              │              │
+     └──────────────┼──────────────┴──────────────┘
+                    │
+          ┌─────────▼──────────┐
+          │    Support         │  Users give feedback
+          └─────────┬──────────┘
+          ┌─────────▼──────────┐
+          │    Finance         │  Tracks the money
+          └─────────┬──────────┘
+          ┌─────────▼──────────┐
+          │  Chief of Staff    │  Reports to Founder — cycle repeats
+          └────────────────────┘
+```
+
+Every improvement to Lattice makes every Lattice-deployed company better.
+
+---
+
+## What Lattice Is Not
+
+**Not a chatbot.** You don't talk to one AI. You run a company of specialists.
+
+**Not a dev tool.** Engineering is one department. There are also marketing, sales, support, finance. The company is the product, not the code.
+
+**Not a workflow builder.** You don't drag and drop boxes. You deploy a company and it figures out the workflow. The minions plan, adapt, and coordinate.
+
+**Not cloud-dependent.** Your company runs on your hardware. We'll offer cloud as an option. Never as a requirement.
+
+**Not a walled garden.** Open source. Open templates. Open ecosystem. Build your own company template. Share it with the world.
+
+---
+
+## The Roadmap
+
+**Now**: Launch with the Engineering department template. It builds Lattice. Ship, learn, iterate.
+
+**Next**: Add departments one at a time based on real needs. Each department earns its place.
+
+**Then**: Full company template emerges from battle-tested departments. Community creates more — e-commerce, agency, media, consultancy.
+
+**Later**: Template marketplace. Multi-machine Thunderbolt clusters. Cloud option.
+
+**Eventually**: Every new company starts as a Lattice deployment.
+
+---
+
+## The Open Source Commitment
+
+Lattice is open source because companies should be inspectable, modifiable, and owned by their founders.
+
+Every agent definition is a markdown file you can read and edit. Every company template is a YAML file you can fork. Every department runs on code you can audit.
+
+No black boxes. No vendor lock-in. No surprises.
+
+---
 
 ## How to Get Involved
 
-Lattice is open source because we believe the infrastructure layer for AI agents should be a public good. The enforcement logic that governs what agents can do is too important to be a black box.
-
-- **Use it.** Install the Workbench, summon your first minion, build something.
+- **Use it.** Install the Workbench, deploy your first department, build something.
 - **Break it.** File issues, report security findings, push the edges.
-- **Build on it.** Write agent templates, publish Registry modules, create integrations.
+- **Build on it.** Write department templates, publish Registry modules, create integrations.
 - **Shape it.** Join the discussion on architecture decisions that affect everyone.
 
 The repositories are open. The enforcement is transparent. The mission is clear.
 
-Build your team.
+Deploy your company.
 
 ---
 
@@ -119,6 +271,6 @@ Build your team.
 
 **[latticeruntime.com](https://latticeruntime.com)**
 
-Your minions. Your models. Your rules. Your infrastructure.
+From idea to company. One command.
 
 </div>

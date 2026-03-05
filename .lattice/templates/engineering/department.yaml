@@ -1,0 +1,128 @@
+# Engineering Department Template
+# Deploy: lattice deploy --template engineering
+# One of many departments in a Lattice-deployed company.
+
+name: Engineering
+description: Architecture, implementation, code review, QA, CI/CD, releases
+color: "#14B8A6"
+
+# The 10-stage delivery pipeline (maps to Workbench's default crews)
+crews:
+  - name: Intake
+    color: Pink
+    lead: intake-lead
+    purpose: Triage incoming issues, feature requests, bug reports
+
+  - name: Discovery
+    color: Blue
+    lead: discovery-lead
+    purpose: Research, spikes, understand the problem space
+
+  - name: Planning
+    color: Yellow
+    lead: planning-lead
+    purpose: Sprint planning, architecture, task breakdown
+
+  - name: Build
+    color: Green
+    lead: build-lead
+    purpose: Feature implementation, bug fixes
+
+  - name: Test
+    color: Orange
+    lead: test-lead
+    purpose: Test plans, regression testing, coverage
+
+  - name: Review
+    color: Red
+    lead: review-lead
+    purpose: PR review, quality gates, security checks
+
+  - name: Docs
+    color: Cyan
+    lead: docs-lead
+    purpose: Documentation, changelogs, API docs
+
+  - name: Deploy
+    color: Teal
+    lead: deploy-lead
+    purpose: CI/CD, releases, deployment pipelines
+
+  - name: Monitor
+    color: Slate
+    lead: monitor-lead
+    purpose: Production monitoring, alerts, health checks
+
+  - name: Learning
+    color: Gray
+    lead: learning-lead
+    purpose: Retrospectives, post-mortems, knowledge capture
+
+# Coordinator across all crews
+coordinator:
+  agent: chief-of-staff
+  description: Daily briefings, task routing, cross-crew orchestration, escalation
+
+# Scheduled jobs
+schedules:
+  - name: Morning Briefing
+    agent: chief-of-staff
+    schedule:
+      kind: cron
+      expression: "0 8 * * *"  # 8 AM daily
+      timezone: America/Los_Angeles
+    prompt: >
+      Compile the morning briefing. Review overnight progress across all crews.
+      Summarize: what shipped, what's blocked, what needs attention today.
+      Recommend priorities for the day.
+
+  - name: Nightly Build Check
+    agent: deploy-lead
+    schedule:
+      kind: cron
+      expression: "0 2 * * *"  # 2 AM daily
+      timezone: America/Los_Angeles
+    prompt: >
+      Run the nightly build. Check that all platforms build successfully.
+      Report any failures to the Chief of Staff.
+
+  - name: Weekly Retrospective
+    agent: learning-lead
+    schedule:
+      kind: cron
+      expression: "0 16 * * 5"  # 4 PM every Friday
+      timezone: America/Los_Angeles
+    prompt: >
+      Conduct the weekly retrospective. Review the pipeline: bottlenecks,
+      overloaded crews, idle crews. Analyze cycle time, defect rate, and
+      review turnaround. Propose improvements.
+
+  - name: Cost Report
+    agent: monitor-lead
+    schedule:
+      kind: cron
+      expression: "0 9 * * 1"  # 9 AM every Monday
+      timezone: America/Los_Angeles
+    prompt: >
+      Generate the weekly cost report. Track API costs and token usage
+      across all minions. Flag unexpected spikes. Report to Chief of Staff.
+
+# Agent definitions referenced by this template
+# These must exist in .lattice/agents/ directory
+agents:
+  - chief-of-staff
+  - intake-lead
+  - discovery-lead
+  - planning-lead
+  - build-lead
+  - test-lead
+  - review-lead
+  - docs-lead
+  - deploy-lead
+  - monitor-lead
+  - learning-lead
+
+# Runtime requirements
+runtime:
+  mode: worktree  # Each minion gets isolated git worktree
+  inference: optional  # Local inference recommended but not required
