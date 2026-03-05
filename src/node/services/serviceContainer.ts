@@ -245,6 +245,7 @@ export class ServiceContainer {
     // Browser service — per-minion headless browser sessions via agent-browser
     this.browserService = new BrowserService(config);
     this.minionService.setBrowserService(this.browserService);
+    this.aiService.setBrowserService(this.browserService);
     // Scheduler service — late-binds minion service to send agent messages
     this.schedulerService = new SchedulerService(config);
     this.schedulerService.setMinionService(this.minionService);
