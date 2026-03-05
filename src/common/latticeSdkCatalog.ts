@@ -46,6 +46,7 @@ export const LATTICE_SDK_CATEGORIES: LatticeSdkCategory[] = [
   { id: "tokenizer", description: "Token counting: single, batch, chat statistics with cost", functionCount: 3, sdkFile: "sdk/tokenizer.ts" },
   { id: "secrets", description: "Get/update global or project-scoped secrets", functionCount: 2, sdkFile: "sdk/secrets.ts" },
   { id: "tasks", description: "Create sub-tasks for parallel agent orchestration", functionCount: 1, sdkFile: "sdk/tasks.ts" },
+  { id: "browser", description: "Per-minion headless browser: navigate, snapshot, click, fill, type, press, hover, scroll, find, wait, eval, viewport/device emulation, tabs, cookies, network, drag, select", functionCount: 25, sdkFile: "sdk/browser.ts" },
 ];
 
 /**
@@ -247,6 +248,33 @@ export const LATTICE_SDK_FUNCTIONS: LatticeSdkFunction[] = [
 
   // ── tasks (1) ──────────────────────────────────────────────────────────
   { name: "createTask", category: "tasks", description: "Create a sub-task for parallel agent orchestration" },
+
+  // ── browser (25) ────────────────────────────────────────────────────────
+  { name: "navigate", category: "browser", description: "Navigate to a URL (creates session if needed)" },
+  { name: "snapshot", category: "browser", description: "Get accessibility tree with element refs (@e1, @e2, ...)" },
+  { name: "screenshot", category: "browser", description: "Take a screenshot (base64 PNG)" },
+  { name: "annotatedScreenshot", category: "browser", description: "Screenshot with numbered labels on interactive elements" },
+  { name: "click", category: "browser", description: "Click an element by snapshot ref" },
+  { name: "fill", category: "browser", description: "Fill a form field by snapshot ref" },
+  { name: "type", category: "browser", description: "Type text into the focused element" },
+  { name: "press", category: "browser", description: "Press a key or combination (Enter, Tab, Control+A)" },
+  { name: "hover", category: "browser", description: "Hover over an element by snapshot ref" },
+  { name: "find", category: "browser", description: "Find element by semantic locator (role/text/label/placeholder/testid)" },
+  { name: "selectOption", category: "browser", description: "Select option from a <select> dropdown" },
+  { name: "drag", category: "browser", description: "Drag and drop between two elements" },
+  { name: "scrollDown", category: "browser", description: "Scroll the page down" },
+  { name: "scrollUp", category: "browser", description: "Scroll the page up" },
+  { name: "back", category: "browser", description: "Navigate browser history back" },
+  { name: "forward", category: "browser", description: "Navigate browser history forward" },
+  { name: "wait", category: "browser", description: "Wait for condition: selector, text, URL, or time" },
+  { name: "evalJS", category: "browser", description: "Execute JavaScript in the page context" },
+  { name: "dialog", category: "browser", description: "Handle browser dialogs (alert, confirm, prompt)" },
+  { name: "setViewport", category: "browser", description: "Set viewport dimensions (width × height)" },
+  { name: "setDevice", category: "browser", description: "Emulate a device (iPhone 14, iPad Pro, Pixel 7)" },
+  { name: "tabs", category: "browser", description: "Manage tabs: list, new, switch, close" },
+  { name: "cookies", category: "browser", description: "Manage cookies: list, set, clear" },
+  { name: "networkRequests", category: "browser", description: "View tracked network requests" },
+  { name: "sessionInfo", category: "browser", description: "Get browser session info (URL, status, stream port)" },
 ];
 
 /**
