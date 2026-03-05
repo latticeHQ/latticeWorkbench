@@ -63,7 +63,9 @@ export function getTerminalSessionId(tab: TabType): string | undefined {
   return undefined;
 }
 
-/** Create a terminal tab type for a given session ID */
+/** Create a terminal tab type for a given session ID.
+ * Returns the bare "terminal" placeholder when sessionId is missing or empty.
+ */
 export function makeTerminalTabType(sessionId?: string): TabType {
-  return sessionId ? `terminal:${sessionId}` : "terminal";
+  return sessionId && sessionId.length > 0 ? `terminal:${sessionId}` : "terminal";
 }
