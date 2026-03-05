@@ -36,6 +36,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
+# ── Load .env credentials if present ─────────────────────────────────────────
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck source=/dev/null
+  source .env
+  set +a
+fi
+
 # ── Defaults ──────────────────────────────────────────────────────────────────
 BUMP_TYPE="patch"
 EXACT_VERSION=""
@@ -86,6 +94,25 @@ if [[ "$DRY_RUN" == "false" ]]; then
   gh auth status >/dev/null 2>&1 || error "gh CLI not authenticated. Run: gh auth login"
 fi
 
+# ── Signing preflight ──────────────────────────────────────────────────────
+if [[ "$PLATFORMS" == "all" || "$PLATFORMS" == "mac" ]]; then
+  if [[ -n "${CSC_LINK:-}" ]]; then
+    info "Developer ID certificate: provided via CSC_LINK"
+  elif security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
+    info "Developer ID certificate: auto-detected from Keychain"
+  else
+    warn "No Developer ID certificate found — macOS build will be AD-HOC signed"
+    warn "  Users will see quarantine/'damaged' warnings on download"
+  fi
+
+  if [[ -n "${APPLE_API_KEY:-}" && -n "${APPLE_API_KEY_ID:-}" ]]; then
+    info "Notarization credentials: configured"
+  else
+    warn "Notarization credentials not set — build will NOT be notarized"
+    warn "  Set APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER in .env"
+  fi
+fi
+
 CURRENT_VERSION=$(jq -r '.version' package.json)
 if [[ -z "$CURRENT_VERSION" || "$CURRENT_VERSION" == "null" ]]; then
   error "Could not read version from package.json"
@@ -123,6 +150,14 @@ info "Version: $CURRENT_VERSION -> $NEW_VERSION"
 jq --arg v "$NEW_VERSION" '.version = $v' package.json > package.json.tmp
 mv package.json.tmp package.json
 info "Updated package.json to v$NEW_VERSION"
+
+# ── Stamp CHANGELOG.md ───────────────────────────────────────────────────────
+if [[ -f CHANGELOG.md ]]; then
+  RELEASE_DATE=$(date +%Y-%m-%d)
+  # Insert new version header below [Unreleased], preserving the section for future entries
+  sed -i '' "s/^## \[Unreleased\]/## [Unreleased]\n\n## [${NEW_VERSION}] - ${RELEASE_DATE}/" CHANGELOG.md
+  info "Stamped CHANGELOG.md with v$NEW_VERSION ($RELEASE_DATE)"
+fi
 
 # ── Build ─────────────────────────────────────────────────────────────────────
 BUN_OR_NPX="$(command -v bun >/dev/null 2>&1 && echo 'bun x' || echo 'npx')"
@@ -256,22 +291,30 @@ if [[ "$DRAFT" == "true" ]]; then
   DRAFT_FLAG="--draft"
 fi
 
-RELEASE_NOTES="## Lattice v${NEW_VERSION}
+# ── Build professional release notes ──────────────────────────────────────────
 
-### Downloads
+# Extract "What's New" from CHANGELOG.md [Unreleased] section (now stamped as current version)
+WHATS_NEW=""
+if [[ -f CHANGELOG.md ]]; then
+  WHATS_NEW=$(awk "/^## \[${NEW_VERSION}\]/{found=1;next} /^## \[/{found=0} found{print}" CHANGELOG.md)
+  if [[ -z "$WHATS_NEW" ]]; then
+    # Fallback: try [Unreleased] if stamp hasn't happened
+    WHATS_NEW=$(awk '/^## \[Unreleased\]/{found=1;next} /^## \[/{found=0} found{print}' CHANGELOG.md)
+  fi
+  # Trim leading/trailing blank lines
+  WHATS_NEW=$(echo "$WHATS_NEW" | sed '/./,$!d' | sed -e :a -e '/^\s*$/{ $d; N; ba; }')
+fi
 
-| Platform | Architecture | File |
-|----------|-------------|------|"
-
-# Build download table
+# Build download table rows
+DOWNLOAD_ROWS=""
 for a in "${ASSETS[@]}"; do
   BASENAME=$(basename "$a")
   EXT="${BASENAME##*.}"
   case "$EXT" in
-    dmg)      PLATFORM="macOS"; ;;
-    zip)      PLATFORM="macOS"; ;;
-    exe)      PLATFORM="Windows"; ;;
-    AppImage) PLATFORM="Linux"; ;;
+    dmg)      PLATFORM="macOS" ;;
+    zip)      PLATFORM="macOS" ;;
+    exe)      PLATFORM="Windows" ;;
+    AppImage) PLATFORM="Linux" ;;
     *)        continue ;;  # skip blockmaps, yml
   esac
 
@@ -283,16 +326,64 @@ for a in "${ASSETS[@]}"; do
     ARCH="Universal"
   fi
 
-  RELEASE_NOTES+="
-| ${PLATFORM} | ${ARCH} | \`${BASENAME}\` |"
+  DOWNLOAD_ROWS+="| ${PLATFORM} | ${ARCH} | \`${BASENAME}\` |
+"
 done
 
-RELEASE_NOTES+="
+# Compute SHA-256 checksums for downloadable assets
+CHECKSUMS=""
+for a in "${ASSETS[@]}"; do
+  BASENAME=$(basename "$a")
+  EXT="${BASENAME##*.}"
+  case "$EXT" in dmg|zip|exe|AppImage) ;; *) continue ;; esac
+  SHA=$(shasum -a 256 "$a" | awk '{print $1}')
+  CHECKSUMS+="| \`${BASENAME}\` | \`${SHA}\` |
+"
+done
 
-### Notes
-- **macOS**: If you see \"damaged\" warning, run: \`xattr -cr ~/Downloads/${APP_NAME}-${NEW_VERSION}-arm64.dmg\`
-- **Windows**: Windows Defender SmartScreen may warn on first run (unsigned build). Click \"More info\" → \"Run anyway\".
-- **Linux**: Make the AppImage executable: \`chmod +x ${APP_NAME}-${NEW_VERSION}-*.AppImage\`
+# Signing-aware install notes
+IS_SIGNED=false
+if [[ -n "${CSC_LINK:-}" ]] || security find-identity -v -p codesigning 2>/dev/null | grep -q "Developer ID Application"; then
+  IS_SIGNED=true
+fi
+
+if [[ "$IS_SIGNED" == "true" ]]; then
+  MAC_NOTE="Open the DMG and drag **Lattice** to Applications. Signed and notarized."
+else
+  MAC_NOTE="If you see a \"damaged\" warning, run: \`xattr -cr ~/Downloads/Lattice-${NEW_VERSION}-arm64.dmg\`"
+fi
+
+APP_NAME="Lattice"
+
+RELEASE_NOTES="## What's New
+
+${WHATS_NEW:-See [CHANGELOG.md](https://github.com/${REPO}/blob/main/CHANGELOG.md) for details.}
+
+## Downloads
+
+| Platform | Architecture | File |
+|----------|-------------|------|
+${DOWNLOAD_ROWS}
+## Install
+
+| Platform | Instructions |
+|----------|-------------|
+| **macOS** | ${MAC_NOTE} |
+| **macOS (Homebrew)** | \`brew install --cask latticehq/lattice/lattice-workbench\` |
+| **Windows** | Run the installer. SmartScreen may warn on first launch — click \"More info\" then \"Run anyway\". |
+| **Linux** | \`chmod +x Lattice-*.AppImage && ./Lattice-*.AppImage\` |
+
+## SHA-256 Checksums
+
+Verify your download:
+\`\`\`bash
+shasum -a 256 <downloaded-file>
+\`\`\`
+
+| File | SHA-256 |
+|------|---------|
+${CHECKSUMS}
+**Full Changelog**: https://github.com/${REPO}/compare/v${CURRENT_VERSION}...v${NEW_VERSION}
 "
 
 gh release create "$TAG" \
@@ -360,7 +451,7 @@ fi
 
 # ── Commit version bump + submodule update ───────────────────────────────────
 info "Committing release changes..."
-git add package.json src/version.ts vendor/latticeInference 2>/dev/null
+git add package.json src/version.ts vendor/latticeInference CHANGELOG.md 2>/dev/null
 if ! git diff --cached --quiet; then
   git commit -m "Release v${NEW_VERSION}"
   git push origin main
