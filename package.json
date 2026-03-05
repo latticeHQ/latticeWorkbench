@@ -280,6 +280,7 @@
       "dist/**/*.wasm",
       "dist/**/*.map",
       "**/node_modules/node-pty/build/**/*",
+      "**/node_modules/@lydell/node-pty/build/**/*",
       "**/node_modules/@duckdb/**/*.node"
     ],
     "mac": {
