@@ -89,7 +89,7 @@ export const RuntimeStatusEventSchema = z.object({
 
 export const AutoCompactionTriggeredEventSchema = z.object({
   type: z.literal("auto-compaction-triggered"),
-  reason: z.enum(["on-send", "mid-stream", "idle"]),
+  reason: z.enum(["on-send", "mid-stream", "idle", "circuit-breaker"]),
   usagePercent: z.number(),
 });
 

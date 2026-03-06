@@ -2456,7 +2456,8 @@ export const router = (authToken?: string) => {
             input.trunkBranch,
             input.title,
             input.runtimeConfig,
-            input.crewId
+            input.crewId,
+            input.autonomyOverrides
           );
           if (!result.success) {
             return { success: false, error: result.error };
@@ -2475,6 +2476,15 @@ export const router = (authToken?: string) => {
             return { success: false, error: result.error };
           }
           return { success: true };
+        }),
+      updateAutonomyOverrides: t
+        .input(schemas.minion.updateAutonomyOverrides.input)
+        .output(schemas.minion.updateAutonomyOverrides.output)
+        .handler(async ({ context, input }) => {
+          return context.minionService.updateAutonomyOverrides(
+            input.minionId,
+            input.autonomyOverrides
+          );
         }),
       updateAgentAISettings: t
         .input(schemas.minion.updateAgentAISettings.input)
@@ -3398,7 +3408,11 @@ export const router = (authToken?: string) => {
               inFlight = true;
 
               try {
-                const snapshot = await context.sessionTimingService.getSnapshot(minionId);
+                const autonomyMetrics =
+                  context.minionService.getAutonomyMetrics(minionId) ?? undefined;
+                const snapshot = await context.sessionTimingService.getSnapshot(minionId, {
+                  autonomyMetrics,
+                });
                 if (closed) return;
 
                 lastPushedAtMs = snapshot.generatedAt;

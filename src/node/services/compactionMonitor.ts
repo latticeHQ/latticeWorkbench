@@ -15,7 +15,7 @@ import { getEffectiveContextLimit } from "@/common/utils/compaction/contextLimit
 export type CompactionStatusEvent =
   | {
       type: "auto-compaction-triggered";
-      reason: "on-send" | "mid-stream" | "idle";
+      reason: "on-send" | "mid-stream" | "idle" | "circuit-breaker";
       usagePercent: number;
     }
   | {

@@ -703,9 +703,15 @@ export class SessionTimingService {
     return ActiveStreamStatsSchema.parse(stats);
   }
 
-  async getSnapshot(minionId: string): Promise<MinionStatsSnapshot> {
+  async getSnapshot(
+    minionId: string,
+    extras?: { autonomyMetrics?: MinionStatsSnapshot["autonomyMetrics"] }
+  ): Promise<MinionStatsSnapshot> {
     const file = await this.getCachedTimingFile(minionId);
     const active = this.getActiveStreamStats(minionId);
+
+    // Prefer live autonomy metrics from the running session, fall back to persisted.
+    const autonomyMetrics = extras?.autonomyMetrics ?? file.autonomyMetrics;
 
     return {
       minionId,
@@ -713,7 +719,38 @@ export class SessionTimingService {
       active,
       lastRequest: file.lastRequest,
       session: file.session,
+      ...(autonomyMetrics ? { autonomyMetrics } : {}),
     };
+  }
+
+  /**
+   * Persist autonomy quality metrics to the session timing file.
+   * Called from AgentSession on each stream-end so metrics survive app restarts.
+   */
+  persistAutonomyMetrics(
+    minionId: string,
+    metrics: NonNullable<MinionStatsSnapshot["autonomyMetrics"]>
+  ): void {
+    const epoch = this.writeEpoch.get(minionId) ?? 0;
+
+    const previous = this.pendingWrites.get(minionId) ?? Promise.resolve();
+
+    const next = previous
+      .then(async () => {
+        await this.fileLocks.withLock(minionId, async () => {
+          if ((this.writeEpoch.get(minionId) ?? 0) !== epoch) return;
+
+          const current = await this.readTimingFile(minionId);
+          current.autonomyMetrics = metrics;
+          await this.writeTimingFile(minionId, current);
+          this.timingFileCache.set(minionId, current);
+        });
+      })
+      .catch((error) => {
+        log.warn(`Failed to persist autonomy metrics for ${minionId}`, error);
+      });
+
+    this.pendingWrites.set(minionId, next);
   }
 
   // --- Stream event handlers (wired from AIService) ---

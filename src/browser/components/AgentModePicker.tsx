@@ -43,6 +43,13 @@ interface AgentOption {
   aiDefaults?: { model?: string; thinkingLevel?: string };
   /** Whether this agent can be spawned as a sidekick */
   sidekickRunnable: boolean;
+  /** Autonomy capabilities summary (from agent frontmatter) */
+  autonomy?: {
+    circuitBreaker: boolean;
+    phases: boolean;
+    siblingContext: boolean;
+    challenger: boolean;
+  };
 }
 
 export function formatAgentIdLabel(agentId: string): string {
@@ -125,6 +132,31 @@ const AgentTooltipContent: React.FC<{ opt: AgentOption }> = ({ opt }) => {
         </div>
       )}
 
+      {opt.autonomy && (
+        <div className="flex flex-wrap gap-1 pt-0.5">
+          {opt.autonomy.circuitBreaker && (
+            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-400">
+              Circuit Breaker
+            </span>
+          )}
+          {opt.autonomy.phases && (
+            <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-medium text-sky-400">
+              Phases
+            </span>
+          )}
+          {opt.autonomy.siblingContext && (
+            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+              Sibling Context
+            </span>
+          )}
+          {opt.autonomy.challenger && (
+            <span className="rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[9px] font-medium text-violet-400">
+              Challenger
+            </span>
+          )}
+        </div>
+      )}
+
       {opt.sidekickRunnable && (
         <div className="text-muted">
           <span className="text-muted-light">Sidekick:</span> runnable
@@ -143,6 +175,7 @@ function hasTooltipContent(opt: AgentOption): boolean {
   if ((opt.tools?.add?.length ?? 0) > 0) return true;
   if ((opt.tools?.remove?.length ?? 0) > 0) return true;
   if (opt.sidekickRunnable) return true;
+  if (opt.autonomy) return true;
   return false;
 }
 
@@ -224,6 +257,7 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
       tools: descriptor.tools,
       aiDefaults: descriptor.aiDefaults,
       sidekickRunnable: descriptor.sidekickRunnable,
+      autonomy: descriptor.autonomy,
     } satisfies AgentOption;
   }, [agents, normalizedAgentId]);
 

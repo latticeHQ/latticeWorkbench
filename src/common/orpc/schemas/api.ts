@@ -92,7 +92,7 @@ import {
 } from "./inbox";
 import { BashToolResultSchema, FileTreeNodeSchema } from "./tools";
 import { MinionStatsSnapshotSchema } from "./minionStats";
-import { FrontendMinionMetadataSchema, MinionActivitySnapshotSchema } from "./minion";
+import { FrontendMinionMetadataSchema, MinionActivitySnapshotSchema, MinionMetadataSchema } from "./minion";
 import { MinionAISettingsSchema } from "./minionAiSettings";
 import {
   AgentSkillDescriptorSchema,
@@ -880,6 +880,8 @@ export const minion = {
       runtimeConfig: RuntimeConfigSchema.optional(),
       /** Crew ID to assign the new minion to (optional) */
       crewId: z.string().optional(),
+      /** Per-minion autonomy overrides from a mission profile preset or manual config */
+      autonomyOverrides: MinionMetadataSchema.shape.autonomyOverrides,
     }),
     output: z.discriminatedUnion("success", [
       z.object({ success: z.literal(true), metadata: FrontendMinionMetadataSchema }),
@@ -904,6 +906,13 @@ export const minion = {
   regenerateTitle: {
     input: z.object({ minionId: z.string() }),
     output: ResultSchema(z.object({ title: z.string() }), z.string()),
+  },
+  updateAutonomyOverrides: {
+    input: z.object({
+      minionId: z.string(),
+      autonomyOverrides: MinionMetadataSchema.shape.autonomyOverrides,
+    }),
+    output: ResultSchema(z.void(), z.string()),
   },
   updateAgentAISettings: {
     input: z.object({

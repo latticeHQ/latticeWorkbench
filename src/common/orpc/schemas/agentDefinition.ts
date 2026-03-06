@@ -70,6 +70,66 @@ const AgentDefinitionToolsSchema = z
   })
   .strip();
 
+// Autonomy configuration: DialogLab-inspired mechanisms for self-correcting agents.
+// All fields are optional — omitting autonomy leaves existing behavior unchanged.
+const AgentDefinitionAutonomySchema = z
+  .object({
+    // Circuit breaker: automatic turn budgets to prevent infinite loops.
+    // When enabled, the system injects pivot instructions at soft_limit and
+    // forces context compaction at hard_limit. Resets on real user messages.
+    circuit_breaker: z
+      .object({
+        enabled: z.boolean().optional(),
+        // Turn count at which a "try a different approach" nudge is injected.
+        soft_limit: z.number().int().min(3).max(50).optional(),
+        // Turn count at which context is force-compacted and the agent restarts fresh.
+        hard_limit: z.number().int().min(5).max(100).optional(),
+      })
+      .strip()
+      .optional(),
+
+    // Challenger gate: after task completion, spawn a cheap review sidekick
+    // to validate the output before reporting to the parent.
+    challenger: z
+      .object({
+        enabled: z.boolean().optional(),
+        // Model to use for the review (should be fast/cheap, e.g. "haiku").
+        model: z.string().min(1).optional(),
+        // Maximum review rounds before accepting the output regardless.
+        max_rounds: z.number().int().min(1).max(5).optional(),
+      })
+      .strip()
+      .optional(),
+
+    // Phase-gated execution: enforce explore→plan→execute→verify phases
+    // with tool restrictions per phase. Prevents premature file edits.
+    phases: z
+      .object({
+        enabled: z.boolean().optional(),
+        // Max turns per phase before auto-advancing.
+        explore_turns: z.number().int().min(1).max(20).optional(),
+        plan_turns: z.number().int().min(1).max(10).optional(),
+        execute_turns: z.number().int().min(1).max(30).optional(),
+        verify_turns: z.number().int().min(1).max(10).optional(),
+      })
+      .strip()
+      .optional(),
+
+    // Sibling context sharing: on first turn, inject compacted summaries
+    // from other minions in the same project to avoid redundant exploration.
+    sibling_context: z
+      .object({
+        enabled: z.boolean().optional(),
+        // Max number of sibling summaries to inject.
+        max_siblings: z.number().int().min(1).max(5).optional(),
+        // Max tokens per sibling summary.
+        max_tokens_per_sibling: z.number().int().min(100).max(4000).optional(),
+      })
+      .strip()
+      .optional(),
+  })
+  .strip();
+
 export const AgentDefinitionFrontmatterSchema = z
   .object({
     name: z.string().min(1).max(128),
@@ -99,6 +159,10 @@ export const AgentDefinitionFrontmatterSchema = z
     // Tool configuration: add/remove patterns (regex).
     // If omitted and no base, no tools are available.
     tools: AgentDefinitionToolsSchema.optional(),
+
+    // Autonomy configuration: DialogLab-inspired self-correction mechanisms.
+    // Opt-in per agent. Omitting leaves existing behavior unchanged.
+    autonomy: AgentDefinitionAutonomySchema.optional(),
   })
   .strip();
 
@@ -116,6 +180,15 @@ export const AgentDefinitionDescriptorSchema = z
     aiDefaults: AgentDefinitionAiDefaultsSchema.optional(),
     // Tool configuration (for UI display / inheritance computation)
     tools: AgentDefinitionToolsSchema.optional(),
+    // Autonomy capabilities summary (populated from frontmatter for UI badges)
+    autonomy: z
+      .object({
+        circuitBreaker: z.boolean(),
+        phases: z.boolean(),
+        siblingContext: z.boolean(),
+        challenger: z.boolean(),
+      })
+      .optional(),
   })
   .strict();
 

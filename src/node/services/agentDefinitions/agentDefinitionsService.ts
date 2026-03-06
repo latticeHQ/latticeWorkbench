@@ -196,6 +196,13 @@ async function readAgentDescriptorFromFileWithDisabled(
     const sidekickRunnable = parsed.frontmatter.sidekick?.runnable ?? false;
     const disabled = resolveUiDisabled(parsed.frontmatter.ui);
 
+    const autonomyFm = parsed.frontmatter.autonomy;
+    const hasAutonomy =
+      autonomyFm?.circuit_breaker?.enabled ??
+      autonomyFm?.phases?.enabled ??
+      autonomyFm?.sibling_context?.enabled ??
+      autonomyFm?.challenger?.enabled;
+
     const descriptor: AgentDefinitionDescriptor = {
       id: agentId,
       scope,
@@ -207,6 +214,14 @@ async function readAgentDescriptorFromFileWithDisabled(
       base: parsed.frontmatter.base,
       aiDefaults: parsed.frontmatter.ai,
       tools: parsed.frontmatter.tools,
+      ...(hasAutonomy && {
+        autonomy: {
+          circuitBreaker: autonomyFm?.circuit_breaker?.enabled ?? false,
+          phases: autonomyFm?.phases?.enabled ?? false,
+          siblingContext: autonomyFm?.sibling_context?.enabled ?? false,
+          challenger: autonomyFm?.challenger?.enabled ?? false,
+        },
+      }),
     };
 
     const validated = AgentDefinitionDescriptorSchema.safeParse(descriptor);
@@ -243,6 +258,13 @@ export async function discoverAgentDefinitions(
     const sidekickRunnable = pkg.frontmatter.sidekick?.runnable ?? false;
     const disabled = resolveUiDisabled(pkg.frontmatter.ui);
 
+    const builtInAutonomy = pkg.frontmatter.autonomy;
+    const builtInHasAutonomy =
+      builtInAutonomy?.circuit_breaker?.enabled ??
+      builtInAutonomy?.phases?.enabled ??
+      builtInAutonomy?.sibling_context?.enabled ??
+      builtInAutonomy?.challenger?.enabled;
+
     byId.set(pkg.id, {
       descriptor: {
         id: pkg.id,
@@ -255,6 +277,14 @@ export async function discoverAgentDefinitions(
         base: pkg.frontmatter.base,
         aiDefaults: pkg.frontmatter.ai,
         tools: pkg.frontmatter.tools,
+        ...(builtInHasAutonomy && {
+          autonomy: {
+            circuitBreaker: builtInAutonomy?.circuit_breaker?.enabled ?? false,
+            phases: builtInAutonomy?.phases?.enabled ?? false,
+            siblingContext: builtInAutonomy?.sibling_context?.enabled ?? false,
+            challenger: builtInAutonomy?.challenger?.enabled ?? false,
+          },
+        }),
       },
       disabled,
     });

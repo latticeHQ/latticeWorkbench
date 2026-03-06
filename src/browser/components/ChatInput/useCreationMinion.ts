@@ -52,6 +52,10 @@ import { normalizeModelInput } from "@/browser/utils/models/normalizeModelInput"
 import { resolveDevcontainerSelection } from "@/browser/utils/devcontainerSelection";
 import { getErrorMessage } from "@/common/utils/errors";
 import { MINION_DEFAULTS } from "@/constants/minionDefaults";
+import {
+  resolvePresetOverrides,
+  type AutonomyPresetId,
+} from "@/common/types/autonomyPresets";
 
 export type CreationSendResult = { success: true } | { success: false; error?: SendMessageError };
 
@@ -65,6 +69,8 @@ interface UseCreationMinionOptions {
   message: string;
   /** Crew ID to assign the new minion to */
   crewId?: string | null;
+  /** Autonomy preset for the new minion */
+  autonomyPreset?: AutonomyPresetId;
   /** Draft ID for UI-only minion creation drafts (from URL) */
   draftId?: string | null;
   /** User's currently selected model (for name generation fallback) */
@@ -204,6 +210,7 @@ export function useCreationMinion({
   onMinionCreated,
   message,
   crewId,
+  autonomyPreset,
   draftId,
   userModel,
 }: UseCreationMinionOptions): UseCreationMinionReturn {
@@ -451,6 +458,9 @@ export function useCreationMinion({
           }
         }
 
+        // Resolve autonomy overrides from preset (null for "inherit" = use agent defaults)
+        const autonomyOverrides = autonomyPreset ? resolvePresetOverrides(autonomyPreset) : null;
+
         // Create the minion with the generated name and title
         const createResult = await api.minion.create({
           projectPath,
@@ -459,6 +469,7 @@ export function useCreationMinion({
           title: createTitle,
           runtimeConfig,
           crewId: crewId ?? undefined,
+          autonomyOverrides: autonomyOverrides ?? undefined,
         });
 
         if (!createResult.success) {
@@ -596,6 +607,7 @@ export function useCreationMinion({
       minionNameState.autoGenerate,
       minionNameState.name,
       crewId,
+      autonomyPreset,
       draftId,
       promoteMinionDraft,
       deleteMinionDraft,
