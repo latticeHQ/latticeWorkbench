@@ -96,6 +96,26 @@ export const SessionTimingStatsSchema = z.object({
   byModel: z.record(z.string(), ModelTimingStatsSchema),
 });
 
+/**
+ * Autonomy quality metrics — opt-in, only present when the agent enables
+ * autonomy features via frontmatter. Tracks efficiency signals that help
+ * users understand how well minions are performing autonomously.
+ */
+export const AutonomyMetricsSchema = z
+  .object({
+    totalTurns: z.number(),
+    toolCallCount: z.number(),
+    toolCallSuccessCount: z.number(),
+    toolSuccessRate: z.number(),
+    currentPhase: z.string().optional(),
+    turnsPerPhase: z.record(z.string(), z.number()).optional(),
+    circuitBreakerTurns: z.number().optional(),
+    circuitBreakerSoftLimitHit: z.boolean().optional(),
+    circuitBreakerHardLimitHit: z.boolean().optional(),
+    revertCount: z.number(),
+  })
+  .strict();
+
 export const MinionStatsSnapshotSchema = z.object({
   minionId: z.string(),
   generatedAt: z.number(),
@@ -103,6 +123,7 @@ export const MinionStatsSnapshotSchema = z.object({
   active: ActiveStreamStatsSchema.optional(),
   lastRequest: CompletedStreamStatsSchema.optional(),
   session: SessionTimingStatsSchema.optional(),
+  autonomyMetrics: AutonomyMetricsSchema.optional(),
 });
 
 export const SessionTimingFileSchema = z.object({
@@ -118,6 +139,12 @@ export const SessionTimingFileSchema = z.object({
    * if removal is retried.
    */
   rolledUpFrom: z.record(z.string(), z.literal(true)).optional(),
+
+  /**
+   * Persisted autonomy quality metrics. Restored on session restart so that
+   * turn counts, tool success rates, and phase distribution survive app relaunches.
+   */
+  autonomyMetrics: AutonomyMetricsSchema.optional(),
 });
 
 // Convenient TypeScript type exports
@@ -126,5 +153,6 @@ export type ActiveStreamStats = z.infer<typeof ActiveStreamStatsSchema>;
 export type CompletedStreamStats = z.infer<typeof CompletedStreamStatsSchema>;
 export type ModelTimingStats = z.infer<typeof ModelTimingStatsSchema>;
 export type SessionTimingStats = z.infer<typeof SessionTimingStatsSchema>;
+export type AutonomyMetrics = z.infer<typeof AutonomyMetricsSchema>;
 export type MinionStatsSnapshot = z.infer<typeof MinionStatsSnapshotSchema>;
 export type SessionTimingFile = z.infer<typeof SessionTimingFileSchema>;

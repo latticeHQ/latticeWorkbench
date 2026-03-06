@@ -56,6 +56,7 @@ import {
 import { isPlanLikeInResolvedChain } from "@/common/utils/agentTools";
 import { formatSendMessageError } from "@/node/services/utils/sendMessageError";
 import { enforceThinkingPolicy } from "@/common/utils/thinking/policy";
+import { resolveAutonomyConfig } from "@/node/services/autonomyService";
 import {
   PLAN_AUTO_ROUTING_STATUS_EMOJI,
   PLAN_AUTO_ROUTING_STATUS_MESSAGE,
@@ -245,6 +246,8 @@ export class TaskService {
   private interruptedParentMinionIds = new Set<string>();
   /** Tracks consecutive auto-resumes per minion. Reset when a user message is sent. */
   private consecutiveAutoResumes = new Map<string, number>();
+  /** Challenger gate: tracks review rounds per task minion for autonomy self-review. */
+  private challengerRoundsByTaskId = new Map<string, number>();
 
   constructor(
     private readonly config: Config,
@@ -2338,6 +2341,7 @@ export class TaskService {
     assert(minionId.length > 0, "resetAutoResumeCount: minionId must be non-empty");
     this.consecutiveAutoResumes.delete(minionId);
     this.interruptedParentMinionIds.delete(minionId);
+    this.challengerRoundsByTaskId.delete(minionId);
   }
 
   /** Mark a parent minion as hard-interrupted by the user. */
@@ -2521,6 +2525,14 @@ export class TaskService {
 
     const reportArgs = this.findAgentReportArgsInParts(event.parts);
     if (reportArgs) {
+      // Challenger gate: optionally self-review before finalizing report
+      const shouldChallenge = await this.shouldChallengeReport(minionId, entry);
+      if (shouldChallenge) {
+        await this.dispatchChallengerReview(minionId, entry, reportArgs, event.metadata);
+        return;
+      }
+      // Clean up challenger state on finalization
+      this.challengerRoundsByTaskId.delete(minionId);
       await this.finalizeAgentTaskReport(minionId, entry, reportArgs);
       await this.finalizeTerminationPhaseForReportedTask(minionId);
       return;
@@ -3127,6 +3139,117 @@ export class TaskService {
       return { reportMarkdown: parsed.data.reportMarkdown, title: parsed.data.title ?? undefined };
     }
     return null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Challenger Gate: autonomy-driven self-review before finalizing reports
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Check whether a task minion's report should be challenged (self-reviewed)
+   * before finalization. Returns true if the agent's autonomy config has
+   * challenger enabled and the max review rounds haven't been exhausted.
+   */
+  private async shouldChallengeReport(
+    minionId: string,
+    entry: { projectPath: string; minion: MinionConfigEntry }
+  ): Promise<boolean> {
+    try {
+      const agentId = entry.minion.agentId ?? entry.minion.agentType ?? "exec";
+      const metadata: {
+        projectPath: string;
+        name: string;
+        runtimeConfig?: { type: string };
+      } = {
+        projectPath: entry.projectPath,
+        name: entry.minion.name ?? minionId,
+        runtimeConfig: entry.minion.runtimeConfig,
+      };
+      const runtime = createRuntimeForMinion(metadata);
+      const isInPlace = entry.projectPath === metadata.name;
+      const minionPath = isInPlace
+        ? entry.projectPath
+        : runtime.getMinionPath(entry.projectPath, metadata.name);
+      const frontmatter = await resolveAgentFrontmatter(runtime, minionPath, agentId);
+      const autonomyConfig = resolveAutonomyConfig(frontmatter);
+
+      if (!autonomyConfig.challenger.enabled) {
+        return false;
+      }
+
+      const rounds = this.challengerRoundsByTaskId.get(minionId) ?? 0;
+      return rounds < autonomyConfig.challenger.maxRounds;
+    } catch {
+      // If we can't resolve the agent, skip challenger
+      return false;
+    }
+  }
+
+  /**
+   * Instead of finalizing the report, send a self-review challenge back to
+   * the task minion. The minion re-evaluates its own output and either fixes
+   * issues or calls agent_report again (which will finalize if max rounds hit).
+   */
+  private async dispatchChallengerReview(
+    minionId: string,
+    entry: { projectPath: string; minion: MinionConfigEntry },
+    reportArgs: { reportMarkdown: string; title?: string },
+    eventMetadata: { model?: string; agentId?: string }
+  ): Promise<void> {
+    const rounds = this.challengerRoundsByTaskId.get(minionId) ?? 0;
+    this.challengerRoundsByTaskId.set(minionId, rounds + 1);
+
+    log.info("Challenger gate: dispatching self-review", {
+      minionId,
+      round: rounds + 1,
+    });
+
+    // Build the self-review prompt
+    const reviewPrompt = [
+      "=== CHALLENGER REVIEW (automated self-check) ===",
+      `This is review round ${rounds + 1}. Before your report is submitted to the parent task,`,
+      "critically review your own output for completeness and correctness.",
+      "",
+      "Your report was:",
+      "```",
+      reportArgs.reportMarkdown.slice(0, 4000),
+      "```",
+      "",
+      "Check for:",
+      "- Missing edge cases or untested scenarios",
+      "- Incomplete implementation (partially done steps)",
+      "- Logical errors in the approach",
+      "- Files that were read but not modified when they should have been",
+      "",
+      "If your report is correct and complete, call agent_report again with the same content.",
+      "If you find issues, fix them first, then call agent_report with an updated report.",
+      "=== END CHALLENGER REVIEW ===",
+    ].join("\n");
+
+    // Resolve model/agentId for the synthetic message
+    const model = eventMetadata.model ?? defaultModel;
+    const agentId = eventMetadata.agentId ?? entry.minion.agentId ?? entry.minion.agentType ?? "exec";
+
+    // Keep the task in running state
+    await this.setTaskStatus(minionId, "running");
+
+    const sendResult = await this.minionService.sendMessage(
+      minionId,
+      reviewPrompt,
+      { model, agentId },
+      { skipAutoResumeReset: true, synthetic: true }
+    );
+
+    if (!sendResult.success) {
+      log.error("Challenger gate: failed to send review prompt, finalizing report as-is", {
+        minionId,
+        error: sendResult.error,
+      });
+      // Fall back to finalizing without review
+      this.challengerRoundsByTaskId.delete(minionId);
+      await this.finalizeAgentTaskReport(minionId, entry, reportArgs);
+      await this.finalizeTerminationPhaseForReportedTask(minionId);
+    }
   }
 
   private async deliverReportToParent(

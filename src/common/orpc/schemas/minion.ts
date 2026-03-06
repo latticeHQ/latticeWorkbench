@@ -85,6 +85,24 @@ export const MinionMetadataSchema = z.object({
   crewId: z.string().optional().meta({
     description: "ID of the section this minion belongs to (optional, unsectioned if absent)",
   }),
+  autonomyOverrides: z
+    .object({
+      circuitBreaker: z
+        .object({
+          enabled: z.boolean(),
+          softLimit: z.number().optional(),
+          hardLimit: z.number().optional(),
+        })
+        .optional(),
+      phases: z.object({ enabled: z.boolean() }).optional(),
+      siblingContext: z.object({ enabled: z.boolean() }).optional(),
+      challenger: z.object({ enabled: z.boolean() }).optional(),
+    })
+    .optional()
+    .meta({
+      description:
+        "Per-minion autonomy overrides (from preset or manual config). Merged with agent frontmatter autonomy config at session start.",
+    }),
 });
 
 export const FrontendMinionMetadataSchema = MinionMetadataSchema.extend({

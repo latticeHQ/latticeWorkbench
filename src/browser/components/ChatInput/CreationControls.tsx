@@ -49,6 +49,10 @@ import {
 } from "./LatticeControls";
 import { LatticeLoginDialog, extractDeploymentUrl } from "@/browser/components/LatticeLoginDialog";
 import { LatticeInstallDialog } from "@/browser/components/LatticeInstallDialog";
+import {
+  AUTONOMY_PRESETS,
+  type AutonomyPresetId,
+} from "@/common/types/autonomyPresets";
 
 /**
  * Shared styling for inline form controls in the creation UI.
@@ -150,6 +154,10 @@ interface CreationControlsProps {
   latticeInfo?: LatticeInfo | null;
   /** Lattice minion controls props (optional - only rendered when provided) */
   latticeProps?: Omit<LatticeControlsProps, "disabled">;
+  /** Currently selected autonomy preset */
+  autonomyPreset?: AutonomyPresetId;
+  /** Callback when autonomy preset changes */
+  onAutonomyPresetChange?: (preset: AutonomyPresetId) => void;
 }
 
 /** Runtime type button group with icons and colors */
@@ -329,6 +337,73 @@ function SectionPicker(props: SectionPickerProps) {
               />
               {section.name}
             </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/** Autonomy preset chip picker — same visual pattern as SectionPicker */
+interface MissionProfilePickerProps {
+  selectedPreset: AutonomyPresetId;
+  onPresetChange: (preset: AutonomyPresetId) => void;
+  disabled?: boolean;
+}
+
+const PRESET_COLORS: Record<AutonomyPresetId, string> = {
+  inherit: "#6b7280",
+  guided: "#f59e0b",
+  independent: "#10b981",
+  autonomous: "#8b5cf6",
+};
+
+function MissionProfilePicker(props: MissionProfilePickerProps) {
+  const { selectedPreset, onPresetChange, disabled } = props;
+
+  return (
+    <div className="flex flex-col gap-1" data-testid="mission-profile-selector">
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Mission Profile">
+        {AUTONOMY_PRESETS.map((preset) => {
+          const color = PRESET_COLORS[preset.id];
+          const isSelected = preset.id === selectedPreset;
+          return (
+            <Tooltip key={preset.id}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  disabled={disabled}
+                  onClick={() => onPresetChange(preset.id)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all duration-200",
+                    isSelected
+                      ? "creation-section-chip-glow text-foreground"
+                      : "border-transparent text-muted hover:text-foreground hover:bg-hover",
+                    disabled && "cursor-not-allowed opacity-50"
+                  )}
+                  style={
+                    isSelected
+                      ? {
+                          borderColor: color,
+                          backgroundColor: `${color}12`,
+                          "--section-glow-color": `${color}40`,
+                        } satisfies React.CSSProperties as React.CSSProperties
+                      : undefined
+                  }
+                >
+                  <span
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: color, opacity: isSelected ? 1 : 0.5 }}
+                  />
+                  {preset.label}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent align="center" className="max-w-56">
+                {preset.description}
+              </TooltipContent>
+            </Tooltip>
           );
         })}
       </div>
@@ -1085,6 +1160,21 @@ export function CreationControls(props: CreationControlsProps) {
           )}
         </div>
       </div>
+
+      {/* ── Autonomy (Mission Profile) ── */}
+      {props.onAutonomyPresetChange && (
+        <>
+          <div className="creation-divider" />
+          <div className="flex flex-col gap-2">
+            <span className="creation-section-label">Autonomy</span>
+            <MissionProfilePicker
+              selectedPreset={props.autonomyPreset ?? "inherit"}
+              onPresetChange={props.onAutonomyPresetChange}
+              disabled={props.disabled}
+            />
+          </div>
+        </>
+      )}
 
       {/* ── Crew (only when project has crews) ── */}
       {hasSections && (

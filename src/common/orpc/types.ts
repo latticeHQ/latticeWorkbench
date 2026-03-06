@@ -44,6 +44,7 @@ export type MinionInitEvent = z.infer<typeof schemas.MinionInitEventSchema>;
 export type UpdateStatus = z.infer<typeof schemas.UpdateStatusSchema>;
 export type ChatLatticeMessage = z.infer<typeof schemas.ChatLatticeMessageSchema>;
 export type MinionStatsSnapshot = z.infer<typeof schemas.MinionStatsSnapshotSchema>;
+export type AutonomyMetrics = z.infer<typeof schemas.AutonomyMetricsSchema>;
 export type MinionActivitySnapshot = z.infer<typeof schemas.MinionActivitySnapshotSchema>;
 export type FrontendMinionMetadataSchemaType = z.infer<
   typeof schemas.FrontendMinionMetadataSchema

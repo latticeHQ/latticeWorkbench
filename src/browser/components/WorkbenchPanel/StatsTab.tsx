@@ -1,6 +1,7 @@
 import React from "react";
 
 import type { MinionStatsSnapshot } from "@/common/orpc/types";
+import type { AutonomyMetrics } from "@/common/orpc/schemas/minionStats";
 
 import { usePersistedState } from "@/browser/hooks/usePersistedState";
 import { useMinionStatsSnapshot } from "@/browser/stores/MinionStore";
@@ -452,6 +453,135 @@ export function StatsTab(props: StatsTabProps) {
           </div>
         </div>
       )}
+
+      {snapshot?.autonomyMetrics && (
+        <AutonomySection metrics={snapshot.autonomyMetrics} />
+      )}
+    </div>
+  );
+}
+
+// --- Autonomy quality metrics section ---
+
+const PHASE_LABELS: Record<string, string> = {
+  EXPLORE: "Explore",
+  PLAN: "Plan",
+  EXECUTE: "Execute",
+  VERIFY: "Verify",
+};
+
+const PHASE_COLORS: Record<string, string> = {
+  EXPLORE: "#38BDF8", // sky-400
+  PLAN: "#FBBF24",    // amber-400
+  EXECUTE: "#34D399",  // emerald-400
+  VERIFY: "#A78BFA",   // violet-400
+};
+
+function AutonomySection({ metrics }: { metrics: AutonomyMetrics }) {
+  const toolSuccessPercent = Math.round(metrics.toolSuccessRate);
+  const hasPhases = metrics.turnsPerPhase && Object.keys(metrics.turnsPerPhase).length > 0;
+  const hasCircuitBreaker = metrics.circuitBreakerTurns !== undefined;
+
+  // Phase distribution bar
+  const phaseEntries = metrics.turnsPerPhase
+    ? Object.entries(metrics.turnsPerPhase).filter(([, turns]) => turns > 0)
+    : [];
+  const totalPhaseTurns = phaseEntries.reduce((sum, [, turns]) => sum + turns, 0);
+
+  return (
+    <div data-testid="autonomy-section" className="mb-6">
+      <div className="flex flex-col gap-3">
+        <span className="text-foreground text-xs font-medium">Autonomy</span>
+
+        {/* Summary stats */}
+        <div className="text-muted-light flex flex-wrap gap-x-3 gap-y-1 text-xs">
+          <span>{metrics.totalTurns} turns</span>
+          <span>·</span>
+          <span>
+            {metrics.toolCallSuccessCount}/{metrics.toolCallCount} tools ok ({toolSuccessPercent}%)
+          </span>
+          {metrics.revertCount > 0 && (
+            <>
+              <span>·</span>
+              <span className="text-amber-400">{metrics.revertCount} reverts</span>
+            </>
+          )}
+        </div>
+
+        {/* Current phase badge */}
+        {metrics.currentPhase && (
+          <div className="flex items-center gap-2">
+            <span className="text-secondary text-xs">Phase:</span>
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-medium"
+              style={{
+                backgroundColor: `${PHASE_COLORS[metrics.currentPhase] ?? "#6B7280"}20`,
+                color: PHASE_COLORS[metrics.currentPhase] ?? "#6B7280",
+              }}
+            >
+              {PHASE_LABELS[metrics.currentPhase] ?? metrics.currentPhase}
+            </span>
+          </div>
+        )}
+
+        {/* Phase distribution bar */}
+        {hasPhases && totalPhaseTurns > 0 && (
+          <div>
+            <div className="bg-border-light flex h-1.5 w-full overflow-hidden rounded-[3px]">
+              {phaseEntries.map(([phase, turns]) => (
+                <div
+                  key={phase}
+                  className="h-full transition-[width] duration-300"
+                  style={{
+                    width: `${(turns / totalPhaseTurns) * 100}%`,
+                    backgroundColor: PHASE_COLORS[phase] ?? "#6B7280",
+                  }}
+                />
+              ))}
+            </div>
+            <div className="mt-1.5 flex flex-col gap-1">
+              {phaseEntries.map(([phase, turns]) => (
+                <div key={phase} className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: PHASE_COLORS[phase] ?? "#6B7280" }}
+                    />
+                    <span className="text-secondary text-xs">
+                      {PHASE_LABELS[phase] ?? phase}
+                    </span>
+                  </div>
+                  <span className="text-muted text-xs">
+                    {turns} turn{turns !== 1 ? "s" : ""}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Circuit breaker status */}
+        {hasCircuitBreaker && (
+          <div className="bg-border-light/30 rounded-md px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-secondary text-xs">Circuit Breaker</span>
+              <span className="text-muted text-xs">
+                {metrics.circuitBreakerTurns} turns
+              </span>
+            </div>
+            {(metrics.circuitBreakerSoftLimitHit ?? metrics.circuitBreakerHardLimitHit) && (
+              <div className="text-muted-light mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px]">
+                {metrics.circuitBreakerSoftLimitHit && (
+                  <span className="text-amber-400">Soft limit hit</span>
+                )}
+                {metrics.circuitBreakerHardLimitHit && (
+                  <span className="text-red-400">Hard limit hit</span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

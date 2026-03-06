@@ -1318,6 +1318,15 @@ export class MinionService extends EventEmitter {
     );
   }
 
+  /**
+   * Retrieve autonomy quality metrics for a minion session (if autonomy is enabled).
+   * Returns null when the session doesn't exist or autonomy was never initialized.
+   */
+  public getAutonomyMetrics(minionId: string): ReturnType<AgentSession["getAutonomyMetrics"]> {
+    const session = this.sessions.get(minionId.trim());
+    return session?.getAutonomyMetrics() ?? null;
+  }
+
   public getOrCreateSession(minionId: string): AgentSession {
     assert(typeof minionId === "string", "minionId must be a string");
     const trimmed = minionId.trim();
@@ -1341,6 +1350,11 @@ export class MinionService extends EventEmitter {
       },
       onPostCompactionStateChange: () => {
         this.schedulePostCompactionMetadataRefresh(trimmed);
+      },
+      onAutonomyMetricsUpdate: (metrics) => {
+        if (metrics && this.sessionTimingService) {
+          this.sessionTimingService.persistAutonomyMetrics(trimmed, metrics);
+        }
       },
     });
 
@@ -1598,7 +1612,8 @@ export class MinionService extends EventEmitter {
     trunkBranch: string | undefined,
     title?: string,
     runtimeConfig?: RuntimeConfig,
-    crewId?: string
+    crewId?: string,
+    autonomyOverrides?: MinionMetadata["autonomyOverrides"]
   ): Promise<Result<{ metadata: FrontendMinionMetadata }>> {
     // Chat with Lattice is a built-in system minion; it cannot host additional minions.
     if (projectPath === getLatticeHelpChatProjectPath(this.config.rootDir)) {
@@ -1767,6 +1782,7 @@ export class MinionService extends EventEmitter {
           createdAt: metadata.createdAt,
           runtimeConfig: finalRuntimeConfig,
           crewId,
+          autonomyOverrides,
         });
         return config;
       });
@@ -2299,6 +2315,47 @@ export class MinionService extends EventEmitter {
     } catch (error) {
       const message = getErrorMessage(error);
       return Err(`Failed to update minion title: ${message}`);
+    }
+  }
+
+  /**
+   * Update per-minion autonomy overrides (from preset or manual config).
+   * Persists to config JSON and signals the agent session to re-resolve autonomy config.
+   */
+  async updateAutonomyOverrides(
+    minionId: string,
+    autonomyOverrides: MinionMetadata["autonomyOverrides"]
+  ): Promise<Result<void>> {
+    try {
+      const minion = this.config.findMinion(minionId);
+      if (!minion) {
+        return Err("Minion not found");
+      }
+      const { projectPath, minionPath } = minion;
+
+      await this.config.editConfig((config) => {
+        const projectConfig = config.projects.get(projectPath);
+        if (projectConfig) {
+          const minionEntry =
+            projectConfig.minions.find((w) => w.id === minionId) ??
+            projectConfig.minions.find((w) => w.path === minionPath);
+          if (minionEntry) {
+            minionEntry.autonomyOverrides = autonomyOverrides;
+          }
+        }
+        return config;
+      });
+
+      // Signal the agent session to re-resolve autonomy config on next stream
+      const session = this.sessions.get(minionId);
+      if (session) {
+        session.resetAutonomyConfig();
+      }
+
+      return Ok(undefined);
+    } catch (error) {
+      const message = getErrorMessage(error);
+      return Err(`Failed to update autonomy overrides: ${message}`);
     }
   }
 

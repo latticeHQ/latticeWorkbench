@@ -29,6 +29,7 @@ export {
 // Minion stats schemas
 export {
   ActiveStreamStatsSchema,
+  AutonomyMetricsSchema,
   CompletedStreamStatsSchema,
   ModelTimingStatsSchema,
   SessionTimingFileSchema,

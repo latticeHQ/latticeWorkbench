@@ -44,6 +44,7 @@ import { useAgent } from "@/browser/contexts/AgentContext";
 import { useMinionActions } from "@/browser/contexts/MinionContext";
 import { forkMinion } from "@/browser/utils/chatCommands";
 import type { AgentSkillDescriptor, AgentSkillIssue } from "@/common/types/agentSkill";
+import { AutonomyConfigPopover } from "./AutonomyConfigPopover";
 
 interface MinionMenuBarProps {
   minionId: string;
@@ -420,6 +421,9 @@ export const MinionIconStrip: React.FC<{
             </div>
           </PopoverContent>
         </Popover>
+
+        {/* Autonomy config */}
+        <AutonomyConfigPopover minionId={props.minionId} />
 
         {/* Skills indicator */}
         <SkillIndicator

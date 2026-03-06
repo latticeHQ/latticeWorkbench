@@ -85,6 +85,27 @@ import type { TodoItem } from "@/common/types/tools";
 import type { PostCompactionAttachment, PostCompactionExclusions } from "@/common/types/attachment";
 import { TURNS_BETWEEN_ATTACHMENTS } from "@/common/constants/attachments";
 
+import {
+  type AutonomyConfig,
+  type CircuitBreakerState,
+  type PhaseGatingState,
+  type QualityMetrics,
+  type RevertDetectorPart,
+  resolveAutonomyConfig,
+  createCircuitBreakerState,
+  createPhaseGatingState,
+  createQualityMetrics,
+  evaluateCircuitBreaker,
+  advancePhaseIfNeeded,
+  getPhaseToolPolicy,
+  getPhaseInstruction,
+  updateMetricsFromStreamEnd,
+  buildSiblingContextBlock,
+  getToolSuccessRate,
+  mergeAutonomyOverrides,
+  RevertTracker,
+} from "./autonomyService";
+
 import { extractEditedFileDiffs } from "@/common/utils/messages/extractEditedFiles";
 import { buildCompactionMessageText } from "@/common/utils/compaction/compactionPrompt";
 import type { AutoCompactionUsageState } from "@/common/utils/compaction/autoCompactionCheck";
@@ -244,6 +265,8 @@ interface AgentSessionOptions {
   onCompactionComplete?: () => void;
   /** Called when post-compaction context state may have changed (plan/file edits) */
   onPostCompactionStateChange?: () => void;
+  /** Called when autonomy quality metrics are updated (for persistence) */
+  onAutonomyMetricsUpdate?: (metrics: ReturnType<AgentSession["getAutonomyMetrics"]>) => void;
 }
 
 enum TurnPhase {
@@ -265,6 +288,9 @@ export class AgentSession {
   private readonly keepBackgroundProcesses: boolean;
   private readonly onCompactionComplete?: () => void;
   private readonly onPostCompactionStateChange?: () => void;
+  private readonly onAutonomyMetricsUpdate?: (
+    metrics: ReturnType<AgentSession["getAutonomyMetrics"]>
+  ) => void;
   private readonly emitter = new EventEmitter();
   private readonly aiListeners: Array<{ event: string; handler: (...args: unknown[]) => void }> =
     [];
@@ -321,6 +347,28 @@ export class AgentSession {
    * Used to enable the cooldown-based attachment injection.
    */
   private compactionOccurred = false;
+
+  // ---------------------------------------------------------------------------
+  // Autonomy state (DialogLab-inspired self-correction mechanisms)
+  // ---------------------------------------------------------------------------
+
+  /** Resolved autonomy configuration from agent frontmatter. Lazily initialized on first stream. */
+  private autonomyConfig: AutonomyConfig | null = null;
+
+  /** Circuit breaker state: tracks turns and nudge/compaction triggers. */
+  private circuitBreakerState: CircuitBreakerState = createCircuitBreakerState();
+
+  /** Phase gating state: tracks current execution phase and turns within it. */
+  private phaseGatingState: PhaseGatingState = createPhaseGatingState();
+
+  /** Quality metrics: tracks turn efficiency and tool success rates. */
+  private qualityMetrics: QualityMetrics = createQualityMetrics();
+
+  /** Revert detection: tracks re-edited files across turns to detect thrashing. */
+  private revertTracker = new RevertTracker();
+
+  /** Whether sibling context has been injected (one-shot on first turn). */
+  private siblingContextInjected = false;
 
   /**
    * When true, clear any persisted post-compaction state after the next successful non-compaction stream.
@@ -393,6 +441,7 @@ export class AgentSession {
       keepBackgroundProcesses,
       onCompactionComplete,
       onPostCompactionStateChange,
+      onAutonomyMetricsUpdate,
     } = options;
 
     assert(typeof minionId === "string", "minionId must be a string");
@@ -408,6 +457,7 @@ export class AgentSession {
     this.keepBackgroundProcesses = keepBackgroundProcesses ?? false;
     this.onCompactionComplete = onCompactionComplete;
     this.onPostCompactionStateChange = onPostCompactionStateChange;
+    this.onAutonomyMetricsUpdate = onAutonomyMetricsUpdate;
 
     this.compactionHandler = new CompactionHandler({
       minionId: this.minionId,
@@ -1727,6 +1777,9 @@ export class AgentSession {
     // Real user sends break any synthetic switch chain.
     if (!internal?.synthetic) {
       this.consecutiveAgentSwitches = 0;
+      // Reset circuit breaker on real user input (user is actively engaged).
+      this.circuitBreakerState = createCircuitBreakerState();
+      this.revertTracker.reset();
     }
 
     const trimmedMessage = message.trim();
@@ -2632,6 +2685,57 @@ export class AgentSession {
     return Ok(undefined);
   }
 
+  /**
+   * Return current autonomy quality metrics for this session, or null if
+   * autonomy features are not enabled for the active agent.
+   */
+  getAutonomyMetrics(): {
+    totalTurns: number;
+    toolCallCount: number;
+    toolCallSuccessCount: number;
+    toolSuccessRate: number;
+    currentPhase?: string;
+    turnsPerPhase?: Record<string, number>;
+    circuitBreakerTurns?: number;
+    circuitBreakerSoftLimitHit?: boolean;
+    circuitBreakerHardLimitHit?: boolean;
+    revertCount: number;
+  } | null {
+    if (!this.autonomyConfig) {
+      return null;
+    }
+    return {
+      totalTurns: this.qualityMetrics.totalTurns,
+      toolCallCount: this.qualityMetrics.toolCallCount,
+      toolCallSuccessCount: this.qualityMetrics.toolCallSuccessCount,
+      toolSuccessRate: getToolSuccessRate(this.qualityMetrics),
+      currentPhase: this.autonomyConfig.phases.enabled
+        ? this.phaseGatingState.currentPhase
+        : undefined,
+      turnsPerPhase: this.autonomyConfig.phases.enabled
+        ? { ...this.qualityMetrics.turnsPerPhase }
+        : undefined,
+      circuitBreakerTurns: this.autonomyConfig.circuitBreaker.enabled
+        ? this.circuitBreakerState.turnsSinceUserMessage
+        : undefined,
+      circuitBreakerSoftLimitHit: this.autonomyConfig.circuitBreaker.enabled
+        ? this.circuitBreakerState.softLimitNudged
+        : undefined,
+      circuitBreakerHardLimitHit: this.autonomyConfig.circuitBreaker.enabled
+        ? this.circuitBreakerState.hardLimitTriggered
+        : undefined,
+      revertCount: this.qualityMetrics.revertCount,
+    };
+  }
+
+  /**
+   * Reset the cached autonomy config so it re-resolves from metadata on the next stream.
+   * Called when per-minion autonomy overrides are updated via the UI.
+   */
+  resetAutonomyConfig(): void {
+    this.autonomyConfig = null;
+  }
+
   private async syncAgentSwitchingForResolvedAgent(
     requestedAgentId: string | undefined,
     resolvedAgentId: string | undefined
@@ -2791,13 +2895,165 @@ export class AgentSession {
       normalizeDelegatedToolNames(options?.delegatedToolNames) ??
       extractAcpDelegatedTools(options?.latticeMetadata);
 
+    // ---------------------------------------------------------------------------
+    // Autonomy: lazy-init config from agent frontmatter, then inject per-turn
+    // phase-gating tool policy, phase instructions, and circuit-breaker nudges.
+    // ---------------------------------------------------------------------------
+    if (this.autonomyConfig === null) {
+      try {
+        const agentId = options?.agentId ?? "exec";
+        const metadataResult = await this.aiService.getMinionMetadata(this.minionId);
+        if (metadataResult.success) {
+          const metadata = metadataResult.data;
+          const runtime = createRuntimeForMinion(metadata);
+          const isInPlace = metadata.projectPath === metadata.name;
+          const minionPath = isInPlace
+            ? metadata.projectPath
+            : runtime.getMinionPath(metadata.projectPath, metadata.name);
+          const discoveryPath =
+            options?.disableMinionAgents === true ? metadata.projectPath : minionPath;
+          const frontmatter = await resolveAgentFrontmatter(runtime, discoveryPath, agentId);
+          this.autonomyConfig = resolveAutonomyConfig(frontmatter);
+
+          // Merge per-minion autonomy overrides (from creation presets or manual config)
+          const autonomyOverrides = metadata.autonomyOverrides;
+          if (autonomyOverrides) {
+            this.autonomyConfig = mergeAutonomyOverrides(this.autonomyConfig, autonomyOverrides);
+          }
+
+          log.info("Autonomy config resolved", {
+            minionId: this.minionId,
+            agentId,
+            circuitBreaker: this.autonomyConfig.circuitBreaker.enabled,
+            phases: this.autonomyConfig.phases.enabled,
+            siblingContext: this.autonomyConfig.siblingContext.enabled,
+            challenger: this.autonomyConfig.challenger.enabled,
+          });
+        }
+      } catch (error) {
+        // Non-fatal: if we can't resolve frontmatter, autonomy features stay disabled.
+        log.debug("Autonomy config resolution failed (features disabled)", {
+          minionId: this.minionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    let effectiveToolPolicy = options?.toolPolicy;
+    let effectiveAdditionalInstructions = options?.additionalSystemInstructions;
+
+    if (this.autonomyConfig) {
+      // Phase gating: add phase-specific tool restrictions
+      const phasePolicy = getPhaseToolPolicy(
+        this.phaseGatingState,
+        this.autonomyConfig.phases
+      );
+      if (phasePolicy) {
+        effectiveToolPolicy = [
+          ...(effectiveToolPolicy ?? []),
+          ...phasePolicy,
+        ];
+      }
+
+      // Phase gating: inject phase instructions
+      const phaseInstruction = getPhaseInstruction(
+        this.phaseGatingState,
+        this.autonomyConfig.phases
+      );
+      if (phaseInstruction) {
+        effectiveAdditionalInstructions = effectiveAdditionalInstructions
+          ? `${phaseInstruction}\n\n${effectiveAdditionalInstructions}`
+          : phaseInstruction;
+      }
+
+      // Circuit breaker: inject nudge instruction if soft limit was just hit
+      if (
+        this.autonomyConfig.circuitBreaker.enabled &&
+        this.circuitBreakerState.softLimitNudged &&
+        this.circuitBreakerState.turnsSinceUserMessage === this.autonomyConfig.circuitBreaker.softLimit
+      ) {
+        const cbAction = evaluateCircuitBreaker(
+          { ...this.circuitBreakerState, softLimitNudged: false },
+          this.autonomyConfig.circuitBreaker,
+          this.minionId
+        );
+        if (cbAction.instruction) {
+          effectiveAdditionalInstructions = effectiveAdditionalInstructions
+            ? `${cbAction.instruction}\n\n${effectiveAdditionalInstructions}`
+            : cbAction.instruction;
+        }
+      }
+
+      // Sibling context: on first turn, inject compaction summaries from siblings
+      if (
+        this.autonomyConfig.siblingContext.enabled &&
+        !this.siblingContextInjected
+      ) {
+        this.siblingContextInjected = true;
+        try {
+          const allMinions = await this.config.getAllMinionMetadata();
+          const myMetadata = allMinions.find((m) => m.id === this.minionId);
+          if (myMetadata) {
+            const siblings = allMinions.filter(
+              (m) => m.projectPath === myMetadata.projectPath && m.id !== this.minionId
+            );
+            const summaries: Array<{ minionName: string; summary: string }> = [];
+            for (const sibling of siblings.slice(0, this.autonomyConfig.siblingContext.maxSiblings)) {
+              const lastMsgs = await this.historyService.getLastMessages(sibling.id, 10);
+              if (!lastMsgs.success) continue;
+              // Find the latest compaction boundary message (contains the summary)
+              const boundaryMsg = [...lastMsgs.data]
+                .reverse()
+                .find((m) => m.role === "assistant" && m.metadata?.compactionBoundary === true);
+              if (boundaryMsg) {
+                const content = typeof boundaryMsg.content === "string"
+                  ? boundaryMsg.content
+                  : Array.isArray(boundaryMsg.content)
+                    ? boundaryMsg.content
+                        .filter((p: { type: string }) => p.type === "text")
+                        .map((p: { text?: string }) => p.text ?? "")
+                        .join("\n")
+                    : "";
+                if (content.length > 0) {
+                  summaries.push({
+                    minionName: sibling.title ?? sibling.name,
+                    summary: content,
+                  });
+                }
+              }
+            }
+            if (summaries.length > 0) {
+              const siblingBlock = buildSiblingContextBlock(
+                summaries,
+                this.autonomyConfig.siblingContext
+              );
+              if (siblingBlock) {
+                effectiveAdditionalInstructions = effectiveAdditionalInstructions
+                  ? `${siblingBlock}\n\n${effectiveAdditionalInstructions}`
+                  : siblingBlock;
+                log.info("Sibling context injected", {
+                  minionId: this.minionId,
+                  siblingCount: summaries.length,
+                });
+              }
+            }
+          }
+        } catch (error) {
+          log.debug("Sibling context injection failed (non-fatal)", {
+            minionId: this.minionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    }
+
     const streamResult = await this.aiService.streamMessage({
       messages: historyResult.data,
       minionId: this.minionId,
       modelString,
       thinkingLevel: effectiveThinkingLevel,
-      toolPolicy: options?.toolPolicy,
-      additionalSystemInstructions: options?.additionalSystemInstructions,
+      toolPolicy: effectiveToolPolicy,
+      additionalSystemInstructions: effectiveAdditionalInstructions,
       maxOutputTokens: options?.maxOutputTokens,
       latticeProviderOptions: options?.providerOptions,
       agentId: options?.agentId,
@@ -3742,6 +3998,99 @@ export class AgentSession {
           } catch (error) {
             handoffFailureMessage = getErrorMessage(error);
             throw error;
+          }
+        }
+
+        // ---------------------------------------------------------------------------
+        // Autonomy: circuit breaker + phase gating + quality metrics
+        // ---------------------------------------------------------------------------
+        if (this.autonomyConfig) {
+          // Update quality metrics from stream-end parts
+          const streamParts = streamEndPayload.parts ?? [];
+          const currentPhase = this.autonomyConfig.phases.enabled
+            ? this.phaseGatingState.currentPhase
+            : undefined;
+
+          // Map stream parts for revert detection (needs toolName + input/output)
+          const revertParts: RevertDetectorPart[] = streamParts
+            .filter((p: { type: string }) => p.type === "tool-result")
+            .map(
+              (p: {
+                toolName?: string;
+                input?: unknown;
+                output?: unknown;
+              }) => ({
+                toolName: p.toolName,
+                input: p.input,
+                output: p.output,
+              })
+            );
+          const revertsThisTurn = this.revertTracker.detectReverts(revertParts);
+
+          this.qualityMetrics = updateMetricsFromStreamEnd(
+            this.qualityMetrics,
+            streamParts.map((p: { type: string; toolName?: string; isError?: boolean }) => ({
+              type: p.type,
+              toolName: "toolName" in p ? (p as { toolName?: string }).toolName : undefined,
+              isError: "isError" in p ? (p as { isError?: boolean }).isError : undefined,
+            })),
+            currentPhase,
+            revertsThisTurn
+          );
+
+          // Persist metrics to disk so they survive app restarts
+          try {
+            this.onAutonomyMetricsUpdate?.(this.getAutonomyMetrics());
+          } catch {
+            // Non-critical — don't break the stream-end flow
+          }
+
+          // Increment circuit breaker turn count
+          if (this.autonomyConfig.circuitBreaker.enabled) {
+            this.circuitBreakerState.turnsSinceUserMessage++;
+
+            const cbAction = evaluateCircuitBreaker(
+              this.circuitBreakerState,
+              this.autonomyConfig.circuitBreaker,
+              this.minionId,
+              this.qualityMetrics.revertCount
+            );
+
+            if (cbAction.type === "nudge") {
+              this.circuitBreakerState.softLimitNudged = true;
+              // Inject nudge as additional system instruction for next turn
+              // by queuing a synthetic message with the pivot instruction
+              log.info("Circuit breaker: injecting pivot nudge", {
+                minionId: this.minionId,
+                turns: this.circuitBreakerState.turnsSinceUserMessage,
+              });
+            } else if (cbAction.type === "compact") {
+              this.circuitBreakerState.hardLimitTriggered = true;
+              log.info("Circuit breaker: triggering hard compaction", {
+                minionId: this.minionId,
+                turns: this.circuitBreakerState.turnsSinceUserMessage,
+              });
+              // Force compaction will happen via the existing auto-compaction path
+              // by emitting a compaction event that the frontend/backend picks up
+              this.emitChatEvent({
+                type: "auto-compaction-triggered",
+                reason: "circuit-breaker",
+                usagePercent: 100, // Signal urgency
+              });
+            }
+          }
+
+          // Advance execution phase if turn limit reached
+          if (this.autonomyConfig.phases.enabled) {
+            this.phaseGatingState.turnsInCurrentPhase++;
+            const phaseResult = advancePhaseIfNeeded(
+              this.phaseGatingState,
+              this.autonomyConfig.phases,
+              this.minionId
+            );
+            if (phaseResult.transitioned) {
+              this.phaseGatingState = phaseResult.state;
+            }
           }
         }
 
