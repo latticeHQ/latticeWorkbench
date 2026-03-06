@@ -8,6 +8,7 @@ import type { Toast } from "../ChatInputToast";
 import { ConnectionStatusToast } from "../ConnectionStatusToast";
 import { ChatInputToast } from "../ChatInputToast";
 import type { SendMessageError } from "@/common/types/errors";
+import type { AutonomyPresetId } from "@/common/types/autonomyPresets";
 import { createErrorToast } from "../ChatInputToasts";
 import { ConfirmationModal } from "../ConfirmationModal";
 import type { ParsedCommand } from "@/browser/utils/slashCommands/types";
@@ -668,6 +669,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
   const creationSections = creationProject?.crews ?? [];
 
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(() => pendingSectionId);
+  const [autonomyPreset, setAutonomyPreset] = useState<AutonomyPresetId>("inherit");
   const [hasAttemptedCreateSend, setHasAttemptedCreateSend] = useState(false);
 
   // Keep local selection in sync with the URL-driven pending crew (sidebar "+" button).
@@ -734,6 +736,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           onMinionCreated: props.onMinionCreated,
           message: input,
           crewId: selectedSectionId,
+          autonomyPreset,
           draftId: props.pendingDraftId,
           userModel: preferredModel,
         }
@@ -811,6 +814,8 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           sections: creationSections,
           selectedSectionId,
           onSectionChange: handleCreationSectionChange,
+          autonomyPreset,
+          onAutonomyPresetChange: setAutonomyPreset,
           allowedRuntimeModes: runtimePolicy.allowedModes,
           allowSshHost: runtimePolicy.allowSshHost,
           allowSshLattice: runtimePolicy.allowSshLattice,

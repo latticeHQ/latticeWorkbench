@@ -3,6 +3,18 @@ name: Exec
 description: Implement changes in the repository
 ui:
   color: var(--color-exec-mode)
+autonomy:
+  circuit_breaker:
+    enabled: true
+    soft_limit: 9
+    hard_limit: 15
+  phases:
+    enabled: false
+  sibling_context:
+    enabled: true
+    max_siblings: 3
+  challenger:
+    enabled: false
 sidekick:
   runnable: true
   append_prompt: |
