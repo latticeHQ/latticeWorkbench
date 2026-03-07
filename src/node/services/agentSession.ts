@@ -106,6 +106,13 @@ import {
   RevertTracker,
 } from "./autonomyService";
 
+import {
+  loadReflections,
+  storeReflection,
+  buildReflectionBlock,
+  parseReflectionFromResponse,
+} from "./reflexionService";
+
 import { extractEditedFileDiffs } from "@/common/utils/messages/extractEditedFiles";
 import { buildCompactionMessageText } from "@/common/utils/compaction/compactionPrompt";
 import type { AutoCompactionUsageState } from "@/common/utils/compaction/autoCompactionCheck";
@@ -369,6 +376,9 @@ export class AgentSession {
 
   /** Whether sibling context has been injected (one-shot on first turn). */
   private siblingContextInjected = false;
+
+  /** Tracks pending reflection trigger so we can parse the agent's response on the next stream-end. */
+  private pendingReflectionParse: "soft_limit" | "revert" | null = null;
 
   /**
    * When true, clear any persisted post-compaction state after the next successful non-compaction stream.
@@ -1780,6 +1790,7 @@ export class AgentSession {
       // Reset circuit breaker on real user input (user is actively engaged).
       this.circuitBreakerState = createCircuitBreakerState();
       this.revertTracker.reset();
+      this.pendingReflectionParse = null;
     }
 
     const trimmedMessage = message.trim();
@@ -2984,6 +2995,29 @@ export class AgentSession {
         }
       }
 
+      // Reflexion: inject unresolved reflections as episodic memory
+      if (this.autonomyConfig.circuitBreaker.enabled) {
+        try {
+          const sessionDir = this.config.getSessionDir(this.minionId);
+          const reflections = await loadReflections(sessionDir);
+          const reflectionBlock = buildReflectionBlock(reflections);
+          if (reflectionBlock) {
+            effectiveAdditionalInstructions = effectiveAdditionalInstructions
+              ? `${reflectionBlock}\n\n${effectiveAdditionalInstructions}`
+              : reflectionBlock;
+            log.info("Reflexion: injected episodic memory", {
+              minionId: this.minionId,
+              unresolvedCount: reflections.filter((r) => !r.resolved).length,
+            });
+          }
+        } catch (error) {
+          log.debug("Reflexion: failed to load reflections (non-fatal)", {
+            minionId: this.minionId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
       // Sibling context: on first turn, inject compaction summaries from siblings
       if (
         this.autonomyConfig.siblingContext.enabled &&
@@ -3006,14 +3040,10 @@ export class AgentSession {
                 .reverse()
                 .find((m) => m.role === "assistant" && m.metadata?.compactionBoundary === true);
               if (boundaryMsg) {
-                const content = typeof boundaryMsg.content === "string"
-                  ? boundaryMsg.content
-                  : Array.isArray(boundaryMsg.content)
-                    ? boundaryMsg.content
-                        .filter((p: { type: string }) => p.type === "text")
-                        .map((p: { text?: string }) => p.text ?? "")
-                        .join("\n")
-                    : "";
+                const content = boundaryMsg.parts
+                  ?.filter((p) => p.type === "text")
+                  .map((p) => p.text)
+                  .join("\n") ?? "";
                 if (content.length > 0) {
                   summaries.push({
                     minionName: sibling.title ?? sibling.name,
@@ -4012,19 +4042,13 @@ export class AgentSession {
             : undefined;
 
           // Map stream parts for revert detection (needs toolName + input/output)
-          const revertParts: RevertDetectorPart[] = streamParts
-            .filter((p: { type: string }) => p.type === "tool-result")
-            .map(
-              (p: {
-                toolName?: string;
-                input?: unknown;
-                output?: unknown;
-              }) => ({
-                toolName: p.toolName,
-                input: p.input,
-                output: p.output,
-              })
-            );
+          const revertParts: RevertDetectorPart[] = (streamParts as Array<Record<string, unknown>>)
+            .filter((p) => p.type === "tool-result")
+            .map((p) => ({
+              toolName: p.toolName as string | undefined,
+              input: p.input,
+              output: p.output,
+            }));
           const revertsThisTurn = this.revertTracker.detectReverts(revertParts);
 
           this.qualityMetrics = updateMetricsFromStreamEnd(
@@ -4056,13 +4080,55 @@ export class AgentSession {
               this.qualityMetrics.revertCount
             );
 
-            if (cbAction.type === "nudge") {
+            // Parse pending reflection from previous turn's agent response
+            if (this.pendingReflectionParse) {
+              try {
+                const lastMsgs = await this.historyService.getLastMessages(this.minionId, 1);
+                if (lastMsgs.success && lastMsgs.data.length > 0) {
+                  const msg = lastMsgs.data[0];
+                  const textContent = msg.parts
+                    ?.filter((p) => p.type === "text")
+                    .map((p) => p.text)
+                    .join("\n") ?? "";
+                  const reflectionContent = parseReflectionFromResponse(textContent);
+                  if (reflectionContent) {
+                    const sessionDir = this.config.getSessionDir(this.minionId);
+                    await storeReflection(sessionDir, {
+                      id: crypto.randomUUID(),
+                      timestamp: Date.now(),
+                      trigger: this.pendingReflectionParse,
+                      phase: this.autonomyConfig.phases.enabled
+                        ? this.phaseGatingState.currentPhase
+                        : undefined,
+                      turnCount: this.circuitBreakerState.turnsSinceUserMessage,
+                      content: reflectionContent,
+                      resolved: false,
+                    });
+                    log.info("Reflexion: stored agent reflection", {
+                      minionId: this.minionId,
+                      trigger: this.pendingReflectionParse,
+                    });
+                  }
+                }
+              } catch (error) {
+                log.debug("Reflexion: failed to parse/store reflection (non-fatal)", {
+                  minionId: this.minionId,
+                  error: error instanceof Error ? error.message : String(error),
+                });
+              }
+              this.pendingReflectionParse = null;
+            }
+
+            if (cbAction.type === "reflect") {
               this.circuitBreakerState.softLimitNudged = true;
-              // Inject nudge as additional system instruction for next turn
-              // by queuing a synthetic message with the pivot instruction
-              log.info("Circuit breaker: injecting pivot nudge", {
+              const revertTriggered =
+                this.qualityMetrics.revertCount !== undefined &&
+                this.qualityMetrics.revertCount >= 2;
+              this.pendingReflectionParse = revertTriggered ? "revert" : "soft_limit";
+              log.info("Circuit breaker: requesting structured reflection", {
                 minionId: this.minionId,
                 turns: this.circuitBreakerState.turnsSinceUserMessage,
+                trigger: this.pendingReflectionParse,
               });
             } else if (cbAction.type === "compact") {
               this.circuitBreakerState.hardLimitTriggered = true;

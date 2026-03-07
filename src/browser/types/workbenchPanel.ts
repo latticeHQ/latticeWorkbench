@@ -11,6 +11,7 @@ export const WORKBENCH_PANEL_TABS = [
   "inference",
   "schedules",
   "sync",
+  "reflections",
 ] as const;
 
 /** Base tab types that are always valid */

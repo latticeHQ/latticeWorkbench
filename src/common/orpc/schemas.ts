@@ -150,6 +150,10 @@ export {
   BrowserSnapshotSchema,
 } from "./schemas/browser";
 
+// Reflexion schemas
+export { ReflectionSchema, ReflectionTriggerSchema } from "./schemas/reflexion";
+export type { ReflectionData } from "./schemas/reflexion";
+
 // Kanban schemas
 export {
   KanbanArchivedBufferOutputSchema,
@@ -307,6 +311,7 @@ export {
   inferenceSetup,
   inbox,
   kanban,
+  reflections,
   scheduler,
   sync,
   tokenizer,

@@ -1822,6 +1822,32 @@ export const kanban = {
   },
 };
 
+// Reflections — episodic memory from circuit breaker reflections
+
+import { ReflectionSchema } from "./reflexion";
+
+export const reflections = {
+  /** List all reflections for a minion */
+  list: {
+    input: z.object({ minionId: z.string() }),
+    output: z.array(ReflectionSchema),
+  },
+  /** Toggle a reflection's resolved state */
+  resolve: {
+    input: z.object({
+      minionId: z.string(),
+      reflectionId: z.string(),
+      resolved: z.boolean(),
+    }),
+    output: z.void(),
+  },
+  /** Clear all reflections for a minion */
+  clear: {
+    input: z.object({ minionId: z.string() }),
+    output: z.void(),
+  },
+};
+
 // Inbox — channel adapters (Telegram, Slack, etc.)
 
 export const inbox = {
