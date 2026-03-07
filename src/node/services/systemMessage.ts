@@ -253,7 +253,7 @@ export function extractToolInstructions(
  * @param runtime - Runtime for reading minion files (supports SSH)
  * @param minionPath - Minion directory path
  * @param modelString - Active model identifier to determine available tools
- * @param agentInstructions - Optional agent definition body (searched first for tool crews)
+ * @param agentInstructions - Optional agent definition body (searched first for tool stages)
  * @returns Map of tool names to their additional instructions
  */
 export async function readToolInstructions(
@@ -304,7 +304,7 @@ async function readInstructionSources(
  * Instruction layers:
  * 1. Global: ~/.lattice/AGENTS.md (always included)
  * 2. Context: minion/AGENTS.md OR project/AGENTS.md (minion takes precedence)
- * 3. Model: Extracts "Model: <regex>" crew from context then global (if modelString provided)
+ * 3. Model: Extracts "Model: <regex>" stage from context then global (if modelString provided)
  *
  * File search order: AGENTS.md → AGENT.md → CLAUDE.md
  * Local variants: AGENTS.local.md appended if found (for .gitignored personal preferences)
@@ -313,7 +313,7 @@ async function readInstructionSources(
  * @param runtime - Runtime for reading minion files (supports SSH)
  * @param minionPath - Minion directory path
  * @param additionalSystemInstructions - Optional instructions appended last
- * @param modelString - Active model identifier used for Model-specific crews
+ * @param modelString - Active model identifier used for Model-specific stages
  * @param mcpServers - Optional MCP server configuration (name -> command)
  * @throws Error if metadata or minionPath invalid
  */
@@ -356,8 +356,8 @@ export async function buildSystemMessage(
 
   const agentPrompt = options?.agentSystemPrompt?.trim() ?? null;
 
-  // Combine: global + context (minion takes precedence over project) after stripping scoped crews
-  // Also strip scoped crews from agent prompt for consistency
+  // Combine: global + context (minion takes precedence over project) after stripping scoped stages
+  // Also strip scoped stages from agent prompt for consistency
   const sanitizeScopedInstructions = (input?: string | null): string | undefined => {
     if (!input) return undefined;
     const stripped = stripScopedInstructionSections(input);
@@ -375,7 +375,7 @@ export async function buildSystemMessage(
   ].filter((value): value is string => Boolean(value));
   const customInstructions = customInstructionSources.join("\n\n");
 
-  // Extract model-specific crew based on active model identifier
+  // Extract model-specific stage based on active model identifier
   const modelContent = modelString
     ? searchInstructionSources(
         { agent: agentPrompt, context: contextInstructions, global: globalInstructions },

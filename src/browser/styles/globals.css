@@ -369,7 +369,7 @@
     --titlebar-right-inset: 0px;
 
     /* Section chip selection glow (CreationControls.tsx) */
-    --section-glow-color: transparent;
+    --stage-glow-color: transparent;
   }
 
   --plan-mode-rgb: 139, 92, 246;
@@ -1809,7 +1809,7 @@ input[type="checkbox"] {
 }
 
 /* Uppercase section label for creation form groups — small, muted, letter-spaced */
-.creation-section-label {
+.creation-stage-label {
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.06em;
@@ -1818,8 +1818,8 @@ input[type="checkbox"] {
 }
 
 /* Section chip glow on selection */
-.creation-section-chip-glow {
-  box-shadow: 0 0 8px 0 var(--section-glow-color, transparent);
+.creation-stage-chip-glow {
+  box-shadow: 0 0 8px 0 var(--stage-glow-color, transparent);
 }
 
 /* ── Lattice hexagon spinner ─────────────────────────────────────────── */

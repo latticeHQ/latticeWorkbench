@@ -1,17 +1,17 @@
 /**
- * Integration tests for minion crews.
+ * Integration tests for minion stages.
  *
  * Tests verify:
- * - Section UI elements render correctly with proper data attributes
- * - Section and drop zone UI elements render with proper data attributes
- * - Workspace creation with crewId assigns to that crew
- * - Crew "+" button pre-selects crew in creation flow
- * - Section removal invariants (removal unsections active/archived workspaces)
- * - Section reordering via API and UI reflection
+ * - Stage UI elements render correctly with proper data attributes
+ * - Stage and drop zone UI elements render with proper data attributes
+ * - Workspace creation with stageId assigns to that stage
+ * - Stage "+" button pre-selects stage in creation flow
+ * - Stage removal invariants (removal unstages active/archived workspaces)
+ * - Stage reordering via API and UI reflection
  *
  * Testing approach:
- * - Section creation uses ORPC (happy-dom doesn't reliably handle React controlled inputs)
- * - We test that crews render correctly, not the text input submission interaction
+ * - Stage creation uses ORPC (happy-dom doesn't reliably handle React controlled inputs)
+ * - We test that stages render correctly, not the text input submission interaction
  * - Workspace creation uses ORPC for speed (setup/teardown is acceptable per AGENTS.md)
  * - DnD gestures tested in Storybook (react-dnd-html5-backend doesn't work in happy-dom)
  */
@@ -48,49 +48,49 @@ function findWorkspaceRow(container: HTMLElement, workspaceId: string): HTMLElem
 }
 
 /**
- * Find a crew drop zone in the sidebar by section ID.
+ * Find a stage drop zone in the sidebar by stage ID.
  */
-function findCrewDropZone(container: HTMLElement, crewId: string): HTMLElement | null {
-  return container.querySelector(`[data-drop-crew-id="${crewId}"]`);
+function findStageDropZone(container: HTMLElement, stageId: string): HTMLElement | null {
+  return container.querySelector(`[data-drop-stage-id="${stageId}"]`);
 }
 
 /**
- * Find the unsectioned workspaces drop zone.
+ * Find the unstaged workspaces drop zone.
  */
-function findUnsectionedDropZone(container: HTMLElement): HTMLElement | null {
-  return container.querySelector('[data-testid="unsectioned-drop-zone"]');
+function findUnstagedDropZone(container: HTMLElement): HTMLElement | null {
+  return container.querySelector('[data-testid="unstaged-drop-zone"]');
 }
 
 /**
- * Wait for a crew header to appear in the sidebar.
+ * Wait for a stage header to appear in the sidebar.
  */
-async function waitForCrew(
+async function waitForStage(
   container: HTMLElement,
-  crewId: string,
+  stageId: string,
   timeoutMs = 5_000
 ): Promise<HTMLElement> {
   return waitFor(
     () => {
-      const section = container.querySelector(`[data-crew-id="${crewId}"]`);
-      if (!section) throw new Error(`Crew ${crewId} not found`);
-      return section as HTMLElement;
+      const stage = container.querySelector(`[data-stage-id="${stageId}"]`);
+      if (!stage) throw new Error(`Stage ${stageId} not found`);
+      return stage as HTMLElement;
     },
     { timeout: timeoutMs }
   );
 }
 
 /**
- * Get all crew IDs in DOM order.
+ * Get all stage IDs in DOM order.
  */
-function getSectionIdsInOrder(container: HTMLElement): string[] {
-  const sections = container.querySelectorAll("[data-crew-id]");
-  return Array.from(sections)
-    .map((el) => el.getAttribute("data-crew-id"))
+function getStageIdsInOrder(container: HTMLElement): string[] {
+  const stages = container.querySelectorAll("[data-stage-id]");
+  return Array.from(stages)
+    .map((el) => el.getAttribute("data-stage-id"))
     .filter((id): id is string => id !== null && id !== "");
 }
 
 /**
- * Create a section via ORPC. Returns the section ID.
+ * Create a stage via ORPC. Returns the stage ID.
  *
  * Note: This does NOT wait for UI to update - use with tests that don't need
  * immediate UI reflection, or call refreshProjects() after and wait appropriately.
@@ -99,18 +99,18 @@ function getSectionIdsInOrder(container: HTMLElement): string[] {
  * handle React controlled inputs (fireEvent.change doesn't trigger React state updates
  * synchronously, causing keyDown/blur handlers to see stale state).
  */
-async function createCrewViaAPI(
+async function createStageViaAPI(
   env: ReturnType<typeof getSharedEnv>,
   projectPath: string,
-  crewName: string
+  stageName: string
 ): Promise<string> {
-  const result = await env.orpc.projects.crews.create({
+  const result = await env.orpc.projects.stages.create({
     projectPath,
-    name: crewName,
+    name: stageName,
   });
 
   if (!result.success) {
-    throw new Error(`Failed to create crew: ${result.error}`);
+    throw new Error(`Failed to create stage: ${result.error}`);
   }
 
   return result.data.id;
@@ -120,7 +120,7 @@ async function createCrewViaAPI(
 // TESTS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-describeIntegration("Workspace Sections", () => {
+describeIntegration("Workspace Stages", () => {
   beforeAll(async () => {
     await createSharedRepo();
   });
@@ -133,12 +133,12 @@ describeIntegration("Workspace Sections", () => {
   // UI Infrastructure
   // ─────────────────────────────────────────────────────────────────────────────
 
-  test("crew renders with drop zones after creation", async () => {
+  test("stage renders with drop zones after creation", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
 
     // Create a workspace first (ORPC is fine for setup)
-    const branchName = generateBranchName("test-crew-ui");
+    const branchName = generateBranchName("test-stage-ui");
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
     const wsResult = await env.orpc.minion.create({
       projectPath,
@@ -149,8 +149,8 @@ describeIntegration("Workspace Sections", () => {
     const workspaceId = wsResult.metadata.id;
     const metadata = wsResult.metadata;
 
-    // Create crew BEFORE rendering so it's in the initial config
-    const sectionId = await createCrewViaAPI(env, projectPath, "Test Crew");
+    // Create stage BEFORE rendering so it's in the initial config
+    const stageId = await createStageViaAPI(env, projectPath, "Test Stage");
 
     const cleanupDom = installDom();
     expandProjects([projectPath]);
@@ -160,44 +160,44 @@ describeIntegration("Workspace Sections", () => {
     try {
       await setupWorkspaceView(view, metadata, workspaceId);
 
-      // Wait for crew to appear in UI
-      await waitForCrew(view.container, sectionId);
+      // Wait for stage to appear in UI
+      await waitForStage(view.container, stageId);
 
-      // Verify crew drop zone exists (for workspace drag-drop)
-      const crewDropZone = findCrewDropZone(view.container, sectionId);
-      expect(crewDropZone).not.toBeNull();
+      // Verify stage drop zone exists (for workspace drag-drop)
+      const stageDropZone = findStageDropZone(view.container, stageId);
+      expect(stageDropZone).not.toBeNull();
 
-      // Verify unsectioned drop zone exists when sections are present
-      const unsectionedZone = findUnsectionedDropZone(view.container);
-      expect(unsectionedZone).not.toBeNull();
+      // Verify unstaged drop zone exists when stages are present
+      const unstagedZone = findUnstagedDropZone(view.container);
+      expect(unstagedZone).not.toBeNull();
 
-      // Verify workspace row exists and has data-crew-id attribute
+      // Verify workspace row exists and has data-stage-id attribute
       const workspaceRow = findWorkspaceRow(view.container, workspaceId);
       expect(workspaceRow).not.toBeNull();
-      expect(workspaceRow!.hasAttribute("data-crew-id")).toBe(true);
+      expect(workspaceRow!.hasAttribute("data-stage-id")).toBe(true);
 
-      // Verify section has drag-related attribute for reordering
-      const sectionDragWrapper = view.container.querySelector(
-        `[data-section-drag-id="${sectionId}"]`
+      // Verify stage has drag-related attribute for reordering
+      const stageDragWrapper = view.container.querySelector(
+        `[data-stage-drag-id="${stageId}"]`
       );
-      expect(sectionDragWrapper).not.toBeNull();
+      expect(stageDragWrapper).not.toBeNull();
     } finally {
       await cleanupView(view, cleanupDom);
       await env.orpc.minion.remove({ minionId: workspaceId });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageId });
     }
   }, 60_000);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Workspace Creation with Section
+  // Workspace Creation with Stage
   // ─────────────────────────────────────────────────────────────────────────────
 
-  test("workspace created with crewId is assigned to that section", async () => {
+  test("workspace created with stageId is assigned to that stage", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
 
-    // Create workspace without section first to ensure project exists
+    // Create workspace without stage first to ensure project exists
     const setupWs = await env.orpc.minion.create({
       projectPath,
       branchName: generateBranchName("setup"),
@@ -205,36 +205,36 @@ describeIntegration("Workspace Sections", () => {
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    const sectionResult = await env.orpc.projects.crews.create({
+    const stageResult = await env.orpc.projects.stages.create({
       projectPath,
-      name: "Target Section",
+      name: "Target Stage",
     });
-    if (!sectionResult.success) throw new Error(`Failed to create crew: ${sectionResult.error}`);
-    const sectionId = sectionResult.data.id;
+    if (!stageResult.success) throw new Error(`Failed to create stage: ${stageResult.error}`);
+    const stageId = stageResult.data.id;
 
     let workspaceId: string | undefined;
     try {
-      // Create workspace WITH sectionId
+      // Create workspace WITH stageId
       const wsResult = await env.orpc.minion.create({
         projectPath,
-        branchName: generateBranchName("test-create-in-section"),
+        branchName: generateBranchName("test-create-in-stage"),
         trunkBranch,
-        crewId: sectionId,
+        stageId: stageId,
       });
       if (!wsResult.success) throw new Error(`Failed to create workspace: ${wsResult.error}`);
       workspaceId = wsResult.metadata.id;
 
-      // Verify workspace metadata has the sectionId
+      // Verify workspace metadata has the stageId
       const workspaceInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
-      expect(workspaceInfo?.crewId).toBe(sectionId);
+      expect(workspaceInfo?.stageId).toBe(stageId);
     } finally {
       if (workspaceId) await env.orpc.minion.remove({ minionId: workspaceId });
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageId });
     }
   }, 60_000);
 
-  test("clicking section add button sets pending section for creation", async () => {
+  test("clicking stage add button sets pending stage for creation", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
@@ -242,13 +242,13 @@ describeIntegration("Workspace Sections", () => {
     // Create workspace to ensure project exists (ORPC for setup is acceptable)
     const setupWs = await env.orpc.minion.create({
       projectPath,
-      branchName: generateBranchName("setup-section-add"),
+      branchName: generateBranchName("setup-stage-add"),
       trunkBranch,
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    // Create crew BEFORE rendering so it's in the initial config
-    const sectionId = await createCrewViaAPI(env, projectPath, "Add Button Section");
+    // Create stage BEFORE rendering so it's in the initial config
+    const stageId = await createStageViaAPI(env, projectPath, "Add Button Stage");
 
     const cleanupDom = installDom();
     expandProjects([projectPath]);
@@ -258,47 +258,47 @@ describeIntegration("Workspace Sections", () => {
     try {
       await setupWorkspaceView(view, setupWs.metadata, setupWs.metadata.id);
 
-      // Wait for section to render
-      await waitForCrew(view.container, sectionId);
+      // Wait for stage to render
+      await waitForStage(view.container, stageId);
 
-      // Find the "+" button in the crew header
-      const sectionHeader = view.container.querySelector(`[data-crew-id="${sectionId}"]`);
-      expect(sectionHeader).not.toBeNull();
+      // Find the "+" button in the stage header
+      const stageHeader = view.container.querySelector(`[data-stage-id="${stageId}"]`);
+      expect(stageHeader).not.toBeNull();
 
-      const addButton = sectionHeader!.querySelector(
-        'button[aria-label="New workspace in section"]'
+      const addButton = stageHeader!.querySelector(
+        'button[aria-label="New workspace in stage"]'
       );
       expect(addButton).not.toBeNull();
 
-      // Click the add button - this should navigate to create page with section context
+      // Click the add button - this should navigate to create page with stage context
       // Wrap in act() to ensure React state updates are properly flushed
       await act(async () => {
         fireEvent.click(addButton as HTMLElement);
       });
 
-      // Wait for the create page to show section selector with this section pre-selected
+      // Wait for the create page to show stage selector with this stage pre-selected
       await waitFor(
         () => {
-          const sectionSelector = view.container.querySelector('[data-testid="section-selector"]');
-          if (!sectionSelector) {
-            throw new Error("Section selector not found on create page");
+          const stageSelector = view.container.querySelector('[data-testid="stage-selector"]');
+          if (!stageSelector) {
+            throw new Error("Stage selector not found on create page");
           }
-          const selectedValue = sectionSelector.getAttribute("data-selected-section");
-          if (selectedValue !== sectionId) {
-            throw new Error(`Expected section ${sectionId} to be selected, got ${selectedValue}`);
+          const selectedValue = stageSelector.getAttribute("data-selected-stage");
+          if (selectedValue !== stageId) {
+            throw new Error(`Expected stage ${stageId} to be selected, got ${selectedValue}`);
           }
         },
         { timeout: 5_000 }
       );
 
-      // The creation UI should allow clearing the selection (return to unsectioned).
-      const sectionSelector = view.container.querySelector('[data-testid="section-selector"]');
-      if (!sectionSelector) {
-        throw new Error("Section selector not found on create page (post-selection)");
+      // The creation UI should allow clearing the selection (return to unstaged).
+      const stageSelector = view.container.querySelector('[data-testid="stage-selector"]');
+      if (!stageSelector) {
+        throw new Error("Stage selector not found on create page (post-selection)");
       }
 
-      const clearButton = sectionSelector.querySelector(
-        'button[aria-label="Clear section selection"]'
+      const clearButton = stageSelector.querySelector(
+        'button[aria-label="Clear stage selection"]'
       );
       expect(clearButton).not.toBeNull();
 
@@ -307,16 +307,16 @@ describeIntegration("Workspace Sections", () => {
       });
 
       await waitFor(() => {
-        expect(sectionSelector.getAttribute("data-selected-section")).toBe("");
+        expect(stageSelector.getAttribute("data-selected-stage")).toBe("");
       });
     } finally {
       await cleanupView(view, cleanupDom);
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageId });
     }
   }, 60_000);
 
-  test("fork API preserves section assignment", async () => {
+  test("fork API preserves stage assignment", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
@@ -324,13 +324,13 @@ describeIntegration("Workspace Sections", () => {
     // Create a workspace first to ensure the project is registered.
     const setupWs = await env.orpc.minion.create({
       projectPath,
-      branchName: generateBranchName("setup-fork-section"),
+      branchName: generateBranchName("setup-fork-stage"),
       trunkBranch,
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    // Create a section and a workspace inside it.
-    const sectionId = await createCrewViaAPI(env, projectPath, "Fork Section");
+    // Create a stage and a workspace inside it.
+    const stageId = await createStageViaAPI(env, projectPath, "Fork Stage");
 
     let sourceMinionId: string | undefined;
     let forkedWorkspaceId: string | undefined;
@@ -338,9 +338,9 @@ describeIntegration("Workspace Sections", () => {
     try {
       const sourceWsResult = await env.orpc.minion.create({
         projectPath,
-        branchName: generateBranchName("fork-section-source"),
+        branchName: generateBranchName("fork-stage-source"),
         trunkBranch,
-        crewId: sectionId,
+        stageId: stageId,
       });
       if (!sourceWsResult.success) {
         throw new Error(`Failed to create source workspace: ${sourceWsResult.error}`);
@@ -348,7 +348,7 @@ describeIntegration("Workspace Sections", () => {
 
       sourceMinionId = sourceWsResult.metadata.id;
 
-      const forkedName = generateBranchName("forked-in-section");
+      const forkedName = generateBranchName("forked-in-stage");
       const forkResult = await env.orpc.minion.fork({
         sourceMinionId,
         newName: forkedName,
@@ -358,23 +358,23 @@ describeIntegration("Workspace Sections", () => {
       }
 
       forkedWorkspaceId = forkResult.metadata.id;
-      expect(forkResult.metadata.crewId).toBe(sectionId);
+      expect(forkResult.metadata.stageId).toBe(stageId);
     } finally {
-      // Best-effort cleanup: remove any workspaces still assigned to this section,
+      // Best-effort cleanup: remove any workspaces still assigned to this stage,
       // even if the assertion failed before we captured forkedWorkspaceId.
       const activeWorkspaces = await env.orpc.minion.list();
-      const sectionWorkspaceIds = activeWorkspaces
-        .filter((workspace) => workspace.crewId === sectionId)
+      const stageWorkspaceIds = activeWorkspaces
+        .filter((workspace) => workspace.stageId === stageId)
         .map((workspace) => workspace.id);
 
       if (forkedWorkspaceId) {
-        sectionWorkspaceIds.push(forkedWorkspaceId);
+        stageWorkspaceIds.push(forkedWorkspaceId);
       }
       if (sourceMinionId) {
-        sectionWorkspaceIds.push(sourceMinionId);
+        stageWorkspaceIds.push(sourceMinionId);
       }
 
-      const uniqueWorkspaceIds = [...new Set(sectionWorkspaceIds)].filter(
+      const uniqueWorkspaceIds = [...new Set(stageWorkspaceIds)].filter(
         (workspaceId) => workspaceId !== setupWs.metadata.id
       );
 
@@ -383,14 +383,14 @@ describeIntegration("Workspace Sections", () => {
       }
 
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id }).catch(() => {});
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageId }).catch(() => {});
     }
   }, 60_000);
   // ─────────────────────────────────────────────────────────────────────────────
-  // Section Reordering
+  // Stage Reordering
   // ─────────────────────────────────────────────────────────────────────────────
 
-  test("reorderSections API updates section order", async () => {
+  test("reorderStages API updates stage order", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
@@ -403,60 +403,60 @@ describeIntegration("Workspace Sections", () => {
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    // Create three sections (they'll be in creation order: A, B, C)
-    const sectionA = await env.orpc.projects.crews.create({
+    // Create three stages (they'll be in creation order: A, B, C)
+    const stageA = await env.orpc.projects.stages.create({
       projectPath,
-      name: "Section A",
+      name: "Stage A",
     });
-    if (!sectionA.success) throw new Error(`Failed to create crew: ${sectionA.error}`);
+    if (!stageA.success) throw new Error(`Failed to create stage: ${stageA.error}`);
 
-    const sectionB = await env.orpc.projects.crews.create({
+    const stageB = await env.orpc.projects.stages.create({
       projectPath,
-      name: "Section B",
+      name: "Stage B",
     });
-    if (!sectionB.success) throw new Error(`Failed to create crew: ${sectionB.error}`);
+    if (!stageB.success) throw new Error(`Failed to create stage: ${stageB.error}`);
 
-    const sectionC = await env.orpc.projects.crews.create({
+    const stageC = await env.orpc.projects.stages.create({
       projectPath,
-      name: "Section C",
+      name: "Stage C",
     });
-    if (!sectionC.success) throw new Error(`Failed to create crew: ${sectionC.error}`);
+    if (!stageC.success) throw new Error(`Failed to create stage: ${stageC.error}`);
 
     try {
-      // Verify initial order for the sections created in this test.
-      let sections = await env.orpc.projects.crews.list({ projectPath });
-      const trackedSectionIds = [sectionA.data.id, sectionB.data.id, sectionC.data.id];
-      const trackedInitialOrder = sections
-        .filter((section) => trackedSectionIds.includes(section.id))
-        .map((section) => section.name);
-      expect(trackedInitialOrder).toEqual(["Section A", "Section B", "Section C"]);
+      // Verify initial order for the stages created in this test.
+      let stages = await env.orpc.projects.stages.list({ projectPath });
+      const trackedStageIds = [stageA.data.id, stageB.data.id, stageC.data.id];
+      const trackedInitialOrder = stages
+        .filter((stage) => trackedStageIds.includes(stage.id))
+        .map((stage) => stage.name);
+      expect(trackedInitialOrder).toEqual(["Stage A", "Stage B", "Stage C"]);
 
       // Reorder to C, A, B
-      const reorderResult = await env.orpc.projects.crews.reorder({
+      const reorderResult = await env.orpc.projects.stages.reorder({
         projectPath,
-        crewIds: [sectionC.data.id, sectionA.data.id, sectionB.data.id],
+        stageIds: [stageC.data.id, stageA.data.id, stageB.data.id],
       });
       expect(reorderResult.success).toBe(true);
 
-      // Verify new order for the sections created in this test.
-      sections = await env.orpc.projects.crews.list({ projectPath });
-      const trackedReordered = sections
-        .filter((section) => trackedSectionIds.includes(section.id))
-        .map((section) => section.name);
-      expect(trackedReordered).toEqual(["Section C", "Section A", "Section B"]);
+      // Verify new order for the stages created in this test.
+      stages = await env.orpc.projects.stages.list({ projectPath });
+      const trackedReordered = stages
+        .filter((stage) => trackedStageIds.includes(stage.id))
+        .map((stage) => stage.name);
+      expect(trackedReordered).toEqual(["Stage C", "Stage A", "Stage B"]);
     } finally {
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionA.data.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionB.data.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionC.data.id });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageA.data.id });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageB.data.id });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageC.data.id });
     }
   }, 60_000);
 
   // Note: UI auto-refresh after reorder requires the full DnD flow which triggers
-  // ProjectContext.reorderSections -> refreshProjects(). Direct API calls bypass this.
-  // The sorting logic is unit-tested in workspaceFiltering.test.ts (sortSectionsByLinkedList).
-  // This test verifies initial render respects section order from backend.
-  test("sections render in linked-list order from config", async () => {
+  // ProjectContext.reorderStages -> refreshProjects(). Direct API calls bypass this.
+  // The sorting logic is unit-tested in workspaceFiltering.test.ts (sortStagesByLinkedList).
+  // This test verifies initial render respects stage order from backend.
+  test("stages render in linked-list order from config", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
@@ -464,23 +464,23 @@ describeIntegration("Workspace Sections", () => {
     // Create a workspace to ensure project exists
     const setupWs = await env.orpc.minion.create({
       projectPath,
-      branchName: generateBranchName("setup-section-order"),
+      branchName: generateBranchName("setup-stage-order"),
       trunkBranch,
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    // Create two sections (will be in creation order: First, Second)
-    const sectionFirst = await env.orpc.projects.crews.create({
+    // Create two stages (will be in creation order: First, Second)
+    const stageFirst = await env.orpc.projects.stages.create({
       projectPath,
-      name: "First Section",
+      name: "First Stage",
     });
-    if (!sectionFirst.success) throw new Error(`Failed to create crew: ${sectionFirst.error}`);
+    if (!stageFirst.success) throw new Error(`Failed to create stage: ${stageFirst.error}`);
 
-    const sectionSecond = await env.orpc.projects.crews.create({
+    const stageSecond = await env.orpc.projects.stages.create({
       projectPath,
-      name: "Second Section",
+      name: "Second Stage",
     });
-    if (!sectionSecond.success) throw new Error(`Failed to create crew: ${sectionSecond.error}`);
+    if (!stageSecond.success) throw new Error(`Failed to create stage: ${stageSecond.error}`);
 
     const cleanupDom = installDom();
     expandProjects([projectPath]);
@@ -490,30 +490,30 @@ describeIntegration("Workspace Sections", () => {
     try {
       await setupWorkspaceView(view, setupWs.metadata, setupWs.metadata.id);
 
-      // Wait for sections to appear
-      await waitForCrew(view.container, sectionFirst.data.id);
-      await waitForCrew(view.container, sectionSecond.data.id);
+      // Wait for stages to appear
+      await waitForStage(view.container, stageFirst.data.id);
+      await waitForStage(view.container, stageSecond.data.id);
 
       // Verify DOM order matches linked-list order (First -> Second) for the
-      // sections created in this test. Other sections may exist from unrelated setup.
-      const orderedIds = getSectionIdsInOrder(view.container);
+      // stages created in this test. Other stages may exist from unrelated setup.
+      const orderedIds = getStageIdsInOrder(view.container);
       const trackedOrder = orderedIds.filter(
-        (id) => id === sectionFirst.data.id || id === sectionSecond.data.id
+        (id) => id === stageFirst.data.id || id === stageSecond.data.id
       );
-      expect(trackedOrder).toEqual([sectionFirst.data.id, sectionSecond.data.id]);
+      expect(trackedOrder).toEqual([stageFirst.data.id, stageSecond.data.id]);
     } finally {
       await cleanupView(view, cleanupDom);
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionFirst.data.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionSecond.data.id });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageFirst.data.id });
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageSecond.data.id });
     }
   }, 60_000);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Section Removal Invariants
+  // Stage Removal Invariants
   // ─────────────────────────────────────────────────────────────────────────────
 
-  test("removing section clears crewId from active workspaces", async () => {
+  test("removing stage clears stageId from active workspaces", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
@@ -526,53 +526,53 @@ describeIntegration("Workspace Sections", () => {
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    // Create a section
-    const sectionResult = await env.orpc.projects.crews.create({
+    // Create a stage
+    const stageResult = await env.orpc.projects.stages.create({
       projectPath,
-      name: `test-section-${Date.now()}`,
+      name: `test-stage-${Date.now()}`,
     });
-    expect(sectionResult.success).toBe(true);
-    const sectionId = sectionResult.success ? sectionResult.data.id : "";
+    expect(stageResult.success).toBe(true);
+    const stageId = stageResult.success ? stageResult.data.id : "";
 
-    // Create a workspace in that section
+    // Create a workspace in that stage
     const wsResult = await env.orpc.minion.create({
       projectPath,
-      branchName: generateBranchName("section-removal-test"),
+      branchName: generateBranchName("stage-removal-test"),
       trunkBranch,
-      crewId: sectionId,
+      stageId: stageId,
     });
     expect(wsResult.success).toBe(true);
     const workspaceId = wsResult.success ? wsResult.metadata.id : "";
 
     try {
-      // Verify workspace starts sectioned
+      // Verify workspace starts staged
       let wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.crewId).toBe(sectionId);
+      expect(wsInfo?.stageId).toBe(stageId);
 
-      // Remove section with active workspaces - should succeed and unsection the workspace
-      const removeResult = await env.orpc.projects.crews.remove({
+      // Remove stage with active workspaces - should succeed and unstage the workspace
+      const removeResult = await env.orpc.projects.stages.remove({
         projectPath,
-        crewId: sectionId,
+        stageId: stageId,
       });
       expect(removeResult.success).toBe(true);
 
-      // Verify section was removed
-      const sections = await env.orpc.projects.crews.list({ projectPath });
-      expect(sections.some((section) => section.id === sectionId)).toBe(false);
+      // Verify stage was removed
+      const stages = await env.orpc.projects.stages.list({ projectPath });
+      expect(stages.some((stage) => stage.id === stageId)).toBe(false);
 
-      // Verify workspace's sectionId is now cleared
+      // Verify workspace's stageId is now cleared
       wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.crewId).toBeUndefined();
+      expect(wsInfo?.stageId).toBeUndefined();
     } finally {
       await env.orpc.minion.remove({ minionId: workspaceId });
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageId }).catch(() => {});
     }
   }, 30_000);
 
-  test("removing section clears crewId from archived workspaces", async () => {
+  test("removing stage clears stageId from archived workspaces", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
@@ -585,20 +585,20 @@ describeIntegration("Workspace Sections", () => {
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    // Create a section
-    const sectionResult = await env.orpc.projects.crews.create({
+    // Create a stage
+    const stageResult = await env.orpc.projects.stages.create({
       projectPath,
-      name: `test-section-archive-${Date.now()}`,
+      name: `test-stage-archive-${Date.now()}`,
     });
-    expect(sectionResult.success).toBe(true);
-    const sectionId = sectionResult.success ? sectionResult.data.id : "";
+    expect(stageResult.success).toBe(true);
+    const stageId = stageResult.success ? stageResult.data.id : "";
 
-    // Create a workspace in that section
+    // Create a workspace in that stage
     const wsResult = await env.orpc.minion.create({
       projectPath,
-      branchName: generateBranchName("archive-section-test"),
+      branchName: generateBranchName("archive-stage-test"),
       trunkBranch,
-      crewId: sectionId,
+      stageId: stageId,
     });
     expect(wsResult.success).toBe(true);
     const workspaceId = wsResult.success ? wsResult.metadata.id : "";
@@ -608,36 +608,36 @@ describeIntegration("Workspace Sections", () => {
       const archiveResult = await env.orpc.minion.archive({ minionId: workspaceId });
       expect(archiveResult.success).toBe(true);
 
-      // Verify workspace is archived and has sectionId
+      // Verify workspace is archived and has stageId
       let wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.crewId).toBe(sectionId);
+      expect(wsInfo?.stageId).toBe(stageId);
       expect(wsInfo?.archivedAt).toBeDefined();
 
-      // Now remove the section - should succeed since workspace is archived
-      const removeResult = await env.orpc.projects.crews.remove({
+      // Now remove the stage - should succeed since workspace is archived
+      const removeResult = await env.orpc.projects.stages.remove({
         projectPath,
-        crewId: sectionId,
+        stageId: stageId,
       });
       expect(removeResult.success).toBe(true);
 
-      // Verify workspace's sectionId is now cleared
+      // Verify workspace's stageId is now cleared
       wsInfo = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfo).not.toBeNull();
-      expect(wsInfo?.crewId).toBeUndefined();
+      expect(wsInfo?.stageId).toBeUndefined();
     } finally {
       await env.orpc.minion.remove({ minionId: workspaceId });
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
-      // Section already removed in test, but try anyway in case test failed early
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
+      // Stage already removed in test, but try anyway in case test failed early
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageId }).catch(() => {});
     }
   }, 30_000);
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Section Deletion Confirmation Flow
+  // Stage Deletion Confirmation Flow
   // ─────────────────────────────────────────────────────────────────────────────
 
-  test("clicking delete on section with active workspaces confirms and unsections workspaces", async () => {
+  test("clicking delete on stage with active workspaces confirms and unstages workspaces", async () => {
     const env = getSharedEnv();
     const projectPath = getSharedRepoPath();
     const trunkBranch = await detectDefaultTrunkBranch(projectPath);
@@ -650,20 +650,20 @@ describeIntegration("Workspace Sections", () => {
     });
     if (!setupWs.success) throw new Error(`Setup failed: ${setupWs.error}`);
 
-    // Create a section
-    const sectionResult = await env.orpc.projects.crews.create({
+    // Create a stage
+    const stageResult = await env.orpc.projects.stages.create({
       projectPath,
       name: `test-delete-confirm-${Date.now()}`,
     });
-    expect(sectionResult.success).toBe(true);
-    const sectionId = sectionResult.success ? sectionResult.data.id : "";
+    expect(stageResult.success).toBe(true);
+    const stageId = stageResult.success ? stageResult.data.id : "";
 
-    // Create a workspace in that section (active, not archived)
+    // Create a workspace in that stage (active, not archived)
     const wsResult = await env.orpc.minion.create({
       projectPath,
-      branchName: generateBranchName("in-section-delete-confirm"),
+      branchName: generateBranchName("in-stage-delete-confirm"),
       trunkBranch,
-      crewId: sectionId,
+      stageId: stageId,
     });
     expect(wsResult.success).toBe(true);
     const workspaceId = wsResult.success ? wsResult.metadata.id : "";
@@ -677,20 +677,20 @@ describeIntegration("Workspace Sections", () => {
     try {
       await setupWorkspaceView(view, metadata, workspaceId);
 
-      // Wait for section and workspace to appear in UI as sectioned
-      await waitForCrew(view.container, sectionId);
+      // Wait for stage and workspace to appear in UI as staged
+      await waitForStage(view.container, stageId);
       const workspaceRowBeforeDelete = findWorkspaceRow(view.container, workspaceId);
       expect(workspaceRowBeforeDelete).not.toBeNull();
-      expect(workspaceRowBeforeDelete?.getAttribute("data-crew-id")).toBe(sectionId);
+      expect(workspaceRowBeforeDelete?.getAttribute("data-stage-id")).toBe(stageId);
 
-      // Find and click the delete button on the section
-      const sectionElement = view.container.querySelector(`[data-crew-id="${sectionId}"]`);
-      expect(sectionElement).not.toBeNull();
+      // Find and click the delete button on the stage
+      const stageElement = view.container.querySelector(`[data-stage-id="${stageId}"]`);
+      expect(stageElement).not.toBeNull();
 
-      // Hover over section to reveal action buttons (they're only visible on hover)
-      fireEvent.mouseEnter(sectionElement!);
+      // Hover over stage to reveal action buttons (they're only visible on hover)
+      fireEvent.mouseEnter(stageElement!);
 
-      const deleteButton = sectionElement!.querySelector('[aria-label="Delete section"]');
+      const deleteButton = stageElement!.querySelector('[aria-label="Delete stage"]');
       expect(deleteButton).not.toBeNull();
       fireEvent.click(deleteButton!);
 
@@ -701,11 +701,11 @@ describeIntegration("Workspace Sections", () => {
           if (!dialog) throw new Error("Delete confirmation dialog not found");
 
           const dialogText = dialog.textContent ?? "";
-          if (!dialogText.includes("Delete section?")) {
+          if (!dialogText.includes("Delete stage?")) {
             throw new Error(`Expected delete confirmation title, got: ${dialogText}`);
           }
-          if (!dialogText.includes("will be moved to unsectioned")) {
-            throw new Error(`Expected unsection warning, got: ${dialogText}`);
+          if (!dialogText.includes("will be moved to unstaged")) {
+            throw new Error(`Expected unstage warning, got: ${dialogText}`);
           }
 
           return dialog as HTMLElement;
@@ -724,37 +724,37 @@ describeIntegration("Workspace Sections", () => {
       // Section should be removed from UI
       await waitFor(
         () => {
-          const removedSection = view.container.querySelector(`[data-crew-id="${sectionId}"]`);
+          const removedSection = view.container.querySelector(`[data-stage-id="${stageId}"]`);
           if (removedSection) throw new Error("Section was not removed from the sidebar");
         },
         { timeout: 5_000 }
       );
 
-      // Workspace should remain but become unsectioned
+      // Workspace should remain but become unstaged
       await waitFor(
         () => {
           const workspaceRow = findWorkspaceRow(view.container, workspaceId);
-          if (!workspaceRow) throw new Error("Workspace row not found after deleting section");
+          if (!workspaceRow) throw new Error("Workspace row not found after deleting stage");
 
-          const updatedSectionId = workspaceRow.getAttribute("data-crew-id");
+          const updatedSectionId = workspaceRow.getAttribute("data-stage-id");
           if (updatedSectionId !== "") {
             throw new Error(
-              `Expected workspace to be unsectioned, got data-crew-id=${updatedSectionId}`
+              `Expected workspace to be unstaged, got data-stage-id=${updatedSectionId}`
             );
           }
         },
         { timeout: 5_000 }
       );
 
-      // Backend should reflect the unsectioned workspace as well
+      // Backend should reflect the unstaged workspace as well
       const wsInfoAfterDelete = await env.orpc.minion.getInfo({ minionId: workspaceId });
       expect(wsInfoAfterDelete).not.toBeNull();
-      expect(wsInfoAfterDelete?.crewId).toBeUndefined();
+      expect(wsInfoAfterDelete?.stageId).toBeUndefined();
     } finally {
       await cleanupView(view, cleanupDom);
       await env.orpc.minion.remove({ minionId: workspaceId });
       await env.orpc.minion.remove({ minionId: setupWs.metadata.id });
-      await env.orpc.projects.crews.remove({ projectPath, crewId: sectionId }).catch(() => {});
+      await env.orpc.projects.stages.remove({ projectPath, stageId: stageId }).catch(() => {});
     }
   }, 60_000);
 });

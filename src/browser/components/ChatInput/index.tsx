@@ -441,7 +441,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
   const preEditDraftRef = useRef<DraftState>({ text: "", attachments: [] });
   const preEditReviewsRef = useRef<ReviewNoteDataForDisplay[] | null>(null);
   const { open } = useSettings();
-  const { selectedMinion, beginMinionCreation, updateMinionDraftSection } =
+  const { selectedMinion, beginMinionCreation, updateMinionDraftStage } =
     useMinionContext();
   const { agentId, currentAgent } = useAgent();
 
@@ -653,9 +653,9 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
   const openModelSelector = useCallback(() => {
     modelSelectorRef.current?.open();
   }, []);
-  // Crew selection state for creation variant (must be before useCreationMinion)
+  // Stage selection state for creation variant (must be before useCreationMinion)
   const { projects } = useProjectContext();
-  const pendingSectionId = variant === "creation" ? (props.pendingSectionId ?? null) : null;
+  const pendingStageId = variant === "creation" ? (props.pendingStageId ?? null) : null;
   const creationProject = variant === "creation" ? projects.get(props.projectPath) : undefined;
   const hasCreationRuntimeOverrides =
     creationProject?.runtimeOverridesEnabled === true ||
@@ -666,63 +666,63 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
     variant === "creation" && hasCreationRuntimeOverrides
       ? normalizeRuntimeEnablement(creationProject?.runtimeEnablement)
       : runtimeEnablement;
-  const creationSections = creationProject?.crews ?? [];
+  const creationStages = creationProject?.stages ?? [];
 
-  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(() => pendingSectionId);
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(() => pendingStageId);
   const [autonomyPreset, setAutonomyPreset] = useState<AutonomyPresetId>("inherit");
   const [hasAttemptedCreateSend, setHasAttemptedCreateSend] = useState(false);
 
-  // Keep local selection in sync with the URL-driven pending crew (sidebar "+" button).
+  // Keep local selection in sync with the URL-driven pending stage (sidebar "+" button).
   useEffect(() => {
     if (variant !== "creation") {
       return;
     }
 
-    setSelectedSectionId(pendingSectionId);
-  }, [pendingSectionId, variant]);
+    setSelectedStageId(pendingStageId);
+  }, [pendingStageId, variant]);
 
-  // If the crew disappears (e.g. deleted in another window), avoid creating a minion
-  // with a dangling crewId.
+  // If the stage disappears (e.g. deleted in another window), avoid creating a minion
+  // with a dangling stageId.
   useEffect(() => {
     if (variant !== "creation") {
       return;
     }
 
-    if (!creationProject || !selectedSectionId) {
+    if (!creationProject || !selectedStageId) {
       return;
     }
 
-    const stillExists = (creationProject.crews ?? []).some(
-      (section) => section.id === selectedSectionId
+    const stillExists = (creationProject.stages ?? []).some(
+      (stage) => stage.id === selectedStageId
     );
     if (!stillExists) {
-      setSelectedSectionId(null);
+      setSelectedStageId(null);
     }
-  }, [creationProject, selectedSectionId, variant]);
+  }, [creationProject, selectedStageId, variant]);
 
-  const handleCreationSectionChange = useCallback(
-    (crewId: string | null) => {
-      setSelectedSectionId(crewId);
+  const handleCreationStageChange = useCallback(
+    (stageId: string | null) => {
+      setSelectedStageId(stageId);
 
       if (variant !== "creation") {
         return;
       }
 
       if (typeof creationDraftId === "string" && creationDraftId.trim().length > 0) {
-        updateMinionDraftSection(creationProjectPath, creationDraftId, crewId);
+        updateMinionDraftStage(creationProjectPath, creationDraftId, stageId);
         return;
       }
 
       beginMinionCreation(
         creationProjectPath,
-        typeof crewId === "string" && crewId.trim().length > 0 ? crewId : undefined
+        typeof stageId === "string" && stageId.trim().length > 0 ? stageId : undefined
       );
     },
     [
       beginMinionCreation,
       creationDraftId,
       creationProjectPath,
-      updateMinionDraftSection,
+      updateMinionDraftStage,
       variant,
     ]
   );
@@ -735,7 +735,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           projectPath: props.projectPath,
           onMinionCreated: props.onMinionCreated,
           message: input,
-          crewId: selectedSectionId,
+          stageId: selectedStageId,
           autonomyPreset,
           draftId: props.pendingDraftId,
           userModel: preferredModel,
@@ -811,9 +811,9 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
           nameState: creationState.nameState,
           runtimeAvailabilityState: creationState.runtimeAvailabilityState,
           runtimeEnablement: creationRuntimeEnablement,
-          sections: creationSections,
-          selectedSectionId,
-          onSectionChange: handleCreationSectionChange,
+          stages: creationStages,
+          selectedStageId,
+          onStageChange: handleCreationStageChange,
           autonomyPreset,
           onAutonomyPresetChange: setAutonomyPreset,
           allowedRuntimeModes: runtimePolicy.allowedModes,
@@ -2267,7 +2267,7 @@ const ChatInputInner: React.FC<ChatInputProps> = (props) => {
         />
       )}
 
-      {/* Input crew - centered card for creation, floating dashed card for minion.
+      {/* Input stage - centered card for creation, floating dashed card for minion.
           Minion variant uses .chat-input-card (globals.css) which adapts to
           dark/light mode via theme-aware CSS variables. */}
       <div

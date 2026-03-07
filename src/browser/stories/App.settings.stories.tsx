@@ -1,7 +1,7 @@
 /**
  * Settings modal stories
  *
- * Shows different crews and states of the Settings modal:
+ * Shows different stages and states of the Settings modal:
  * - General (theme toggle)
  * - Agents (task parallelism / nesting)
  * - Providers (API key configuration)
@@ -11,7 +11,7 @@
  *
  * NOTE: Projects/MCP stories live in App.mcp.stories.tsx
  *
- * Uses play functions to open the settings modal and navigate to crews.
+ * Uses play functions to open the settings modal and navigate to stages.
  */
 
 import type { APIClient } from "@/browser/contexts/API";
@@ -84,7 +84,7 @@ function setupSettingsStory(options: {
   });
 }
 
-/** Open settings route page and optionally navigate to a crew. */
+/** Open settings route page and optionally navigate to a stage. */
 async function openSettingsToSection(canvasElement: HTMLElement, section?: string): Promise<void> {
   const canvas = within(canvasElement);
 
@@ -98,7 +98,7 @@ async function openSettingsToSection(canvasElement: HTMLElement, section?: strin
     throw new Error("Settings page did not render the section navigation");
   }
 
-  // Navigate to specific crew if requested.
+  // Navigate to specific stage if requested.
   if (section && section !== "general") {
     // Capitalize first letter to match nav labels (e.g., "experiments" -> "Experiments").
     const sectionLabel = section.charAt(0).toUpperCase() + section.slice(1);
@@ -141,7 +141,7 @@ const MOCK_SERVER_AUTH_SESSIONS: ServerAuthSession[] = [
 // STORIES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** General settings crew */
+/** General settings stage */
 export const General: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -155,7 +155,7 @@ export const General: AppStory = {
   },
 };
 
-/** Agents settings crew - task parallelism and nesting controls */
+/** Agents settings stage - task parallelism and nesting controls */
 export const Tasks: AppStory = {
   render: () => (
     <AppWithMocks
@@ -205,7 +205,7 @@ export const Tasks: AppStory = {
   },
 };
 
-/** Providers crew - no providers configured */
+/** Providers stage - no providers configured */
 export const ProvidersEmpty: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({ providersConfig: {} })} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -213,7 +213,7 @@ export const ProvidersEmpty: AppStory = {
   },
 };
 
-/** Providers crew - some providers configured */
+/** Providers stage - some providers configured */
 export const ProvidersConfigured: AppStory = {
   render: () => (
     <AppWithMocks
@@ -242,7 +242,7 @@ export const ProvidersConfigured: AppStory = {
 // Layouts
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Layouts crew - empty state (no layouts configured) */
+/** Layouts stage - empty state (no layouts configured) */
 export const LayoutsEmpty: AppStory = {
   render: () => (
     <AppWithMocks
@@ -271,7 +271,7 @@ export const LayoutsEmpty: AppStory = {
   },
 };
 
-/** Layouts crew - with a preset assigned to a slot */
+/** Layouts stage - with a preset assigned to a slot */
 export const LayoutsConfigured: AppStory = {
   render: () => (
     <AppWithMocks
@@ -351,7 +351,7 @@ export const LayoutsConfigured: AppStory = {
     }
   },
 };
-/** Providers crew - expanded to show quick links (docs + get API key) */
+/** Providers stage - expanded to show quick links (docs + get API key) */
 export const ProvidersExpanded: AppStory = {
   render: () => (
     <AppWithMocks
@@ -380,7 +380,7 @@ export const ProvidersExpanded: AppStory = {
   },
 };
 
-/** Models crew - no custom models */
+/** Models stage - no custom models */
 export const ModelsEmpty: AppStory = {
   render: () => (
     <AppWithMocks
@@ -411,7 +411,7 @@ export const ModelsEmpty: AppStory = {
   },
 };
 
-/** Models crew - with custom models configured */
+/** Models stage - with custom models configured */
 export const ModelsConfigured: AppStory = {
   render: () => (
     <AppWithMocks
@@ -454,7 +454,7 @@ export const ModelsConfigured: AppStory = {
   },
 };
 
-/** System 1 crew - experiment gated */
+/** System 1 stage - experiment gated */
 export const System1: AppStory = {
   render: () => (
     <AppWithMocks
@@ -523,7 +523,7 @@ export const System1: AppStory = {
   },
 };
 
-/** Server Access crew - active device sessions */
+/** Server Access stage - active device sessions */
 export const ServerAccess: AppStory = {
   render: () => (
     <AppWithMocks
@@ -548,7 +548,7 @@ export const ServerAccess: AppStory = {
   },
 };
 
-/** Experiments crew - shows available experiments */
+/** Experiments stage - shows available experiments */
 export const Experiments: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -556,7 +556,7 @@ export const Experiments: AppStory = {
   },
 };
 
-/** Experiments crew - shows experiment in ON state (pre-enabled via localStorage) */
+/** Experiments stage - shows experiment in ON state (pre-enabled via localStorage) */
 export const ExperimentsToggleOn: AppStory = {
   render: () => (
     <AppWithMocks
@@ -572,7 +572,7 @@ export const ExperimentsToggleOn: AppStory = {
   },
 };
 
-/** Experiments crew - shows experiment in OFF state (default) */
+/** Experiments stage - shows experiment in OFF state (default) */
 export const ExperimentsToggleOff: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -581,7 +581,7 @@ export const ExperimentsToggleOff: AppStory = {
   },
 };
 
-/** Keybinds crew - shows keyboard shortcuts reference */
+/** Keybinds stage - shows keyboard shortcuts reference */
 export const Keybinds: AppStory = {
   render: () => <AppWithMocks setup={() => setupSettingsStory({})} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -589,4 +589,4 @@ export const Keybinds: AppStory = {
   },
 };
 
-// NOTE: Projects crew stories live in App.projectSettings.stories.tsx
+// NOTE: Projects stage stories live in App.projectSettings.stories.tsx

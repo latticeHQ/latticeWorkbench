@@ -3,7 +3,7 @@
  *
  * Warm palette: desk surfaces use rich brown/walnut instead of cold blue-gray.
  * Time-of-day: morning warm-shifts, evening dims, night darkens and cools.
- * Crew color: drives mug, lamp shade, screen accent, chair tint, poster.
+ * Stage color: drives mug, lamp shade, screen accent, chair tint, poster.
  */
 
 import type { DeskPalette, TimeOfDay } from "./types";
@@ -87,20 +87,20 @@ const TIME_TRANSFORMS: Record<TimeOfDay, ColorTransform> = {
 /**
  * Build a complete desk palette.
  *
- * @param crewHex  — crew color hex (drives accent items)
+ * @param stageHex  — stage color hex (drives accent items)
  * @param isLive   — whether the minion is actively streaming
  * @param timeOfDay — ambient time setting (default: "afternoon")
  */
 export function buildDeskPalette(
-  crewHex: string,
+  stageHex: string,
   isLive: boolean,
   timeOfDay: TimeOfDay = "afternoon",
 ): DeskPalette {
   const tx = TIME_TRANSFORMS[timeOfDay];
 
   // Screen colors based on live state
-  const screenColor = isLive ? deriveScreenColor(crewHex) : "#1e2028";
-  const lineColor = isLive ? lighten(crewHex, 30) : "#1e2028";
+  const screenColor = isLive ? deriveScreenColor(stageHex) : "#1e2028";
+  const lineColor = isLive ? lighten(stageHex, 30) : "#1e2028";
   const contentColor = isLive ? "#a0e0a0" : "#1e2028"; // green code lines
 
   return {
@@ -127,7 +127,7 @@ export function buildDeskPalette(
     paper:         tx(BASE.paper),
     paperLine:     tx(BASE.paperLine),
     coaster:       tx(BASE.coaster),
-    mug:           crewHex,  // crew-colored mug
+    mug:           stageHex,  // stage-colored mug
 
     // Props
     plant:         tx(BASE.plant),
@@ -137,18 +137,18 @@ export function buildDeskPalette(
     book2:         tx(BASE.book2),
     book3:         tx(BASE.book3),
 
-    // Lamp — shade tinted with crew color when live
+    // Lamp — shade tinted with stage color when live
     lamp:          tx(BASE.lamp),
-    lampShade:     isLive ? lighten(crewHex, 20) : tx("#555555"),
+    lampShade:     isLive ? lighten(stageHex, 20) : tx("#555555"),
 
-    // Chair — subtle crew tint when live
+    // Chair — subtle stage tint when live
     chair:         isLive ? tintWarm(BASE.chair, 0.05) : tx(BASE.chair),
     chairBack:     tx(BASE.chairBack),
     chairLeg:      tx(BASE.chairLeg),
 
     // Wall details
     wallBaseboard: tx(BASE.wallBaseboard),
-    poster:        isLive ? lighten(crewHex, 40) : tx("#888888"),
+    poster:        isLive ? lighten(stageHex, 40) : tx("#888888"),
     posterFrame:   tx("#4a4540"),
   };
 }

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { ChatStatsSchema, SessionUsageFileSchema } from "./chatStats";
 import { NameGenerationErrorSchema, SendMessageErrorSchema } from "./errors";
 import { BranchListResultSchema, FilePartSchema, LatticeMessageSchema } from "./message";
-import { ProjectConfigSchema, CrewConfigSchema } from "./project";
+import { ProjectConfigSchema, StageConfigSchema } from "./project";
 import { ResultSchema } from "./result";
 import { SshPromptEventSchema, SshPromptResponseInputSchema } from "./ssh";
 import {
@@ -724,10 +724,10 @@ export const projects = {
       output: ResultSchema(z.void(), z.string()),
     },
   },
-  crews: {
+  stages: {
     list: {
       input: z.object({ projectPath: z.string() }),
-      output: z.array(CrewConfigSchema),
+      output: z.array(StageConfigSchema),
     },
     create: {
       input: z.object({
@@ -735,12 +735,12 @@ export const projects = {
         name: z.string().min(1),
         color: z.string().optional(),
       }),
-      output: ResultSchema(CrewConfigSchema, z.string()),
+      output: ResultSchema(StageConfigSchema, z.string()),
     },
     update: {
       input: z.object({
         projectPath: z.string(),
-        crewId: z.string(),
+        stageId: z.string(),
         name: z.string().min(1).optional(),
         color: z.string().optional(),
       }),
@@ -749,14 +749,14 @@ export const projects = {
     remove: {
       input: z.object({
         projectPath: z.string(),
-        crewId: z.string(),
+        stageId: z.string(),
       }),
       output: ResultSchema(z.void(), z.string()),
     },
     reorder: {
       input: z.object({
         projectPath: z.string(),
-        crewIds: z.array(z.string()),
+        stageIds: z.array(z.string()),
       }),
       output: ResultSchema(z.void(), z.string()),
     },
@@ -764,7 +764,7 @@ export const projects = {
       input: z.object({
         projectPath: z.string(),
         minionId: z.string(),
-        crewId: z.string().nullable(),
+        stageId: z.string().nullable(),
       }),
       output: ResultSchema(z.void(), z.string()),
     },
@@ -878,8 +878,8 @@ export const minion = {
       /** Human-readable title (e.g., "Fix plan mode over SSH") - optional for backwards compat */
       title: z.string().optional(),
       runtimeConfig: RuntimeConfigSchema.optional(),
-      /** Crew ID to assign the new minion to (optional) */
-      crewId: z.string().optional(),
+      /** Stage ID to assign the new minion to (optional) */
+      stageId: z.string().optional(),
       /** Per-minion autonomy overrides from a mission profile preset or manual config */
       autonomyOverrides: MinionMetadataSchema.shape.autonomyOverrides,
     }),

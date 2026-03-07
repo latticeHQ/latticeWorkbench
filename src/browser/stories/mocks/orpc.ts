@@ -108,15 +108,15 @@ export interface MockORPCClientOptions {
   layoutPresets?: LayoutPresetsConfig;
   projects?: Map<string, ProjectConfig>;
   minions?: FrontendMinionMetadata[];
-  /** Initial task settings for config.getConfig (e.g., Settings → Tasks crew) */
+  /** Initial task settings for config.getConfig (e.g., Settings → Tasks stage) */
   taskSettings?: Partial<TaskSettings>;
   /** Initial unified AI defaults for agents (plan/exec/compact + sidekicks) */
   agentAiDefaults?: AgentAiDefaults;
   /** Agent definitions to expose via agents.list */
   agentDefinitions?: AgentDefinitionDescriptor[];
-  /** Initial per-sidekick AI defaults for config.getConfig (e.g., Settings → Tasks crew) */
+  /** Initial per-sidekick AI defaults for config.getConfig (e.g., Settings → Tasks stage) */
   sidekickAiDefaults?: SidekickAiDefaults;
-  /** Lattice lifecycle preferences for config.getConfig (e.g., Settings → Lattice crew) */
+  /** Lattice lifecycle preferences for config.getConfig (e.g., Settings → Lattice stage) */
   stopLatticeMinionOnArchive?: boolean;
   /** Initial runtime enablement for config.getConfig */
   runtimeEnablement?: Record<string, boolean>;

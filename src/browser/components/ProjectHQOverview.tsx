@@ -11,10 +11,10 @@ import { cn } from "@/common/lib/utils";
 import { useProjectContext } from "@/browser/contexts/ProjectContext";
 import { useMinionContext, toMinionSelection } from "@/browser/contexts/MinionContext";
 import { useMinionSidebarState, useMinionUsage, useMinionStoreRaw } from "@/browser/stores/MinionStore";
-import { resolveCrewColor } from "@/common/constants/ui";
-import { sortCrewsByLinkedList } from "@/common/utils/crews";
+import { resolveStageColor } from "@/common/constants/ui";
+import { sortStagesByLinkedList } from "@/common/utils/stages";
 import type { FrontendMinionMetadata } from "@/common/types/minion";
-import type { CrewConfig } from "@/common/types/project";
+import type { StageConfig } from "@/common/types/project";
 import {
   CheckCircle2, Clock, DollarSign, Zap, Users,
   ChevronDown, ChevronRight, Activity, Layers, ArrowRight,
@@ -264,19 +264,19 @@ function ServiceNode({ ws, sidekicks, accent, onOpen }: {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stage box — used for ALL crews (active or empty)
+// Stage box — used for ALL stages (active or empty)
 // ─────────────────────────────────────────────────────────────────────────────
 function StageBox({
-  section, minions, childrenByParent, onOpen,
+  stage, minions, childrenByParent, onOpen,
   stageIdx, collapsed, onToggle,
 }: {
-  section: CrewConfig;
+  stage: StageConfig;
   minions: FrontendMinionMetadata[];
   childrenByParent: Map<string, FrontendMinionMetadata[]>;
   onOpen: (ws: FrontendMinionMetadata) => void;
   stageIdx: number; collapsed: boolean; onToggle: () => void;
 }) {
-  const color   = resolveCrewColor(section.color);
+  const color   = resolveStageColor(stage.color);
   const active  = minions.some(w => w.taskStatus === "running");
   const isEmpty = minions.length === 0;
 
@@ -332,7 +332,7 @@ function StageBox({
           )}
           style={active ? { color } : undefined}
         >
-          {section.name}
+          {stage.name}
         </span>
         {active && <LiveDot size="sm" />}
         {!isEmpty && cliIds.map(id => <CliAgentIcon key={id} slug={id} className="h-3 w-3 text-foreground/30 shrink-0" />)}
@@ -374,29 +374,29 @@ function StageBox({
 const PHASE_SIZE = 3;
 
 function PhaseGroup({
-  phaseIdx, phaseSections, minionsBySection, childrenByParent,
+  phaseIdx, phaseStages, minionsByStage, childrenByParent,
   onOpen, collapsed, toggle,
 }: {
   phaseIdx: number;
-  phaseSections: CrewConfig[];
-  minionsBySection: Map<string | null, FrontendMinionMetadata[]>;
+  phaseStages: StageConfig[];
+  minionsByStage: Map<string | null, FrontendMinionMetadata[]>;
   childrenByParent: Map<string, FrontendMinionMetadata[]>;
   onOpen: (ws: FrontendMinionMetadata) => void;
   collapsed: Set<string>;
   toggle: (id: string) => void;
 }) {
-  const phaseActive = phaseSections.some(
-    s => (minionsBySection.get(s.id) ?? []).some(w => w.taskStatus === "running")
+  const phaseActive = phaseStages.some(
+    s => (minionsByStage.get(s.id) ?? []).some(w => w.taskStatus === "running")
   );
-  const phaseHasContent = phaseSections.some(
-    s => (minionsBySection.get(s.id) ?? []).length > 0
+  const phaseHasContent = phaseStages.some(
+    s => (minionsByStage.get(s.id) ?? []).length > 0
   );
   const phaseMinions = useMemo(
-    () => phaseSections.flatMap(s => minionsBySection.get(s.id) ?? []),
-    [phaseSections, minionsBySection]
+    () => phaseStages.flatMap(s => minionsByStage.get(s.id) ?? []),
+    [phaseStages, minionsByStage]
   );
-  // Derive a phase label from crew names
-  const phaseNames = phaseSections.map(s => s.name);
+  // Derive a phase label from stage names
+  const phaseNames = phaseStages.map(s => s.name);
   const phaseSubtitle = phaseNames.length <= 2
     ? phaseNames.join(" & ")
     : `${phaseNames[0]} · ${phaseNames[1]} · ${phaseNames[2]}`;
@@ -436,7 +436,7 @@ function PhaseGroup({
           <div className="ml-auto flex items-center gap-2">
             {!phaseActive && (
               <span className="text-[8px] text-muted/30">
-                {phaseSections.reduce((sum, s) => sum + (minionsBySection.get(s.id) ?? []).length, 0)} missions
+                {phaseStages.reduce((sum, s) => sum + (minionsByStage.get(s.id) ?? []).length, 0)} missions
               </span>
             )}
             <StageCostBadge minions={phaseMinions} />
@@ -448,7 +448,7 @@ function PhaseGroup({
           lands directly below stage N in the same column               */}
       {(() => {
         const isReversed  = phaseIdx % 2 === 1;
-        const displaySecs = isReversed ? [...phaseSections].reverse() : phaseSections;
+        const displaySecs = isReversed ? [...phaseStages].reverse() : phaseStages;
         return (
         <div
           className="grid gap-10 p-5 items-start justify-center"
@@ -456,13 +456,13 @@ function PhaseGroup({
         >
         {displaySecs.map((sec) => {
           // Always use the logical index so stage-number badges are sequential
-          const logicalIdx = phaseSections.indexOf(sec);
+          const logicalIdx = phaseStages.indexOf(sec);
           const globalIdx  = phaseIdx * PHASE_SIZE + logicalIdx;
           return (
             <StageBox
               key={sec.id}
-              section={sec}
-              minions={minionsBySection.get(sec.id) ?? []}
+              stage={sec}
+              minions={minionsByStage.get(sec.id) ?? []}
               childrenByParent={childrenByParent}
               onOpen={onOpen}
               stageIdx={globalIdx}
@@ -538,8 +538,8 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
   const { minionMetadata, setSelectedMinion } = useMinionContext();
 
   const projectConfig = projects.get(projectPath);
-  const sections = useMemo(
-    () => sortCrewsByLinkedList(projectConfig?.crews ?? []),
+  const stages = useMemo(
+    () => sortStagesByLinkedList(projectConfig?.stages ?? []),
     [projectConfig]
   );
 
@@ -566,24 +566,24 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
     return { rootMinions: roots, childrenByParent: childMap };
   }, [projectMinions, projectWsIds]);
 
-  const minionsBySection = useMemo(() => {
+  const minionsByStage = useMemo(() => {
     const map = new Map<string | null, FrontendMinionMetadata[]>();
     for (const ws of rootMinions) {
-      const sid = ws.crewId ?? null;
+      const sid = ws.stageId ?? null;
       const arr = map.get(sid) ?? [];
       arr.push(ws); map.set(sid, arr);
     }
     return map;
   }, [rootMinions]);
 
-  // Group crews into phases of PHASE_SIZE
+  // Group stages into phases of PHASE_SIZE
   const phases = useMemo(() => {
-    const result: CrewConfig[][] = [];
-    for (let i = 0; i < sections.length; i += PHASE_SIZE) {
-      result.push(sections.slice(i, i + PHASE_SIZE));
+    const result: StageConfig[][] = [];
+    for (let i = 0; i < stages.length; i += PHASE_SIZE) {
+      result.push(stages.slice(i, i + PHASE_SIZE));
     }
     return result;
-  }, [sections]);
+  }, [stages]);
 
   const activeMissions = rootMinions.filter(w => w.taskStatus === "running").length;
   const totalSidekicks = [...childrenByParent.values()].reduce((s, a) => s + a.length, 0);
@@ -603,9 +603,9 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
     [setSelectedMinion]
   );
 
-  if (rootMinions.length === 0 && sections.length === 0) return null;
+  if (rootMinions.length === 0 && stages.length === 0) return null;
 
-  const unsectioned = minionsBySection.get(null) ?? [];
+  const unstaged = minionsByStage.get(null) ?? [];
 
   return (
     <div
@@ -620,20 +620,20 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
         totalMissions={rootMinions.length}
         activeMissions={activeMissions}
         totalSidekicks={totalSidekicks}
-        stageCount={sections.length}
+        stageCount={stages.length}
         cliIds={allCliIds}
         minions={rootMinions}
       />
 
       {/* Phase rows */}
-      {sections.length > 0 && (
+      {stages.length > 0 && (
         <div className="flex flex-col gap-4">
-          {phases.map((phaseSections, phaseIdx) => (
+          {phases.map((phaseStages, phaseIdx) => (
             <PhaseGroup
               key={phaseIdx}
               phaseIdx={phaseIdx}
-              phaseSections={phaseSections}
-              minionsBySection={minionsBySection}
+              phaseStages={phaseStages}
+              minionsByStage={minionsByStage}
               childrenByParent={childrenByParent}
               onOpen={handleOpen}
               collapsed={collapsed}
@@ -643,19 +643,19 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
         </div>
       )}
 
-      {/* Unsectioned minions */}
-      {unsectioned.length > 0 && (
+      {/* Unstaged minions */}
+      {unstaged.length > 0 && (
         <div className="rounded-xl"
           style={{ border: "2px dashed rgba(107,114,128,0.3)", background: "rgba(107,114,128,0.02)" }}>
           <div className="flex items-center gap-2.5 px-3 py-2"
             style={{ borderBottom: "1px dashed rgba(107,114,128,0.2)" }}>
             <span className="h-5 w-5 flex items-center justify-center rounded bg-muted/12 text-[9px] font-bold text-muted/50">?</span>
-            <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-foreground/45 flex-1">Unsectioned</span>
-            <span className="text-[9px] font-semibold text-muted/40 bg-muted/10 px-1.5 py-0.5 rounded">{unsectioned.length}</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.13em] text-foreground/45 flex-1">Unstaged</span>
+            <span className="text-[9px] font-semibold text-muted/40 bg-muted/10 px-1.5 py-0.5 rounded">{unstaged.length}</span>
           </div>
           <div className="p-2 grid gap-1.5"
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))" }}>
-            {unsectioned.map(ws => (
+            {unstaged.map(ws => (
               <ServiceNode key={ws.id} ws={ws}
                 sidekicks={childrenByParent.get(ws.id) ?? []}
                 accent="#6b7280" onOpen={handleOpen} />
@@ -664,7 +664,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
         </div>
       )}
 
-      {rootMinions.length === 0 && sections.length > 0 && (
+      {rootMinions.length === 0 && stages.length > 0 && (
         <p className="text-center text-[10.5px] text-muted/30 py-2">
           No missions yet — dispatch one with the wizard above ↑
         </p>

@@ -4,7 +4,7 @@ import { parseLatticeDeepLink, resolveProjectPathFromProjectQuery } from "./deep
 describe("parseLatticeDeepLink", () => {
   test("parses lattice://chat/new", () => {
     const payload = parseLatticeDeepLink(
-      "lattice://chat/new/?project=lattice&projectPath=%2Ftmp%2Frepo&projectId=proj_123&prompt=hello%20world&crewId=sec_456"
+      "lattice://chat/new/?project=lattice&projectPath=%2Ftmp%2Frepo&projectId=proj_123&prompt=hello%20world&stageId=sec_456"
     );
 
     expect(payload).toEqual({
@@ -13,7 +13,7 @@ describe("parseLatticeDeepLink", () => {
       projectPath: "/tmp/repo",
       projectId: "proj_123",
       prompt: "hello world",
-      crewId: "sec_456",
+      stageId: "sec_456",
     });
   });
 

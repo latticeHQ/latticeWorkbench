@@ -93,9 +93,9 @@ Each department is a Workbench instance with a built-in delivery pipeline:
 Intake → Discovery → Planning → Build → Test → Review → Docs → Deploy → Monitor → Learning
 ```
 
-Each crew has a lead minion. Leads can spawn more minions into their crew as needed.
+Each stage has a lead minion. Leads can spawn more minions into their stage as needed.
 
-| Crew | Lead | What They Do |
+| Stage | Lead | What They Do |
 | --- | --- | --- |
 | **Intake** | Intake Lead | Triage incoming issues, feature requests, bug reports |
 | **Discovery** | Discovery Lead | Research, spikes, understand the problem space |
@@ -108,7 +108,7 @@ Each crew has a lead minion. Leads can spawn more minions into their crew as nee
 | **Monitor** | Monitor Lead | Production monitoring, alerts, health checks |
 | **Learning** | Learning Lead | Retrospectives, post-mortems, knowledge capture |
 
-A **Chief of Staff** coordinates across all crews — daily briefings, task routing, escalation. When you chat with Lattice, you're talking to your CoS.
+A **Chief of Staff** coordinates across all stages — daily briefings, task routing, escalation. When you chat with Lattice, you're talking to your CoS.
 
 Minions work autonomously. They pick up tasks, execute, coordinate, and report back. You check in when you want — not when the system demands it.
 
@@ -177,7 +177,7 @@ brew install latticehq/lattice/lattice
 
 ### Deploy the Engineering Department
 
-The fastest way to start is deploying the Engineering department template. It comes with a Chief of Staff + 10 crew leads across a full delivery pipeline — ready to build software autonomously. Each lead can spawn more minions as needed.
+The fastest way to start is deploying the Engineering department template. It comes with a Chief of Staff + 10 stage leads across a full delivery pipeline — ready to build software autonomously. Each lead can spawn more minions as needed.
 
 ```bash
 # Install Lattice
@@ -209,7 +209,7 @@ Each department earns its place through necessity.
 | --- | --- |
 | **Minion** | An AI worker on your roster. It has an identity, a runtime, a conversation history, and work to do. |
 | **Department** | A business unit — Engineering, Marketing, Sales. Each runs as its own Workbench instance. |
-| **Crew** | A pipeline stage within a department — Intake, Build, Review, Deploy. Organizes how work flows. |
+| **Stage** | A pipeline stage within a department — Intake, Build, Review, Deploy. Organizes how work flows. |
 | **Founder** | The human. The CEO. The one who deploys and directs. |
 
 ---

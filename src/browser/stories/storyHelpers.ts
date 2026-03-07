@@ -119,8 +119,8 @@ export function setReviewSortOrder(order: ReviewSortOrder): void {
 
 export interface MinionDraftFixture {
   draftId: string;
-  /** Optional: crew ID the draft belongs to */
-  crewId?: string | null;
+  /** Optional: stage ID the draft belongs to */
+  stageId?: string | null;
   /** Optional: draft prompt text */
   prompt?: string;
   /** Optional: minion name (either manual or generated) */
@@ -137,11 +137,11 @@ export function setMinionDrafts(projectPath: string, drafts: MinionDraftFixture[
   // Set the drafts index
   const draftsByProject = JSON.parse(
     localStorage.getItem(MINION_DRAFTS_BY_PROJECT_KEY) ?? "{}"
-  ) as Record<string, Array<{ draftId: string; crewId?: string | null; createdAt?: number }>>;
+  ) as Record<string, Array<{ draftId: string; stageId?: string | null; createdAt?: number }>>;
 
   draftsByProject[projectPath] = drafts.map((d) => ({
     draftId: d.draftId,
-    crewId: d.crewId,
+    stageId: d.stageId,
     createdAt: d.createdAt ?? Date.now(),
   }));
 

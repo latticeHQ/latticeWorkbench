@@ -2,11 +2,11 @@ import React, { useState, useRef, useEffect } from "react";
 import { Plus } from "lucide-react";
 // import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 
-interface AddCrewButtonProps {
-  onCreateSection: (name: string) => void;
+interface AddStageButtonProps {
+  onCreateStage: (name: string) => void;
 }
 
-export const AddCrewButton: React.FC<AddCrewButtonProps> = ({ onCreateSection }) => {
+export const AddStageButton: React.FC<AddStageButtonProps> = ({ onCreateStage }) => {
   const [isCreating, setIsCreating] = useState(false);
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -20,7 +20,7 @@ export const AddCrewButton: React.FC<AddCrewButtonProps> = ({ onCreateSection })
   const handleSubmit = () => {
     const trimmed = name.trim();
     if (trimmed) {
-      onCreateSection(trimmed);
+      onCreateStage(trimmed);
     }
     setName("");
     setIsCreating(false);
@@ -45,8 +45,8 @@ export const AddCrewButton: React.FC<AddCrewButtonProps> = ({ onCreateSection })
               setIsCreating(false);
             }
           }}
-          placeholder="Section name..."
-          data-testid="add-section-input"
+          placeholder="Stage name..."
+          data-testid="add-stage-input"
           className="bg-background/50 text-foreground min-w-0 flex-1 rounded border border-white/20 px-1.5 py-0.5 text-[11px] outline-none"
         />
       </div>
@@ -56,11 +56,11 @@ export const AddCrewButton: React.FC<AddCrewButtonProps> = ({ onCreateSection })
   return (
     <button
       onClick={() => setIsCreating(true)}
-      data-testid="add-section-button"
+      data-testid="add-stage-button"
       className="text-muted/60 hover:text-muted flex w-full cursor-pointer items-center justify-center gap-1 border-none bg-transparent px-2 py-0.5 text-[11px] transition-colors"
     >
       <Plus size={12} />
-      <span>Add section</span>
+      <span>Add stage</span>
     </button>
   );
 };

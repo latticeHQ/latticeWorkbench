@@ -1,5 +1,5 @@
 /**
- * useCrewCanvas — React hook that creates a CrewScene with multiple minions,
+ * useStageCanvas — React hook that creates a StageScene with multiple minions,
  * registers it with the global game loop, and manages character add/remove.
  *
  * Returns a ref to attach to a <canvas> element.
@@ -7,14 +7,14 @@
 
 import { useRef, useEffect } from "react";
 import type { CharacterAppearance, CharPalette, DeskPalette, TimeOfDay } from "./sprites/types";
-import { CrewScene } from "./engine/crewScene";
+import { StageScene } from "./engine/stageScene";
 import { gameLoop } from "./engine/gameLoop";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
 
-export interface CrewMinion {
+export interface StageMinion {
   minionId: string;
   appearance: CharacterAppearance;
   charPalette: CharPalette;
@@ -28,15 +28,15 @@ export interface CrewMinion {
 // Hook
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function useCrewCanvas(
+export function useStageCanvas(
   deskPalette: DeskPalette,
   timeOfDay: TimeOfDay,
   width: number,
   height: number,
-  minions: CrewMinion[],
+  minions: StageMinion[],
 ): React.RefObject<HTMLCanvasElement | null> {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const sceneRef = useRef<CrewScene | null>(null);
+  const sceneRef = useRef<StageScene | null>(null);
   const prevMinionIdsRef = useRef<Set<string>>(new Set());
 
   // Create scene on mount
@@ -44,7 +44,7 @@ export function useCrewCanvas(
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const scene = new CrewScene(canvas, deskPalette, timeOfDay, width, height);
+    const scene = new StageScene(canvas, deskPalette, timeOfDay, width, height);
     sceneRef.current = scene;
     const unregister = gameLoop.register(scene);
 

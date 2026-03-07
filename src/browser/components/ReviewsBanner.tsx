@@ -257,7 +257,7 @@ const ReviewItem: React.FC<ReviewItemProps> = ({
             />
           </div>
 
-          {/* Comment crew */}
+          {/* Comment stage */}
           <div className="border-border-light border-t p-2">
             {isEditing ? (
               <div className="space-y-1.5">
@@ -415,7 +415,7 @@ const ReviewsBannerInner: React.FC<ReviewsBannerInnerProps> = ({ minionId }) => 
       {/* Expanded view - content aligned with chat */}
       {isExpanded && (
         <div className="border-border mx-auto max-h-80 max-w-4xl space-y-3 overflow-y-auto border-t py-2">
-          {/* Pending reviews crew */}
+          {/* Pending reviews stage */}
           {pendingList.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
@@ -445,7 +445,7 @@ const ReviewsBannerInner: React.FC<ReviewsBannerInnerProps> = ({ minionId }) => 
             </div>
           )}
 
-          {/* Completed reviews crew */}
+          {/* Completed reviews stage */}
           {completedList.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">

@@ -1,7 +1,7 @@
 /**
  * Lattice SDK — Project operations (25 functions)
  *
- * Project CRUD, branches, crews, secrets, MCP servers, idle compaction.
+ * Project CRUD, branches, stages, secrets, MCP servers, idle compaction.
  */
 
 import type { RouterClient } from "@orpc/server";
@@ -50,30 +50,30 @@ export async function setDefaultProjectDir(c: RouterClient<AppRouter>, path: str
   return c.projects.setDefaultProjectDir({ path });
 }
 
-// ── Crews ─────────────────────────────────────────────────────────────
+// ── Stages ─────────────────────────────────────────────────────────────
 
-export async function listCrews(c: RouterClient<AppRouter>, projectPath: string) {
-  return c.projects.crews.list({ projectPath });
+export async function listStages(c: RouterClient<AppRouter>, projectPath: string) {
+  return c.projects.stages.list({ projectPath });
 }
 
-export async function createCrew(c: RouterClient<AppRouter>, projectPath: string, name: string, color?: string) {
-  return c.projects.crews.create({ projectPath, name, color });
+export async function createStage(c: RouterClient<AppRouter>, projectPath: string, name: string, color?: string) {
+  return c.projects.stages.create({ projectPath, name, color });
 }
 
-export async function updateCrew(c: RouterClient<AppRouter>, projectPath: string, crewId: string, opts: { name?: string; color?: string }) {
-  return c.projects.crews.update({ projectPath, crewId, ...opts });
+export async function updateStage(c: RouterClient<AppRouter>, projectPath: string, stageId: string, opts: { name?: string; color?: string }) {
+  return c.projects.stages.update({ projectPath, stageId, ...opts });
 }
 
-export async function removeCrew(c: RouterClient<AppRouter>, projectPath: string, crewId: string) {
-  return c.projects.crews.remove({ projectPath, crewId });
+export async function removeStage(c: RouterClient<AppRouter>, projectPath: string, stageId: string) {
+  return c.projects.stages.remove({ projectPath, stageId });
 }
 
-export async function reorderCrews(c: RouterClient<AppRouter>, projectPath: string, crewIds: string[]) {
-  return c.projects.crews.reorder({ projectPath, crewIds });
+export async function reorderStages(c: RouterClient<AppRouter>, projectPath: string, stageIds: string[]) {
+  return c.projects.stages.reorder({ projectPath, stageIds });
 }
 
-export async function assignMinionToCrew(c: RouterClient<AppRouter>, projectPath: string, minionId: string, crewId: string | null) {
-  return c.projects.crews.assignMinion({ projectPath, minionId, crewId });
+export async function assignMinionToStage(c: RouterClient<AppRouter>, projectPath: string, minionId: string, stageId: string | null) {
+  return c.projects.stages.assignMinion({ projectPath, minionId, stageId });
 }
 
 // ── Secrets ──────────────────────────────────────────────────────────────

@@ -128,7 +128,7 @@ void mock.module("@/browser/contexts/RouterContext", () => ({
     currentMinionId: routerState.currentMinionId,
     currentProjectId: routerState.currentProjectId,
     currentProjectPathFromState: null,
-    pendingSectionId: null,
+    pendingStageId: null,
     pendingDraftId: routerState.pendingDraftId,
   }),
 }));

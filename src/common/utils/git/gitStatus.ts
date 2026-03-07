@@ -131,7 +131,7 @@ export interface ParsedGitStatusOutput {
 }
 
 export function parseGitStatusScriptOutput(output: string): ParsedGitStatusOutput | null {
-  // Split by crew markers using regex to get content between markers
+  // Split by stage markers using regex to get content between markers
   const headBranchRegex = /---HEAD_BRANCH---\s*([\s\S]*?)---PRIMARY---/;
   const primaryRegex = /---PRIMARY---\s*([\s\S]*?)---AHEAD_BEHIND---/;
   const aheadBehindRegex = /---AHEAD_BEHIND---\s*(\d+)\s+(\d+)/;

@@ -429,7 +429,7 @@ export class DockerRuntime extends RemoteRuntime {
     }
 
     // Store container name - actual container creation happens in postCreateSetup
-    // so that image pull progress is visible in the init crew
+    // so that image pull progress is visible in the init stage
     this.containerName = containerName;
 
     return {

@@ -45,7 +45,7 @@ export function parseGitRevList(output: string): GitStatus | null {
 /**
  * Parse the output of `git show-branch --sha1-name HEAD origin/branch` to calculate ahead/behind counts.
  *
- * This counts commits shown in the show-branch divergence crew, which provides a more
+ * This counts commits shown in the show-branch divergence stage, which provides a more
  * meaningful representation of branch divergence than git rev-list.
  *
  * Expected format:

@@ -33,11 +33,11 @@ export interface GitShowBranchResult {
 /**
  * Parses git show-branch output.
  * Expected format:
- *   Header crew:
+ *   Header stage:
  *     [!*] [branch-name] commit-subject
  *     ...
  *   ---
- *   Commit crew:
+ *   Commit stage:
  *     <indicators> [<hash>] <subject>
  *     ...
  *

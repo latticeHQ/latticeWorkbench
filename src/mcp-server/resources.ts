@@ -28,9 +28,9 @@ const ORIENTATION = {
       tools: "server, config, analytics, mcp-management, oauth, tokenizer, discovery",
     },
     project: {
-      description: "A registered code project (has a path on disk, branches, crews, secrets)",
+      description: "A registered code project (has a path on disk, branches, stages, secrets)",
       scopedBy: "projectPath (absolute path)",
-      contains: ["minions", "crews", "projectSecrets", "projectMcpServers", "scheduledTasks", "inbox"],
+      contains: ["minions", "stages", "projectSecrets", "projectMcpServers", "scheduledTasks", "inbox"],
       tools: "project, secrets, scheduler, inbox",
     },
     minion: {
@@ -50,10 +50,10 @@ const ORIENTATION = {
       note: "These are built-in — do NOT build a CLI from scratch when a user says 'run Gemini' or 'launch Claude Code'. Use terminal_profiles_list → terminal_profiles_set_config → terminal_create with profileId.",
       tools: "terminal-profiles",
     },
-    crew: {
+    stage: {
       description: "A named grouping of minions within a project (organizational unit)",
-      scopedBy: "crewId",
-      parentTools: "project (createCrew, updateCrew, deleteCrew, listCrews)",
+      scopedBy: "stageId",
+      parentTools: "project (createStage, updateStage, deleteStage, listStages)",
     },
   },
 

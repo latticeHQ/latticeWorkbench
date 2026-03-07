@@ -107,7 +107,7 @@ export interface ToolConfiguration {
 export type ToolFactory = (config: ToolConfiguration) => Tool;
 
 /**
- * Augment a tool's description with additional instructions from "Tool: <name>" crews
+ * Augment a tool's description with additional instructions from "Tool: <name>" stages
  * Mutates the base tool in place to append the instructions to its description.
  * This preserves any provider-specific metadata or internal state on the tool object.
  * @param baseTool The original tool to augment
@@ -251,7 +251,7 @@ function wrapToolsWithHooks(
  * @param config Required configuration for tools
  * @param minionId Minion ID for init state tracking (required for runtime tools)
  * @param initStateManager Init state manager for runtime tools to wait for initialization
- * @param toolInstructions Optional map of tool names to additional instructions from "Tool: <name>" crews
+ * @param toolInstructions Optional map of tool names to additional instructions from "Tool: <name>" stages
  * @returns Promise resolving to record of tools available for the model
  */
 /**

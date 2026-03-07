@@ -165,7 +165,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const system1Enabled = useExperimentValue(EXPERIMENT_IDS.SYSTEM_1);
   const governorEnabled = useExperimentValue(EXPERIMENT_IDS.LATTICE_GOVERNOR);
 
-  // Keep routing on a valid crew when an experiment-gated crew is disabled.
+  // Keep routing on a valid stage when an experiment-gated stage is disabled.
   useEffect(() => {
     if (!system1Enabled && activeSection === "system1") {
       setActiveSection(BASE_SECTIONS[0]?.id ?? "general");

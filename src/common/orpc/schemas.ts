@@ -15,7 +15,7 @@ export {
 } from "./schemas/runtime";
 
 // Project schemas
-export { ProjectConfigSchema, CrewConfigSchema, MinionConfigSchema } from "./schemas/project";
+export { ProjectConfigSchema, StageConfigSchema, MinionConfigSchema } from "./schemas/project";
 
 // Minion schemas
 export { MinionAISettingsSchema } from "./schemas/minionAiSettings";

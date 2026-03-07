@@ -1,14 +1,14 @@
 import React from "react";
 import { useDragLayer } from "react-dnd";
 import { cn } from "@/common/lib/utils";
-import { SECTION_DRAG_TYPE, type SectionDragItem } from "./DraggableCrew";
+import { STAGE_DRAG_TYPE, type StageDragItem } from "./DraggableStage";
 import { ChevronRight } from "lucide-react";
 
 /**
- * Custom drag layer for crew drag-drop reordering.
- * Renders a preview of the crew being dragged.
+ * Custom drag layer for stage drag-drop reordering.
+ * Renders a preview of the stage being dragged.
  */
-export const CrewDragLayer: React.FC = () => {
+export const StageDragLayer: React.FC = () => {
   const dragState = useDragLayer<{
     isDragging: boolean;
     item: unknown;
@@ -23,13 +23,13 @@ export const CrewDragLayer: React.FC = () => {
 
   const { isDragging, item, itemType, currentOffset } = dragState;
 
-  // Only render for crew drags
-  if (!isDragging || itemType !== SECTION_DRAG_TYPE || !currentOffset) {
+  // Only render for stage drags
+  if (!isDragging || itemType !== STAGE_DRAG_TYPE || !currentOffset) {
     return null;
   }
 
-  const sectionItem = item as SectionDragItem & { crewName?: string };
-  const displayName = sectionItem.crewName ?? "Section";
+  const stageItem = item as StageDragItem & { stageName?: string };
+  const displayName = stageItem.stageName ?? "Stage";
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[9999]">
