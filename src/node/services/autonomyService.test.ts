@@ -105,12 +105,12 @@ describe("evaluateCircuitBreaker", () => {
     expect(result.type).toBe("none");
   });
 
-  it("returns nudge at soft limit", () => {
+  it("returns reflect at soft limit", () => {
     const state = { ...createCircuitBreakerState(), turnsSinceUserMessage: 5 };
     const result = evaluateCircuitBreaker(state, enabledConfig, "test");
-    expect(result.type).toBe("nudge");
-    expect(result.instruction).toContain("PIVOT NEEDED");
-    expect(result.instruction).toContain("5/10");
+    expect(result.type).toBe("reflect");
+    expect(result.instruction).toContain("REFLECTION REQUIRED");
+    expect(result.instruction).toContain("<reflection>");
   });
 
   it("returns compact at hard limit", () => {
@@ -621,11 +621,12 @@ describe("RevertTracker", () => {
 describe("evaluateCircuitBreaker with revertCount", () => {
   const enabledConfig = { enabled: true, softLimit: 5, hardLimit: 10 };
 
-  it("triggers early nudge when revertCount >= REVERT_THRESHOLD before soft limit", () => {
+  it("triggers early reflect when revertCount >= REVERT_THRESHOLD before soft limit", () => {
     const state = { ...createCircuitBreakerState(), turnsSinceUserMessage: 2 };
     const result = evaluateCircuitBreaker(state, enabledConfig, "test", REVERT_THRESHOLD);
-    expect(result.type).toBe("nudge");
+    expect(result.type).toBe("reflect");
     expect(result.instruction).toContain("reverted");
+    expect(result.instruction).toContain("<reflection>");
   });
 
   it("does not trigger early nudge when revertCount < REVERT_THRESHOLD", () => {

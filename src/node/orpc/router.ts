@@ -4193,6 +4193,34 @@ export const router = (authToken?: string) => {
         }),
     },
 
+    // Reflections — episodic memory from circuit breaker reflections
+    reflections: {
+      list: t
+        .input(schemas.reflections.list.input)
+        .output(schemas.reflections.list.output)
+        .handler(async ({ context, input }) => {
+          const { loadReflections } = await import("@/node/services/reflexionService");
+          const sessionDir = context.config.getSessionDir(input.minionId);
+          return loadReflections(sessionDir);
+        }),
+      resolve: t
+        .input(schemas.reflections.resolve.input)
+        .output(schemas.reflections.resolve.output)
+        .handler(async ({ context, input }) => {
+          const { markResolved } = await import("@/node/services/reflexionService");
+          const sessionDir = context.config.getSessionDir(input.minionId);
+          await markResolved(sessionDir, input.reflectionId, input.resolved);
+        }),
+      clear: t
+        .input(schemas.reflections.clear.input)
+        .output(schemas.reflections.clear.output)
+        .handler(async ({ context, input }) => {
+          const { clearReflections } = await import("@/node/services/reflexionService");
+          const sessionDir = context.config.getSessionDir(input.minionId);
+          await clearReflections(sessionDir);
+        }),
+    },
+
     // Inbox — channel adapters (Telegram, Slack, etc.)
     inbox: {
       list: t

@@ -30,6 +30,7 @@ export {
   InferenceTabLabel,
   SchedulesTabLabel,
   SyncTabLabel,
+  ReflectionsTabLabel,
   OutputTabLabel,
   FileTabLabel,
   ReviewTabLabel,

@@ -396,7 +396,7 @@ export function mergeAutonomyOverrides(
 // ---------------------------------------------------------------------------
 
 export interface CircuitBreakerAction {
-  type: "none" | "nudge" | "compact";
+  type: "none" | "nudge" | "reflect" | "compact";
   instruction?: string;
 }
 
@@ -453,13 +453,21 @@ export function evaluateCircuitBreaker(
       reason: revertTriggered ? "revert-threshold" : "soft-limit",
     });
     return {
-      type: "nudge",
+      type: "reflect",
       instruction: [
-        `=== CIRCUIT BREAKER: PIVOT NEEDED (${reason}) ===`,
-        "You are going in circles. STOP and change strategy:",
-        "- Summarize what you've tried and what's blocking you",
-        "- Try a fundamentally different approach",
-        "- If truly stuck, break the task into smaller sub-tasks using sidekicks",
+        `=== CIRCUIT BREAKER: REFLECTION REQUIRED (${reason}) ===`,
+        "You are going in circles. STOP and write a structured reflection.",
+        "You MUST use this EXACT format before continuing:",
+        "",
+        "<reflection>",
+        "WHAT_I_TRIED: [Summarize every approach attempted so far]",
+        "WHAT_FAILED: [What specifically went wrong and why each approach failed]",
+        "ROOT_CAUSE: [Your best hypothesis for the underlying issue]",
+        "NEXT_STRATEGY: [A fundamentally different approach — do NOT repeat what failed]",
+        "</reflection>",
+        "",
+        "Write the reflection NOW, then proceed with the new strategy.",
+        "If truly stuck, break the task into smaller sub-tasks using sidekicks.",
         `If you do not complete within ${config.hardLimit - turns} more turns, your context will be compacted.`,
       ].join("\n"),
     };

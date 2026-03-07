@@ -79,7 +79,7 @@ export interface TabConfig {
 
 /** Static tab configurations (non-terminal tabs) */
 export const TAB_CONFIGS: Record<
-  "costs" | "review" | "browser" | "explorer" | "stats" | "output" | "kanban" | "issues" | "inference" | "schedules" | "sync",
+  "costs" | "review" | "browser" | "explorer" | "stats" | "output" | "kanban" | "issues" | "inference" | "schedules" | "sync" | "reflections",
   TabConfig
 > = {
   costs: {
@@ -127,6 +127,10 @@ export const TAB_CONFIGS: Record<
     name: "Sync",
     contentClassName: "overflow-y-auto p-0",
   },
+  reflections: {
+    name: "Reflections",
+    contentClassName: "overflow-y-auto p-[15px]",
+  },
 };
 
 /** Terminal tab configuration */
@@ -156,7 +160,8 @@ export function getTabConfig(tab: TabType): TabConfig {
     tab === "issues" ||
     tab === "inference" ||
     tab === "schedules" ||
-    tab === "sync"
+    tab === "sync" ||
+    tab === "reflections"
   ) {
     return TAB_CONFIGS[tab];
   }
