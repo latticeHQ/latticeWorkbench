@@ -59,7 +59,7 @@ export interface TerminalProfileWithStatus {
   description: string;
   /** Category */
   category: "ai-agent" | "shell" | "tool";
-  /** Crew group for UI ("platform" = major vendors, "community" = open-source/indie) */
+  /** Stage group for UI ("platform" = major vendors, "community" = open-source/indie) */
   group: "platform" | "community";
   /** Detection status */
   detection: ProfileDetectionStatus;

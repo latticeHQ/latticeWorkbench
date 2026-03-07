@@ -1549,7 +1549,7 @@ export class MinionService extends EventEmitter {
     const messages = historyResult.success ? historyResult.data : [];
     const allPaths = extractEditedFilePaths(messages);
 
-    // Exclude plan file from tracked files since it has its own crew
+    // Exclude plan file from tracked files since it has its own stage
     // Filter out both new and legacy plan file paths
     const trackedFilePaths = allPaths.filter((p) => !isPlanPath(p));
     return {
@@ -1612,7 +1612,7 @@ export class MinionService extends EventEmitter {
     trunkBranch: string | undefined,
     title?: string,
     runtimeConfig?: RuntimeConfig,
-    crewId?: string,
+    stageId?: string,
     autonomyOverrides?: MinionMetadata["autonomyOverrides"]
   ): Promise<Result<{ metadata: FrontendMinionMetadata }>> {
     // Chat with Lattice is a built-in system minion; it cannot host additional minions.
@@ -1781,7 +1781,7 @@ export class MinionService extends EventEmitter {
           title,
           createdAt: metadata.createdAt,
           runtimeConfig: finalRuntimeConfig,
-          crewId,
+          stageId,
           autonomyOverrides,
         });
         return config;
@@ -2168,7 +2168,7 @@ export class MinionService extends EventEmitter {
 
   /**
    * Refresh minion metadata from config and emit to subscribers.
-   * Useful when external changes (like crew assignment) modify minion config.
+   * Useful when external changes (like stage assignment) modify minion config.
    */
   async refreshAndEmitMetadata(minionId: string): Promise<void> {
     const metadata = await this.getInfo(minionId);
@@ -3212,7 +3212,7 @@ export class MinionService extends EventEmitter {
         runtimeConfig: forkedRuntimeConfig,
         namedMinionPath,
         // Preserve minion organization when forking via /fork.
-        crewId: sourceMetadata.crewId,
+        stageId: sourceMetadata.stageId,
         // Seamless fork: generate a numbered title like "Parent Title (1)".
         ...(isAutoName
           ? {

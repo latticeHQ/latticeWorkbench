@@ -155,7 +155,7 @@ function setupMCPStory(options: MCPStoryOptions = {}): APIClient {
   });
 }
 
-/** Open settings page and navigate to MCP crew. */
+/** Open settings page and navigate to MCP stage. */
 async function openProjectSettings(canvasElement: HTMLElement): Promise<void> {
   const canvas = within(canvasElement);
 

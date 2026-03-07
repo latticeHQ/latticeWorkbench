@@ -107,7 +107,7 @@ export function SettingsProvider(props: { children: ReactNode }) {
         setProvidersExpandedProvider(null);
       }
       if (section !== "runtimes") {
-        // Runtime scope hints are one-shot and should not persist across crew changes.
+        // Runtime scope hints are one-shot and should not persist across stage changes.
         setRuntimesProjectPath(null);
       }
       router.navigateToSettings(section);
@@ -117,7 +117,7 @@ export function SettingsProvider(props: { children: ReactNode }) {
 
   // Listen for custom events dispatched by decoupled components (e.g. the
   // terminal profile "+" dropdown's "Manage Profiles..." button) that need
-  // to open a specific settings crew without importing this context.
+  // to open a specific settings stage without importing this context.
   useEffect(() => {
     const handler = (e: Event) => {
       const section = (e as CustomEvent<{ section: string }>).detail?.section;

@@ -718,7 +718,7 @@ export const ChatPane: React.FC<ChatPaneProps> = (props) => {
         aria-hidden={immersiveHidden || undefined}
         className="flex min-w-96 flex-1 flex-col [@media(max-width:768px)]:max-h-full [@media(max-width:768px)]:w-full [@media(max-width:768px)]:min-w-0"
       >
-        {/* Top crew: chat content + icon strip side by side */}
+        {/* Top stage: chat content + icon strip side by side */}
         <div className="border-border-light flex min-h-0 flex-1 flex-row border-l">
           {/* Main chat column */}
           <div className="flex min-w-0 flex-1 flex-col">

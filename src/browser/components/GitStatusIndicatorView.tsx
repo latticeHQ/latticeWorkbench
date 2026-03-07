@@ -153,7 +153,7 @@ export const GitStatusIndicatorView: React.FC<GitStatusIndicatorViewProps> = ({
     );
   };
 
-  // Render dirty files crew
+  // Render dirty files stage
   const renderDirtySection = () => {
     if (!dirtyFiles || dirtyFiles.length === 0) {
       return null;

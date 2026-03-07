@@ -2315,49 +2315,49 @@ export const router = (authToken?: string) => {
             context.projectService.setIdleCompactionHours(input.projectPath, input.hours)
           ),
       },
-      crews: {
+      stages: {
         list: t
-          .input(schemas.projects.crews.list.input)
-          .output(schemas.projects.crews.list.output)
-          .handler(({ context, input }) => context.projectService.listCrews(input.projectPath)),
+          .input(schemas.projects.stages.list.input)
+          .output(schemas.projects.stages.list.output)
+          .handler(({ context, input }) => context.projectService.listStages(input.projectPath)),
         create: t
-          .input(schemas.projects.crews.create.input)
-          .output(schemas.projects.crews.create.output)
+          .input(schemas.projects.stages.create.input)
+          .output(schemas.projects.stages.create.output)
           .handler(({ context, input }) =>
-            context.projectService.createCrew(input.projectPath, input.name, input.color)
+            context.projectService.createStage(input.projectPath, input.name, input.color)
           ),
         update: t
-          .input(schemas.projects.crews.update.input)
-          .output(schemas.projects.crews.update.output)
+          .input(schemas.projects.stages.update.input)
+          .output(schemas.projects.stages.update.output)
           .handler(({ context, input }) =>
-            context.projectService.updateCrew(input.projectPath, input.crewId, {
+            context.projectService.updateStage(input.projectPath, input.stageId, {
               name: input.name,
               color: input.color,
             })
           ),
         remove: t
-          .input(schemas.projects.crews.remove.input)
-          .output(schemas.projects.crews.remove.output)
+          .input(schemas.projects.stages.remove.input)
+          .output(schemas.projects.stages.remove.output)
           .handler(({ context, input }) =>
-            context.projectService.removeCrew(input.projectPath, input.crewId)
+            context.projectService.removeStage(input.projectPath, input.stageId)
           ),
         reorder: t
-          .input(schemas.projects.crews.reorder.input)
-          .output(schemas.projects.crews.reorder.output)
+          .input(schemas.projects.stages.reorder.input)
+          .output(schemas.projects.stages.reorder.output)
           .handler(({ context, input }) =>
-            context.projectService.reorderCrews(input.projectPath, input.crewIds)
+            context.projectService.reorderStages(input.projectPath, input.stageIds)
           ),
         assignMinion: t
-          .input(schemas.projects.crews.assignMinion.input)
-          .output(schemas.projects.crews.assignMinion.output)
+          .input(schemas.projects.stages.assignMinion.input)
+          .output(schemas.projects.stages.assignMinion.output)
           .handler(async ({ context, input }) => {
-            const result = await context.projectService.assignMinionToCrew(
+            const result = await context.projectService.assignMinionToStage(
               input.projectPath,
               input.minionId,
-              input.crewId
+              input.stageId
             );
             if (result.success) {
-              // Emit metadata update so frontend receives the crewId change
+              // Emit metadata update so frontend receives the stageId change
               await context.minionService.refreshAndEmitMetadata(input.minionId);
             }
             return result;
@@ -2456,7 +2456,7 @@ export const router = (authToken?: string) => {
             input.trunkBranch,
             input.title,
             input.runtimeConfig,
-            input.crewId,
+            input.stageId,
             input.autonomyOverrides
           );
           if (!result.success) {

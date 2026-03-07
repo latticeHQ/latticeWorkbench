@@ -21,7 +21,7 @@ import { MinionStatusIndicator } from "./MinionStatusIndicator";
 import { Shimmer } from "./ai-elements/shimmer";
 import { ArchiveIcon } from "./icons/ArchiveIcon";
 import { MinionTerminalIcon } from "./icons/MinionTerminalIcon";
-import { MINION_DRAG_TYPE, type MinionDragItem } from "./MinionCrewDropZone";
+import { MINION_DRAG_TYPE, type MinionDragItem } from "./MinionStageDropZone";
 import { useLinkSharingEnabled } from "@/browser/contexts/TelemetryEnabledContext";
 import { formatKeybind, KEYBINDS } from "@/browser/utils/ui/keybinds";
 import { ShareTranscriptDialog } from "./ShareTranscriptDialog";
@@ -62,8 +62,8 @@ export interface MinionListItemProps extends MinionListItemBaseProps {
   isArchiving?: boolean;
   /** True when deletion is in-flight (optimistic UI while backend removes). */
   isRemoving?: boolean;
-  /** Crew ID this minion belongs to (for drag-drop targeting) */
-  crewId?: string;
+  /** Stage ID this minion belongs to (for drag-drop targeting) */
+  stageId?: string;
   onSelectMinion: (selection: MinionSelection) => void;
   onForkMinion: (minionId: string, button: HTMLElement) => Promise<void>;
   onArchiveMinion: (minionId: string, button: HTMLElement) => Promise<void>;
@@ -251,7 +251,7 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
     isArchiving,
     isRemoving: isRemovingProp,
     depth,
-    crewId,
+    stageId,
     onSelectMinion,
     onForkMinion,
     onArchiveMinion,
@@ -386,7 +386,7 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
   const showUnreadBar = !isInitializing && !isEditing && isUnread && !(isSelected && !isDisabled);
   const paddingLeft = getItemPaddingLeft(depth);
 
-  // Drag handle for moving minion between crews
+  // Drag handle for moving minion between stages
   const [{ isDragging }, drag, dragPreview] = useDrag(
     () => ({
       type: MINION_DRAG_TYPE,
@@ -394,7 +394,7 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
         type: MINION_DRAG_TYPE,
         minionId,
         projectPath,
-        currentSectionId: crewId,
+        currentStageId: stageId,
         // Extra fields for custom drag layer preview
         displayTitle,
         runtimeConfig: metadata.runtimeConfig,
@@ -404,7 +404,7 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
       }),
       canDrag: !isDisabled,
     }),
-    [minionId, projectPath, crewId, isDisabled, displayTitle, metadata.runtimeConfig]
+    [minionId, projectPath, stageId, isDisabled, displayTitle, metadata.runtimeConfig]
   );
 
   // Hide native drag preview; we render a custom preview via MinionDragLayer
@@ -466,7 +466,7 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
         aria-disabled={isDisabled}
         data-minion-path={namedMinionPath}
         data-minion-id={minionId}
-        data-section-id={crewId ?? ""}
+        data-stage-id={stageId ?? ""}
         data-git-status={gitStatus ? JSON.stringify(gitStatus) : undefined}
       >
         <SelectionBar isSelected={isSelected && !isDisabled} showUnread={showUnreadBar} />

@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useAPI } from "@/browser/contexts/API";
-import type { ProjectConfig, CrewConfig } from "@/common/types/project";
+import type { ProjectConfig, StageConfig } from "@/common/types/project";
 import type { BranchListResult } from "@/common/orpc/types";
 import type { Secret } from "@/common/types/secrets";
 import type { Result } from "@/common/types/result";
@@ -54,23 +54,23 @@ export interface ProjectContext {
   getSecrets: (projectPath: string) => Promise<Secret[]>;
   updateSecrets: (projectPath: string, secrets: Secret[]) => Promise<void>;
 
-  // Crew operations
-  createCrew: (
+  // Stage operations
+  createStage: (
     projectPath: string,
     name: string,
     color?: string
-  ) => Promise<Result<CrewConfig>>;
-  updateCrew: (
+  ) => Promise<Result<StageConfig>>;
+  updateStage: (
     projectPath: string,
-    crewId: string,
+    stageId: string,
     updates: { name?: string; color?: string }
   ) => Promise<Result<void>>;
-  removeCrew: (projectPath: string, crewId: string) => Promise<Result<void>>;
-  reorderCrews: (projectPath: string, crewIds: string[]) => Promise<Result<void>>;
-  assignMinionToCrew: (
+  removeStage: (projectPath: string, stageId: string) => Promise<Result<void>>;
+  reorderStages: (projectPath: string, stageIds: string[]) => Promise<Result<void>>;
+  assignMinionToStage: (
     projectPath: string,
     minionId: string,
-    crewId: string | null
+    stageId: string | null
   ) => Promise<Result<void>>;
 }
 
@@ -323,11 +323,11 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api]
   );
 
-  // Crew operations
-  const createCrew = useCallback(
-    async (projectPath: string, name: string, color?: string): Promise<Result<CrewConfig>> => {
+  // Stage operations
+  const createStage = useCallback(
+    async (projectPath: string, name: string, color?: string): Promise<Result<StageConfig>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.crews.create({ projectPath, name, color });
+      const result = await api.projects.stages.create({ projectPath, name, color });
       if (result.success) {
         await refreshProjects();
       }
@@ -336,14 +336,14 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const updateCrew = useCallback(
+  const updateStage = useCallback(
     async (
       projectPath: string,
-      crewId: string,
+      stageId: string,
       updates: { name?: string; color?: string }
     ): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.crews.update({ projectPath, crewId, ...updates });
+      const result = await api.projects.stages.update({ projectPath, stageId, ...updates });
       if (result.success) {
         await refreshProjects();
       }
@@ -352,10 +352,10 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const removeCrew = useCallback(
-    async (projectPath: string, crewId: string): Promise<Result<void>> => {
+  const removeStage = useCallback(
+    async (projectPath: string, stageId: string): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.crews.remove({ projectPath, crewId });
+      const result = await api.projects.stages.remove({ projectPath, stageId });
       if (result.success) {
         await refreshProjects();
       }
@@ -364,10 +364,10 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const reorderCrews = useCallback(
-    async (projectPath: string, crewIds: string[]): Promise<Result<void>> => {
+  const reorderStages = useCallback(
+    async (projectPath: string, stageIds: string[]): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.crews.reorder({ projectPath, crewIds });
+      const result = await api.projects.stages.reorder({ projectPath, stageIds });
       if (result.success) {
         await refreshProjects();
       }
@@ -376,17 +376,17 @@ export function ProjectProvider(props: { children: ReactNode }) {
     [api, refreshProjects]
   );
 
-  const assignMinionToCrew = useCallback(
+  const assignMinionToStage = useCallback(
     async (
       projectPath: string,
       minionId: string,
-      crewId: string | null
+      stageId: string | null
     ): Promise<Result<void>> => {
       if (!api) return { success: false, error: "API not connected" };
-      const result = await api.projects.crews.assignMinion({
+      const result = await api.projects.stages.assignMinion({
         projectPath,
         minionId,
-        crewId,
+        stageId,
       });
       if (result.success) {
         await refreshProjects();
@@ -412,11 +412,11 @@ export function ProjectProvider(props: { children: ReactNode }) {
       getBranchesForProject,
       getSecrets,
       updateSecrets,
-      createCrew,
-      updateCrew,
-      removeCrew,
-      reorderCrews,
-      assignMinionToCrew,
+      createStage,
+      updateStage,
+      removeStage,
+      reorderStages,
+      assignMinionToStage,
     }),
     [
       projects,
@@ -431,11 +431,11 @@ export function ProjectProvider(props: { children: ReactNode }) {
       getBranchesForProject,
       getSecrets,
       updateSecrets,
-      createCrew,
-      updateCrew,
-      removeCrew,
-      reorderCrews,
-      assignMinionToCrew,
+      createStage,
+      updateStage,
+      removeStage,
+      reorderStages,
+      assignMinionToStage,
     ]
   );
 

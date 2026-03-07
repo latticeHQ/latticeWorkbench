@@ -19,6 +19,6 @@ export function getMinionSidebarKey(meta: FrontendMinionMetadata): string {
     removingKey,
     meta.parentMinionId ?? "", // Nested sidebar indentation/order
     meta.agentType ?? "", // Agent preset badge/label (future)
-    meta.crewId ?? "", // Section grouping for sidebar organization
+    meta.stageId ?? "", // Section grouping for sidebar organization
   ].join("|");
 }

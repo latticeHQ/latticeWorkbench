@@ -1,5 +1,5 @@
 /**
- * Terminal Profiles settings crew — auto-detects installed CLIs and lets
+ * Terminal Profiles settings stage — auto-detects installed CLIs and lets
  * users enable/disable, install, and configure AI agent terminal profiles.
  *
  * Follows the same card-based pattern as ProvidersSection:
@@ -125,7 +125,7 @@ export function TerminalProfilesSection() {
   if (loadState.status === "idle" || loadState.status === "loading") {
     return (
       <div className="space-y-4">
-        <CrewHeader />
+        <StageHeader />
         <div className="text-muted flex items-center gap-2 py-8 text-sm">
           <Loader2 className="h-4 w-4 animate-spin" />
           Detecting installed CLI tools...
@@ -137,7 +137,7 @@ export function TerminalProfilesSection() {
   if (loadState.status === "error") {
     return (
       <div className="space-y-4">
-        <CrewHeader />
+        <StageHeader />
         <div className="text-muted py-4 text-sm">
           Failed to load profiles: {loadState.message}
           <Button variant="ghost" size="sm" onClick={fetchProfiles} className="ml-2">
@@ -153,7 +153,7 @@ export function TerminalProfilesSection() {
 
   return (
     <div className="space-y-4">
-      <CrewHeader onRefresh={fetchProfiles} />
+      <StageHeader onRefresh={fetchProfiles} />
 
       <p className="text-muted text-xs">
         AI agent CLIs that can be launched directly from the terminal + menu. Installed tools are
@@ -188,7 +188,7 @@ export function TerminalProfilesSection() {
   );
 }
 
-function CrewHeader(props: { onRefresh?: () => void }) {
+function StageHeader(props: { onRefresh?: () => void }) {
   return (
     <div className="flex items-center justify-between">
       <div className="flex items-center gap-2">

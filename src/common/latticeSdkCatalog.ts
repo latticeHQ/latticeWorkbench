@@ -33,7 +33,7 @@ export interface LatticeSdkCategory {
  */
 export const LATTICE_SDK_CATEGORIES: LatticeSdkCategory[] = [
   { id: "minion", description: "Core agent control: create minions, send messages, execute bash, manage streams, compaction, chat history, mode settings, devcontainer", functionCount: 44, sdkFile: "sdk/minion.ts" },
-  { id: "project", description: "Project CRUD, branches, crews, secrets, MCP servers, idle compaction, file completions", functionCount: 25, sdkFile: "sdk/project.ts" },
+  { id: "project", description: "Project CRUD, branches, stages, secrets, MCP servers, idle compaction, file completions", functionCount: 25, sdkFile: "sdk/project.ts" },
   { id: "server-mgmt", description: "Server status, SSH, auth sessions, updates, signing, Lattice integration, experiments, telemetry", functionCount: 29, sdkFile: "sdk/server-mgmt.ts" },
   { id: "oauth", description: "Device-code and server-side OAuth flows for Copilot, Codex, MCP servers", functionCount: 17, sdkFile: "sdk/oauth.ts" },
   { id: "config", description: "Global config, model preferences, provider management, runtime enablement", functionCount: 13, sdkFile: "sdk/config.ts" },
@@ -108,10 +108,10 @@ export const LATTICE_SDK_FUNCTIONS: LatticeSdkFunction[] = [
   { name: "updateProject", category: "project", description: "Update project configuration" },
   { name: "listBranches", category: "project", description: "List git branches for a project" },
   { name: "switchBranch", category: "project", description: "Switch git branch for a project" },
-  { name: "createCrew", category: "project", description: "Create a project section (organization)" },
-  { name: "updateCrew", category: "project", description: "Update a section name or order" },
+  { name: "createStage", category: "project", description: "Create a project section (organization)" },
+  { name: "updateStage", category: "project", description: "Update a section name or order" },
   { name: "deleteSection", category: "project", description: "Delete a project section" },
-  { name: "listCrews", category: "project", description: "List all project crews" },
+  { name: "listStages", category: "project", description: "List all project stages" },
   { name: "getProjectSecrets", category: "project", description: "Get project-scoped secrets" },
   { name: "updateProjectSecrets", category: "project", description: "Update project-scoped secrets" },
   { name: "addProjectMcpServer", category: "project", description: "Add an MCP server to a project" },

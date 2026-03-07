@@ -19,5 +19,5 @@ export interface LatticeDeepLinkPayload {
   projectId?: string;
 
   prompt?: string;
-  crewId?: string;
+  stageId?: string;
 }

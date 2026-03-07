@@ -351,7 +351,7 @@ const AddTerminalDropdown: React.FC<{
 
 /**
  * "Manage Profiles..." link at the bottom of the dropdown — dispatches a
- * custom event to open Settings at the terminal-profiles crew. This keeps
+ * custom event to open Settings at the terminal-profiles stage. This keeps
  * the TabStrip decoupled from SettingsContext (avoids circular deps).
  */
 function ManageProfilesButton(props: { onClose: () => void }) {

@@ -97,7 +97,7 @@ function AppInner() {
     selectedMinion,
     setSelectedMinion,
     pendingNewMinionProject,
-    pendingNewMinionSectionId,
+    pendingNewMinionStageId,
     pendingNewMinionDraftId,
     beginMinionCreation,
   } = useMinionContext();
@@ -1019,7 +1019,7 @@ function AppInner() {
                     projectName={projectName}
                     leftSidebarCollapsed={sidebarCollapsed}
                     onToggleLeftSidebarCollapsed={handleToggleSidebar}
-                    pendingSectionId={pendingNewMinionSectionId}
+                    pendingStageId={pendingNewMinionStageId}
                     pendingDraftId={pendingNewMinionDraftId}
                     onMinionCreated={(metadata, options) => {
                       // IMPORTANT: Add minion to store FIRST (synchronous) to ensure

@@ -252,7 +252,7 @@ export const SkillIndicator_UnadvertisedSkills: AppStory = {
   },
 };
 
-/** Shows invalid skills in the SkillIndicator popover ("Invalid skills" crew) */
+/** Shows invalid skills in the SkillIndicator popover ("Invalid skills" stage) */
 export const SkillIndicator_InvalidSkills: AppStory = {
   render: () => (
     <AppWithMocks
@@ -295,7 +295,7 @@ export const SkillIndicator_InvalidSkills: AppStory = {
   },
 };
 
-/** Shows runtime skill load errors in the SkillIndicator popover ("Load errors" crew) */
+/** Shows runtime skill load errors in the SkillIndicator popover ("Load errors" stage) */
 export const SkillIndicator_LoadErrors: AppStory = {
   render: () => (
     <AppWithMocks
@@ -418,7 +418,7 @@ export const SkillIndicator_AllErrors: AppStory = {
     await waitFor(() => {
       const popover = doc.querySelector("[data-radix-popper-content-wrapper]");
       if (!popover) throw new Error("Popover not visible");
-      // Both crews should be visible
+      // Both stages should be visible
       if (!popover.textContent?.includes("Invalid skills")) {
         throw new Error("Invalid skills section not visible");
       }

@@ -411,7 +411,7 @@ export const TaskToolCall: React.FC<TaskToolCallProps> = ({
               </div>
             </div>
 
-            {/* Report crew */}
+            {/* Report stage */}
             {hasReport && reportMarkdown && (
               <div className="task-divider border-t pt-2">
                 <div className="text-muted mb-1 text-[10px] tracking-wide uppercase">Report</div>

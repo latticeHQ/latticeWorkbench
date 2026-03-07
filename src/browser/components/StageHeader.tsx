@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect } from "react";
 import { cn } from "@/common/lib/utils";
 import { ChevronRight, Pencil, Trash2, Palette } from "lucide-react";
-import type { CrewConfig } from "@/common/types/project";
+import type { StageConfig } from "@/common/types/project";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
-import { resolveCrewColor, CREW_COLOR_PALETTE } from "@/common/constants/ui";
+import { resolveStageColor, STAGE_COLOR_PALETTE } from "@/common/constants/ui";
 import { HexColorPicker } from "react-colorful";
 
-interface CrewHeaderProps {
-  crew: CrewConfig;
+interface StageHeaderProps {
+  stage: StageConfig;
   isExpanded: boolean;
   minionCount: number;
   onToggleExpand: () => void;
@@ -17,8 +17,8 @@ interface CrewHeaderProps {
   onDelete: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }
 
-export const CrewHeader: React.FC<CrewHeaderProps> = ({
-  crew,
+export const StageHeader: React.FC<StageHeaderProps> = ({
+  stage,
   isExpanded,
   minionCount,
   onToggleExpand,
@@ -28,9 +28,9 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
   onDelete,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [editValue, setEditValue] = useState(crew.name);
+  const [editValue, setEditValue] = useState(stage.name);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [hexInputValue, setHexInputValue] = useState(crew.color ?? "");
+  const [hexInputValue, setHexInputValue] = useState(stage.color ?? "");
   const inputRef = useRef<HTMLInputElement>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
 
@@ -55,36 +55,36 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
 
   const handleSubmitRename = () => {
     const trimmed = editValue.trim();
-    if (trimmed && trimmed !== crew.name) {
+    if (trimmed && trimmed !== stage.name) {
       onRename(trimmed);
     } else {
-      setEditValue(crew.name);
+      setEditValue(stage.name);
     }
     setIsEditing(false);
   };
 
-  const crewColor = resolveCrewColor(crew.color);
+  const stageColor = resolveStageColor(stage.color);
 
   // Sync hex input when color changes from picker or presets
   useEffect(() => {
-    setHexInputValue(crewColor);
-  }, [crewColor]);
+    setHexInputValue(stageColor);
+  }, [stageColor]);
 
   return (
     <div
       className="group relative flex items-center gap-1 border-t border-white/5 px-2 py-1.5"
       style={{
-        backgroundColor: `${crewColor}10`,
+        backgroundColor: `${stageColor}10`,
         borderLeftWidth: 3,
-        borderLeftColor: crewColor,
+        borderLeftColor: stageColor,
       }}
-      data-crew-id={crew.id}
+      data-stage-id={stage.id}
     >
       {/* Expand/Collapse Button */}
       <button
         onClick={onToggleExpand}
         className="text-secondary hover:text-foreground flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border-none bg-transparent p-0 transition-colors"
-        aria-label={isExpanded ? "Collapse crew" : "Expand crew"}
+        aria-label={isExpanded ? "Collapse stage" : "Expand stage"}
         aria-expanded={isExpanded}
       >
         <ChevronRight
@@ -94,7 +94,7 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
         />
       </button>
 
-      {/* Crew Name */}
+      {/* Stage Name */}
       {isEditing ? (
         <input
           ref={inputRef}
@@ -105,11 +105,11 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
           onKeyDown={(e) => {
             if (e.key === "Enter") handleSubmitRename();
             if (e.key === "Escape") {
-              setEditValue(crew.name);
+              setEditValue(stage.name);
               setIsEditing(false);
             }
           }}
-          data-testid="crew-rename-input"
+          data-testid="stage-rename-input"
           className="bg-background/50 text-foreground min-w-0 flex-1 rounded border border-white/20 px-1.5 py-0.5 text-xs font-medium outline-none"
         />
       ) : (
@@ -118,7 +118,7 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
           onDoubleClick={() => setIsEditing(true)}
           className="text-foreground min-w-0 flex-1 cursor-pointer truncate border-none bg-transparent p-0 text-left text-xs font-medium"
         >
-          {crew.name}
+          {stage.name}
           <span className="text-muted ml-1.5 font-normal">({minionCount})</span>
         </button>
       )}
@@ -144,7 +144,7 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
             <div className="bg-background border-border absolute top-full right-0 z-50 mt-1 rounded border p-2 shadow-lg">
               {/* Preset swatches */}
               <div className="mb-2 grid grid-cols-5 gap-1">
-                {CREW_COLOR_PALETTE.map(([name, color]) => (
+                {STAGE_COLOR_PALETTE.map(([name, color]) => (
                   <button
                     key={color}
                     onClick={() => {
@@ -153,7 +153,7 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
                     }}
                     className={cn(
                       "h-5 w-5 rounded border-2 transition-transform hover:scale-110",
-                      crewColor === color ? "border-white" : "border-transparent"
+                      stageColor === color ? "border-white" : "border-transparent"
                     )}
                     style={{ backgroundColor: color }}
                     title={name}
@@ -162,9 +162,9 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
                 ))}
               </div>
               {/* Full color picker */}
-              <div className="crew-color-picker">
+              <div className="stage-color-picker">
                 <HexColorPicker
-                  color={crewColor}
+                  color={stageColor}
                   onChange={(newColor) => onChangeColor(newColor)}
                 />
               </div>
@@ -194,7 +194,7 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
             <button
               onClick={() => setIsEditing(true)}
               className="text-muted hover:text-foreground hover:bg-hover flex h-5 w-5 cursor-pointer items-center justify-center rounded border-none bg-transparent p-0 transition-colors"
-              aria-label="Rename crew"
+              aria-label="Rename stage"
             >
               <Pencil size={12} />
             </button>
@@ -208,12 +208,12 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
             <button
               onClick={(e) => onDelete(e)}
               className="text-muted hover:text-danger-light hover:bg-danger-light/10 flex h-5 w-5 cursor-pointer items-center justify-center rounded border-none bg-transparent p-0 transition-colors"
-              aria-label="Delete crew"
+              aria-label="Delete stage"
             >
               <Trash2 size={12} />
             </button>
           </TooltipTrigger>
-          <TooltipContent>Delete crew</TooltipContent>
+          <TooltipContent>Delete stage</TooltipContent>
         </Tooltip>
 
         {/* Add Minion */}
@@ -222,7 +222,7 @@ export const CrewHeader: React.FC<CrewHeaderProps> = ({
             <button
               onClick={onAddMinion}
               className="text-secondary hover:text-foreground hover:bg-hover flex h-5 w-5 cursor-pointer items-center justify-center rounded border-none bg-transparent p-0 text-sm transition-colors"
-              aria-label="Summon minion in crew"
+              aria-label="Summon minion in stage"
             >
               +
             </button>

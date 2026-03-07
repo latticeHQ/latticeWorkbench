@@ -28,7 +28,7 @@ export const toolCatalog: ToolCatalogEntry[] = [];
  */
 const CATEGORIES: Record<string, string> = {
   minion: "[Minion-scoped] Core agent control: create minions, send messages, execute bash, manage streams, compaction, chat history. Parent: project.",
-  project: "[Project-scoped] Project management: CRUD, branches, crews, secrets, MCP servers, idle compaction, file completions. Contains: minions, crews.",
+  project: "[Project-scoped] Project management: CRUD, branches, stages, secrets, MCP servers, idle compaction, file completions. Contains: minions, stages.",
   server: "[Global] Server management: API status, SSH, auth sessions, updates, signing, Lattice identity, experiments, telemetry, voice, UI layouts, inference.",
   oauth: "[Global] OAuth flows: device-code and server-side flows for Copilot, Codex, MCP server authentication.",
   config: "[Global] Configuration: global config, model preferences, provider management, runtime enablement.",

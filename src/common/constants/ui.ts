@@ -78,11 +78,11 @@ export const COPY_FEEDBACK_DURATION_MS = 2000;
 export const MAX_LOG_ENTRIES = 1000;
 
 /**
- * Predefined color palette for project crews.
+ * Predefined color palette for project stages.
  * Each color is designed to work well with the dark theme.
  * Format: [name, hex value]
  */
-export const CREW_COLOR_PALETTE = [
+export const STAGE_COLOR_PALETTE = [
   ["Gray", "#6b7280"],
   ["Slate", "#64748b"],
   ["Blue", "#5a9bd4"],
@@ -95,19 +95,19 @@ export const CREW_COLOR_PALETTE = [
   ["Pink", "#d465a5"],
 ] as const;
 
-export type SectionColorName = (typeof CREW_COLOR_PALETTE)[number][0];
+export type StageColorName = (typeof STAGE_COLOR_PALETTE)[number][0];
 
 /**
- * Default color for new crews (neutral gray)
+ * Default color for new stages (neutral gray)
  */
-export const DEFAULT_CREW_COLOR = CREW_COLOR_PALETTE[0][1];
+export const DEFAULT_STAGE_COLOR = STAGE_COLOR_PALETTE[0][1];
 
 /**
  * Default 10-stage software delivery pipeline.
- * Seeded automatically for projects that have no crews yet.
+ * Seeded automatically for projects that have no stages yet.
  * Order matters — it defines the linked-list sequence in the sidebar.
  */
-export const DEFAULT_PIPELINE_CREWS: ReadonlyArray<{ name: string; color: string }> = [
+export const DEFAULT_PIPELINE_STAGES: ReadonlyArray<{ name: string; color: string }> = [
   { name: "Intake", color: "Pink" },
   { name: "Discovery", color: "Blue" },
   { name: "Planning", color: "Yellow" },
@@ -121,26 +121,26 @@ export const DEFAULT_PIPELINE_CREWS: ReadonlyArray<{ name: string; color: string
 ];
 
 /**
- * Resolve a crew color string (hex value or preset name) to a canonical hex color.
+ * Resolve a stage color string (hex value or preset name) to a canonical hex color.
  *
- * Crews persist their color to config.json as a string, which may be either:
+ * Stages persist their color to config.json as a string, which may be either:
  * - a hex color (e.g. "#5a9bd4")
  * - a palette name (e.g. "Blue")
  *
  * For consistent rendering (and for safely appending hex alpha like "10"), we normalize
  * to a 6-digit "#rrggbb" string.
  */
-export function resolveCrewColor(color: string | null | undefined): string {
+export function resolveStageColor(color: string | null | undefined): string {
   if (!color) {
-    return DEFAULT_CREW_COLOR;
+    return DEFAULT_STAGE_COLOR;
   }
 
   const trimmed = color.trim();
   if (trimmed.length === 0) {
-    return DEFAULT_CREW_COLOR;
+    return DEFAULT_STAGE_COLOR;
   }
 
-  const paletteMatch = CREW_COLOR_PALETTE.find(
+  const paletteMatch = STAGE_COLOR_PALETTE.find(
     ([name]) => name.toLowerCase() === trimmed.toLowerCase()
   );
   if (paletteMatch) {
@@ -165,5 +165,5 @@ export function resolveCrewColor(color: string | null | undefined): string {
     return `#${hex8Match[1].slice(0, 6)}`.toLowerCase();
   }
 
-  return DEFAULT_CREW_COLOR;
+  return DEFAULT_STAGE_COLOR;
 }

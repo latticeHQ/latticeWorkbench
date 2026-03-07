@@ -1,8 +1,8 @@
 import type { FrontendMinionMetadata } from "@/common/types/minion";
-import type { ProjectConfig, CrewConfig } from "@/common/types/project";
+import type { ProjectConfig, StageConfig } from "@/common/types/project";
 
-// Re-export shared crew sorting utility
-export { sortCrewsByLinkedList } from "@/common/utils/crews";
+// Re-export shared stage sorting utility
+export { sortStagesByLinkedList } from "@/common/utils/stages";
 
 function flattenMinionTree(
   minions: FrontendMinionMetadata[]
@@ -234,7 +234,7 @@ export function findNextNonEmptyTier(
 
 /**
  * Partition minions into age-based buckets.
- * Always shows at least one minion in the recent crew (the most recent one).
+ * Always shows at least one minion in the recent stage (the most recent one).
  */
 export function partitionMinionsByAge(
   minions: FrontendMinionMetadata[],
@@ -288,38 +288,38 @@ export function partitionMinionsByAge(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Crew-based minion grouping
+// Stage-based minion grouping
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Result of partitioning minions by crew.
- * - unsectioned: minions not assigned to any crew
- * - byCrewId: map of crew ID to minions in that crew
+ * Result of partitioning minions by stage.
+ * - unstaged: minions not assigned to any stage
+ * - byStageId: map of stage ID to minions in that stage
  */
-export interface SectionPartitionResult {
-  unsectioned: FrontendMinionMetadata[];
-  byCrewId: Map<string, FrontendMinionMetadata[]>;
+export interface StagePartitionResult {
+  unstaged: FrontendMinionMetadata[];
+  byStageId: Map<string, FrontendMinionMetadata[]>;
 }
 
 /**
- * Partition minions by their crewId.
+ * Partition minions by their stageId.
  * Preserves input order within each partition.
  *
  * @param minions - All minions for the project (in display order)
- * @param crews - Crew configs for the project (used to validate crew IDs)
+ * @param stages - Stage configs for the project (used to validate stage IDs)
  * @returns Partitioned minions
  */
-export function partitionMinionsByCrew(
+export function partitionMinionsByStage(
   minions: FrontendMinionMetadata[],
-  sections: CrewConfig[]
-): SectionPartitionResult {
-  const crewIds = new Set(sections.map((s) => s.id));
-  const unsectioned: FrontendMinionMetadata[] = [];
-  const byCrewId = new Map<string, FrontendMinionMetadata[]>();
+  stages: StageConfig[]
+): StagePartitionResult {
+  const stageIds = new Set(stages.map((s) => s.id));
+  const unstaged: FrontendMinionMetadata[] = [];
+  const byStageId = new Map<string, FrontendMinionMetadata[]>();
 
-  // Initialize all crews with empty arrays to ensure consistent ordering
-  for (const section of sections) {
-    byCrewId.set(section.id, []);
+  // Initialize all stages with empty arrays to ensure consistent ordering
+  for (const stage of stages) {
+    byStageId.set(stage.id, []);
   }
 
   // Build minion lookup for parent resolution
@@ -328,49 +328,49 @@ export function partitionMinionsByCrew(
     byId.set(minion.id, minion);
   }
 
-  // Resolve effective crew for a minion (inherit from parent if unset)
-  const resolveSection = (minion: FrontendMinionMetadata): string | undefined => {
-    if (minion.crewId && crewIds.has(minion.crewId)) {
-      return minion.crewId;
+  // Resolve effective stage for a minion (inherit from parent if unset)
+  const resolveStage = (minion: FrontendMinionMetadata): string | undefined => {
+    if (minion.stageId && stageIds.has(minion.stageId)) {
+      return minion.stageId;
     }
-    // Inherit from parent if child has no crew
+    // Inherit from parent if child has no stage
     if (minion.parentMinionId) {
       const parent = byId.get(minion.parentMinionId);
       if (parent) {
-        return resolveSection(parent);
+        return resolveStage(parent);
       }
     }
     return undefined;
   };
 
   for (const minion of minions) {
-    const effectiveSectionId = resolveSection(minion);
-    if (effectiveSectionId) {
-      const list = byCrewId.get(effectiveSectionId)!;
+    const effectiveStageId = resolveStage(minion);
+    if (effectiveStageId) {
+      const list = byStageId.get(effectiveStageId)!;
       list.push(minion);
     } else {
-      unsectioned.push(minion);
+      unstaged.push(minion);
     }
   }
 
-  return { unsectioned, byCrewId };
+  return { unstaged, byStageId };
 }
 
 /**
- * Build the storage key for a crew's expanded state.
+ * Build the storage key for a stage's expanded state.
  */
-export function getCrewExpandedKey(projectPath: string, crewId: string): string {
-  return `section:${projectPath}:${crewId}`;
+export function getStageExpandedKey(projectPath: string, stageId: string): string {
+  return `stage:${projectPath}:${stageId}`;
 }
 
 /**
- * Build the storage key for a crew's age tier expanded state.
- * This is separate from project-level tiers to allow per-crew age collapse.
+ * Build the storage key for a stage's age tier expanded state.
+ * This is separate from project-level tiers to allow per-stage age collapse.
  */
-export function getCrewTierKey(
+export function getStageTierKey(
   projectPath: string,
-  crewId: string,
+  stageId: string,
   tierIndex: number
 ): string {
-  return `section:${projectPath}:${crewId}:tier:${tierIndex}`;
+  return `stage:${projectPath}:${stageId}:tier:${tierIndex}`;
 }

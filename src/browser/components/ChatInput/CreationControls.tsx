@@ -38,8 +38,8 @@ import {
 } from "@/browser/utils/runtimeUi";
 import type { MinionNameState, MinionNameUIError } from "@/browser/hooks/useMinionName";
 import type { LatticeInfo } from "@/common/orpc/schemas/lattice";
-import type { CrewConfig } from "@/common/types/project";
-import { resolveCrewColor } from "@/common/constants/ui";
+import type { StageConfig } from "@/common/types/project";
+import { resolveStageColor } from "@/common/constants/ui";
 import {
   LatticeAvailabilityMessage,
   LatticeMinionForm,
@@ -133,12 +133,12 @@ interface CreationControlsProps {
   runtimeAvailabilityState: RuntimeAvailabilityState;
   /** Runtime enablement toggles from Settings (hide disabled runtimes). */
   runtimeEnablement?: RuntimeEnablement;
-  /** Available crews for this project */
-  sections?: CrewConfig[];
-  /** Currently selected crew ID */
-  selectedSectionId?: string | null;
-  /** Callback when crew selection changes */
-  onSectionChange?: (crewId: string | null) => void;
+  /** Available stages for this project */
+  stages?: StageConfig[];
+  /** Currently selected stage ID */
+  selectedStageId?: string | null;
+  /** Callback when stage selection changes */
+  onStageChange?: (stageId: string | null) => void;
   /** Which runtime field (if any) is in error state for visual feedback */
   runtimeFieldError?: "docker" | "ssh" | null;
 
@@ -281,43 +281,43 @@ const resolveRuntimeButtonState = (
   };
 };
 
-/** Inline chip-based crew picker — no dropdown, just clickable pills.
+/** Inline chip-based stage picker — no dropdown, just clickable pills.
  *  Eliminates floating-element positioning issues entirely. */
-interface SectionPickerProps {
-  sections: CrewConfig[];
-  selectedSectionId: string | null;
-  onSectionChange: (crewId: string | null) => void;
+interface StagePickerProps {
+  stages: StageConfig[];
+  selectedStageId: string | null;
+  onStageChange: (stageId: string | null) => void;
   disabled?: boolean;
 }
 
-function SectionPicker(props: SectionPickerProps) {
-  const { sections, selectedSectionId, onSectionChange, disabled } = props;
+function StagePicker(props: StagePickerProps) {
+  const { stages, selectedStageId, onStageChange, disabled } = props;
 
-  const normalizedSelectedSectionId =
-    selectedSectionId && selectedSectionId.trim().length > 0 ? selectedSectionId : null;
+  const normalizedSelectedStageId =
+    selectedStageId && selectedStageId.trim().length > 0 ? selectedStageId : null;
 
   return (
     <div
       className="flex flex-col gap-1"
-      data-testid="section-selector"
-      data-selected-section={normalizedSelectedSectionId ?? ""}
+      data-testid="stage-selector"
+      data-selected-stage={normalizedSelectedStageId ?? ""}
     >
-      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Section">
-        {sections.map((section) => {
-          const color = resolveCrewColor(section.color);
-          const isSelected = section.id === normalizedSelectedSectionId;
+      <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Stage">
+        {stages.map((stage) => {
+          const color = resolveStageColor(stage.color);
+          const isSelected = stage.id === normalizedSelectedStageId;
           return (
             <button
-              key={section.id}
+              key={stage.id}
               type="button"
               role="radio"
               aria-checked={isSelected}
               disabled={disabled}
-              onClick={() => onSectionChange(isSelected ? null : section.id)}
+              onClick={() => onStageChange(isSelected ? null : stage.id)}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all duration-200",
                 isSelected
-                  ? "creation-section-chip-glow text-foreground"
+                  ? "creation-stage-chip-glow text-foreground"
                   : "border-transparent text-muted hover:text-foreground hover:bg-hover",
                 disabled && "cursor-not-allowed opacity-50"
               )}
@@ -326,7 +326,7 @@ function SectionPicker(props: SectionPickerProps) {
                   ? ({
                       borderColor: color,
                       backgroundColor: `${color}12`,
-                      "--section-glow-color": `${color}40`,
+                      "--stage-glow-color": `${color}40`,
                     } as React.CSSProperties)
                   : undefined
               }
@@ -335,7 +335,7 @@ function SectionPicker(props: SectionPickerProps) {
                 className="size-2 shrink-0 rounded-full"
                 style={{ backgroundColor: color, opacity: isSelected ? 1 : 0.5 }}
               />
-              {section.name}
+              {stage.name}
             </button>
           );
         })}
@@ -344,7 +344,7 @@ function SectionPicker(props: SectionPickerProps) {
   );
 }
 
-/** Autonomy preset chip picker — same visual pattern as SectionPicker */
+/** Autonomy preset chip picker — same visual pattern as StagePicker */
 interface MissionProfilePickerProps {
   selectedPreset: AutonomyPresetId;
   onPresetChange: (preset: AutonomyPresetId) => void;
@@ -379,7 +379,7 @@ function MissionProfilePicker(props: MissionProfilePickerProps) {
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition-all duration-200",
                     isSelected
-                      ? "creation-section-chip-glow text-foreground"
+                      ? "creation-stage-chip-glow text-foreground"
                       : "border-transparent text-muted hover:text-foreground hover:bg-hover",
                     disabled && "cursor-not-allowed opacity-50"
                   )}
@@ -388,7 +388,7 @@ function MissionProfilePicker(props: MissionProfilePickerProps) {
                       ? {
                           borderColor: color,
                           backgroundColor: `${color}12`,
-                          "--section-glow-color": `${color}40`,
+                          "--stage-glow-color": `${color}40`,
                         } satisfies React.CSSProperties as React.CSSProperties
                       : undefined
                   }
@@ -543,7 +543,7 @@ function RuntimeButtonGroup(props: RuntimeButtonGroupProps) {
 
 /**
  * Prominent controls shown above the input during minion creation.
- * Compact flat layout with thin dividers between crews.
+ * Compact flat layout with thin dividers between stages.
  */
 export function CreationControls(props: CreationControlsProps) {
   const { projects } = useProjectContext();
@@ -760,13 +760,13 @@ export function CreationControls(props: CreationControlsProps) {
     nameState.setAutoGenerate(!nameState.autoGenerate);
   }, [nameState]);
 
-  const hasSections = props.sections && props.sections.length > 0 && props.onSectionChange;
+  const hasStages = props.stages && props.stages.length > 0 && props.onStageChange;
 
   return (
     <div className="mb-3 flex flex-col gap-4">
       {/* ── Name ── */}
       <div className="flex flex-col gap-2">
-        <span className="creation-section-label">Name</span>
+        <span className="creation-stage-label">Name</span>
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1 text-xs" data-component="MinionNameGroup">
             {projects.size > 1 ? (
@@ -875,7 +875,7 @@ export function CreationControls(props: CreationControlsProps) {
 
       {/* ── Environment ── */}
       <div className="flex flex-col gap-2.5">
-        <span className="creation-section-label">Environment</span>
+        <span className="creation-stage-label">Environment</span>
         <div className="flex flex-col gap-2.5" data-component="RuntimeTypeGroup">
           <RuntimeButtonGroup
             value={runtimeChoice}
@@ -1166,7 +1166,7 @@ export function CreationControls(props: CreationControlsProps) {
         <>
           <div className="creation-divider" />
           <div className="flex flex-col gap-2">
-            <span className="creation-section-label">Autonomy</span>
+            <span className="creation-stage-label">Autonomy</span>
             <MissionProfilePicker
               selectedPreset={props.autonomyPreset ?? "inherit"}
               onPresetChange={props.onAutonomyPresetChange}
@@ -1176,16 +1176,16 @@ export function CreationControls(props: CreationControlsProps) {
         </>
       )}
 
-      {/* ── Crew (only when project has crews) ── */}
-      {hasSections && (
+      {/* ── Stage (only when project has stages) ── */}
+      {hasStages && (
         <>
           <div className="creation-divider" />
           <div className="flex flex-col gap-2">
-            <span className="creation-section-label">Section</span>
-            <SectionPicker
-              sections={props.sections!}
-              selectedSectionId={props.selectedSectionId ?? null}
-              onSectionChange={props.onSectionChange!}
+            <span className="creation-stage-label">Section</span>
+            <StagePicker
+              stages={props.stages!}
+              selectedStageId={props.selectedStageId ?? null}
+              onStageChange={props.onStageChange!}
               disabled={props.disabled}
             />
           </div>

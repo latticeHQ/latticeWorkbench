@@ -192,7 +192,7 @@ function Badge({ icon: Icon, label, title, accent }: {
 
 export function MinionToolBadges({ ws, compact }: {
   ws: FrontendMinionMetadata;
-  /** If true, show fewer badges (for crew rows). */
+  /** If true, show fewer badges (for stage rows). */
   compact?: boolean;
 }) {
   const state = useMinionSidebarState(ws.id);
@@ -248,7 +248,7 @@ export function MinionToolBadges({ ws, compact }: {
   );
 }
 
-/** Inline badge for crew cards — model + terminal profile. */
+/** Inline badge for stage cards — model + terminal profile. */
 export function MinionModelBadge({ ws }: { ws: FrontendMinionMetadata }) {
   const state = useMinionSidebarState(ws.id);
   const modelStr = state.currentModel ?? ws.taskModelString ?? ws.aiSettings?.model ?? null;

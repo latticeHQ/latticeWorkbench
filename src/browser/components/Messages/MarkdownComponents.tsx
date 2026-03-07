@@ -234,7 +234,7 @@ export const markdownComponents = {
     </a>
   ),
 
-  // Custom details/summary for collapsible crews
+  // Custom details/summary for collapsible stages
   details: ({ children, open }: DetailsProps) => (
     <details
       open={open}

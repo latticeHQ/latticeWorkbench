@@ -27,7 +27,7 @@ interface ProjectOverviewTabProps {
   projectPath: string;
   projectName: string;
   pendingDraftId?: string | null;
-  pendingSectionId?: string | null;
+  pendingStageId?: string | null;
   onMinionCreated: (
     metadata: FrontendMinionMetadata,
     options?: MinionCreatedOptions
@@ -171,7 +171,7 @@ export const ProjectOverviewTab: React.FC<ProjectOverviewTabProps> = (props) => 
                 variant="creation"
                 projectPath={props.projectPath}
                 projectName={props.projectName}
-                pendingSectionId={props.pendingSectionId}
+                pendingStageId={props.pendingStageId}
                 pendingDraftId={props.pendingDraftId}
                 onReady={handleChatReady}
                 onMinionCreated={props.onMinionCreated}

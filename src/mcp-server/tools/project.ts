@@ -1,5 +1,5 @@
 /**
- * Project management tools: list, create, remove, clone, branches, crews,
+ * Project management tools: list, create, remove, clone, branches, stages,
  * secrets, MCP servers, file completions, runtime availability, idle compaction.
  */
 
@@ -197,29 +197,29 @@ export function registerProjectTools(
       })
   );
 
-  // ── Crews (minion grouping) ─────────────────────────────────────
+  // ── Stages (minion grouping) ─────────────────────────────────────
   server.tool(
-    "list_crews",
-    "List minion crews (groups) in a project.",
+    "list_stages",
+    "List minion stages (groups) in a project.",
     { projectPath: z.string().describe("Absolute project path") },
     (params) =>
       withErrorHandling(async () => {
-        const result = await client.projects.crews.list({ projectPath: params.projectPath });
+        const result = await client.projects.stages.list({ projectPath: params.projectPath });
         return { content: [jsonContent(result)] };
       })
   );
 
   server.tool(
-    "create_crew",
-    "Create a new crew (minion group) in a project.",
+    "create_stage",
+    "Create a new stage (minion group) in a project.",
     {
       projectPath: z.string().describe("Absolute project path"),
-      name: z.string().describe("Section name"),
-      color: z.string().optional().describe("Section color (hex or name)"),
+      name: z.string().describe("Stage name"),
+      color: z.string().optional().describe("Stage color (hex or name)"),
     },
     (params) =>
       withErrorHandling(async () => {
-        const result = await client.projects.crews.create({
+        const result = await client.projects.stages.create({
           projectPath: params.projectPath,
           name: params.name,
           color: params.color,
@@ -229,19 +229,19 @@ export function registerProjectTools(
   );
 
   server.tool(
-    "update_crew",
-    "Update a section's name or color.",
+    "update_stage",
+    "Update a stage's name or color.",
     {
       projectPath: z.string().describe("Absolute project path"),
-      crewId: z.string().describe("Section ID to update"),
+      stageId: z.string().describe("Stage ID to update"),
       name: z.string().optional().describe("New name"),
       color: z.string().optional().describe("New color"),
     },
     (params) =>
       withErrorHandling(async () => {
-        const result = await client.projects.crews.update({
+        const result = await client.projects.stages.update({
           projectPath: params.projectPath,
-          crewId: params.crewId,
+          stageId: params.stageId,
           name: params.name,
           color: params.color,
         });
@@ -250,53 +250,53 @@ export function registerProjectTools(
   );
 
   server.tool(
-    "remove_crew",
-    "Delete a section from a project.",
+    "remove_stage",
+    "Delete a stage from a project.",
     {
       projectPath: z.string().describe("Absolute project path"),
-      crewId: z.string().describe("Section ID to delete"),
+      stageId: z.string().describe("Stage ID to delete"),
     },
     (params) =>
       withErrorHandling(async () => {
-        const result = await client.projects.crews.remove({
+        const result = await client.projects.stages.remove({
           projectPath: params.projectPath,
-          crewId: params.crewId,
+          stageId: params.stageId,
         });
         return { content: [jsonContent(result)] };
       })
   );
 
   server.tool(
-    "reorder_crews",
-    "Reorder crews in a project by providing the new section ID order.",
+    "reorder_stages",
+    "Reorder stages in a project by providing the new stage ID order.",
     {
       projectPath: z.string().describe("Absolute project path"),
-      crewIds: z.array(z.string()).describe("Ordered array of section IDs"),
+      stageIds: z.array(z.string()).describe("Ordered array of stage IDs"),
     },
     (params) =>
       withErrorHandling(async () => {
-        const result = await client.projects.crews.reorder({
+        const result = await client.projects.stages.reorder({
           projectPath: params.projectPath,
-          crewIds: params.crewIds,
+          stageIds: params.stageIds,
         });
         return { content: [jsonContent(result)] };
       })
   );
 
   server.tool(
-    "assign_minion_to_crew",
-    "Assign or unassign a minion to a crew. Pass null crewId to unassign.",
+    "assign_minion_to_stage",
+    "Assign or unassign a minion to a stage. Pass null stageId to unassign.",
     {
       projectPath: z.string().describe("Absolute project path"),
       minionId: z.string().describe("Minion ID to assign"),
-      crewId: z.string().nullable().describe("Section ID (null to unassign)"),
+      stageId: z.string().nullable().describe("Stage ID (null to unassign)"),
     },
     (params) =>
       withErrorHandling(async () => {
-        const result = await client.projects.crews.assignMinion({
+        const result = await client.projects.stages.assignMinion({
           projectPath: params.projectPath,
           minionId: params.minionId,
-          crewId: params.crewId,
+          stageId: params.stageId,
         });
         return { content: [jsonContent(result)] };
       })

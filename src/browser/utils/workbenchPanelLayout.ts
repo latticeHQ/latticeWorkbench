@@ -57,7 +57,7 @@ export interface WorkbenchPanelLayoutState {
 }
 
 export function getDefaultWorkbenchPanelLayoutState(activeTab: TabType): WorkbenchPanelLayoutState {
-  // Default: two-crew split — terminal on top, info tabs on bottom.
+  // Default: two-stage split — terminal on top, info tabs on bottom.
   // The bare "terminal" placeholder is promoted to a real "terminal:<sessionId>"
   // by WorkbenchPanel's promoteBareTerminalPlaceholders effect on mount.
   const bottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "browser", "kanban", "issues", "inference", "schedules", "sync"];

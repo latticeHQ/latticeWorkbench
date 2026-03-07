@@ -619,7 +619,7 @@ export const AskUserQuestionPending: AppStory = {
     await userEvent.click(await canvas.findByText("Approach A"));
     await canvas.findByText("Which platforms do we need to support?");
 
-    // Regression: you must be able to jump back to a previous crew after answering it.
+    // Regression: you must be able to jump back to a previous stage after answering it.
     await userEvent.click(await getSectionButton("Approach"));
 
     await canvas.findByText("Which approach should we take?");

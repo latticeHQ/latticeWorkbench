@@ -355,7 +355,7 @@ export const BashToolCall: React.FC<BashToolCallProps> = ({
             </>
           )}
 
-          {/* Unified output crew — single DOM tree for streaming + completed output
+          {/* Unified output stage — single DOM tree for streaming + completed output
               so React reconciles the same elements instead of unmounting/remounting,
               which preserves scroll position and prevents layout flash. */}
           {(showLiveOutput || showCompletedOutputSection) && (

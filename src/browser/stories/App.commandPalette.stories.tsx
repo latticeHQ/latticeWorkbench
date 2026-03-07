@@ -155,7 +155,7 @@ export const FuzzySearch: AppStory = {
  *
  * Stress-tests:
  * - Scroll behavior when many items overflow the palette
- * - Project grouping with many crews
+ * - Project grouping with many stages
  * - Visual density at scale
  */
 export const ManyMinions: AppStory = {

@@ -6,7 +6,7 @@
 import type { z } from "zod";
 import type {
   ProjectConfigSchema,
-  CrewConfigSchema,
+  StageConfigSchema,
   MinionConfigSchema,
 } from "../orpc/schemas";
 import type { TaskSettings, SidekickAiDefaults } from "./tasks";
@@ -19,7 +19,7 @@ import type { SyncConfig } from "./sync";
 
 export type Minion = z.infer<typeof MinionConfigSchema>;
 
-export type CrewConfig = z.infer<typeof CrewConfigSchema>;
+export type StageConfig = z.infer<typeof StageConfigSchema>;
 
 export type ProjectConfig = z.infer<typeof ProjectConfigSchema>;
 

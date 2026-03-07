@@ -41,15 +41,15 @@ import { CUSTOM_EVENTS, type CustomEventType } from "@/common/constants/events";
 import { PlatformPaths } from "@/common/utils/paths";
 import {
   partitionMinionsByAge,
-  partitionMinionsByCrew,
+  partitionMinionsByStage,
   formatDaysThreshold,
   AGE_THRESHOLDS_DAYS,
   computeMinionDepthMap,
   findNextNonEmptyTier,
   getTierKey,
-  getCrewExpandedKey,
-  getCrewTierKey,
-  sortCrewsByLinkedList,
+  getStageExpandedKey,
+  getStageTierKey,
+  sortStagesByLinkedList,
 } from "@/browser/utils/ui/minionFiltering";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import { SidebarCollapseButton } from "./ui/SidebarCollapseButton";
@@ -69,12 +69,12 @@ import { useRouter } from "@/browser/contexts/RouterContext";
 import { usePopoverError } from "@/browser/hooks/usePopoverError";
 import { forkMinion } from "@/browser/utils/chatCommands";
 import { PopoverError } from "./PopoverError";
-import { CrewHeader } from "./CrewHeader";
-import { AddCrewButton } from "./AddCrewButton";
-import { MinionCrewDropZone } from "./MinionCrewDropZone";
+import { StageHeader } from "./StageHeader";
+import { AddStageButton } from "./AddStageButton";
+import { MinionStageDropZone } from "./MinionStageDropZone";
 import { MinionDragLayer } from "./MinionDragLayer";
-import { CrewDragLayer } from "./CrewDragLayer";
-import { DraggableCrew } from "./DraggableCrew";
+import { StageDragLayer } from "./StageDragLayer";
+import { DraggableStage } from "./DraggableStage";
 import { getErrorMessage } from "@/common/utils/errors";
 
 // Re-export MinionSelection for backwards compatibility
@@ -266,12 +266,12 @@ interface ProjectDragItem {
   type: "PROJECT";
   projectPath: string;
 }
-interface CrewDragItemLocal {
+interface StageDragItemLocal {
   type: "SECTION_REORDER";
-  crewId: string;
+  stageId: string;
   projectPath: string;
 }
-type DragItem = ProjectDragItem | CrewDragItemLocal | null;
+type DragItem = ProjectDragItem | StageDragItemLocal | null;
 
 const ProjectDragLayer: React.FC = () => {
   const dragState = useDragLayer<{
@@ -299,7 +299,7 @@ const ProjectDragLayer: React.FC = () => {
     };
   }, [isDragging]);
 
-  // Only render for PROJECT type drags (not crew reorder)
+  // Only render for PROJECT type drags (not stage reorder)
   if (!isDragging || !currentOffset || !item?.projectPath || item.type !== "PROJECT") return null;
 
   const abbrevPath = PlatformPaths.abbreviate(item.projectPath);
@@ -460,11 +460,11 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
     removeProject: onRemoveProject,
     getSecrets: onGetSecrets,
     updateSecrets: onUpdateSecrets,
-    createCrew,
-    updateCrew,
-    removeCrew,
-    reorderCrews,
-    assignMinionToCrew,
+    createStage,
+    updateStage,
+    removeStage,
+    reorderStages,
+    assignMinionToStage,
   } = useProjectContext();
 
   // Theme for logo variant
@@ -541,8 +541,8 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
 
   // Wrapper to close sidebar on mobile after adding minion
   const handleAddMinion = useCallback(
-    (projectPath: string, crewId?: string) => {
-      createMinionDraft(projectPath, crewId);
+    (projectPath: string, stageId?: string) => {
+      createMinionDraft(projectPath, stageId);
       if (window.innerWidth <= MOBILE_BREAKPOINT && !collapsed) {
         persistMobileSidebarScrollTop(mobileScrollTopRef.current);
         onToggleCollapsed();
@@ -553,8 +553,8 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
 
   // Wrapper to close sidebar on mobile after opening an existing draft
   const handleOpenMinionDraft = useCallback(
-    (projectPath: string, draftId: string, crewId?: string | null) => {
-      openMinionDraft(projectPath, draftId, crewId);
+    (projectPath: string, draftId: string, stageId?: string | null) => {
+      openMinionDraft(projectPath, draftId, stageId);
       if (window.innerWidth <= MOBILE_BREAKPOINT && !collapsed) {
         persistMobileSidebarScrollTop(mobileScrollTopRef.current);
         onToggleCollapsed();
@@ -610,9 +610,9 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
     Record<string, boolean>
   >("expandedOldMinions", {});
 
-  // Track which crews are expanded
-  const [expandedCrews, setExpandedCrews] = usePersistedState<Record<string, boolean>>(
-    "expandedCrews",
+  // Track which stages are expanded
+  const [expandedStages, setExpandedStages] = usePersistedState<Record<string, boolean>>(
+    "expandedStages",
     {}
   );
 
@@ -627,7 +627,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
     buttonElement?: HTMLElement;
   } | null>(null);
   const projectRemoveError = usePopoverError();
-  const crewRemoveError = usePopoverError();
+  const stageRemoveError = usePopoverError();
   const [secretsModalState, setSecretsModalState] = useState<{
     isOpen: boolean;
     projectPath: string;
@@ -658,20 +658,20 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
     [setExpandedProjectsArray]
   );
 
-  const toggleCrew = (projectPath: string, crewId: string) => {
-    const key = getCrewExpandedKey(projectPath, crewId);
-    setExpandedCrews((prev) => ({
+  const toggleStage = (projectPath: string, stageId: string) => {
+    const key = getStageExpandedKey(projectPath, stageId);
+    setExpandedStages((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
   };
 
-  const handleCreateCrew = async (projectPath: string, name: string) => {
-    const result = await createCrew(projectPath, name);
+  const handleCreateStage = async (projectPath: string, name: string) => {
+    const result = await createStage(projectPath, name);
     if (result.success) {
-      // Auto-expand the new crew
-      const key = getCrewExpandedKey(projectPath, result.data.id);
-      setExpandedCrews((prev) => ({ ...prev, [key]: true }));
+      // Auto-expand the new stage
+      const key = getStageExpandedKey(projectPath, result.data.id);
+      setExpandedStages((prev) => ({ ...prev, [key]: true }));
     }
   };
 
@@ -811,21 +811,21 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
     [removeMinion, minionRemoveError]
   );
 
-  const handleRemoveSection = async (
+  const handleRemoveStage = async (
     projectPath: string,
-    crewId: string,
+    stageId: string,
     buttonElement: HTMLElement
   ) => {
-    // removeCrew unsections every minion in the project (including archived),
+    // removeStage unstages every minion in the project (including archived),
     // so confirmation needs to count from the full project config.
-    const minionsInSection = (projects.get(projectPath)?.minions ?? []).filter(
-      (minion) => minion.crewId === crewId
+    const minionsInStage = (projects.get(projectPath)?.minions ?? []).filter(
+      (minion) => minion.stageId === stageId
     );
 
-    if (minionsInSection.length > 0) {
+    if (minionsInStage.length > 0) {
       const ok = await confirmDialog({
-        title: "Delete crew?",
-        description: `${minionsInSection.length} minion(s) in this crew will be moved to unsectioned.`,
+        title: "Delete stage?",
+        description: `${minionsInStage.length} minion(s) in this stage will be moved to unstaged.`,
         confirmLabel: "Delete",
         confirmVariant: "destructive",
       });
@@ -834,15 +834,15 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
       }
     }
 
-    const result = await removeCrew(projectPath, crewId);
+    const result = await removeStage(projectPath, stageId);
     if (!result.success) {
-      const error = result.error ?? "Failed to remove crew";
+      const error = result.error ?? "Failed to remove stage";
       const rect = buttonElement.getBoundingClientRect();
       const anchor = {
         top: rect.top + window.scrollY,
         left: rect.right + 10,
       };
-      crewRemoveError.showError(crewId, error, anchor);
+      stageRemoveError.showError(stageId, error, anchor);
     }
   };
 
@@ -954,7 +954,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
       <DndProvider backend={HTML5Backend}>
         <ProjectDragLayer />
         <MinionDragLayer />
-        <CrewDragLayer />
+        <StageDragLayer />
         <div
           className={cn(
             "font-primary bg-sidebar border-border-light flex flex-1 flex-col overflow-hidden border-r",
@@ -1023,7 +1023,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                     const isExpanded = expandedProjectsList.includes(projectPath);
                     const floorNumber = visibleProjectPaths.length - projectIndex;
 
-                    // Distinct color per floor — mirrors the crew color palette approach
+                    // Distinct color per floor — mirrors the stage color palette approach
                     const FLOOR_COLORS = [
                       "#5a9bd4", // Blue
                       "#d4a05a", // Amber
@@ -1216,7 +1216,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                               const minionsForNormalRendering = allMinions.filter(
                                 (minion) => !promotedMinionIds.has(minion.id)
                               );
-                              const crews = sortCrewsByLinkedList(config.crews ?? []);
+                              const stages = sortStagesByLinkedList(config.stages ?? []);
                               const depthByMinionId = computeMinionDepthMap(allMinions);
                               const sortedDrafts = draftsForProject
                                 .slice()
@@ -1226,38 +1226,38 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                   (draft, index) => [draft.draftId, index + 1] as const
                                 )
                               );
-                              const crewIds = new Set(crews.map(crew => crew.id));
-                              const normalizeDraftSectionId = (
+                              const stageIds = new Set(stages.map(stage => stage.id));
+                              const normalizeDraftStageId = (
                                 draft: (typeof sortedDrafts)[number]
                               ): string | null => {
-                                return typeof draft.crewId === "string" &&
-                                  crewIds.has(draft.crewId)
-                                  ? draft.crewId
+                                return typeof draft.stageId === "string" &&
+                                  stageIds.has(draft.stageId)
+                                  ? draft.stageId
                                   : null;
                               };
 
-                              // Drafts can reference a crew that has since been deleted.
-                              // Treat those as unsectioned so they remain accessible.
-                              const unsectionedDrafts: typeof sortedDrafts = [];
-                              const draftsByCrewId = new Map<string, typeof sortedDrafts>();
+                              // Drafts can reference a stage that has since been deleted.
+                              // Treat those as unstaged so they remain accessible.
+                              const unstagedDrafts: typeof sortedDrafts = [];
+                              const draftsByStageId = new Map<string, typeof sortedDrafts>();
                               for (const draft of sortedDrafts) {
-                                const crewId = normalizeDraftSectionId(draft);
-                                if (crewId === null) {
-                                  unsectionedDrafts.push(draft);
+                                const stageId = normalizeDraftStageId(draft);
+                                if (stageId === null) {
+                                  unstagedDrafts.push(draft);
                                   continue;
                                 }
 
-                                const existing = draftsByCrewId.get(crewId);
+                                const existing = draftsByStageId.get(stageId);
                                 if (existing) {
                                   existing.push(draft);
                                 } else {
-                                  draftsByCrewId.set(crewId, [draft]);
+                                  draftsByStageId.set(stageId, [draft]);
                                 }
                               }
 
                               const renderMinion = (
                                 metadata: FrontendMinionMetadata,
-                                crewId?: string
+                                stageId?: string
                               ) => (
                                 <MinionListItem
                                   key={metadata.id}
@@ -1275,14 +1275,14 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                   onArchiveMinion={handleArchiveMinion}
                                   onCancelCreation={handleCancelMinionCreation}
                                   depth={depthByMinionId[metadata.id] ?? 0}
-                                  crewId={crewId}
+                                  stageId={stageId}
                                 />
                               );
 
                               const renderDraft = (
                                 draft: (typeof sortedDrafts)[number]
                               ): React.ReactNode => {
-                                const crewId = normalizeDraftSectionId(draft);
+                                const stageId = normalizeDraftStageId(draft);
                                 const promotedMetadata = activeDraftPromotions[draft.draftId];
 
                                 if (promotedMetadata) {
@@ -1290,7 +1290,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                     allMinions.find(
                                       (minion) => minion.id === promotedMetadata.id
                                     ) ?? promotedMetadata;
-                                  return renderMinion(liveMetadata, crewId ?? undefined);
+                                  return renderMinion(liveMetadata, stageId ?? undefined);
                                 }
 
                                 const draftNumber = draftNumberById.get(draft.draftId) ?? 0;
@@ -1309,7 +1309,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                       handleOpenMinionDraft(
                                         projectPath,
                                         draft.draftId,
-                                        crewId
+                                        stageId
                                       )
                                     }
                                     onDelete={() => {
@@ -1327,10 +1327,10 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                           openMinionDraft(
                                             projectPath,
                                             fallback.draftId,
-                                            normalizeDraftSectionId(fallback)
+                                            normalizeDraftStageId(fallback)
                                           );
                                         } else {
-                                          navigateToProject(projectPath, crewId ?? undefined);
+                                          navigateToProject(projectPath, stageId ?? undefined);
                                         }
                                       }
 
@@ -1344,7 +1344,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                               const renderAgeTiers = (
                                 minions: FrontendMinionMetadata[],
                                 tierKeyPrefix: string,
-                                crewId?: string
+                                stageId?: string
                               ): React.ReactNode => {
                                 const { recent, buckets } = partitionMinionsByAge(
                                   minions,
@@ -1403,7 +1403,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                       </button>
                                       {isTierExpanded && (
                                         <>
-                                          {bucket.map((ws) => renderMinion(ws, crewId))}
+                                          {bucket.map((ws) => renderMinion(ws, stageId))}
                                           {(() => {
                                             const nextTier = findNextNonEmptyTier(
                                               buckets,
@@ -1421,46 +1421,46 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
 
                                 return (
                                   <>
-                                    {recent.map((ws) => renderMinion(ws, crewId))}
+                                    {recent.map((ws) => renderMinion(ws, stageId))}
                                     {firstTier !== -1 && renderTier(firstTier)}
                                   </>
                                 );
                               };
 
-                              // Partition minions by crew
-                              const { unsectioned, byCrewId } = partitionMinionsByCrew(
+                              // Partition minions by stage
+                              const { unstaged, byStageId } = partitionMinionsByStage(
                                 minionsForNormalRendering,
-                                crews
+                                stages
                               );
 
-                              // Handle minion drop into crew
-                              const handleMinionSectionDrop = (
+                              // Handle minion drop into stage
+                              const handleMinionStageDrop = (
                                 minionId: string,
-                                targetSectionId: string | null
+                                targetStageId: string | null
                               ) => {
                                 void (async () => {
-                                  const result = await assignMinionToCrew(
+                                  const result = await assignMinionToStage(
                                     projectPath,
                                     minionId,
-                                    targetSectionId
+                                    targetStageId
                                   );
                                   if (result.success) {
-                                    // Refresh minion metadata so UI shows updated crewId
+                                    // Refresh minion metadata so UI shows updated stageId
                                     await refreshMinionMetadata();
                                   }
                                 })();
                               };
 
-                              // Handle crew reorder (drag crew onto another crew)
-                              const handleCrewReorder = (
-                                draggedSectionId: string,
-                                targetSectionId: string
+                              // Handle stage reorder (drag stage onto another stage)
+                              const handleStageReorder = (
+                                draggedStageId: string,
+                                targetStageId: string
                               ) => {
                                 void (async () => {
-                                  // Compute new order: move dragged crew to position of target
-                                  const currentOrder = crews.map((s) => s.id);
-                                  const draggedIndex = currentOrder.indexOf(draggedSectionId);
-                                  const targetIndex = currentOrder.indexOf(targetSectionId);
+                                  // Compute new order: move dragged stage to position of target
+                                  const currentOrder = stages.map((s) => s.id);
+                                  const draggedIndex = currentOrder.indexOf(draggedStageId);
+                                  const targetIndex = currentOrder.indexOf(targetStageId);
 
                                   if (draggedIndex === -1 || targetIndex === -1) return;
 
@@ -1468,103 +1468,103 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                   const newOrder = [...currentOrder];
                                   newOrder.splice(draggedIndex, 1);
                                   // Insert at target position
-                                  newOrder.splice(targetIndex, 0, draggedSectionId);
+                                  newOrder.splice(targetIndex, 0, draggedStageId);
 
-                                  await reorderCrews(projectPath, newOrder);
+                                  await reorderStages(projectPath, newOrder);
                                 })();
                               };
 
                               return (
                                 <>
-                                  {/* Unsectioned minions first - always show drop zone when crews exist */}
-                                  {crews.length > 0 ? (
-                                    <MinionCrewDropZone
+                                  {/* Unstaged minions first - always show drop zone when stages exist */}
+                                  {stages.length > 0 ? (
+                                    <MinionStageDropZone
                                       projectPath={projectPath}
-                                      crewId={null}
-                                      onDrop={handleMinionSectionDrop}
-                                      testId="unsectioned-drop-zone"
+                                      stageId={null}
+                                      onDrop={handleMinionStageDrop}
+                                      testId="unstaged-drop-zone"
                                     >
-                                      {unsectionedDrafts.map((draft) => renderDraft(draft))}
-                                      {unsectioned.length > 0 ? (
+                                      {unstagedDrafts.map((draft) => renderDraft(draft))}
+                                      {unstaged.length > 0 ? (
                                         renderAgeTiers(
-                                          unsectioned,
+                                          unstaged,
                                           getTierKey(projectPath, 0).replace(":0", "")
                                         )
-                                      ) : unsectionedDrafts.length === 0 ? (
+                                      ) : unstagedDrafts.length === 0 ? (
                                         <div className="text-muted px-3 py-2 text-center text-xs italic">
-                                          No unsectioned minions
+                                          No unstaged minions
                                         </div>
                                       ) : null}
-                                    </MinionCrewDropZone>
+                                    </MinionStageDropZone>
                                   ) : (
                                     <>
-                                      {unsectionedDrafts.map((draft) => renderDraft(draft))}
-                                      {unsectioned.length > 0 &&
+                                      {unstagedDrafts.map((draft) => renderDraft(draft))}
+                                      {unstaged.length > 0 &&
                                         renderAgeTiers(
-                                          unsectioned,
+                                          unstaged,
                                           getTierKey(projectPath, 0).replace(":0", "")
                                         )}
                                     </>
                                   )}
 
-                                  {/* Crews */}
-                                  {crews.map((crew) => {
-                                    const crewMinions = byCrewId.get(crew.id) ?? [];
-                                    const crewDrafts = draftsByCrewId.get(crew.id) ?? [];
-                                    const crewExpandedKey = getCrewExpandedKey(projectPath, crew.id);
-                                    const isCrewExpanded = expandedCrews[crewExpandedKey] ?? true;
+                                  {/* Stages */}
+                                  {stages.map((stage) => {
+                                    const stageMinions = byStageId.get(stage.id) ?? [];
+                                    const stageDrafts = draftsByStageId.get(stage.id) ?? [];
+                                    const stageExpandedKey = getStageExpandedKey(projectPath, stage.id);
+                                    const isStageExpanded = expandedStages[stageExpandedKey] ?? true;
 
                                     return (
-                                      <DraggableCrew
-                                        key={crew.id}
-                                        crewId={crew.id}
-                                        crewName={crew.name}
+                                      <DraggableStage
+                                        key={stage.id}
+                                        stageId={stage.id}
+                                        stageName={stage.name}
                                         projectPath={projectPath}
-                                        onReorder={handleCrewReorder}
+                                        onReorder={handleStageReorder}
                                       >
-                                        <MinionCrewDropZone
+                                        <MinionStageDropZone
                                           projectPath={projectPath}
-                                          crewId={crew.id}
-                                          onDrop={handleMinionSectionDrop}
+                                          stageId={stage.id}
+                                          onDrop={handleMinionStageDrop}
                                         >
-                                          <CrewHeader
-                                            crew={crew}
-                                            isExpanded={isCrewExpanded}
-                                            minionCount={crewMinions.length + crewDrafts.length}
-                                            onToggleExpand={() => toggleCrew(projectPath, crew.id)}
-                                            onAddMinion={() => handleAddMinion(projectPath, crew.id)}
-                                            onRename={(name) => { void updateCrew(projectPath, crew.id, { name }); }}
-                                            onChangeColor={(color) => { void updateCrew(projectPath, crew.id, { color }); }}
-                                            onDelete={(e) => { void handleRemoveSection(projectPath, crew.id, e.currentTarget); }}
+                                          <StageHeader
+                                            stage={stage}
+                                            isExpanded={isStageExpanded}
+                                            minionCount={stageMinions.length + stageDrafts.length}
+                                            onToggleExpand={() => toggleStage(projectPath, stage.id)}
+                                            onAddMinion={() => handleAddMinion(projectPath, stage.id)}
+                                            onRename={(name) => { void updateStage(projectPath, stage.id, { name }); }}
+                                            onChangeColor={(color) => { void updateStage(projectPath, stage.id, { color }); }}
+                                            onDelete={(e) => { void handleRemoveStage(projectPath, stage.id, e.currentTarget); }}
                                           />
-                                          {isCrewExpanded && (
+                                          {isStageExpanded && (
                                             <div className="pb-1 pl-2">
-                                              {crewDrafts.map((draft) => renderDraft(draft))}
-                                              {crewMinions.length > 0 ? (
+                                              {stageDrafts.map((draft) => renderDraft(draft))}
+                                              {stageMinions.length > 0 ? (
                                                 renderAgeTiers(
-                                                  crewMinions,
-                                                  getCrewTierKey(projectPath, crew.id, 0).replace(
+                                                  stageMinions,
+                                                  getStageTierKey(projectPath, stage.id, 0).replace(
                                                     ":tier:0",
                                                     ":tier"
                                                   ),
-                                                  crew.id
+                                                  stage.id
                                                 )
-                                              ) : crewDrafts.length === 0 ? (
+                                              ) : stageDrafts.length === 0 ? (
                                                 <div className="text-muted px-3 py-2 text-center text-xs italic">
-                                                  No minions in this crew
+                                                  No minions in this stage
                                                 </div>
                                               ) : null}
                                             </div>
                                           )}
-                                        </MinionCrewDropZone>
-                                      </DraggableCrew>
+                                        </MinionStageDropZone>
+                                      </DraggableStage>
                                     );
                                   })}
 
-                                  {/* Add Crew button */}
-                                  <AddCrewButton
-                                    onCreateSection={(name) => {
-                                      void handleCreateCrew(projectPath, name);
+                                  {/* Add Stage button */}
+                                  <AddStageButton
+                                    onCreateStage={(name) => {
+                                      void handleCreateStage(projectPath, name);
                                     }}
                                   />
                                 </>
@@ -1642,9 +1642,9 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
             onDismiss={projectRemoveError.clearError}
           />
           <PopoverError
-            error={crewRemoveError.error}
-            prefix="Failed to remove crew"
-            onDismiss={crewRemoveError.clearError}
+            error={stageRemoveError.error}
+            prefix="Failed to remove stage"
+            onDismiss={stageRemoveError.clearError}
           />
         </div>
       </DndProvider>

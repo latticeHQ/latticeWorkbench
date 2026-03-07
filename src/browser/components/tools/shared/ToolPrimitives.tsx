@@ -330,7 +330,7 @@ export const OutputStatusBadge: React.FC<OutputStatusBadgeProps> = ({ hasOutput,
 );
 
 /**
- * Output display crew for bash-like tools
+ * Output display stage for bash-like tools
  */
 interface OutputSectionProps {
   output?: string;

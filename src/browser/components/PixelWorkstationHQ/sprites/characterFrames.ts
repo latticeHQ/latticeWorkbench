@@ -2,7 +2,7 @@
  * Minion sprite frame data — 12×18 pixel grid.
  *
  * Despicable Me–style minions: yellow pill body, BIG 3-row circular goggles,
- * silver rims, shadow-edged body for roundness, overalls in crew color.
+ * silver rims, shadow-edged body for roundness, overalls in stage color.
  *
  * Grid layout (12 cols × 18 rows):
  *   Row  0:      Hair wisps
@@ -48,7 +48,7 @@ export const HAIR_STYLES: PixelEntry[][] = [
 //   outline     → goggle rim + mouth (#999 — silver/metallic)
 //   eyeWhite    → goggle lens (white)
 //   eyePupil    → brown pupil (#654321)
-//   shirt       → overalls (crew color)
+//   shirt       → overalls (stage color)
 //   shirtAccent → suspender clasps
 //   shoe        → shoes (#222)
 // ─────────────────────────────────────────────────────────────────────────────

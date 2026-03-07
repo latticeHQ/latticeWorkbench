@@ -1,5 +1,5 @@
 /**
- * CrewScene — Canvas 2D renderer for shared crew workstation scenes.
+ * StageScene — Canvas 2D renderer for shared stage workstation scenes.
  *
  * Multiple minions share one desk scene. Characters are rendered as actual
  * pixel art sprites (replacing the vector MinionSvg cartoon).
@@ -29,11 +29,11 @@ import {
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Scale for shared crew desk (smaller than individual card SCALE=3). */
-const CREW_DESK_SCALE = 2;
+/** Scale for shared stage desk (smaller than individual card SCALE=3). */
+const STAGE_DESK_SCALE = 2;
 
-/** Character render scale in crew scene. */
-const CREW_CHAR_SCALE = 2;
+/** Character render scale in stage scene. */
+const STAGE_CHAR_SCALE = 2;
 
 /** Row in character grid where feet are. */
 const CHAR_FEET_ROW = 16;
@@ -55,10 +55,10 @@ interface CharEntry {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CrewScene
+// StageScene
 // ─────────────────────────────────────────────────────────────────────────────
 
-export class CrewScene implements SceneSubscriber {
+export class StageScene implements SceneSubscriber {
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private characters = new Map<string, CharEntry>();
@@ -199,10 +199,10 @@ export class CrewScene implements SceneSubscriber {
       drawAmbientGlow(ctx, W / 2, wallH, Math.min(W, H) * 0.4, "#6366f1", 0.08);
     }
 
-    // 6. Draw desk (centered, at CREW_DESK_SCALE)
+    // 6. Draw desk (centered, at STAGE_DESK_SCALE)
     const dc = this.deskCache;
-    const deskW = dc.width * CREW_DESK_SCALE;
-    const deskH = dc.height * CREW_DESK_SCALE;
+    const deskW = dc.width * STAGE_DESK_SCALE;
+    const deskH = dc.height * STAGE_DESK_SCALE;
     const deskX = (W - deskW) / 2;
     const deskY = wallH - deskH * 0.5; // overlap wall/floor boundary
     ctx.drawImage(dc.canvas, 0, 0, dc.width, dc.height, deskX, deskY, deskW, deskH);
@@ -238,11 +238,11 @@ export class CrewScene implements SceneSubscriber {
     const screenCenterX = entry.walk.x * scaleX;
     const screenFeetY = entry.walk.y * scaleY;
 
-    const charW = CHAR_GRID_W * CREW_CHAR_SCALE;
-    const charH = CHAR_GRID_H * CREW_CHAR_SCALE;
+    const charW = CHAR_GRID_W * STAGE_CHAR_SCALE;
+    const charH = CHAR_GRID_H * STAGE_CHAR_SCALE;
 
     const drawX = screenCenterX - charW / 2;
-    const drawY = screenFeetY - (CHAR_FEET_ROW * CREW_CHAR_SCALE);
+    const drawY = screenFeetY - (CHAR_FEET_ROW * STAGE_CHAR_SCALE);
 
     // Live glow effect
     if (entry.isLive) {

@@ -14,7 +14,7 @@ import {
 } from "@/browser/components/ui/select";
 
 /**
- * Settings crew for viewing and managing archived minions.
+ * Settings stage for viewing and managing archived minions.
  * Shows a project picker (when multiple projects exist) and the
  * BenchedMinions card for the selected project.
  */

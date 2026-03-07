@@ -99,11 +99,11 @@ export const ReasoningMessage: React.FC<ReasoningMessageProps> = ({ message, cla
       return <div className="text-thinking-mode opacity-60">Thinking...</div>;
     }
 
-    // Preserve single newlines so short crew headers (e.g. "Fixing …") don't get
+    // Preserve single newlines so short stage headers (e.g. "Fixing …") don't get
     // collapsed into the previous paragraph by the markdown renderer.
     //
     // Also apply a small heuristic fixup for providers that omit a leading newline
-    // before bold crew headers (e.g. `...!**Deciding...**\n\n`).
+    // before bold stage headers (e.g. `...!**Deciding...**\n\n`).
     // Streaming text gets typewriter effect.
     if (isStreaming) {
       return (

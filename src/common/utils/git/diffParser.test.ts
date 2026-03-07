@@ -254,7 +254,7 @@ describe("git diff parser (real repository)", () => {
     writeFileSync(join(testRepoPath, "large.txt"), lines.join("\n") + "\n");
     execSync("git add . && git commit -m 'Add large file'", { cwd: testRepoPath });
 
-    // Modify multiple crews
+    // Modify multiple stages
     const modifiedLines = lines.map((line, i) => {
       if (i % 20 === 0) return `Modified ${line}`;
       return line;

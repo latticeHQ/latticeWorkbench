@@ -48,7 +48,7 @@ export interface TerminalProfileDefinition {
   knownPaths?: string[];
   /** Grouping category for UI display */
   category: "ai-agent" | "shell" | "tool";
-  /** Crew group — "platform" for major vendors, "community" for open-source/indie */
+  /** Stage group — "platform" for major vendors, "community" for open-source/indie */
   group: "platform" | "community";
 }
 

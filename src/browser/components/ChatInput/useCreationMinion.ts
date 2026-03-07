@@ -67,8 +67,8 @@ interface UseCreationMinionOptions {
   ) => void;
   /** Current message input for name generation */
   message: string;
-  /** Crew ID to assign the new minion to */
-  crewId?: string | null;
+  /** Stage ID to assign the new minion to */
+  stageId?: string | null;
   /** Autonomy preset for the new minion */
   autonomyPreset?: AutonomyPresetId;
   /** Draft ID for UI-only minion creation drafts (from URL) */
@@ -209,7 +209,7 @@ export function useCreationMinion({
   projectPath,
   onMinionCreated,
   message,
-  crewId,
+  stageId,
   autonomyPreset,
   draftId,
   userModel,
@@ -468,7 +468,7 @@ export function useCreationMinion({
           trunkBranch: settings.trunkBranch,
           title: createTitle,
           runtimeConfig,
-          crewId: crewId ?? undefined,
+          stageId: stageId ?? undefined,
           autonomyOverrides: autonomyOverrides ?? undefined,
         });
 
@@ -606,7 +606,7 @@ export function useCreationMinion({
       waitForGeneration,
       minionNameState.autoGenerate,
       minionNameState.name,
-      crewId,
+      stageId,
       autonomyPreset,
       draftId,
       promoteMinionDraft,

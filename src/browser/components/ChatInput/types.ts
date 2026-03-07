@@ -57,8 +57,8 @@ export interface ChatInputCreationVariant {
   variant: "creation";
   projectPath: string;
   projectName: string;
-  /** Crew ID to pre-select (from sidebar crew "+" button) */
-  pendingSectionId?: string | null;
+  /** Stage ID to pre-select (from sidebar stage "+" button) */
+  pendingStageId?: string | null;
   /** Draft ID for UI-only minion creation drafts (from URL) */
   pendingDraftId?: string | null;
   onMinionCreated: (

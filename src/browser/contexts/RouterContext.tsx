@@ -16,7 +16,7 @@ import type { MinionSelection } from "@/browser/components/ProjectSidebar";
 
 export interface RouterContext {
   navigateToMinion: (minionId: string) => void;
-  navigateToProject: (projectPath: string, crewId?: string, draftId?: string) => void;
+  navigateToProject: (projectPath: string, stageId?: string, draftId?: string) => void;
   navigateToHome: () => void;
   navigateToSettings: (section?: string) => void;
   navigateFromSettings: () => void;
@@ -24,7 +24,7 @@ export interface RouterContext {
   navigateFromAnalytics: () => void;
   currentMinionId: string | null;
 
-  /** Settings crew from URL (null when not on settings page). */
+  /** Settings stage from URL (null when not on settings page). */
   currentSettingsSection: string | null;
 
   /** Project identifier from URL (does not include full filesystem path). */
@@ -33,8 +33,8 @@ export interface RouterContext {
   /** Optional project path carried via in-memory navigation state (not persisted on refresh). */
   currentProjectPathFromState: string | null;
 
-  /** Crew ID for pending minion creation (from URL) */
-  pendingSectionId: string | null;
+  /** Stage ID for pending minion creation (from URL) */
+  pendingStageId: string | null;
 
   /** Draft ID for UI-only minion creation drafts (from URL) */
   pendingDraftId: string | null;
@@ -162,13 +162,13 @@ function RouterContextInner(props: { children: ReactNode }) {
     const legacyPath = params.get("path");
     const projectParam = params.get("project");
     if (!projectParam && legacyPath) {
-      const section = params.get("section");
+      const stage = params.get("stage");
       const draft = params.get("draft");
       const projectId = getProjectRouteId(legacyPath);
       const nextParams = new URLSearchParams();
       nextParams.set("project", projectId);
-      if (section) {
-        nextParams.set("section", section);
+      if (stage) {
+        nextParams.set("stage", stage);
       }
       if (draft) {
         nextParams.set("draft", draft);
@@ -177,7 +177,7 @@ function RouterContextInner(props: { children: ReactNode }) {
       void navigateRef.current(url, { replace: true, state: { projectPath: legacyPath } });
     }
   }, [location.pathname, location.search]);
-  const pendingSectionId = location.pathname === "/project" ? searchParams.get("section") : null;
+  const pendingStageId = location.pathname === "/project" ? searchParams.get("stage") : null;
   const pendingDraftId = location.pathname === "/project" ? searchParams.get("draft") : null;
 
   // Navigation functions use push (not replace) to build history for back/forward navigation.
@@ -186,12 +186,12 @@ function RouterContextInner(props: { children: ReactNode }) {
     void navigateRef.current(`/minion/${encodeURIComponent(id)}`);
   }, []);
 
-  const navigateToProject = useCallback((path: string, crewId?: string, draftId?: string) => {
+  const navigateToProject = useCallback((path: string, stageId?: string, draftId?: string) => {
     const projectId = getProjectRouteId(path);
     const params = new URLSearchParams();
     params.set("project", projectId);
-    if (crewId) {
-      params.set("section", crewId);
+    if (stageId) {
+      params.set("stage", stageId);
     }
     if (draftId) {
       params.set("draft", draftId);
@@ -248,7 +248,7 @@ function RouterContextInner(props: { children: ReactNode }) {
       currentSettingsSection,
       currentProjectId,
       currentProjectPathFromState,
-      pendingSectionId,
+      pendingStageId,
       pendingDraftId,
       isAnalyticsOpen,
     }),
@@ -264,7 +264,7 @@ function RouterContextInner(props: { children: ReactNode }) {
       currentSettingsSection,
       currentProjectId,
       currentProjectPathFromState,
-      pendingSectionId,
+      pendingStageId,
       pendingDraftId,
       isAnalyticsOpen,
     ]
