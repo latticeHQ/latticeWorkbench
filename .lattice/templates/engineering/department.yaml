@@ -10,58 +10,53 @@ color: "#14B8A6"
 stages:
   - name: Intake
     color: Pink
-    lead: intake-lead
+    agent: intake
     purpose: Triage incoming issues, feature requests, bug reports
 
   - name: Discovery
     color: Blue
-    lead: discovery-lead
+    agent: discovery
     purpose: Research, spikes, understand the problem space
 
   - name: Planning
     color: Yellow
-    lead: planning-lead
+    agent: planning
     purpose: Sprint planning, architecture, task breakdown
 
   - name: Build
     color: Green
-    lead: build-lead
+    agent: build
     purpose: Feature implementation, bug fixes
 
   - name: Test
     color: Orange
-    lead: test-lead
+    agent: test
     purpose: Test plans, regression testing, coverage
 
   - name: Review
     color: Red
-    lead: review-lead
+    agent: review
     purpose: PR review, quality gates, security checks
 
   - name: Docs
     color: Cyan
-    lead: docs-lead
+    agent: docs
     purpose: Documentation, changelogs, API docs
 
   - name: Deploy
     color: Teal
-    lead: deploy-lead
+    agent: deploy
     purpose: CI/CD, releases, deployment pipelines
 
   - name: Monitor
     color: Slate
-    lead: monitor-lead
+    agent: monitor
     purpose: Production monitoring, alerts, health checks
 
   - name: Learning
     color: Gray
-    lead: learning-lead
+    agent: learning
     purpose: Retrospectives, post-mortems, knowledge capture
-
-# Coordinator across all stages
-coordinator:
-  agent: chief-of-staff
-  description: Daily briefings, task routing, cross-stage orchestration, escalation
 
 # Scheduled jobs
 schedules:
@@ -77,7 +72,7 @@ schedules:
       Recommend priorities for the day.
 
   - name: Nightly Build Check
-    agent: deploy-lead
+    agent: deploy
     schedule:
       kind: cron
       expression: "0 2 * * *"  # 2 AM daily
@@ -87,7 +82,7 @@ schedules:
       Report any failures to the Chief of Staff.
 
   - name: Weekly Retrospective
-    agent: learning-lead
+    agent: learning
     schedule:
       kind: cron
       expression: "0 16 * * 5"  # 4 PM every Friday
@@ -98,7 +93,7 @@ schedules:
       review turnaround. Propose improvements.
 
   - name: Cost Report
-    agent: monitor-lead
+    agent: monitor
     schedule:
       kind: cron
       expression: "0 9 * * 1"  # 9 AM every Monday
@@ -111,16 +106,16 @@ schedules:
 # These must exist in .lattice/agents/ directory
 agents:
   - chief-of-staff
-  - intake-lead
-  - discovery-lead
-  - planning-lead
-  - build-lead
-  - test-lead
-  - review-lead
-  - docs-lead
-  - deploy-lead
-  - monitor-lead
-  - learning-lead
+  - intake
+  - discovery
+  - planning
+  - build
+  - test
+  - review
+  - docs
+  - deploy
+  - monitor
+  - learning
 
 # Runtime requirements
 runtime:
