@@ -93,20 +93,20 @@ Each department is a Workbench instance with a built-in delivery pipeline:
 Intake → Discovery → Planning → Build → Test → Review → Docs → Deploy → Monitor → Learning
 ```
 
-Each stage has a lead minion. Leads can spawn more minions into their stage as needed.
+Each stage has a dedicated agent. Agents can spawn more minions into their stage as needed.
 
-| Stage | Lead | What They Do |
+| Stage | Agent | What They Do |
 | --- | --- | --- |
-| **Intake** | Intake Lead | Triage incoming issues, feature requests, bug reports |
-| **Discovery** | Discovery Lead | Research, spikes, understand the problem space |
-| **Planning** | Planning Lead | Sprint planning, architecture, task breakdown |
-| **Build** | Build Lead | Feature implementation, bug fixes |
-| **Test** | Test Lead | Test plans, regression testing, coverage |
-| **Review** | Review Lead | PR review, quality gates, security checks |
-| **Docs** | Docs Lead | Documentation, changelogs, API docs |
-| **Deploy** | Deploy Lead | CI/CD, releases, deployment pipelines |
-| **Monitor** | Monitor Lead | Production monitoring, alerts, health checks |
-| **Learning** | Learning Lead | Retrospectives, post-mortems, knowledge capture |
+| **Intake** | Intake | Triage incoming issues, feature requests, bug reports |
+| **Discovery** | Discovery | Research, spikes, understand the problem space |
+| **Planning** | Planning | Sprint planning, architecture, task breakdown |
+| **Build** | Build | Feature implementation, bug fixes |
+| **Test** | Test | Test plans, regression testing, coverage |
+| **Review** | Review | PR review, quality gates, security checks |
+| **Docs** | Docs | Documentation, changelogs, API docs |
+| **Deploy** | Deploy | CI/CD, releases, deployment pipelines |
+| **Monitor** | Monitor | Production monitoring, alerts, health checks |
+| **Learning** | Learning | Retrospectives, post-mortems, knowledge capture |
 
 A **Chief of Staff** coordinates across all stages — daily briefings, task routing, escalation. When you chat with Lattice, you're talking to your CoS.
 
@@ -177,7 +177,7 @@ brew install latticehq/lattice/lattice
 
 ### Deploy the Engineering Department
 
-The fastest way to start is deploying the Engineering department template. It comes with a Chief of Staff + 10 stage leads across a full delivery pipeline — ready to build software autonomously. Each lead can spawn more minions as needed.
+The fastest way to start is deploying the Engineering department template. It comes with a Chief of Staff + 10 stage agents across a full delivery pipeline — ready to build software autonomously. Each agent can spawn more minions as needed.
 
 ```bash
 # Install Lattice

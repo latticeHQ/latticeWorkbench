@@ -87,7 +87,7 @@ The founder is the CEO. Lattice is the company.
 The best interface is the one that disappears. The company runs. You check in when you want, not when the system demands it. No notification storms. No dashboards to monitor. Results appear. Problems escalate. Everything else happens quietly.
 
 ### Opinionated by default, flexible by design.
-A department template deploys with sensible defaults — stage leads, schedules, tools, and pipeline stages. It works out of the box. But every role, every schedule, every tool can be customized. Start with our opinion. Make it yours over time.
+A department template deploys with sensible defaults — stage agents, schedules, tools, and pipeline stages. It works out of the box. But every role, every schedule, every tool can be customized. Start with our opinion. Make it yours over time.
 
 ### Structure creates freedom.
 Constraints are not limitations. A department with a clear budget won't overspend. A minion with a clear role won't overstep. An audit trail with every action won't miss a mistake. Structure is what lets you trust the system enough to walk away.
@@ -158,7 +158,7 @@ The platform is open source. Company templates are community-created. Anyone can
 | **Minion** | An AI worker. It has an identity, a runtime environment, a conversation history, and work to do. Not "employee" — that's a human term. |
 | **Department** | A business unit — Engineering, Marketing, Sales. Each runs as its own Workbench instance with its own minions, tools, and budget. |
 | **Stage** | A pipeline stage within a department — Intake, Build, Review, Deploy. Organizes how work flows through the department. |
-| **Stage Lead** | The minion that owns a stage. Coordinates work in that stage and can spawn more minions as needed. |
+| **Stage Agent** | The minion assigned to a stage. Handles work in that stage and can spawn more minions as needed. |
 | **Chief of Staff** | The coordinator across all stages. Daily briefings, task routing, escalation. When you chat with Lattice, you're talking to your CoS. |
 | **Sidekick** | A minion brought in by another minion to handle a subtask. Inherits scoped permissions from their parent. |
 | **Founder** | The human. The CEO. The one who deploys and directs. |
