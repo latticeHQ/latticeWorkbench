@@ -87,6 +87,7 @@ import {
   InferenceTabLabel,
   SchedulesTabLabel,
   SyncTabLabel,
+  ReflectionsTabLabel,
   OutputTabLabel,
   FileTabLabel,
   ReviewTabLabel,
@@ -102,6 +103,7 @@ import { IssuesTab } from "./WorkbenchPanel/IssuesTab";
 import { InferenceTab } from "./WorkbenchPanel/InferenceTab";
 import { SchedulesTab } from "./WorkbenchPanel/SchedulesTab";
 import { SyncTab } from "./WorkbenchPanel/SyncTab";
+import { ReflectionsTab } from "./WorkbenchPanel/ReflectionsTab";
 import { useMinionSidebarState } from "@/browser/stores/MinionStore";
 import {
   DndContext,
@@ -429,6 +431,8 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
       label = <SchedulesTabLabel />;
     } else if (tab === "sync") {
       label = <SyncTabLabel />;
+    } else if (tab === "reflections") {
+      label = <ReflectionsTabLabel />;
     } else if (isTerminal) {
       const terminalIndex = terminalTabs.indexOf(tab);
       label = (
@@ -695,6 +699,12 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
         {props.node.activeTab === "sync" && (
           <div role="tabpanel" className="h-full">
             <SyncTab minionId={props.minionId} />
+          </div>
+        )}
+
+        {props.node.activeTab === "reflections" && (
+          <div role="tabpanel" className="h-full">
+            <ReflectionsTab minionId={props.minionId} />
           </div>
         )}
       </div>

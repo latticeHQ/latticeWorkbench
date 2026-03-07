@@ -8,7 +8,7 @@
  */
 
 import React from "react";
-import { CircleDot, Clock, Columns3, ExternalLink, FolderTree, Globe, Network, RefreshCw, Terminal as TerminalIcon, X } from "lucide-react";
+import { Brain, CircleDot, Clock, Columns3, ExternalLink, FolderTree, Globe, Network, RefreshCw, Terminal as TerminalIcon, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { FileIcon } from "../../FileIcon";
 import { formatTabDuration, type ReviewStats } from "./registry";
@@ -265,5 +265,13 @@ export const SyncTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
     <RefreshCw className="h-3 w-3 shrink-0" />
     Sync
+  </span>
+);
+
+/** Reflections tab label — shows brain icon + "Reflections" text. */
+export const ReflectionsTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Brain className="h-3 w-3 shrink-0" />
+    Reflections
   </span>
 );
