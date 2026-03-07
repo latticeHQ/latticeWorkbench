@@ -1,7 +1,7 @@
 import type { Config, ProjectConfig } from "@/node/config";
-import type { CrewConfig } from "@/common/types/project";
-import { DEFAULT_CREW_COLOR, DEFAULT_PIPELINE_CREWS } from "@/common/constants/ui";
-import { sortCrewsByLinkedList } from "@/common/utils/crews";
+import type { StageConfig } from "@/common/types/project";
+import { DEFAULT_STAGE_COLOR, DEFAULT_PIPELINE_STAGES } from "@/common/constants/ui";
+import { sortStagesByLinkedList } from "@/common/utils/stages";
 import { formatSshEndpoint } from "@/common/utils/ssh/formatSshEndpoint";
 import { spawn } from "child_process";
 import { randomBytes } from "crypto";
@@ -782,12 +782,12 @@ export class ProjectService {
     try {
       const config = this.config.loadConfigOrDefault();
 
-      // Auto-seed default pipeline crews for any project that has none.
-      // Without this, the frontend reads config.crews directly and never
-      // triggers the listCrews() endpoint that performs the seeding.
+      // Auto-seed default pipeline stages for any project that has none.
+      // Without this, the frontend reads config.stages directly and never
+      // triggers the listStages() endpoint that performs the seeding.
       let needsSave = false;
       for (const [projectPath, project] of config.projects.entries()) {
-        if (!project.crews || project.crews.length === 0) {
+        if (!project.stages || project.stages.length === 0) {
           await this.seedDefaultSections(projectPath, config, project);
           needsSave = true;
         }
@@ -1043,65 +1043,65 @@ export class ProjectService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // Crew Management
+  // Stage Management
   // ─────────────────────────────────────────────────────────────────────────────
 
   /**
-   * List all crews for a project, sorted by linked-list order.
-   * Seeds the default 10-stage pipeline crews on first access when empty.
+   * List all stages for a project, sorted by linked-list order.
+   * Seeds the default 10-stage pipeline stages on first access when empty.
    */
-  async listCrews(projectPath: string): Promise<CrewConfig[]> {
+  async listStages(projectPath: string): Promise<StageConfig[]> {
     try {
       const config = this.config.loadConfigOrDefault();
       const project = config.projects.get(projectPath);
       if (!project) return [];
 
-      const existing = project.crews ?? [];
+      const existing = project.stages ?? [];
       if (existing.length === 0) {
         return this.seedDefaultSections(projectPath, config, project);
       }
-      return sortCrewsByLinkedList(existing);
+      return sortStagesByLinkedList(existing);
     } catch (error) {
-      log.error("Failed to list crews:", error);
+      log.error("Failed to list stages:", error);
       return [];
     }
   }
 
   /**
-   * Seed the default pipeline crews for a project that has none.
+   * Seed the default pipeline stages for a project that has none.
    * Generates IDs, wires the linked-list chain, persists to config, and returns sorted.
    */
   private async seedDefaultSections(
     projectPath: string,
     config: ReturnType<Config["loadConfigOrDefault"]>,
     project: ProjectConfig
-  ): Promise<CrewConfig[]> {
-    const crews: CrewConfig[] = DEFAULT_PIPELINE_CREWS.map((entry) => ({
+  ): Promise<StageConfig[]> {
+    const stages: StageConfig[] = DEFAULT_PIPELINE_STAGES.map((entry) => ({
       id: randomBytes(4).toString("hex"),
       name: entry.name,
       color: entry.color,
       nextId: null,
     }));
 
-    // Wire linked-list: each crew points to the next one
-    for (let i = 0; i < crews.length - 1; i++) {
-      crews[i].nextId = crews[i + 1].id;
+    // Wire linked-list: each stage points to the next one
+    for (let i = 0; i < stages.length - 1; i++) {
+      stages[i].nextId = stages[i + 1].id;
     }
 
-    project.crews = crews;
+    project.stages = stages;
     await this.config.saveConfig(config);
-    log.debug(`Seeded ${crews.length} default pipeline crews for ${projectPath}`);
-    return crews;
+    log.debug(`Seeded ${stages.length} default pipeline stages for ${projectPath}`);
+    return stages;
   }
 
   /**
-   * Create a new crew in a project.
+   * Create a new stage in a project.
    */
-  async createCrew(
+  async createStage(
     projectPath: string,
     name: string,
     color?: string
-  ): Promise<Result<CrewConfig>> {
+  ): Promise<Result<StageConfig>> {
     try {
       const config = this.config.loadConfigOrDefault();
       const project = config.projects.get(projectPath);
@@ -1110,37 +1110,37 @@ export class ProjectService {
         return Err(`Project not found: ${projectPath}`);
       }
 
-      const crews = project.crews ?? [];
+      const stages = project.stages ?? [];
 
-      const crew: CrewConfig = {
+      const stage: StageConfig = {
         id: randomBytes(4).toString("hex"),
         name,
-        color: color ?? DEFAULT_CREW_COLOR,
-        nextId: null, // new crew is last
+        color: color ?? DEFAULT_STAGE_COLOR,
+        nextId: null, // new stage is last
       };
 
-      // Find current tail (nextId is null/undefined) and point it to new crew
-      const sorted = sortCrewsByLinkedList(crews);
+      // Find current tail (nextId is null/undefined) and point it to new stage
+      const sorted = sortStagesByLinkedList(stages);
       if (sorted.length > 0) {
         const tail = sorted[sorted.length - 1];
-        tail.nextId = crew.id;
+        tail.nextId = stage.id;
       }
 
-      project.crews = [...crews, crew];
+      project.stages = [...stages, stage];
       await this.config.saveConfig(config);
-      return Ok(crew);
+      return Ok(stage);
     } catch (error) {
       const message = getErrorMessage(error);
-      return Err(`Failed to create crew: ${message}`);
+      return Err(`Failed to create stage: ${message}`);
     }
   }
 
   /**
-   * Update crew name and/or color.
+   * Update stage name and/or color.
    */
-  async updateCrew(
+  async updateStage(
     projectPath: string,
-    crewId: string,
+    stageId: string,
     updates: { name?: string; color?: string }
   ): Promise<Result<void>> {
     try {
@@ -1151,29 +1151,29 @@ export class ProjectService {
         return Err(`Project not found: ${projectPath}`);
       }
 
-      const crews = project.crews ?? [];
-      const crewIndex = crews.findIndex((s) => s.id === crewId);
+      const stages = project.stages ?? [];
+      const stageIndex = stages.findIndex((s) => s.id === stageId);
 
-      if (crewIndex === -1) {
-        return Err(`Crew not found: ${crewId}`);
+      if (stageIndex === -1) {
+        return Err(`Stage not found: ${stageId}`);
       }
 
-      const crew = crews[crewIndex];
-      if (updates.name !== undefined) crew.name = updates.name;
-      if (updates.color !== undefined) crew.color = updates.color;
+      const stage = stages[stageIndex];
+      if (updates.name !== undefined) stage.name = updates.name;
+      if (updates.color !== undefined) stage.color = updates.color;
 
       await this.config.saveConfig(config);
       return Ok(undefined);
     } catch (error) {
       const message = getErrorMessage(error);
-      return Err(`Failed to update crew: ${message}`);
+      return Err(`Failed to update stage: ${message}`);
     }
   }
 
   /**
-   * Remove a crew and unassign any minions assigned to it.
+   * Remove a stage and unassign any minions assigned to it.
    */
-  async removeCrew(projectPath: string, crewId: string): Promise<Result<void>> {
+  async removeStage(projectPath: string, stageId: string): Promise<Result<void>> {
     try {
       const config = this.config.loadConfigOrDefault();
       const project = config.projects.get(projectPath);
@@ -1182,34 +1182,34 @@ export class ProjectService {
         return Err(`Project not found: ${projectPath}`);
       }
 
-      const crews = project.crews ?? [];
-      const crewIndex = crews.findIndex((s) => s.id === crewId);
+      const stages = project.stages ?? [];
+      const stageIndex = stages.findIndex((s) => s.id === stageId);
 
-      if (crewIndex === -1) {
-        return Err(`Crew not found: ${crewId}`);
+      if (stageIndex === -1) {
+        return Err(`Stage not found: ${stageId}`);
       }
 
-      const minionsInCrew = project.minions.filter((w) => w.crewId === crewId);
+      const minionsInStage = project.minions.filter((w) => w.stageId === stageId);
 
-      // Unassign all minions in this crew
-      for (const minion of minionsInCrew) {
-        minion.crewId = undefined;
+      // Unassign all minions in this stage
+      for (const minion of minionsInStage) {
+        minion.stageId = undefined;
       }
 
-      // Remove the crew
-      project.crews = crews.filter((s) => s.id !== crewId);
+      // Remove the stage
+      project.stages = stages.filter((s) => s.id !== stageId);
       await this.config.saveConfig(config);
       return Ok(undefined);
     } catch (error) {
       const message = getErrorMessage(error);
-      return Err(`Failed to remove crew: ${message}`);
+      return Err(`Failed to remove stage: ${message}`);
     }
   }
 
   /**
-   * Reorder crews by providing the full ordered list of crew IDs.
+   * Reorder stages by providing the full ordered list of stage IDs.
    */
-  async reorderCrews(projectPath: string, crewIds: string[]): Promise<Result<void>> {
+  async reorderStages(projectPath: string, stageIds: string[]): Promise<Result<void>> {
     try {
       const config = this.config.loadConfigOrDefault();
       const project = config.projects.get(projectPath);
@@ -1218,37 +1218,37 @@ export class ProjectService {
         return Err(`Project not found: ${projectPath}`);
       }
 
-      const crews = project.crews ?? [];
-      const crewMap = new Map(crews.map((s) => [s.id, s]));
+      const stages = project.stages ?? [];
+      const stageMap = new Map(stages.map((s) => [s.id, s]));
 
       // Validate all IDs exist
-      for (const id of crewIds) {
-        if (!crewMap.has(id)) {
-          return Err(`Crew not found: ${id}`);
+      for (const id of stageIds) {
+        if (!stageMap.has(id)) {
+          return Err(`Stage not found: ${id}`);
         }
       }
 
       // Update nextId pointers based on array order
-      for (let i = 0; i < crewIds.length; i++) {
-        const crew = crewMap.get(crewIds[i])!;
-        crew.nextId = i < crewIds.length - 1 ? crewIds[i + 1] : null;
+      for (let i = 0; i < stageIds.length; i++) {
+        const stage = stageMap.get(stageIds[i])!;
+        stage.nextId = i < stageIds.length - 1 ? stageIds[i + 1] : null;
       }
 
       await this.config.saveConfig(config);
       return Ok(undefined);
     } catch (error) {
       const message = getErrorMessage(error);
-      return Err(`Failed to reorder crews: ${message}`);
+      return Err(`Failed to reorder stages: ${message}`);
     }
   }
 
   /**
-   * Assign a minion to a crew (or remove from crew with null).
+   * Assign a minion to a stage (or remove from stage with null).
    */
-  async assignMinionToCrew(
+  async assignMinionToStage(
     projectPath: string,
     minionId: string,
-    crewId: string | null
+    stageId: string | null
   ): Promise<Result<void>> {
     try {
       const config = this.config.loadConfigOrDefault();
@@ -1258,11 +1258,11 @@ export class ProjectService {
         return Err(`Project not found: ${projectPath}`);
       }
 
-      // Validate crew exists if not null
-      if (crewId !== null) {
-        const crews = project.crews ?? [];
-        if (!crews.some((s) => s.id === crewId)) {
-          return Err(`Crew not found: ${crewId}`);
+      // Validate stage exists if not null
+      if (stageId !== null) {
+        const stages = project.stages ?? [];
+        if (!stages.some((s) => s.id === stageId)) {
+          return Err(`Stage not found: ${stageId}`);
         }
       }
 
@@ -1272,12 +1272,12 @@ export class ProjectService {
         return Err(`Minion not found: ${minionId}`);
       }
 
-      minion.crewId = crewId ?? undefined;
+      minion.stageId = stageId ?? undefined;
       await this.config.saveConfig(config);
       return Ok(undefined);
     } catch (error) {
       const message = getErrorMessage(error);
-      return Err(`Failed to assign minion to crew: ${message}`);
+      return Err(`Failed to assign minion to stage: ${message}`);
     }
   }
 }

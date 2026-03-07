@@ -667,7 +667,7 @@ export function TasksSection() {
   const sidekicks = useMemo(
     () =>
       [...listedAgents]
-        // Keep the crews mutually exclusive: UI agents belong under "UI agents" even if they
+        // Keep the stages mutually exclusive: UI agents belong under "UI agents" even if they
         // can also run as sidekicks.
         .filter((agent) => agent.sidekickRunnable && !agent.uiSelectable)
         .sort((a, b) => a.name.localeCompare(b.name)),

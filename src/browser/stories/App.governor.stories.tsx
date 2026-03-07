@@ -1,7 +1,7 @@
 /**
- * Governor crew stories
+ * Governor stage stories
  *
- * Shows different states of the Governor (enterprise policy) crew:
+ * Shows different states of the Governor (enterprise policy) stage:
  * - Not enrolled (default)
  * - Enrolled with active policy
  * - Enrolled with policy disabled
@@ -9,7 +9,7 @@
  * - Policy blocked (fully restricted)
  * - Rich policy (many providers with varied restrictions)
  *
- * Uses play functions to open the settings modal and navigate to the Governor crew.
+ * Uses play functions to open the settings modal and navigate to the Governor stage.
  */
 
 import type { APIClient } from "@/browser/contexts/API";
@@ -55,7 +55,7 @@ function setupGovernorStory(options: GovernorStoryOptions = {}): APIClient {
   expandProjects(projectPaths);
   collapseWorkbenchPanel();
 
-  // Enable the Governor experiment so the crew appears in Settings
+  // Enable the Governor experiment so the stage appears in Settings
   const experimentKey = getExperimentKey(EXPERIMENT_IDS.LATTICE_GOVERNOR);
   window.localStorage.setItem(experimentKey, JSON.stringify(true));
 
@@ -82,7 +82,7 @@ function setupGovernorStory(options: GovernorStoryOptions = {}): APIClient {
   });
 }
 
-/** Open settings page and navigate to Governor crew. */
+/** Open settings page and navigate to Governor stage. */
 async function openSettingsToGovernor(canvasElement: HTMLElement): Promise<void> {
   const canvas = within(canvasElement);
 
@@ -90,7 +90,7 @@ async function openSettingsToGovernor(canvasElement: HTMLElement): Promise<void>
   const settingsButton = await canvas.findByTestId("settings-button", {}, { timeout: 10000 });
   await userEvent.click(settingsButton);
 
-  // Navigate to Governor crew (desktop + mobile nav are both in DOM during tests).
+  // Navigate to Governor stage (desktop + mobile nav are both in DOM during tests).
   const governorButtons = await canvas.findAllByRole("button", { name: /governor/i });
   const governorButton = governorButtons[0];
   if (!governorButton) {
@@ -103,7 +103,7 @@ async function openSettingsToGovernor(canvasElement: HTMLElement): Promise<void>
 // STORIES
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/** Governor crew - not enrolled (default state) */
+/** Governor stage - not enrolled (default state) */
 export const NotEnrolled: AppStory = {
   render: () => <AppWithMocks setup={() => setupGovernorStory()} />,
   play: async ({ canvasElement }: { canvasElement: HTMLElement }) => {
@@ -111,7 +111,7 @@ export const NotEnrolled: AppStory = {
   },
 };
 
-/** Governor crew - enrolled with active policy from Governor */
+/** Governor stage - enrolled with active policy from Governor */
 export const EnrolledWithPolicy: AppStory = {
   render: () => (
     <AppWithMocks
@@ -144,7 +144,7 @@ export const EnrolledWithPolicy: AppStory = {
   },
 };
 
-/** Governor crew - enrolled but policy disabled (no policy enforced) */
+/** Governor stage - enrolled but policy disabled (no policy enforced) */
 export const EnrolledPolicyDisabled: AppStory = {
   render: () => (
     <AppWithMocks
@@ -164,7 +164,7 @@ export const EnrolledPolicyDisabled: AppStory = {
   },
 };
 
-/** Governor crew - enrolled with policy from environment variable (takes precedence) */
+/** Governor stage - enrolled with policy from environment variable (takes precedence) */
 export const EnrolledEnvOverride: AppStory = {
   render: () => (
     <AppWithMocks
@@ -189,7 +189,7 @@ export const EnrolledEnvOverride: AppStory = {
   },
 };
 
-/** Governor crew - enrolled with policy blocking all operations (no providers, no MCP) */
+/** Governor stage - enrolled with policy blocking all operations (no providers, no MCP) */
 export const PolicyBlocked: AppStory = {
   render: () => (
     <AppWithMocks
@@ -222,7 +222,7 @@ export const PolicyBlocked: AppStory = {
   },
 };
 
-/** Governor crew - enrolled with a comprehensive policy showing many providers with varied restrictions */
+/** Governor stage - enrolled with a comprehensive policy showing many providers with varied restrictions */
 export const RichPolicy: AppStory = {
   render: () => (
     <AppWithMocks

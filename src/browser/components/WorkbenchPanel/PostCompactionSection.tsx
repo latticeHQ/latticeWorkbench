@@ -22,7 +22,7 @@ function getFileName(filePath: string): string {
 
 /**
  * Displays what context will be injected after compaction.
- * Collapsible crew in the workbench panel below the context usage bar.
+ * Collapsible stage in the workbench panel below the context usage bar.
  */
 export const PostCompactionSection: React.FC<PostCompactionSectionProps> = (props) => {
   const openInEditor = useOpenInEditor();

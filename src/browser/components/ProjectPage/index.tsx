@@ -23,8 +23,8 @@ interface ProjectPageProps {
   onToggleLeftSidebarCollapsed: () => void;
   /** Draft ID for UI-only minion creation drafts (from URL) */
   pendingDraftId?: string | null;
-  /** Crew ID to pre-select when creating (from sidebar crew "+" button) */
-  pendingSectionId?: string | null;
+  /** Stage ID to pre-select when creating (from sidebar stage "+" button) */
+  pendingStageId?: string | null;
   onMinionCreated: (
     metadata: FrontendMinionMetadata,
     options?: MinionCreatedOptions
@@ -149,7 +149,7 @@ export const ProjectPage: React.FC<ProjectPageProps> = (props) => {
                     projectPath={props.projectPath}
                     projectName={props.projectName}
                     pendingDraftId={props.pendingDraftId}
-                    pendingSectionId={props.pendingSectionId}
+                    pendingStageId={props.pendingStageId}
                     onMinionCreated={props.onMinionCreated}
                   />
                 </div>

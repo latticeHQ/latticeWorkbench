@@ -983,7 +983,7 @@ export class Config {
               taskTrunkBranch: minion.taskTrunkBranch,
               archivedAt: minion.archivedAt,
               unarchivedAt: minion.unarchivedAt,
-              crewId: minion.crewId,
+              stageId: minion.stageId,
             };
 
             // Migrate missing createdAt to config for next load
@@ -1071,8 +1071,8 @@ export class Config {
             // Preserve archived timestamps from config
             metadata.archivedAt ??= minion.archivedAt;
             metadata.unarchivedAt ??= minion.unarchivedAt;
-            // Preserve crew assignment from config
-            metadata.crewId ??= minion.crewId;
+            // Preserve stage assignment from config
+            metadata.stageId ??= minion.stageId;
             if (!minion.aiSettingsByAgent && metadata.aiSettingsByAgent) {
               minion.aiSettingsByAgent = metadata.aiSettingsByAgent;
               configModified = true;
@@ -1121,7 +1121,7 @@ export class Config {
               taskTrunkBranch: minion.taskTrunkBranch,
               archivedAt: minion.archivedAt,
               unarchivedAt: minion.unarchivedAt,
-              crewId: minion.crewId,
+              stageId: minion.stageId,
             };
 
             // Save to config for next load
@@ -1164,7 +1164,7 @@ export class Config {
             taskThinkingLevel: minion.taskThinkingLevel,
             taskPrompt: minion.taskPrompt,
             taskTrunkBranch: minion.taskTrunkBranch,
-            crewId: minion.crewId,
+            stageId: minion.stageId,
           };
           minionMetadata.push(this.addPathsToMetadata(metadata, minion.path, projectPath));
         }
@@ -1227,7 +1227,7 @@ export class Config {
         taskTrunkBranch: metadata.taskTrunkBranch,
         archivedAt: metadata.archivedAt,
         unarchivedAt: metadata.unarchivedAt,
-        crewId: metadata.crewId,
+        stageId: metadata.stageId,
       };
 
       if (existingIndex >= 0) {

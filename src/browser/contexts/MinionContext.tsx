@@ -238,7 +238,7 @@ function ensureCreatedAt(metadata: FrontendMinionMetadata): void {
 
 export interface MinionDraft {
   draftId: string;
-  crewId: string | null;
+  stageId: string | null;
   createdAt: number;
 }
 
@@ -249,15 +249,15 @@ type MinionDraftPromotionsByProject = Record<string, Record<string, FrontendMini
 function isMinionDraft(value: unknown): value is MinionDraft {
   if (!value || typeof value !== "object") return false;
 
-  const record = value as { draftId?: unknown; crewId?: unknown; createdAt?: unknown };
+  const record = value as { draftId?: unknown; stageId?: unknown; createdAt?: unknown };
   return (
     typeof record.draftId === "string" &&
     record.draftId.trim().length > 0 &&
     typeof record.createdAt === "number" &&
     Number.isFinite(record.createdAt) &&
-    (record.crewId === null ||
-      record.crewId === undefined ||
-      typeof record.crewId === "string")
+    (record.stageId === null ||
+      record.stageId === undefined ||
+      typeof record.stageId === "string")
   );
 }
 
@@ -275,14 +275,14 @@ function normalizeMinionDraftsByProject(value: unknown): MinionDraftsByProject {
     for (const draft of drafts) {
       if (!isMinionDraft(draft)) continue;
 
-      const normalizedSectionId =
-        typeof draft.crewId === "string" && draft.crewId.trim().length > 0
-          ? draft.crewId
+      const normalizedStageId =
+        typeof draft.stageId === "string" && draft.stageId.trim().length > 0
+          ? draft.stageId
           : null;
 
       nextDrafts.push({
         draftId: draft.draftId,
-        crewId: normalizedSectionId,
+        stageId: normalizedStageId,
         createdAt: draft.createdAt,
       });
     }
@@ -350,21 +350,21 @@ function isDraftEmpty(projectPath: string, draftId: string): boolean {
 }
 
 /**
- * Find an existing empty draft for a project (optionally within a specific crew).
+ * Find an existing empty draft for a project (optionally within a specific stage).
  * Returns the draft ID if found, or null if no empty draft exists.
  */
 function findExistingEmptyDraft(
   minionDrafts: MinionDraft[],
   projectPath: string,
-  crewId?: string
+  stageId?: string
 ): string | null {
-  const normalizedSectionId = crewId ?? null;
+  const normalizedStageId = stageId ?? null;
 
   for (const draft of minionDrafts) {
-    // Keep draft reuse scoped to the current section. When crewId is undefined
-    // (project-level "New Minion"), only reuse drafts with a null crew so
-    // we don't silently move crew-specific drafts into the root flow.
-    if ((draft.crewId ?? null) !== normalizedSectionId) {
+    // Keep draft reuse scoped to the current stage. When stageId is undefined
+    // (project-level "New Minion"), only reuse drafts with a null stage so
+    // we don't silently move stage-specific drafts into the root flow.
+    if ((draft.stageId ?? null) !== normalizedStageId) {
       continue;
     }
     if (isDraftEmpty(projectPath, draft.draftId)) {
@@ -433,22 +433,22 @@ export interface MinionContext extends MinionMetadataContextValue {
 
   // Minion creation flow
   pendingNewMinionProject: string | null;
-  /** Crew ID to pre-select when creating a new minion (from URL) */
-  pendingNewMinionSectionId: string | null;
+  /** Stage ID to pre-select when creating a new minion (from URL) */
+  pendingNewMinionStageId: string | null;
   /** Draft ID to open when creating a UI-only minion draft (from URL) */
   pendingNewMinionDraftId: string | null;
   /** Legacy entry point: open the creation screen (no new draft is created) */
-  beginMinionCreation: (projectPath: string, crewId?: string) => void;
+  beginMinionCreation: (projectPath: string, stageId?: string) => void;
 
   // UI-only minion creation drafts (placeholders)
   minionDraftsByProject: MinionDraftsByProject;
-  createMinionDraft: (projectPath: string, crewId?: string) => void;
-  updateMinionDraftSection: (
+  createMinionDraft: (projectPath: string, stageId?: string) => void;
+  updateMinionDraftStage: (
     projectPath: string,
     draftId: string,
-    crewId: string | null
+    stageId: string | null
   ) => void;
-  openMinionDraft: (projectPath: string, draftId: string, crewId?: string | null) => void;
+  openMinionDraft: (projectPath: string, draftId: string, stageId?: string | null) => void;
   deleteMinionDraft: (projectPath: string, draftId: string) => void;
 
   // Helpers
@@ -520,7 +520,7 @@ export function MinionProvider(props: MinionProviderProps) {
     currentProjectPathFromState,
     currentSettingsSection,
     isAnalyticsOpen,
-    pendingSectionId,
+    pendingStageId,
     pendingDraftId,
   } = useRouter();
 
@@ -660,9 +660,9 @@ export function MinionProvider(props: MinionProviderProps) {
         return;
       }
 
-      const normalizedSectionId =
-        typeof payload.crewId === "string" && payload.crewId.trim().length > 0
-          ? payload.crewId
+      const normalizedStageId =
+        typeof payload.stageId === "string" && payload.stageId.trim().length > 0
+          ? payload.stageId
           : null;
 
       // IMPORTANT: Deep links should always create a fresh draft, even if an existing draft
@@ -680,7 +680,7 @@ export function MinionProvider(props: MinionProviderProps) {
             ...existing,
             {
               draftId,
-              crewId: normalizedSectionId,
+              stageId: normalizedStageId,
               createdAt,
             },
           ],
@@ -696,7 +696,7 @@ export function MinionProvider(props: MinionProviderProps) {
         updatePersistedState(getInputKey(getDraftScopeId(resolvedProjectPath, draftId)), prompt);
       }
 
-      navigateToProject(resolvedProjectPath, normalizedSectionId ?? undefined, draftId);
+      navigateToProject(resolvedProjectPath, normalizedStageId ?? undefined, draftId);
     },
     [api, navigateToProject, projects, projectsLoading, setMinionDraftsByProjectState]
   );
@@ -805,8 +805,8 @@ export function MinionProvider(props: MinionProviderProps) {
 
   // pendingNewMinionProject is derived from current project in URL/state
   const pendingNewMinionProject = currentProjectPath;
-  // pendingNewMinionSectionId is derived from crew URL param
-  const pendingNewMinionSectionId = pendingSectionId;
+  // pendingNewMinionStageId is derived from stage URL param
+  const pendingNewMinionStageId = pendingStageId;
   const pendingNewMinionDraftId = pendingNewMinionProject ? pendingDraftId : null;
 
   // selectedMinion is derived from currentMinionId in URL + minionMetadata
@@ -944,7 +944,7 @@ export function MinionProvider(props: MinionProviderProps) {
     if (selectedMinion) return;
 
     // Skip if user is on the settings or analytics page — navigating to
-    // /settings/:crew or /analytics clears the minion from the URL,
+    // /settings/:stage or /analytics clears the minion from the URL,
     // making selectedMinion null. Without this guard the effect would
     // auto-select a minion and navigate away immediately.
     if (currentSettingsSection) return;
@@ -1372,24 +1372,24 @@ export function MinionProvider(props: MinionProviderProps) {
     []
   );
   const beginMinionCreation = useCallback(
-    (projectPath: string, crewId?: string) => {
+    (projectPath: string, stageId?: string) => {
       if (minionMetadata.get(LATTICE_HELP_CHAT_MINION_ID)?.projectPath === projectPath) {
         navigateToMinion(LATTICE_HELP_CHAT_MINION_ID);
         return;
       }
 
-      navigateToProject(projectPath, crewId);
+      navigateToProject(projectPath, stageId);
     },
     [navigateToProject, navigateToMinion, minionMetadata]
   );
-  // Persist crew selection + URL updates so draft crew switches stick across navigation.
-  const updateMinionDraftSection = useCallback(
-    (projectPath: string, draftId: string, crewId: string | null) => {
+  // Persist stage selection + URL updates so draft stage switches stick across navigation.
+  const updateMinionDraftStage = useCallback(
+    (projectPath: string, draftId: string, stageId: string | null) => {
       if (projectPath.trim().length === 0) return;
       if (draftId.trim().length === 0) return;
 
-      const normalizedSectionId =
-        typeof crewId === "string" && crewId.trim().length > 0 ? crewId : null;
+      const normalizedStageId =
+        typeof stageId === "string" && stageId.trim().length > 0 ? stageId : null;
 
       setMinionDraftsByProjectState((prev) => {
         const current = normalizeMinionDraftsByProject(prev);
@@ -1403,13 +1403,13 @@ export function MinionProvider(props: MinionProviderProps) {
           if (draft.draftId !== draftId) {
             return draft;
           }
-          if (draft.crewId === normalizedSectionId) {
+          if (draft.stageId === normalizedStageId) {
             return draft;
           }
           didUpdate = true;
           return {
             ...draft,
-            crewId: normalizedSectionId,
+            stageId: normalizedStageId,
           };
         });
 
@@ -1423,13 +1423,13 @@ export function MinionProvider(props: MinionProviderProps) {
         };
       });
 
-      navigateToProject(projectPath, normalizedSectionId ?? undefined, draftId);
+      navigateToProject(projectPath, normalizedStageId ?? undefined, draftId);
     },
     [navigateToProject, setMinionDraftsByProjectState]
   );
 
   const createMinionDraft = useCallback(
-    (projectPath: string, crewId?: string) => {
+    (projectPath: string, stageId?: string) => {
       // Read directly from localStorage to get the freshest value, avoiding stale closure issues.
       // The React state (minionDraftsByProject) may be out of date if this is called rapidly.
       const freshDrafts = normalizeMinionDraftsByProject(
@@ -1437,11 +1437,11 @@ export function MinionProvider(props: MinionProviderProps) {
       );
       const existingDrafts = freshDrafts[projectPath] ?? [];
 
-      // If there's an existing empty draft (optionally in the same crew), reuse it
+      // If there's an existing empty draft (optionally in the same stage), reuse it
       // instead of creating yet another empty draft.
-      const existingEmptyDraftId = findExistingEmptyDraft(existingDrafts, projectPath, crewId);
+      const existingEmptyDraftId = findExistingEmptyDraft(existingDrafts, projectPath, stageId);
       if (existingEmptyDraftId) {
-        navigateToProject(projectPath, crewId, existingEmptyDraftId);
+        navigateToProject(projectPath, stageId, existingEmptyDraftId);
         return;
       }
 
@@ -1449,7 +1449,7 @@ export function MinionProvider(props: MinionProviderProps) {
       const createdAt = Date.now();
       const draft: MinionDraft = {
         draftId,
-        crewId: crewId ?? null,
+        stageId: stageId ?? null,
         createdAt,
       };
 
@@ -1479,16 +1479,16 @@ export function MinionProvider(props: MinionProviderProps) {
         };
       });
 
-      navigateToProject(projectPath, crewId, draftId);
+      navigateToProject(projectPath, stageId, draftId);
     },
     [navigateToProject, setMinionDraftsByProjectState]
   );
 
   const openMinionDraft = useCallback(
-    (projectPath: string, draftId: string, crewId?: string | null) => {
-      const normalizedSectionId =
-        typeof crewId === "string" && crewId.trim().length > 0 ? crewId : undefined;
-      navigateToProject(projectPath, normalizedSectionId, draftId);
+    (projectPath: string, draftId: string, stageId?: string | null) => {
+      const normalizedStageId =
+        typeof stageId === "string" && stageId.trim().length > 0 ? stageId : undefined;
+      navigateToProject(projectPath, normalizedStageId, draftId);
     },
     [navigateToProject]
   );
@@ -1551,14 +1551,14 @@ export function MinionProvider(props: MinionProviderProps) {
       selectedMinion,
       setSelectedMinion,
       pendingNewMinionProject,
-      pendingNewMinionSectionId,
+      pendingNewMinionStageId,
       pendingNewMinionDraftId,
       beginMinionCreation,
       minionDraftsByProject,
       minionDraftPromotionsByProject,
       promoteMinionDraft,
       createMinionDraft,
-      updateMinionDraftSection,
+      updateMinionDraftStage,
       openMinionDraft,
       deleteMinionDraft,
       getMinionInfo,
@@ -1574,14 +1574,14 @@ export function MinionProvider(props: MinionProviderProps) {
       selectedMinion,
       setSelectedMinion,
       pendingNewMinionProject,
-      pendingNewMinionSectionId,
+      pendingNewMinionStageId,
       pendingNewMinionDraftId,
       beginMinionCreation,
       minionDraftsByProject,
       minionDraftPromotionsByProject,
       promoteMinionDraft,
       createMinionDraft,
-      updateMinionDraftSection,
+      updateMinionDraftStage,
       openMinionDraft,
       deleteMinionDraft,
       getMinionInfo,

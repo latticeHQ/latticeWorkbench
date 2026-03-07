@@ -135,7 +135,7 @@ function formatDiscord(text: string): string {
  * - *bold* (single asterisk, not double)
  * - _italic_ (underscore)
  * - `code` and ```code blocks```
- * - No # headers — use *bold* for crew titles
+ * - No # headers — use *bold* for stage titles
  * - Tables → preformatted blocks
  * - Links: <url|text> instead of [text](url)
  */

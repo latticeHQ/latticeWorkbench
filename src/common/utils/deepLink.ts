@@ -36,7 +36,7 @@ export function parseLatticeDeepLink(raw: string): LatticeDeepLinkPayload | null
   const projectPath = getNonEmptySearchParam(url, "projectPath");
   const projectId = getNonEmptySearchParam(url, "projectId");
   const prompt = getNonEmptySearchParam(url, "prompt");
-  const crewId = getNonEmptySearchParam(url, "crewId");
+  const stageId = getNonEmptySearchParam(url, "stageId");
 
   return {
     type: "new_chat",
@@ -44,7 +44,7 @@ export function parseLatticeDeepLink(raw: string): LatticeDeepLinkPayload | null
     ...(projectPath ? { projectPath } : {}),
     ...(projectId ? { projectId } : {}),
     ...(prompt ? { prompt } : {}),
-    ...(crewId ? { crewId } : {}),
+    ...(stageId ? { stageId } : {}),
   };
 }
 

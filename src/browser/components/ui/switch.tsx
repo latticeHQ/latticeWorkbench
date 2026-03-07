@@ -12,7 +12,7 @@ interface SwitchProps {
 
 /**
  * A simple toggle switch component.
- * Matches the existing toggle pattern used in Settings crews.
+ * Matches the existing toggle pattern used in Settings stages.
  */
 const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
   (

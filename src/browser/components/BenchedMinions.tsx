@@ -219,7 +219,7 @@ const BulkProgressModal: React.FC<{
 };
 
 /**
- * Crew showing archived minions for a project.
+ * Stage showing archived minions for a project.
  * Appears on the project page when there are archived minions.
  */
 export const BenchedMinions: React.FC<BenchedMinionsProps> = ({

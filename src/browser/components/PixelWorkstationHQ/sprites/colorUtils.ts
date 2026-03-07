@@ -42,7 +42,7 @@ export function tintWarm(hex: string, amount: number): string {
   );
 }
 
-/** Derive a brighter screen glow color from crew hex. */
+/** Derive a brighter screen glow color from stage hex. */
 export function deriveScreenColor(hex: string): string {
   const [r, g, b] = parseHex(hex);
   return toHex(

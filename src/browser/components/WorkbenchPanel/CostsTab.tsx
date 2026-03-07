@@ -114,7 +114,7 @@ const CostsTabComponent: React.FC<CostsTabProps> = ({ minionId }) => {
     );
   }
 
-  // Last Request (for Cost crew): from persisted data
+  // Last Request (for Cost stage): from persisted data
   const lastRequestUsage = usage.lastRequest?.usage;
 
   // Cost and Details table use viewMode

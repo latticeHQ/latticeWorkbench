@@ -254,12 +254,12 @@ Be extra concise when using Sonnet.
         { agentSystemPrompt }
       );
 
-      // Agent instructions should have scoped crews stripped
+      // Agent instructions should have scoped stages stripped
       const agentInstructions = extractTagContent(systemMessage, "agent-instructions") ?? "";
       expect(agentInstructions).toContain("You are a helpful agent.");
       expect(agentInstructions).not.toContain("Be extra concise when using Sonnet.");
 
-      // Model crew should be extracted and injected
+      // Model stage should be extracted and injected
       expect(systemMessage).toContain("<model-anthropic-claude-3-5-sonnet>");
       expect(systemMessage).toContain("Be extra concise when using Sonnet.");
     });
@@ -294,7 +294,7 @@ From agent: Be terse.
         { agentSystemPrompt }
       );
 
-      // Agent definition's model crew wins
+      // Agent definition's model stage wins
       expect(systemMessage).toContain("From agent: Be terse.");
       expect(systemMessage).not.toContain("From AGENTS.md: Be verbose.");
     });
@@ -329,7 +329,7 @@ From agent: Opus instructions.
         { agentSystemPrompt }
       );
 
-      // Falls back to AGENTS.md since agent has no sonnet crew
+      // Falls back to AGENTS.md since agent has no sonnet stage
       expect(systemMessage).toContain("From AGENTS.md: Sonnet instructions.");
       expect(systemMessage).not.toContain("From agent: Opus instructions.");
     });

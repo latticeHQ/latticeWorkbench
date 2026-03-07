@@ -74,7 +74,7 @@ export const EXPANDED_PROJECTS_KEY = "expandedProjects";
 /**
  * LocalStorage key for UI-only minion creation drafts.
  *
- * Value: Record<string, Array<{ draftId: string; crewId: string | null; createdAt: number }>>
+ * Value: Record<string, Array<{ draftId: string; stageId: string | null; createdAt: number }>>
  * Keyed by projectPath.
  */
 export const MINION_DRAFTS_BY_PROJECT_KEY = "minionDraftsByProject";
@@ -280,11 +280,11 @@ export function getInboxSelectedConversationKey(projectPath: string): string {
 }
 
 /**
- * Get the localStorage key for assembly line crew expand/collapse state.
- * Format: "assemblySection:{projectPath}:{crewId}"
+ * Get the localStorage key for assembly line stage expand/collapse state.
+ * Format: "assemblySection:{projectPath}:{stageId}"
  */
-export function getAssemblySectionExpandedKey(projectPath: string, crewId: string): string {
-  return `assemblySection:${projectPath}:${crewId}`;
+export function getAssemblySectionExpandedKey(projectPath: string, stageId: string): string {
+  return `assemblySection:${projectPath}:${stageId}`;
 }
 
 /**

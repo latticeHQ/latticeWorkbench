@@ -1,5 +1,5 @@
 /**
- * Governor Crew - Enrollment UI for Lattice Governor (enterprise policy service).
+ * Governor Stage - Enrollment UI for Lattice Governor (enterprise policy service).
  * Gated behind the LATTICE_GOVERNOR experiment flag.
  */
 

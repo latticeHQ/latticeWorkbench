@@ -16,7 +16,7 @@ import { darken } from "./sprites/colorUtils";
 export type MinionState = "idle" | "thinking" | "typing" | "done" | "waiting";
 
 export interface AnimatedMinionProps {
-  crewColor: string;
+  stageColor: string;
   state: MinionState;
   size?: number;
   className?: string;
@@ -118,7 +118,7 @@ function ThoughtBubble({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function AnimatedMinion({
-  crewColor,
+  stageColor,
   state,
   size = 80,
   className,
@@ -140,7 +140,7 @@ export function AnimatedMinion({
     return () => { if (blinkTimer.current) clearTimeout(blinkTimer.current); };
   }, []);
 
-  const accentDark = useMemo(() => darken(crewColor, 18), [crewColor]);
+  const accentDark = useMemo(() => darken(stageColor, 18), [stageColor]);
   const showCloud = state === "thinking" || state === "typing";
 
   // Both thinking & typing get the "pondering" expression since both are live/working
@@ -225,10 +225,10 @@ export function AnimatedMinion({
           <rect x="142" y="40" width="8" height="170" rx="4" fill="#E6C200" opacity="0.4" />
 
           {/* Overalls */}
-          <path d="M50 150 v 30 a 50 50 0 0 0 100 0 v -30 z" fill={crewColor} />
-          <rect x="70" y="120" width="60" height="40" fill={crewColor} />
-          <path d="M45 105 L 75 125" stroke={crewColor} strokeWidth="8" strokeLinecap="round" />
-          <path d="M155 105 L 125 125" stroke={crewColor} strokeWidth="8" strokeLinecap="round" />
+          <path d="M50 150 v 30 a 50 50 0 0 0 100 0 v -30 z" fill={stageColor} />
+          <rect x="70" y="120" width="60" height="40" fill={stageColor} />
+          <path d="M45 105 L 75 125" stroke={stageColor} strokeWidth="8" strokeLinecap="round" />
+          <path d="M155 105 L 125 125" stroke={stageColor} strokeWidth="8" strokeLinecap="round" />
           <circle cx="72" cy="125" r="4" fill={accentDark} />
           <circle cx="128" cy="125" r="4" fill={accentDark} />
           <rect x="85" y="142" width="30" height="18" rx="3" fill="none" stroke={accentDark} strokeWidth="1.5" opacity="0.5" />
@@ -265,8 +265,8 @@ export function AnimatedMinion({
           </g>
 
           {/* Legs & shoes */}
-          <rect x="75" y="210" width="14" height="25" fill={crewColor} />
-          <rect x="111" y="210" width="14" height="25" fill={crewColor} />
+          <rect x="75" y="210" width="14" height="25" fill={stageColor} />
+          <rect x="111" y="210" width="14" height="25" fill={stageColor} />
           <ellipse cx="82" cy="235" rx="16" ry="8" fill="#222" />
           <ellipse cx="118" cy="235" rx="16" ry="8" fill="#222" />
 

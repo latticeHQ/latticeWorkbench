@@ -14,15 +14,15 @@ const RuntimeEnablementOverridesSchema = z
   .partial();
 
 /**
- * Crew schema for organizing minions within a project.
- * Crews are project-scoped and persist to config.json.
+ * Stage schema for organizing minions within a project.
+ * Stages are project-scoped and persist to config.json.
  */
-export const CrewConfigSchema = z.object({
+export const StageConfigSchema = z.object({
   id: z.string().meta({
-    description: "Unique section ID (8 hex chars)",
+    description: "Unique stage ID (8 hex chars)",
   }),
   name: z.string().meta({
-    description: "Display name for the section",
+    description: "Display name for the stage",
   }),
   color: z.string().optional().meta({
     description: "Accent color (hex value like #ff6b6b or preset name)",
@@ -124,15 +124,15 @@ export const MinionConfigSchema = z.object({
     description:
       "ISO 8601 timestamp when minion was last unarchived. Used for recency calculation to bump restored minions to top.",
   }),
-  crewId: z.string().optional().meta({
-    description: "ID of the section this minion belongs to (optional, unsectioned if absent)",
+  stageId: z.string().optional().meta({
+    description: "ID of the stage this minion belongs to (optional, unstaged if absent)",
   }),
 });
 
 export const ProjectConfigSchema = z.object({
   minions: z.array(MinionConfigSchema),
-  crews: z.array(CrewConfigSchema).optional().meta({
-    description: "Sections for organizing minions within this project",
+  stages: z.array(StageConfigSchema).optional().meta({
+    description: "Stages for organizing minions within this project",
   }),
   idleCompactionHours: z.number().min(1).nullable().optional().meta({
     description:

@@ -1,5 +1,5 @@
 /**
- * Dedicated Lattice settings crew.
+ * Dedicated Lattice settings stage.
  * Shows connection status (username + deployment URL), lets the user
  * re-authorize with a different deployment at any time, and refresh status.
  */

@@ -8,24 +8,24 @@ export interface MinionDragItem {
   type: typeof MINION_DRAG_TYPE;
   minionId: string;
   projectPath: string;
-  currentSectionId?: string;
+  currentStageId?: string;
 }
 
-interface MinionCrewDropZoneProps {
+interface MinionStageDropZoneProps {
   projectPath: string;
-  crewId: string | null; // null for unsectioned
-  onDrop: (minionId: string, targetSectionId: string | null) => void;
+  stageId: string | null; // null for unstaged
+  onDrop: (minionId: string, targetStageId: string | null) => void;
   children: React.ReactNode;
   className?: string;
   testId?: string;
 }
 
 /**
- * Drop zone for dragging minions into/out of crews.
+ * Drop zone for dragging minions into/out of stages.
  */
-export const MinionCrewDropZone: React.FC<MinionCrewDropZoneProps> = ({
+export const MinionStageDropZone: React.FC<MinionStageDropZoneProps> = ({
   projectPath,
-  crewId,
+  stageId,
   onDrop,
   children,
   className,
@@ -35,18 +35,18 @@ export const MinionCrewDropZone: React.FC<MinionCrewDropZoneProps> = ({
     () => ({
       accept: MINION_DRAG_TYPE,
       canDrop: (item: MinionDragItem) => {
-        // Can only drop if from same project and moving to different crew
-        return item.projectPath === projectPath && item.currentSectionId !== crewId;
+        // Can only drop if from same project and moving to different stage
+        return item.projectPath === projectPath && item.currentStageId !== stageId;
       },
       drop: (item: MinionDragItem) => {
-        onDrop(item.minionId, crewId);
+        onDrop(item.minionId, stageId);
       },
       collect: (monitor) => ({
         isOver: monitor.isOver(),
         canDrop: monitor.canDrop(),
       }),
     }),
-    [projectPath, crewId, onDrop]
+    [projectPath, stageId, onDrop]
   );
 
   return (
@@ -54,7 +54,7 @@ export const MinionCrewDropZone: React.FC<MinionCrewDropZoneProps> = ({
       ref={drop}
       className={cn(className, isOver && canDrop && "bg-accent/10")}
       data-testid={testId}
-      data-drop-section-id={crewId ?? "unsectioned"}
+      data-drop-stage-id={stageId ?? "unstaged"}
     >
       {children}
     </div>

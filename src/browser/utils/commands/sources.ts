@@ -95,7 +95,7 @@ export interface BuildSourcesParams {
 }
 
 /**
- * Command palette crew names
+ * Command palette stage names
  * Exported for use in filtering and command organization
  */
 export const COMMAND_SECTIONS = {

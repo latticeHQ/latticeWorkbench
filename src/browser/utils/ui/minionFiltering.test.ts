@@ -4,11 +4,11 @@ import {
   formatDaysThreshold,
   AGE_THRESHOLDS_DAYS,
   buildSortedMinionsByProject,
-  partitionMinionsByCrew,
-  sortCrewsByLinkedList,
+  partitionMinionsByStage,
+  sortStagesByLinkedList,
 } from "./minionFiltering";
 import type { FrontendMinionMetadata } from "@/common/types/minion";
-import type { ProjectConfig, CrewConfig } from "@/common/types/project";
+import type { ProjectConfig, StageConfig } from "@/common/types/project";
 import { DEFAULT_RUNTIME_CONFIG } from "@/common/constants/minion";
 
 describe("partitionMinionsByAge", () => {
@@ -127,11 +127,11 @@ describe("partitionMinionsByAge", () => {
     const { recent, buckets } = partitionMinionsByAge(minions, minionRecency);
     const old = getAllOld(buckets);
 
-    // Most recent should be moved to recent crew
+    // Most recent should be moved to recent stage
     expect(recent).toHaveLength(1);
     expect(recent[0].id).toBe("old1");
 
-    // Remaining should stay in old crew
+    // Remaining should stay in old stage
     expect(old).toHaveLength(2);
     expect(old.map((w) => w.id)).toEqual(["old2", "old3"]);
   });
@@ -410,57 +410,57 @@ describe("buildSortedMinionsByProject", () => {
   });
 });
 
-describe("sortCrewsByLinkedList", () => {
-  it("should sort sections by nextId linked list", () => {
-    const sections: CrewConfig[] = [
+describe("sortStagesByLinkedList", () => {
+  it("should sort stages by nextId linked list", () => {
+    const stages: StageConfig[] = [
       { id: "c", name: "C", nextId: null },
       { id: "a", name: "A", nextId: "b" },
       { id: "b", name: "B", nextId: "c" },
     ];
 
-    const sorted = sortCrewsByLinkedList(sections);
+    const sorted = sortStagesByLinkedList(stages);
     expect(sorted.map((s) => s.id)).toEqual(["a", "b", "c"]);
   });
 
   it("should handle empty array", () => {
-    expect(sortCrewsByLinkedList([])).toEqual([]);
+    expect(sortStagesByLinkedList([])).toEqual([]);
   });
 
-  it("should handle single section", () => {
-    const sections: CrewConfig[] = [{ id: "only", name: "Only", nextId: null }];
-    const sorted = sortCrewsByLinkedList(sections);
+  it("should handle single stage", () => {
+    const stages: StageConfig[] = [{ id: "only", name: "Only", nextId: null }];
+    const sorted = sortStagesByLinkedList(stages);
     expect(sorted.map((s) => s.id)).toEqual(["only"]);
   });
 
-  it("should handle reordered sections (C, A, B order)", () => {
+  it("should handle reordered stages (C, A, B order)", () => {
     // After reorder to C->A->B, the pointers should be: C->A->B->null
-    const sections: CrewConfig[] = [
+    const stages: StageConfig[] = [
       { id: "a", name: "A", nextId: "b" },
       { id: "b", name: "B", nextId: null },
       { id: "c", name: "C", nextId: "a" },
     ];
 
-    const sorted = sortCrewsByLinkedList(sections);
+    const sorted = sortStagesByLinkedList(stages);
     expect(sorted.map((s) => s.id)).toEqual(["c", "a", "b"]);
   });
 
-  it("should append orphaned sections", () => {
-    // Crew "orphan" is not in the linked list
-    const sections: CrewConfig[] = [
+  it("should append orphaned stages", () => {
+    // Stage "orphan" is not in the linked list
+    const stages: StageConfig[] = [
       { id: "a", name: "A", nextId: "b" },
       { id: "b", name: "B", nextId: null },
       { id: "orphan", name: "Orphan", nextId: "nonexistent" },
     ];
 
-    const sorted = sortCrewsByLinkedList(sections);
+    const sorted = sortStagesByLinkedList(stages);
     expect(sorted.map((s) => s.id)).toEqual(["a", "b", "orphan"]);
   });
 });
 
-describe("partitionMinionsByCrew", () => {
+describe("partitionMinionsByStage", () => {
   const createMinion = (
     id: string,
-    crewId?: string,
+    stageId?: string,
     parentMinionId?: string
   ): FrontendMinionMetadata => ({
     id,
@@ -469,83 +469,83 @@ describe("partitionMinionsByCrew", () => {
     projectPath: "/test/project",
     namedMinionPath: `/test/project/minion-${id}`,
     runtimeConfig: DEFAULT_RUNTIME_CONFIG,
-    crewId,
+    stageId,
     parentMinionId,
   });
 
-  it("should partition minions by section", () => {
+  it("should partition minions by stage", () => {
     const minions = [
-      createMinion("ws1", "section-a"),
-      createMinion("ws2", "section-b"),
-      createMinion("ws3"), // unsectioned
+      createMinion("ws1", "stage-a"),
+      createMinion("ws2", "stage-b"),
+      createMinion("ws3"), // unstaged
     ];
-    const sections: CrewConfig[] = [
-      { id: "section-a", name: "A" },
-      { id: "section-b", name: "B" },
+    const stages: StageConfig[] = [
+      { id: "stage-a", name: "A" },
+      { id: "stage-b", name: "B" },
     ];
 
-    const result = partitionMinionsByCrew(minions, sections);
+    const result = partitionMinionsByStage(minions, stages);
 
-    expect(result.unsectioned.map((w: FrontendMinionMetadata) => w.id)).toEqual(["ws3"]);
+    expect(result.unstaged.map((w: FrontendMinionMetadata) => w.id)).toEqual(["ws3"]);
     expect(
-      result.byCrewId.get("section-a")?.map((w: FrontendMinionMetadata) => w.id)
+      result.byStageId.get("stage-a")?.map((w: FrontendMinionMetadata) => w.id)
     ).toEqual(["ws1"]);
     expect(
-      result.byCrewId.get("section-b")?.map((w: FrontendMinionMetadata) => w.id)
+      result.byStageId.get("stage-b")?.map((w: FrontendMinionMetadata) => w.id)
     ).toEqual(["ws2"]);
   });
 
-  it("should keep child minions directly after their parent within a section", () => {
-    // Parent in crew-a, child also in crew-a
+  it("should keep child minions directly after their parent within a stage", () => {
+    // Parent in stage-a, child also in stage-a
     // Input order from flattenMinionTree: parent, child (already correct)
     const minions = [
-      createMinion("parent", "section-a"),
-      createMinion("child", "section-a", "parent"),
+      createMinion("parent", "stage-a"),
+      createMinion("child", "stage-a", "parent"),
     ];
-    const sections: CrewConfig[] = [{ id: "section-a", name: "A" }];
+    const stages: StageConfig[] = [{ id: "stage-a", name: "A" }];
 
-    const result = partitionMinionsByCrew(minions, sections);
+    const result = partitionMinionsByStage(minions, stages);
 
     // Child should be directly after parent
     expect(
-      result.byCrewId.get("section-a")?.map((w: FrontendMinionMetadata) => w.id)
+      result.byStageId.get("stage-a")?.map((w: FrontendMinionMetadata) => w.id)
     ).toEqual(["parent", "child"]);
   });
 
-  it("should keep child minions with parent even when child has no crewId (inherits parent section)", () => {
-    // BUG REPRODUCTION: Parent in section-a, child has no crewId
-    // Child should render under parent in crew-a, NOT in unsectioned
+  it("should keep child minions with parent even when child has no stageId (inherits parent stage)", () => {
+    // BUG REPRODUCTION: Parent in stage-a, child has no stageId
+    // Child should render under parent in stage-a, NOT in unstaged
     const minions = [
-      createMinion("parent", "section-a"),
-      createMinion("child", undefined, "parent"), // child without crewId
+      createMinion("parent", "stage-a"),
+      createMinion("child", undefined, "parent"), // child without stageId
     ];
-    const sections: CrewConfig[] = [{ id: "section-a", name: "A" }];
+    const stages: StageConfig[] = [{ id: "stage-a", name: "A" }];
 
-    const result = partitionMinionsByCrew(minions, sections);
+    const result = partitionMinionsByStage(minions, stages);
 
-    // Child should inherit parent's crew placement
+    // Child should inherit parent's stage placement
     expect(
-      result.byCrewId.get("section-a")?.map((w: FrontendMinionMetadata) => w.id)
+      result.byStageId.get("stage-a")?.map((w: FrontendMinionMetadata) => w.id)
     ).toEqual(["parent", "child"]);
-    // Unsectioned should be empty
-    expect(result.unsectioned).toHaveLength(0);
+    // Unstaged should be empty
+    expect(result.unstaged).toHaveLength(0);
   });
 
-  it("should handle nested children inheriting section from root parent", () => {
-    // Root in section-a, child1 and grandchild have no crewId
+  it("should handle nested children inheriting stage from root parent", () => {
+    // Root in stage-a, child1 and grandchild have no stageId
     const minions = [
-      createMinion("root", "section-a"),
+      createMinion("root", "stage-a"),
       createMinion("child1", undefined, "root"),
       createMinion("grandchild", undefined, "child1"),
     ];
-    const sections: CrewConfig[] = [{ id: "section-a", name: "A" }];
+    const stages: StageConfig[] = [{ id: "stage-a", name: "A" }];
 
-    const result = partitionMinionsByCrew(minions, sections);
+    const result = partitionMinionsByStage(minions, stages);
 
-    // All should be in crew-a, in tree order
+    // All should be in stage-a, in tree order
     expect(
-      result.byCrewId.get("section-a")?.map((w: FrontendMinionMetadata) => w.id)
+      result.byStageId.get("stage-a")?.map((w: FrontendMinionMetadata) => w.id)
     ).toEqual(["root", "child1", "grandchild"]);
-    expect(result.unsectioned).toHaveLength(0);
+    expect(result.unstaged).toHaveLength(0);
   });
 });

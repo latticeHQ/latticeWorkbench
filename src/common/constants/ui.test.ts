@@ -1,27 +1,27 @@
 import { describe, expect, it } from "bun:test";
 
-import { DEFAULT_CREW_COLOR, resolveCrewColor } from "./ui";
+import { DEFAULT_STAGE_COLOR, resolveStageColor } from "./ui";
 
-describe("resolveCrewColor", () => {
+describe("resolveStageColor", () => {
   it("returns default for empty/undefined", () => {
-    expect(resolveCrewColor(undefined)).toBe(DEFAULT_CREW_COLOR);
-    expect(resolveCrewColor(null)).toBe(DEFAULT_CREW_COLOR);
-    expect(resolveCrewColor("")).toBe(DEFAULT_CREW_COLOR);
-    expect(resolveCrewColor("   ")).toBe(DEFAULT_CREW_COLOR);
+    expect(resolveStageColor(undefined)).toBe(DEFAULT_STAGE_COLOR);
+    expect(resolveStageColor(null)).toBe(DEFAULT_STAGE_COLOR);
+    expect(resolveStageColor("")).toBe(DEFAULT_STAGE_COLOR);
+    expect(resolveStageColor("   ")).toBe(DEFAULT_STAGE_COLOR);
   });
 
   it("resolves palette names (case-insensitive)", () => {
-    expect(resolveCrewColor("Blue")).toBe("#5a9bd4");
-    expect(resolveCrewColor("blue")).toBe("#5a9bd4");
+    expect(resolveStageColor("Blue")).toBe("#5a9bd4");
+    expect(resolveStageColor("blue")).toBe("#5a9bd4");
   });
 
   it("normalizes hex colors", () => {
-    expect(resolveCrewColor("#ABC")).toBe("#aabbcc");
-    expect(resolveCrewColor("#AABBCC")).toBe("#aabbcc");
-    expect(resolveCrewColor("#AABBCCDD")).toBe("#aabbcc");
+    expect(resolveStageColor("#ABC")).toBe("#aabbcc");
+    expect(resolveStageColor("#AABBCC")).toBe("#aabbcc");
+    expect(resolveStageColor("#AABBCCDD")).toBe("#aabbcc");
   });
 
   it("falls back to default for invalid values", () => {
-    expect(resolveCrewColor("not-a-color")).toBe(DEFAULT_CREW_COLOR);
+    expect(resolveStageColor("not-a-color")).toBe(DEFAULT_STAGE_COLOR);
   });
 });

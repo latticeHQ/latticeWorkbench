@@ -17,4 +17,4 @@ export {
   type ThemeMode,
 } from "./environmentRenderer";
 export { CardScene } from "./cardScene";
-export { CrewScene } from "./crewScene";
+export { StageScene } from "./stageScene";

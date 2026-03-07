@@ -1,7 +1,7 @@
 import React from "react";
 
 import { useDragLayer } from "react-dnd";
-import { MINION_DRAG_TYPE, type MinionDragItem } from "./MinionCrewDropZone";
+import { MINION_DRAG_TYPE, type MinionDragItem } from "./MinionStageDropZone";
 import { RuntimeBadge } from "./RuntimeBadge";
 import { cn } from "@/common/lib/utils";
 import type { RuntimeConfig } from "@/common/types/runtime";

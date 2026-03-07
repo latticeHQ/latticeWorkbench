@@ -323,7 +323,7 @@ export function BranchSelector({ minionId, minionName, className }: BranchSelect
     return state.branches.filter((b) => b.toLowerCase().includes(searchLower));
   };
 
-  // Check if any remote has matching branches (for showing remotes crew)
+  // Check if any remote has matching branches (for showing remotes stage)
   const hasMatchingRemoteBranches = remotes.some((remote) => {
     const state = remoteStates[remote];
     if (!state?.fetched) return true; // Show unfetched remotes

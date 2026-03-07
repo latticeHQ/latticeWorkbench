@@ -357,7 +357,7 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
                       )}
                     </div>
 
-                    {/* Tool allowlist crew */}
+                    {/* Tool allowlist stage */}
                     {effectivelyEnabled && tools && tools.length > 0 && (
                       <div className="mt-4 border-t pt-4">
                         <ToolSelector

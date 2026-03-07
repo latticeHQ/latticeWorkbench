@@ -2,7 +2,7 @@
  * Minion appearance variety and palette builder.
  *
  * All minions have the classic yellow pill body with goggles.
- * Crew color determines overalls. Hair wisp style provides minor variety.
+ * Stage color determines overalls. Hair wisp style provides minor variety.
  */
 
 import type { CharacterAppearance, CharPalette } from "./types";
@@ -49,9 +49,9 @@ export function deriveAppearance(minionId: string): CharacterAppearance {
 // Palette builder
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Build a minion palette from crew hex + appearance. */
+/** Build a minion palette from stage hex + appearance. */
 export function buildPalette(
-  crewHex: string,
+  stageHex: string,
   appearance: CharacterAppearance,
 ): CharPalette {
   const hairColor = HAIR_COLORS[appearance.hairStyle];
@@ -60,9 +60,9 @@ export function buildPalette(
     skin: MINION_YELLOW,                // yellow body — all minions
     eyeWhite: "#ffffff",                // goggle lens
     eyePupil: "#654321",                // brown pupil
-    shirt: crewHex,                     // overalls (crew color)
-    shirtAccent: darken(crewHex, 18),   // suspender clasps
-    pants: crewHex,                     // overalls lower (same as shirt)
+    shirt: stageHex,                     // overalls (stage color)
+    shirtAccent: darken(stageHex, 18),   // suspender clasps
+    pants: stageHex,                     // overalls lower (same as shirt)
     belt: "#333333",                    // goggle strap + gloves (darker for contrast)
     shoe: "#222222",                    // shoes
     outline: "#999999",                 // goggle rim — silver/metallic

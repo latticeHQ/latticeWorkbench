@@ -17,13 +17,13 @@ export function normalizeMarkdown(content: string): string {
   return normalizedNewlines.replace(/\n{3,}/g, "\n\n");
 }
 
-// Some models emit terse reasoning traces that include markdown-y crew headers like
+// Some models emit terse reasoning traces that include markdown-y stage headers like
 // `**Deciding on status updates**`, but occasionally omit a leading newline. That can
 // cause the header to run into the previous sentence (e.g. `...!**Deciding...**\n\n`).
 //
 // This is a small, reasoning-only heuristic fixup applied in ReasoningMessage.
 export function normalizeReasoningMarkdown(content: string): string {
-  // Insert a newline before bold crew headers when they appear immediately after
+  // Insert a newline before bold stage headers when they appear immediately after
   // sentence-ending punctuation and are followed by a blank line.
   return content.replace(/([.!?])([ \t]*)(\*\*[^*\n]{2,}\*\*(?::)?[ \t]*\n\n)/g, "$1\n$3");
 }

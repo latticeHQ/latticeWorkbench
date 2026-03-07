@@ -6,8 +6,8 @@ name: Engineering
 description: Architecture, implementation, code review, QA, CI/CD, releases
 color: "#14B8A6"
 
-# The 10-stage delivery pipeline (maps to Workbench's default crews)
-crews:
+# The 10-stage delivery pipeline (maps to Workbench's default stages)
+stages:
   - name: Intake
     color: Pink
     lead: intake-lead
@@ -58,10 +58,10 @@ crews:
     lead: learning-lead
     purpose: Retrospectives, post-mortems, knowledge capture
 
-# Coordinator across all crews
+# Coordinator across all stages
 coordinator:
   agent: chief-of-staff
-  description: Daily briefings, task routing, cross-crew orchestration, escalation
+  description: Daily briefings, task routing, cross-stage orchestration, escalation
 
 # Scheduled jobs
 schedules:
@@ -72,7 +72,7 @@ schedules:
       expression: "0 8 * * *"  # 8 AM daily
       timezone: America/Los_Angeles
     prompt: >
-      Compile the morning briefing. Review overnight progress across all crews.
+      Compile the morning briefing. Review overnight progress across all stages.
       Summarize: what shipped, what's blocked, what needs attention today.
       Recommend priorities for the day.
 
@@ -94,7 +94,7 @@ schedules:
       timezone: America/Los_Angeles
     prompt: >
       Conduct the weekly retrospective. Review the pipeline: bottlenecks,
-      overloaded crews, idle crews. Analyze cycle time, defect rate, and
+      overloaded stages, idle stages. Analyze cycle time, defect rate, and
       review turnaround. Propose improvements.
 
   - name: Cost Report

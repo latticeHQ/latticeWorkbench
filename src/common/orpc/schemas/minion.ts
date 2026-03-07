@@ -82,8 +82,8 @@ export const MinionMetadataSchema = z.object({
     description:
       "When true, switch_agent tool is enabled for this minion (set when session starts from Auto agent).",
   }),
-  crewId: z.string().optional().meta({
-    description: "ID of the section this minion belongs to (optional, unsectioned if absent)",
+  stageId: z.string().optional().meta({
+    description: "ID of the stage this minion belongs to (optional, unstaged if absent)",
   }),
   autonomyOverrides: z
     .object({
