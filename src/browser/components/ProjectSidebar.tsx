@@ -825,7 +825,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
     if (minionsInStage.length > 0) {
       const ok = await confirmDialog({
         title: "Delete stage?",
-        description: `${minionsInStage.length} minion(s) in this stage will be moved to unstaged.`,
+        description: `${minionsInStage.length} campaign(s) in this stage will be moved to unstaged.`,
         confirmLabel: "Delete",
         confirmVariant: "destructive",
       });
@@ -1172,7 +1172,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                                   event.stopPropagation();
                                   handleAddMinion(projectPath);
                                 }}
-                                aria-label={`Summon minion in ${projectName}`}
+                                aria-label={`Launch campaign in ${projectName}`}
                                 data-project-path={projectPath}
                                 className="text-secondary hover:bg-hover hover:border-border-light flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded border border-transparent bg-transparent text-sm leading-none transition-all duration-200"
                               >
@@ -1180,7 +1180,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                               </button>
                             </TooltipTrigger>
                             <TooltipContent>
-                              Summon minion ({formatKeybind(KEYBINDS.NEW_MINION)})
+                              Launch campaign ({formatKeybind(KEYBINDS.NEW_MINION)})
                             </TooltipContent>
                           </Tooltip>
                         </DraggableProjectItem>
@@ -1189,7 +1189,7 @@ const ProjectSidebarInner: React.FC<ProjectSidebarProps> = ({
                           <div
                             id={minionListId}
                             role="region"
-                            aria-label={`Minions for ${projectName}`}
+                            aria-label={`Campaigns for ${projectName}`}
                             className="pt-1"
                             style={{ backgroundColor: `${floorColor}08` }}
                           >

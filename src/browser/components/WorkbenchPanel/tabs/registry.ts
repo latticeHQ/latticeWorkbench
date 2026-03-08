@@ -83,11 +83,11 @@ export const TAB_CONFIGS: Record<
   TabConfig
 > = {
   costs: {
-    name: "Costs",
+    name: "Budget",
     contentClassName: "overflow-y-auto p-[15px]",
   },
   review: {
-    name: "Review",
+    name: "Editorial",
     contentClassName: "overflow-y-auto p-0",
   },
   browser: {
@@ -95,28 +95,28 @@ export const TAB_CONFIGS: Record<
     contentClassName: "overflow-hidden p-0",
   },
   explorer: {
-    name: "Explorer",
+    name: "Assets",
     contentClassName: "overflow-y-auto p-0",
   },
   stats: {
-    name: "Stats",
+    name: "Analytics",
     contentClassName: "overflow-y-auto p-[15px]",
     featureFlag: "statsTab",
   },
   output: {
-    name: "Output",
+    name: "Feed",
     contentClassName: "overflow-hidden p-0",
   },
   kanban: {
-    name: "Board",
+    name: "Calendar",
     contentClassName: "overflow-hidden p-0",
   },
   issues: {
-    name: "Issues",
+    name: "Campaigns",
     contentClassName: "overflow-y-auto p-0",
   },
   inference: {
-    name: "Cluster",
+    name: "Platforms",
     contentClassName: "overflow-y-auto p-0",
   },
   schedules: {
@@ -128,14 +128,14 @@ export const TAB_CONFIGS: Record<
     contentClassName: "overflow-y-auto p-0",
   },
   reflections: {
-    name: "Reflections",
+    name: "Insights",
     contentClassName: "overflow-y-auto p-[15px]",
   },
 };
 
-/** Terminal tab configuration */
+/** Workspace tab configuration */
 export const TERMINAL_TAB_CONFIG: TabConfig = {
-  name: "Terminal",
+  name: "Workspace",
   contentClassName: "overflow-hidden p-0",
   keepAlive: true,
 };
