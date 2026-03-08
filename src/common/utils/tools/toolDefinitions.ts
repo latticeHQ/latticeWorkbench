@@ -34,6 +34,7 @@ import {
   BASH_MAX_TOTAL_BYTES,
   STATUS_MESSAGE_MAX_LENGTH,
   WEB_FETCH_MAX_OUTPUT_BYTES,
+  PARALLEL_MAX_OUTPUT_BYTES,
 } from "@/common/constants/toolLimits";
 import { TOOL_EDIT_WARNING } from "@/common/types/tools";
 import { SYSTEM1_BASH_OUTPUT_COMPACTION_LIMITS } from "@/common/types/tasks";
@@ -1073,6 +1074,56 @@ export const TOOL_DEFINITIONS = {
       url: z.string().url().describe("The URL to fetch (http or https)"),
     }),
   },
+  // ── Parallel AI web research tools ─────────────────────────────
+  parallel_search: {
+    description:
+      `Search the web using Parallel AI and return ranked results with URLs, titles, and excerpts. ` +
+      `Best for discovering relevant pages, articles, discussions (Reddit, HN, forums), and sources. ` +
+      `Output is truncated to ${Math.floor(PARALLEL_MAX_OUTPUT_BYTES / 1024)}KB. ` +
+      `Requires PARALLEL_API_KEY secret to be configured.`,
+    schema: z.object({
+      query: z.string().min(1).describe("Search query (natural language or keywords)"),
+      num_results: z
+        .number()
+        .int()
+        .min(1)
+        .max(20)
+        .nullish()
+        .describe("Number of results to return (default: 10, max: 20)"),
+    }),
+  },
+  parallel_extract: {
+    description:
+      `Extract and parse the main content from one or more URLs using Parallel AI. ` +
+      `Returns clean, structured text — ideal for reading articles, blog posts, documentation, ` +
+      `and product pages without browser rendering. ` +
+      `Output is truncated to ${Math.floor(PARALLEL_MAX_OUTPUT_BYTES / 1024)}KB. ` +
+      `Requires PARALLEL_API_KEY secret to be configured.`,
+    schema: z.object({
+      urls: z
+        .array(z.string().url())
+        .min(1)
+        .max(5)
+        .describe("URLs to extract content from (1-5 URLs)"),
+    }),
+  },
+  parallel_research: {
+    description:
+      `Run a deep research task using Parallel AI. The AI agent searches, reads, and synthesizes ` +
+      `information across many sources to produce a comprehensive research report. ` +
+      `Use for complex questions that require multi-step research (market analysis, competitive research, ` +
+      `trend reports, technology evaluations). Takes 30-120 seconds. ` +
+      `Output is truncated to ${Math.floor(PARALLEL_MAX_OUTPUT_BYTES / 1024)}KB. ` +
+      `Requires PARALLEL_API_KEY secret to be configured.`,
+    schema: z.object({
+      query: z
+        .string()
+        .min(1)
+        .describe(
+          "Research question or topic to investigate deeply. Be specific for better results."
+        ),
+    }),
+  },
   code_execution: {
     description:
       "Execute JavaScript code in a sandboxed environment with access to Lattice tools. " +
@@ -1184,20 +1235,23 @@ export const TOOL_DEFINITIONS = {
     schema: z.object({}),
   },
   browser_click: {
-    description: "Click an element identified by its snapshot ref (e.g., '@e2'). Get refs from browser_snapshot first.",
+    description:
+      "Click an element identified by its snapshot ref (e.g., '@e2'). Get refs from browser_snapshot first.",
     schema: z.object({
       ref: z.string().describe("Element reference from snapshot (e.g., '@e2')"),
     }),
   },
   browser_fill: {
-    description: "Fill a form field identified by its snapshot ref with a value. Clears existing content before filling.",
+    description:
+      "Fill a form field identified by its snapshot ref with a value. Clears existing content before filling.",
     schema: z.object({
       ref: z.string().describe("Element reference from snapshot (e.g., '@e3')"),
       value: z.string().describe("Value to fill into the element"),
     }),
   },
   browser_type: {
-    description: "Type text into the currently focused element. Unlike fill, this appends text and fires keyboard events.",
+    description:
+      "Type text into the currently focused element. Unlike fill, this appends text and fires keyboard events.",
     schema: z.object({
       text: z.string().describe("Text to type"),
     }),
@@ -1210,7 +1264,8 @@ export const TOOL_DEFINITIONS = {
     }),
   },
   browser_hover: {
-    description: "Hover over an element by its snapshot ref. Reveals tooltips, dropdowns, or hover states.",
+    description:
+      "Hover over an element by its snapshot ref. Reveals tooltips, dropdowns, or hover states.",
     schema: z.object({
       ref: z.string().describe("Element reference from snapshot (e.g., '@e5')"),
     }),
@@ -1233,9 +1288,12 @@ export const TOOL_DEFINITIONS = {
     }),
   },
   browser_wait: {
-    description: "Wait for a condition: CSS selector visible, text appears, URL matches, or fixed time in ms.",
+    description:
+      "Wait for a condition: CSS selector visible, text appears, URL matches, or fixed time in ms.",
     schema: z.object({
-      target: z.string().describe("What to wait for: CSS selector, text, URL pattern, or time in ms"),
+      target: z
+        .string()
+        .describe("What to wait for: CSS selector, text, URL pattern, or time in ms"),
     }),
   },
   browser_eval: {
@@ -1252,7 +1310,8 @@ export const TOOL_DEFINITIONS = {
     }),
   },
   browser_set_device: {
-    description: "Emulate a device with proper viewport, user agent, and scale factor (e.g. 'iPhone 14', 'iPad Pro').",
+    description:
+      "Emulate a device with proper viewport, user agent, and scale factor (e.g. 'iPhone 14', 'iPad Pro').",
     schema: z.object({
       device: z.string().describe("Device name (e.g., 'iPhone 14', 'iPad Pro', 'Pixel 7')"),
     }),
@@ -1294,7 +1353,8 @@ export const TOOL_DEFINITIONS = {
     }),
   },
   browser_select_option: {
-    description: "Select an option from a <select> dropdown. Matches by option value or visible text.",
+    description:
+      "Select an option from a <select> dropdown. Matches by option value or visible text.",
     schema: z.object({
       ref: z.string().describe("Select element reference (e.g., '@e4')"),
       value: z.string().describe("Option value or label to select"),
@@ -1568,6 +1628,63 @@ export const WebFetchToolResultSchema = z.union([
 ]);
 
 /**
+ * Parallel AI search tool result - ranked search results or error.
+ */
+export const ParallelSearchToolResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    results: z.array(
+      z.object({
+        url: z.string(),
+        title: z.string(),
+        excerpt: z.string(),
+      })
+    ),
+    query: z.string(),
+    total: z.number(),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
+/**
+ * Parallel AI extract tool result - extracted page content or error.
+ */
+export const ParallelExtractToolResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    pages: z.array(
+      z.object({
+        url: z.string(),
+        title: z.string(),
+        content: z.string(),
+      })
+    ),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
+/**
+ * Parallel AI research tool result - deep research report or error.
+ */
+export const ParallelResearchToolResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    report: z.string(),
+    sources: z.array(z.string()).optional(),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
+/**
  * Names of tools that are bridgeable to PTC sandbox.
  * If adding a new tool here, you must also add its result schema below.
  */
@@ -1675,6 +1792,10 @@ export function getAvailableTools(
     "status_set",
     "notify",
     "web_fetch",
+    // Parallel AI web research tools
+    "parallel_search",
+    "parallel_extract",
+    "parallel_research",
     // Lattice SDK progressive disclosure (code execution pattern)
     "lattice_list_categories",
     "lattice_search_tools",

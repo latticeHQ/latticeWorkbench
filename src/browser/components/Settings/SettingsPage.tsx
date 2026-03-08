@@ -18,6 +18,7 @@ import {
   Lock,
   Terminal,
   Inbox,
+  Plug,
   Archive,
   Network,
   BarChart3,
@@ -44,6 +45,7 @@ import { ExperimentsSection } from "./sections/ExperimentsSection";
 import { ServerAccessSection } from "./sections/ServerAccessSection";
 import { KeybindsSection } from "./sections/KeybindsSection";
 import { InboxesSettingsSection } from "./sections/InboxesSettingsSection";
+import { IntegrationsSection } from "./sections/IntegrationsSection";
 import { ArchivedSection } from "./sections/ArchivedSection";
 import { LatticeInferenceSection } from "./sections/LatticeInferenceSection";
 import { AnalyticsSection } from "./sections/AnalyticsSection";
@@ -127,6 +129,12 @@ const BASE_SECTIONS: SettingsSection[] = [
     label: "Inboxes",
     icon: <Inbox className="h-4 w-4" />,
     component: InboxesSettingsSection,
+  },
+  {
+    id: "integrations",
+    label: "Integrations",
+    icon: <Plug className="h-4 w-4" />,
+    component: IntegrationsSection,
   },
   {
     id: "experiments",

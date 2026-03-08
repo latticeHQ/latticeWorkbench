@@ -30,6 +30,9 @@ import {
   createLatticeListCategoriesTool,
   createLatticeSearchToolsTool,
 } from "@/node/services/tools/lattice_sdk_discovery";
+import { createParallelSearchTool } from "@/node/services/tools/parallel_search";
+import { createParallelExtractTool } from "@/node/services/tools/parallel_extract";
+import { createParallelResearchTool } from "@/node/services/tools/parallel_research";
 import { createCoreBrowserTools } from "@/node/services/tools/browser";
 import { wrapWithInitWait } from "@/node/services/tools/wrapWithInitWait";
 import { withHooks, type HookConfig } from "@/node/services/tools/withHooks";
@@ -343,6 +346,10 @@ export async function getToolsForModel(
     // Lattice SDK progressive disclosure (code execution pattern)
     lattice_list_categories: createLatticeListCategoriesTool(config),
     lattice_search_tools: createLatticeSearchToolsTool(config),
+    // Parallel AI web research tools (direct HTTPS, no runtime needed)
+    parallel_search: createParallelSearchTool(config),
+    parallel_extract: createParallelExtractTool(config),
+    parallel_research: createParallelResearchTool(config),
   };
 
   // Base tools available for all models

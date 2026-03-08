@@ -26,3 +26,11 @@ export const STATUS_MESSAGE_MAX_LENGTH = 60; // Maximum length for status messag
 export const WEB_FETCH_TIMEOUT_SECS = 15; // curl timeout
 export const WEB_FETCH_MAX_OUTPUT_BYTES = 64 * 1024; // 64KB markdown output
 export const WEB_FETCH_MAX_HTML_BYTES = 5 * 1024 * 1024; // 5MB HTML input (curl --max-filesize)
+
+// Parallel AI tool limits
+export const PARALLEL_SEARCH_TIMEOUT_MS = 30_000; // 30s
+export const PARALLEL_EXTRACT_TIMEOUT_MS = 30_000; // 30s
+export const PARALLEL_RESEARCH_TIMEOUT_MS = 120_000; // 2min total
+export const PARALLEL_RESEARCH_POLL_INTERVAL_MS = 3_000; // 3s poll
+export const PARALLEL_RESEARCH_MAX_POLLS = 40; // max poll iterations
+export const PARALLEL_MAX_OUTPUT_BYTES = 64 * 1024; // 64KB output

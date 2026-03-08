@@ -27,6 +27,9 @@ import type {
   TaskTerminateToolResultSchema,
   TOOL_DEFINITIONS,
   WebFetchToolResultSchema,
+  ParallelSearchToolResultSchema,
+  ParallelExtractToolResultSchema,
+  ParallelResearchToolResultSchema,
 } from "@/common/utils/tools/toolDefinitions";
 
 // Bash Tool Types — derived from schema (avoid drift)
@@ -79,12 +82,16 @@ export type FileReadToolResult = z.infer<typeof FileReadToolResultSchema>;
 export type LatticeGlobalAgentsReadToolArgs = z.infer<
   typeof TOOL_DEFINITIONS.lattice_global_agents_read.schema
 >;
-export type LatticeGlobalAgentsReadToolResult = z.infer<typeof LatticeGlobalAgentsReadToolResultSchema>;
+export type LatticeGlobalAgentsReadToolResult = z.infer<
+  typeof LatticeGlobalAgentsReadToolResultSchema
+>;
 
 export type LatticeGlobalAgentsWriteToolArgs = z.infer<
   typeof TOOL_DEFINITIONS.lattice_global_agents_write.schema
 >;
-export type LatticeGlobalAgentsWriteToolResult = z.infer<typeof LatticeGlobalAgentsWriteToolResultSchema>;
+export type LatticeGlobalAgentsWriteToolResult = z.infer<
+  typeof LatticeGlobalAgentsWriteToolResultSchema
+>;
 
 export interface FileEditDiffSuccessBase extends ToolOutputUiOnlyFields {
   success: true;
@@ -323,6 +330,16 @@ export type WebFetchToolArgs = z.infer<typeof TOOL_DEFINITIONS.web_fetch.schema>
 
 // WebFetchToolResult derived from Zod schema (single source of truth)
 export type WebFetchToolResult = z.infer<typeof WebFetchToolResultSchema>;
+
+// Parallel AI Tool Types — derived from schemas (avoid drift)
+export type ParallelSearchToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_search.schema>;
+export type ParallelSearchToolResult = z.infer<typeof ParallelSearchToolResultSchema>;
+
+export type ParallelExtractToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_extract.schema>;
+export type ParallelExtractToolResult = z.infer<typeof ParallelExtractToolResultSchema>;
+
+export type ParallelResearchToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_research.schema>;
+export type ParallelResearchToolResult = z.infer<typeof ParallelResearchToolResultSchema>;
 
 // Notify Tool Types
 export type NotifyToolResult =
