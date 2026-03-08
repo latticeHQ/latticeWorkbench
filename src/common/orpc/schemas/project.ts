@@ -67,8 +67,7 @@ export const MinionConfigSchema = z.object({
     description: 'If set, selects an agent preset for this minion (e.g., "explore" or "exec").',
   }),
   agentId: z.string().optional().meta({
-    description:
-      'If set, selects an agent definition for this minion (e.g., "explore" or "exec").',
+    description: 'If set, selects an agent definition for this minion (e.g., "explore" or "exec").',
   }),
   agentSwitchingEnabled: z.boolean().optional().meta({
     description:
@@ -113,8 +112,7 @@ export const MinionConfigSchema = z.object({
       "Trunk branch used to create/init this agent task minion (used for restart-safe init on queued tasks).",
   }),
   mcp: MinionMCPOverridesSchema.optional().meta({
-    description:
-      "LEGACY: Per-minion MCP overrides (migrated to <minion>/.lattice/mcp.local.jsonc)",
+    description: "LEGACY: Per-minion MCP overrides (migrated to <minion>/.lattice/mcp.local.jsonc)",
   }),
   archivedAt: z.string().optional().meta({
     description:
@@ -127,6 +125,24 @@ export const MinionConfigSchema = z.object({
   stageId: z.string().optional().meta({
     description: "ID of the stage this minion belongs to (optional, unstaged if absent)",
   }),
+  autonomyOverrides: z
+    .object({
+      circuitBreaker: z
+        .object({
+          enabled: z.boolean(),
+          softLimit: z.number().optional(),
+          hardLimit: z.number().optional(),
+        })
+        .optional(),
+      phases: z.object({ enabled: z.boolean() }).optional(),
+      siblingContext: z.object({ enabled: z.boolean() }).optional(),
+      challenger: z.object({ enabled: z.boolean() }).optional(),
+    })
+    .optional()
+    .meta({
+      description:
+        "Per-minion autonomy overrides (from preset or manual config). Merged with agent frontmatter autonomy config at session start.",
+    }),
 });
 
 export const ProjectConfigSchema = z.object({
@@ -135,8 +151,7 @@ export const ProjectConfigSchema = z.object({
     description: "Stages for organizing minions within this project",
   }),
   idleCompactionHours: z.number().min(1).nullable().optional().meta({
-    description:
-      "Hours of inactivity before auto-compacting minions. null/undefined = disabled.",
+    description: "Hours of inactivity before auto-compacting minions. null/undefined = disabled.",
   }),
   runtimeEnablement: RuntimeEnablementOverridesSchema.optional().meta({
     description: "Runtime enablement overrides (store `false` only to keep config.json minimal)",

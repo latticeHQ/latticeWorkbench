@@ -84,7 +84,7 @@ export class TelegramAdapter implements InboxChannelAdapter {
       const bot = new Bot(this.botToken);
 
       // Rate limiting: respects Telegram's global (30/s) and per-chat (1/s) limits
-      bot.api.config.use(apiThrottler());
+      bot.api.config.use(apiThrottler() as Parameters<typeof bot.api.config.use>[0]);
 
       // Sequentialization: per-chat ordering via @grammyjs/runner
       bot.use(
@@ -92,7 +92,7 @@ export class TelegramAdapter implements InboxChannelAdapter {
           const chatId = ctx.chat?.id.toString();
           const fromId = ctx.from?.id.toString();
           return chatId ?? fromId ?? "global";
-        }),
+        })
       );
 
       // Register message handler
@@ -221,7 +221,7 @@ export class TelegramAdapter implements InboxChannelAdapter {
   async sendMessage(
     to: string,
     text: string,
-    _opts?: { threadId?: string; accountId?: string },
+    _opts?: { threadId?: string; accountId?: string }
   ): Promise<void> {
     if (!this.bot) {
       log.warn("[TelegramAdapter] sendMessage called but bot is not connected");
@@ -268,7 +268,7 @@ export class TelegramAdapter implements InboxChannelAdapter {
     to: string,
     image: Buffer,
     caption?: string,
-    _opts?: { threadId?: string; accountId?: string },
+    _opts?: { threadId?: string; accountId?: string }
   ): Promise<void> {
     if (!this.bot) {
       log.warn("[TelegramAdapter] sendPhoto called but bot is not connected");
@@ -282,22 +282,21 @@ export class TelegramAdapter implements InboxChannelAdapter {
     }
 
     try {
-      await this.bot.api.sendPhoto(
-        to,
-        new InputFile(image, "response.png"),
-        { caption: caption ? caption.slice(0, 1024) : undefined },
-      );
+      await this.bot.api.sendPhoto(to, new InputFile(image, "response.png"), {
+        caption: caption ? caption.slice(0, 1024) : undefined,
+      });
     } catch (error) {
       log.error("[TelegramAdapter] Failed to send photo", { chatId: to, error });
       // Fallback: send as document if photo fails (e.g. image too large for photo)
       try {
-        await this.bot.api.sendDocument(
-          to,
-          new InputFile(image, "response.png"),
-          { caption: caption ? caption.slice(0, 1024) : undefined },
-        );
+        await this.bot.api.sendDocument(to, new InputFile(image, "response.png"), {
+          caption: caption ? caption.slice(0, 1024) : undefined,
+        });
       } catch (docError) {
-        log.error("[TelegramAdapter] Document fallback also failed", { chatId: to, error: docError });
+        log.error("[TelegramAdapter] Document fallback also failed", {
+          chatId: to,
+          error: docError,
+        });
       }
     }
   }
@@ -343,8 +342,7 @@ export class TelegramAdapter implements InboxChannelAdapter {
       ? [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(" ") || ctx.from.username
       : undefined;
 
-    const peerKind: "dm" | "group" =
-      ctx.chat.type === "private" ? "dm" : "group";
+    const peerKind: "dm" | "group" = ctx.chat.type === "private" ? "dm" : "group";
 
     const text = message.text ?? message.caption ?? "";
 
@@ -390,7 +388,7 @@ export class TelegramAdapter implements InboxChannelAdapter {
   private flushFragment(chatId: string, text: string, meta: FragmentMeta): void {
     if (!text.trim()) return;
 
-    const chatType = meta.peerKind === "dm" ? "direct" as const : "group" as const;
+    const chatType = meta.peerKind === "dm" ? ("direct" as const) : ("group" as const);
 
     const inbound: InboxInboundMessage = {
       channel: "telegram",

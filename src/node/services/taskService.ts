@@ -403,10 +403,7 @@ export class TaskService {
     minion: Pick<MinionConfigEntry, "id" | "name" | "path" | "runtimeConfig">;
     agentId: "exec" | "orchestrator";
   }): Promise<boolean> {
-    assert(
-      args.minionId.length > 0,
-      "isAgentEnabledForTaskMinion: minionId must be non-empty"
-    );
+    assert(args.minionId.length > 0, "isAgentEnabledForTaskMinion: minionId must be non-empty");
     assert(
       args.projectPath.length > 0,
       "isAgentEnabledForTaskMinion: projectPath must be non-empty"
@@ -424,19 +421,14 @@ export class TaskService {
       name: minionName,
     });
     const minionPath =
-      coerceNonEmptyString(args.minion.path) ??
-      runtime.getMinionPath(args.projectPath, minionName);
+      coerceNonEmptyString(args.minion.path) ?? runtime.getMinionPath(args.projectPath, minionName);
 
     if (!minionPath) {
       return false;
     }
 
     try {
-      const resolvedFrontmatter = await resolveAgentFrontmatter(
-        runtime,
-        minionPath,
-        args.agentId
-      );
+      const resolvedFrontmatter = await resolveAgentFrontmatter(runtime, minionPath, args.agentId);
       const cfg = this.config.loadConfigOrDefault();
       const effectivelyDisabled = isAgentEffectivelyDisabled({
         cfg,
@@ -458,10 +450,7 @@ export class TaskService {
     minionId: string;
     entry: {
       projectPath: string;
-      minion: Pick<
-        MinionConfigEntry,
-        "id" | "name" | "path" | "runtimeConfig" | "taskModelString"
-      >;
+      minion: Pick<MinionConfigEntry, "id" | "name" | "path" | "runtimeConfig" | "taskModelString">;
     };
     routing: PlanSidekickExecutorRouting;
     planContent: string | null;
@@ -509,8 +498,7 @@ export class TaskService {
       return "exec";
     }
 
-    const modelString =
-      coerceNonEmptyString(args.entry.minion.taskModelString) ?? defaultModel;
+    const modelString = coerceNonEmptyString(args.entry.minion.taskModelString) ?? defaultModel;
     assert(
       modelString.trim().length > 0,
       "resolvePlanAutoHandoffTargetAgentId: modelString must be non-empty"
@@ -1111,9 +1099,7 @@ export class TaskService {
       }
 
       const index = this.buildAgentTaskIndex(cfg);
-      if (
-        !this.isDescendantAgentTaskUsingParentById(index.parentById, ancestorMinionId, taskId)
-      ) {
+      if (!this.isDescendantAgentTaskUsingParentById(index.parentById, ancestorMinionId, taskId)) {
         return Err("Task is not a descendant of this minion");
       }
 
@@ -1174,10 +1160,7 @@ export class TaskService {
    * compatibility with existing call sites.
    */
   async terminateAllDescendantAgentTasks(minionId: string): Promise<string[]> {
-    assert(
-      minionId.length > 0,
-      "terminateAllDescendantAgentTasks: minionId must be non-empty"
-    );
+    assert(minionId.length > 0, "terminateAllDescendantAgentTasks: minionId must be non-empty");
 
     const interruptedTaskIds: string[] = [];
 
@@ -1589,10 +1572,7 @@ export class TaskService {
   }
 
   listActiveDescendantAgentTaskIds(minionId: string): string[] {
-    assert(
-      minionId.length > 0,
-      "listActiveDescendantAgentTaskIds: minionId must be non-empty"
-    );
+    assert(minionId.length > 0, "listActiveDescendantAgentTaskIds: minionId must be non-empty");
 
     const cfg = this.config.loadConfigOrDefault();
     const index = this.buildAgentTaskIndex(cfg);
@@ -1682,10 +1662,7 @@ export class TaskService {
     ancestorMinionId: string,
     taskIds: string[]
   ): Promise<string[]> {
-    assert(
-      ancestorMinionId.length > 0,
-      "filterDescendantAgentTaskIds: ancestorMinionId required"
-    );
+    assert(ancestorMinionId.length > 0, "filterDescendantAgentTaskIds: ancestorMinionId required");
     assert(Array.isArray(taskIds), "filterDescendantAgentTaskIds: taskIds must be an array");
 
     const cfg = this.config.loadConfigOrDefault();
@@ -1728,14 +1705,8 @@ export class TaskService {
     return result;
   }
 
-  private listDescendantAgentTaskIdsFromIndex(
-    index: AgentTaskIndex,
-    minionId: string
-  ): string[] {
-    assert(
-      minionId.length > 0,
-      "listDescendantAgentTaskIdsFromIndex: minionId must be non-empty"
-    );
+  private listDescendantAgentTaskIdsFromIndex(index: AgentTaskIndex, minionId: string): string[] {
+    assert(minionId.length > 0, "listDescendantAgentTaskIdsFromIndex: minionId must be non-empty");
 
     const result: string[] = [];
     const stack: string[] = [...(index.childrenByParent.get(minionId) ?? [])];
@@ -1920,10 +1891,7 @@ export class TaskService {
   ): number {
     assert(minionId.length > 0, "getTaskDepth: minionId must be non-empty");
 
-    return this.getTaskDepthFromParentById(
-      this.buildAgentTaskIndex(config).parentById,
-      minionId
-    );
+    return this.getTaskDepthFromParentById(this.buildAgentTaskIndex(config).parentById, minionId);
   }
 
   private getTaskDepthFromParentById(parentById: Map<string, string>, minionId: string): number {
@@ -2042,8 +2010,7 @@ export class TaskService {
       let forkedRuntimeConfig = taskRuntimeConfig;
 
       let minionPath =
-        coerceNonEmptyString(task.path) ??
-        runtime.getMinionPath(taskEntry.projectPath, minionName);
+        coerceNonEmptyString(task.path) ?? runtime.getMinionPath(taskEntry.projectPath, minionName);
 
       let minionExists = false;
       try {
@@ -2182,10 +2149,7 @@ export class TaskService {
       // This must reflect the *actual* minion HEAD after creation/fork, not the parent's current HEAD
       // (queued tasks can start much later).
       if (!coerceNonEmptyString(task.taskBaseCommitSha)) {
-        const taskBaseCommitSha = await tryReadGitHeadCommitSha(
-          runtimeForTaskMinion,
-          minionPath
-        );
+        const taskBaseCommitSha = await tryReadGitHeadCommitSha(runtimeForTaskMinion, minionPath);
         if (taskBaseCommitSha) {
           await this.editMinionEntry(
             taskId,
@@ -2715,8 +2679,7 @@ export class TaskService {
       const configuredModel = globalDefault?.modelString?.trim();
       const preferredModel =
         configuredModel && configuredModel.length > 0 ? configuredModel : parentActiveModel;
-      const resolvedModel =
-        preferredModel.length > 0 ? preferredModel : defaultModel;
+      const resolvedModel = preferredModel.length > 0 ? preferredModel : defaultModel;
       assert(
         resolvedModel.trim().length > 0,
         "handleSuccessfulProposePlanAutoHandoff: resolved model must be non-empty"
@@ -2808,10 +2771,8 @@ export class TaskService {
     }
 
     try {
-      await this.gitPatchArtifactService.maybeStartGeneration(
-        parentMinionId,
-        minionId,
-        (wsId) => this.requestReportedTaskCleanupRecheck(wsId)
+      await this.gitPatchArtifactService.maybeStartGeneration(parentMinionId, minionId, (wsId) =>
+        this.requestReportedTaskCleanupRecheck(wsId)
       );
     } catch (error: unknown) {
       log.error("Failed to start sidekick git patch generation", {
@@ -2823,10 +2784,7 @@ export class TaskService {
   }
 
   private requestReportedTaskCleanupRecheck(minionId: string): Promise<void> {
-    assert(
-      minionId.length > 0,
-      "requestReportedTaskCleanupRecheck: minionId must be non-empty"
-    );
+    assert(minionId.length > 0, "requestReportedTaskCleanupRecheck: minionId must be non-empty");
 
     return this.minionEventLocks.withLock(minionId, async () => {
       await this.cleanupReportedLeafTask(minionId);
@@ -2905,18 +2863,14 @@ export class TaskService {
     childEntry: { projectPath: string; minion: MinionConfigEntry } | null | undefined,
     reportArgs: { reportMarkdown: string; title?: string }
   ): Promise<void> {
-    assert(
-      childMinionId.length > 0,
-      "finalizeAgentTaskReport: childMinionId must be non-empty"
-    );
+    assert(childMinionId.length > 0, "finalizeAgentTaskReport: childMinionId must be non-empty");
     assert(
       typeof reportArgs.reportMarkdown === "string" && reportArgs.reportMarkdown.length > 0,
       "finalizeAgentTaskReport: reportMarkdown must be non-empty"
     );
 
     const cfgBeforeReport = this.config.loadConfigOrDefault();
-    const statusBefore = findMinionEntry(cfgBeforeReport, childMinionId)?.minion
-      .taskStatus;
+    const statusBefore = findMinionEntry(cfgBeforeReport, childMinionId)?.minion.taskStatus;
     if (statusBefore === "reported") {
       return;
     }
@@ -2943,9 +2897,7 @@ export class TaskService {
     const latestChildEntry = findMinionEntry(cfgAfterReport, childMinionId) ?? childEntry;
     const parentMinionId = latestChildEntry?.minion.parentMinionId;
     if (!parentMinionId) {
-      const reason = latestChildEntry
-        ? "missing parentMinionId"
-        : "minion not found in config";
+      const reason = latestChildEntry ? "missing parentMinionId" : "minion not found in config";
       log.debug("Ignoring agent_report: minion is not an agent task", {
         childMinionId,
         reason,
@@ -2957,10 +2909,7 @@ export class TaskService {
     }
 
     const parentById = this.buildAgentTaskIndex(cfgAfterReport).parentById;
-    const ancestorMinionIds = this.listAncestorMinionIdsUsingParentById(
-      parentById,
-      childMinionId
-    );
+    const ancestorMinionIds = this.listAncestorMinionIdsUsingParentById(parentById, childMinionId);
 
     // Persist the completed report in the session dirs of all ancestors so `task_await` can
     // retrieve it after cleanup/restart (even if the task minion itself is deleted).
@@ -2991,12 +2940,7 @@ export class TaskService {
 
     await this.maybeStartPatchGenerationForReportedTask(childMinionId);
 
-    await this.deliverReportToParent(
-      parentMinionId,
-      childMinionId,
-      latestChildEntry,
-      reportArgs
-    );
+    await this.deliverReportToParent(parentMinionId, childMinionId, latestChildEntry, reportArgs);
 
     // Resolve foreground waiters.
     this.resolveWaiters(childMinionId, reportArgs);
@@ -3165,7 +3109,10 @@ export class TaskService {
         name: entry.minion.name ?? minionId,
         runtimeConfig: entry.minion.runtimeConfig,
       };
-      const runtime = createRuntimeForMinion(metadata);
+      const runtime = createRuntimeForMinion({
+        ...metadata,
+        runtimeConfig: (metadata.runtimeConfig ?? { type: "local" }) as RuntimeConfig,
+      });
       const isInPlace = entry.projectPath === metadata.name;
       const minionPath = isInPlace
         ? entry.projectPath
@@ -3228,7 +3175,8 @@ export class TaskService {
 
     // Resolve model/agentId for the synthetic message
     const model = eventMetadata.model ?? defaultModel;
-    const agentId = eventMetadata.agentId ?? entry.minion.agentId ?? entry.minion.agentType ?? "exec";
+    const agentId =
+      eventMetadata.agentId ?? entry.minion.agentId ?? entry.minion.agentType ?? "exec";
 
     // Keep the task in running state
     await this.setTaskStatus(minionId, "running");
@@ -3258,10 +3206,7 @@ export class TaskService {
     childEntry: { projectPath: string; minion: MinionConfigEntry } | null | undefined,
     report: { reportMarkdown: string; title?: string }
   ): Promise<void> {
-    assert(
-      childMinionId.length > 0,
-      "deliverReportToParent: childMinionId must be non-empty"
-    );
+    assert(childMinionId.length > 0, "deliverReportToParent: childMinionId must be non-empty");
 
     const agentType = childEntry?.minion.agentType ?? "agent";
 
@@ -3319,10 +3264,7 @@ export class TaskService {
       synthetic: true,
     });
 
-    const appendResult = await this.historyService.appendToHistory(
-      parentMinionId,
-      reportMessage
-    );
+    const appendResult = await this.historyService.appendToHistory(parentMinionId, reportMessage);
     if (!appendResult.success) {
       log.error("Failed to append synthetic sidekick report to parent history", {
         parentMinionId,
