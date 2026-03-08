@@ -8,7 +8,7 @@
  */
 
 import React from "react";
-import { Brain, CircleDot, Clock, Columns3, ExternalLink, FolderTree, Globe, Network, RefreshCw, Terminal as TerminalIcon, X } from "lucide-react";
+import { Brain, Calendar, Clock, ExternalLink, FolderTree, Globe, Share2, RefreshCw, Megaphone, PenTool, X } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { FileIcon } from "../../FileIcon";
 import { formatTabDuration, type ReviewStats } from "./registry";
@@ -48,7 +48,7 @@ export const CostsTabLabel: React.FC<CostsTabLabelProps> = ({ minionId }) => {
 
   return (
     <>
-      Costs
+      Budget
       {sessionCost !== null && (
         <span className="text-muted text-[10px]">
           ${sessionCost < 0.01 ? "<0.01" : sessionCost.toFixed(2)}
@@ -62,10 +62,10 @@ interface ReviewTabLabelProps {
   reviewStats: ReviewStats | null;
 }
 
-/** Review tab label with read/total badge */
+/** Editorial tab label with read/total badge */
 export const ReviewTabLabel: React.FC<ReviewTabLabelProps> = ({ reviewStats }) => (
   <>
-    Review
+    Editorial
     {reviewStats !== null && reviewStats.total > 0 && (
       <span
         className={cn(
@@ -99,7 +99,7 @@ export const StatsTabLabel: React.FC<StatsTabLabelProps> = ({ minionId }) => {
 
   return (
     <>
-      Stats
+      Analytics
       {sessionDuration !== null && (
         <span className="text-muted text-[10px]">{formatTabDuration(sessionDuration)}</span>
       )}
@@ -107,11 +107,11 @@ export const StatsTabLabel: React.FC<StatsTabLabelProps> = ({ minionId }) => {
   );
 };
 
-/** Explorer tab label with folder tree icon */
+/** Assets tab label with folder tree icon */
 export const ExplorerTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
     <FolderTree className="h-3 w-3 shrink-0" />
-    Explorer
+    Assets
   </span>
 );
 
@@ -124,7 +124,7 @@ export const BrowserTabLabel: React.FC = () => (
 );
 
 export function OutputTabLabel() {
-  return <>Output</>;
+  return <>Feed</>;
 }
 
 interface FileTabLabelProps {
@@ -183,12 +183,12 @@ export const TerminalTabLabel: React.FC<TerminalTabLabelProps> = ({
   onPopOut,
   onClose,
 }) => {
-  const fallbackName = terminalIndex === 0 ? "Terminal" : `Terminal ${terminalIndex + 1}`;
+  const fallbackName = terminalIndex === 0 ? "Workspace" : `Workspace ${terminalIndex + 1}`;
   const displayName = dynamicTitle ?? fallbackName;
 
   return (
     <span className="inline-flex items-center gap-1">
-      <TerminalIcon className="h-3 w-3 shrink-0" />
+      <PenTool className="h-3 w-3 shrink-0" />
       <span className="max-w-[20ch] min-w-0 truncate">{displayName}</span>
       <Tooltip>
         <TooltipTrigger asChild>
@@ -228,27 +228,27 @@ export const TerminalTabLabel: React.FC<TerminalTabLabelProps> = ({
   );
 };
 
-/** Kanban board tab label — shows column icon + "Board" text. */
+/** Content calendar tab label — shows calendar icon + "Calendar" text. */
 export const KanbanTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
-    <Columns3 className="h-3 w-3 shrink-0" />
-    Board
+    <Calendar className="h-3 w-3 shrink-0" />
+    Calendar
   </span>
 );
 
-/** Issues tab label — shows GitHub issues icon + "Issues" text. */
+/** Campaigns tab label — shows megaphone icon + "Campaigns" text. */
 export const IssuesTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
-    <CircleDot className="h-3 w-3 shrink-0" />
-    Issues
+    <Megaphone className="h-3 w-3 shrink-0" />
+    Campaigns
   </span>
 );
 
-/** Inference cluster tab label — shows network icon + "Cluster" text. */
+/** Platforms tab label — shows share icon + "Platforms" text. */
 export const InferenceTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
-    <Network className="h-3 w-3 shrink-0" />
-    Cluster
+    <Share2 className="h-3 w-3 shrink-0" />
+    Platforms
   </span>
 );
 
@@ -268,10 +268,10 @@ export const SyncTabLabel: React.FC = () => (
   </span>
 );
 
-/** Reflections tab label — shows brain icon + "Reflections" text. */
+/** Insights tab label — shows brain icon + "Insights" text. */
 export const ReflectionsTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
     <Brain className="h-3 w-3 shrink-0" />
-    Reflections
+    Insights
   </span>
 );

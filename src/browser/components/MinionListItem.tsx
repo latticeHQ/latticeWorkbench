@@ -175,7 +175,7 @@ function DraftMinionListItemInner(props: DraftMinionListItemProps) {
       role="button"
       tabIndex={0}
       aria-current={isSelected ? "true" : undefined}
-      aria-label={`Open minion draft ${draft.draftNumber}`}
+      aria-label={`Open campaign draft ${draft.draftNumber}`}
       data-project-path={projectPath}
       data-draft-id={draft.draftId}
     >
@@ -198,7 +198,7 @@ function DraftMinionListItemInner(props: DraftMinionListItemProps) {
                 e.stopPropagation();
                 draft.onDelete();
               }}
-              aria-label={`Delete minion draft ${draft.draftNumber}`}
+              aria-label={`Delete campaign draft ${draft.draftNumber}`}
               data-project-path={projectPath}
               data-draft-id={draft.draftId}
             >
@@ -456,12 +456,12 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
         aria-current={isSelected ? "true" : undefined}
         aria-label={
           isRemoving
-            ? `Deleting minion ${displayTitle}`
+            ? `Deleting campaign ${displayTitle}`
             : isInitializing
-              ? `Summoning minion ${displayTitle}`
+              ? `Launching campaign ${displayTitle}`
               : isArchiving
-                ? `Benching minion ${displayTitle}`
-                : `Select minion ${displayTitle}`
+                ? `Archiving campaign ${displayTitle}`
+                : `Select campaign ${displayTitle}`
         }
         aria-disabled={isDisabled}
         data-minion-path={namedMinionPath}
@@ -495,8 +495,8 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
                   }}
                   aria-label={
                     isRemoving
-                      ? `Deleting minion ${displayTitle}`
-                      : `Cancel minion summoning ${displayTitle}`
+                      ? `Deleting campaign ${displayTitle}`
+                      : `Cancel campaign launch ${displayTitle}`
                   }
                   data-minion-id={minionId}
                 >
@@ -543,7 +543,7 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
                       "[@media(hover:none)_and_(pointer:coarse)]:invisible [@media(hover:none)_and_(pointer:coarse)]:pointer-events-none"
                     )}
                     onClick={(e) => e.stopPropagation()}
-                    aria-label={`Minion actions for ${displayTitle}`}
+                    aria-label={`Campaign actions for ${displayTitle}`}
                     data-minion-id={minionId}
                   >
                     <Ellipsis className="h-3 w-3" />
@@ -627,7 +627,7 @@ function RegularMinionListItemInner(props: MinionListItemProps) {
                 onBlur={() => void handleConfirmEdit()}
                 autoFocus
                 onClick={(e) => e.stopPropagation()}
-                aria-label={`Edit title for minion ${displayTitle}`}
+                aria-label={`Edit title for campaign ${displayTitle}`}
                 data-minion-id={minionId}
               />
             ) : (

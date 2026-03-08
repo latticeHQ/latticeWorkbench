@@ -103,21 +103,21 @@ export type StageColorName = (typeof STAGE_COLOR_PALETTE)[number][0];
 export const DEFAULT_STAGE_COLOR = STAGE_COLOR_PALETTE[0][1];
 
 /**
- * Default 10-stage software delivery pipeline.
+ * Default 10-stage content delivery pipeline.
  * Seeded automatically for projects that have no stages yet.
  * Order matters — it defines the linked-list sequence in the sidebar.
  */
 export const DEFAULT_PIPELINE_STAGES: ReadonlyArray<{ name: string; color: string }> = [
-  { name: "Intake", color: "Pink" },
-  { name: "Discovery", color: "Blue" },
-  { name: "Planning", color: "Yellow" },
-  { name: "Build", color: "Green" },
-  { name: "Test", color: "Orange" },
-  { name: "Review", color: "Red" },
-  { name: "Docs", color: "Cyan" },
-  { name: "Deploy", color: "Teal" },
-  { name: "Monitor", color: "Slate" },
-  { name: "Learning", color: "Gray" },
+  { name: "Research", color: "Blue" },
+  { name: "Strategy", color: "Yellow" },
+  { name: "Create", color: "Green" },
+  { name: "Edit", color: "Orange" },
+  { name: "Schedule", color: "Cyan" },
+  { name: "Publish", color: "Red" },
+  { name: "Engage", color: "Pink" },
+  { name: "Analyze", color: "Teal" },
+  { name: "Optimize", color: "Slate" },
+  { name: "Archive", color: "Gray" },
 ];
 
 /**

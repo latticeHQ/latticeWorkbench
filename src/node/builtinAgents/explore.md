@@ -1,6 +1,6 @@
 ---
 name: Explore
-description: Read-only exploration of repository, environment, web, etc. Useful for investigation before making changes.
+description: Research markets, analyze content, explore platforms, and gather competitive intelligence.
 base: exec
 ui:
   hidden: true

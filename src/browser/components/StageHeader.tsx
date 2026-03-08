@@ -222,12 +222,12 @@ export const StageHeader: React.FC<StageHeaderProps> = ({
             <button
               onClick={onAddMinion}
               className="text-secondary hover:text-foreground hover:bg-hover flex h-5 w-5 cursor-pointer items-center justify-center rounded border-none bg-transparent p-0 text-sm transition-colors"
-              aria-label="Summon minion in stage"
+              aria-label="Launch campaign in stage"
             >
               +
             </button>
           </TooltipTrigger>
-          <TooltipContent>Summon minion</TooltipContent>
+          <TooltipContent>Launch campaign</TooltipContent>
         </Tooltip>
       </div>
     </div>

@@ -1,6 +1,6 @@
 ---
 name: Orchestrator
-description: Coordinate sidekick implementation and apply patches
+description: Coordinate content campaigns and manage cross-platform publishing
 base: exec
 ui:
   requires:
