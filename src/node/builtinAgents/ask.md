@@ -1,6 +1,6 @@
 ---
 name: Ask
-description: Delegate questions to Explore sub-agents and synthesize an answer.
+description: Research markets, analyze content performance, and synthesize insights.
 base: exec
 ui:
   color: var(--color-ask-mode)

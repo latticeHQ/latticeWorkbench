@@ -31,19 +31,19 @@ interface StepMeta { order: number; icon: string; label: string }
 function classifyStep(agentId?: string): StepMeta {
   if (!agentId) return { order: 99, icon: "🤖", label: "Agent" };
   const id = agentId.toLowerCase();
-  if (id.includes("explor"))  return { order: 0, icon: "🔍", label: "Explorer"    };
-  if (id.includes("research"))return { order: 0, icon: "📚", label: "Researcher"  };
-  if (id.includes("plan"))    return { order: 1, icon: "📐", label: "Planner"     };
-  if (id.includes("arch"))    return { order: 1, icon: "🏗️",  label: "Architect"   };
-  if (id.includes("cod"))     return { order: 2, icon: "✍️",  label: "Lattice"       };
-  if (id.includes("build"))   return { order: 2, icon: "🔨", label: "Builder"     };
-  if (id.includes("exec"))    return { order: 2, icon: "⚡", label: "Executor"    };
-  if (id.includes("impl"))    return { order: 2, icon: "⚙️",  label: "Implementer" };
-  if (id.includes("test"))    return { order: 3, icon: "🧪", label: "Tester"      };
+  if (id.includes("explor"))  return { order: 0, icon: "🔍", label: "Researcher"   };
+  if (id.includes("research"))return { order: 0, icon: "📊", label: "Analyst"      };
+  if (id.includes("plan"))    return { order: 1, icon: "🎯", label: "Strategist"   };
+  if (id.includes("arch"))    return { order: 1, icon: "📋", label: "Planner"      };
+  if (id.includes("cod"))     return { order: 2, icon: "✍️",  label: "Writer"       };
+  if (id.includes("build"))   return { order: 2, icon: "📝", label: "Creator"      };
+  if (id.includes("exec"))    return { order: 2, icon: "⚡", label: "Producer"     };
+  if (id.includes("impl"))    return { order: 2, icon: "🖊️",  label: "Copywriter"  };
+  if (id.includes("test"))    return { order: 3, icon: "✏️",  label: "Editor"       };
   if (id.includes("review"))  return { order: 4, icon: "👁️",  label: "Reviewer"    };
-  if (id.includes("qa"))      return { order: 4, icon: "🛡️",  label: "QA"          };
-  if (id.includes("fix"))     return { order: 3, icon: "🔧", label: "Fixer"       };
-  if (id.includes("deploy"))  return { order: 5, icon: "🚀", label: "Deployer"    };
+  if (id.includes("qa"))      return { order: 4, icon: "✅", label: "Fact-Check"   };
+  if (id.includes("fix"))     return { order: 3, icon: "🔧", label: "Reviser"      };
+  if (id.includes("deploy"))  return { order: 5, icon: "📢", label: "Publisher"    };
   if (id.includes("claude"))  return { order: 2, icon: "✦",  label: "Claude"      };
   if (id.includes("gemini"))  return { order: 2, icon: "✧",  label: "Gemini"      };
   if (id.includes("codex"))   return { order: 2, icon: "⬡",  label: "Codex"       };
@@ -151,8 +151,8 @@ function StageCostBadge({
 // ─────────────────────────────────────────────────────────────────────────────
 // Minion service node card
 // ─────────────────────────────────────────────────────────────────────────────
-function ServiceNode({ ws, sidekicks, accent, onOpen }: {
-  ws: FrontendMinionMetadata; sidekicks: FrontendMinionMetadata[];
+function ServiceNode({ ws, contributors, accent, onOpen }: {
+  ws: FrontendMinionMetadata; contributors: FrontendMinionMetadata[];
   accent: string; onOpen: (ws: FrontendMinionMetadata) => void;
 }) {
   const state   = useMinionSidebarState(ws.id);
@@ -167,8 +167,8 @@ function ServiceNode({ ws, sidekicks, accent, onOpen }: {
   const tok     = usage.totalTokens;
 
   const sorted = useMemo(
-    () => [...sidekicks].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
-    [sidekicks]
+    () => [...contributors].sort((a, b) => classifyStep(a.agentId).order - classifyStep(b.agentId).order),
+    [contributors]
   );
   const activeSubMeta = useMemo(
     () => { const a = sorted.find(s => s.taskStatus === "running"); return a ? classifyStep(a.agentId) : null; },
@@ -358,7 +358,7 @@ function StageBox({
           {minions.map(ws => (
             <ServiceNode
               key={ws.id} ws={ws}
-              sidekicks={childrenByParent.get(ws.id) ?? []}
+              contributors={childrenByParent.get(ws.id) ?? []}
               accent={color} onOpen={onOpen}
             />
           ))}
@@ -436,7 +436,7 @@ function PhaseGroup({
           <div className="ml-auto flex items-center gap-2">
             {!phaseActive && (
               <span className="text-[8px] text-muted/30">
-                {phaseStages.reduce((sum, s) => sum + (minionsByStage.get(s.id) ?? []).length, 0)} missions
+                {phaseStages.reduce((sum, s) => sum + (minionsByStage.get(s.id) ?? []).length, 0)} campaigns
               </span>
             )}
             <StageCostBadge minions={phaseMinions} />
@@ -492,7 +492,7 @@ function MetricsBar({ totalMissions, activeMissions, totalSidekicks, stageCount,
         <div className="h-6 w-6 flex items-center justify-center rounded-md border border-border/35 bg-background-secondary">
           <Layers className="h-3 w-3 text-muted/55" />
         </div>
-        <span className="text-foreground/40 text-[9px] font-bold uppercase tracking-widest">Agent Network</span>
+        <span className="text-foreground/40 text-[9px] font-bold uppercase tracking-widest">Content Network</span>
       </div>
       <div className="w-px h-4 bg-border/25 shrink-0" />
       {activeMissions > 0 ? (
@@ -505,11 +505,11 @@ function MetricsBar({ totalMissions, activeMissions, totalSidekicks, stageCount,
         </span>
       )}
       <span className="text-muted/45 shrink-0">
-        <strong className="text-foreground/65">{totalMissions}</strong> missions
+        <strong className="text-foreground/65">{totalMissions}</strong> campaigns
       </span>
       {totalSidekicks > 0 && (
         <span className="text-muted/45 shrink-0">
-          <strong className="text-foreground/65">{totalSidekicks}</strong> sidekicks
+          <strong className="text-foreground/65">{totalSidekicks}</strong> contributors
         </span>
       )}
       <span className="text-muted/45 shrink-0">
@@ -657,7 +657,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
             style={{ gridTemplateColumns: "repeat(auto-fill, minmax(175px, 1fr))" }}>
             {unstaged.map(ws => (
               <ServiceNode key={ws.id} ws={ws}
-                sidekicks={childrenByParent.get(ws.id) ?? []}
+                contributors={childrenByParent.get(ws.id) ?? []}
                 accent="#6b7280" onOpen={handleOpen} />
             ))}
           </div>
@@ -666,7 +666,7 @@ export function ProjectHQOverview({ projectPath, projectName: _pn }: {
 
       {rootMinions.length === 0 && stages.length > 0 && (
         <p className="text-center text-[10.5px] text-muted/30 py-2">
-          No missions yet — dispatch one with the wizard above ↑
+          No campaigns yet — launch one with the wizard above ↑
         </p>
       )}
     </div>

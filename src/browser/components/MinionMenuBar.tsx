@@ -580,7 +580,7 @@ export const MinionIconStrip: React.FC<{
             ? `Archive "${props.minionTitle}" while streaming?`
             : "Archive chat?"
         }
-        description="This minion is currently streaming a response."
+        description="This campaign is currently streaming a response."
         warning="Archiving will interrupt the active stream."
         confirmLabel="Archive"
         onConfirm={() => {
