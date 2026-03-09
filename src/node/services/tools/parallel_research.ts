@@ -12,7 +12,7 @@ export const createParallelResearchTool: ToolFactory = (config: ToolConfiguratio
   tool({
     description: TOOL_DEFINITIONS.parallel_research.description,
     inputSchema: TOOL_DEFINITIONS.parallel_research.schema,
-    execute: async ({ query }): Promise<ParallelResearchToolResult> => {
+    execute: async ({ query, processor, output_schema }): Promise<ParallelResearchToolResult> => {
       const apiKey = config.secrets?.PARALLEL_API_KEY;
       if (!apiKey) {
         return {
@@ -27,11 +27,21 @@ export const createParallelResearchTool: ToolFactory = (config: ToolConfiguratio
         const { Parallel } = await import("parallel-web");
         const client = new Parallel({ apiKey });
 
+        // Build optional task spec for structured output
+        const taskSpec: Record<string, unknown> = {};
+        if (output_schema != null) {
+          taskSpec.output_schema = {
+            type: "json",
+            json_schema: { description: output_schema },
+          };
+        }
+
         // Create a task run for deep research
         const run = await client.taskRun.create({
           input: query,
-          processor: "research",
-        });
+          processor: processor ?? "research",
+          ...(Object.keys(taskSpec).length > 0 ? { task_spec: taskSpec } : {}),
+        } as any);
 
         // Poll for result with timeout
         const result = await client.taskRun.result(run.run_id, {

@@ -33,6 +33,10 @@ import {
 import { createParallelSearchTool } from "@/node/services/tools/parallel_search";
 import { createParallelExtractTool } from "@/node/services/tools/parallel_extract";
 import { createParallelResearchTool } from "@/node/services/tools/parallel_research";
+import { createParallelFindAllTool } from "@/node/services/tools/parallel_findall";
+import { createParallelChatTool } from "@/node/services/tools/parallel_chat";
+import { createParallelBatchTool } from "@/node/services/tools/parallel_batch";
+import { createParallelMonitorTool } from "@/node/services/tools/parallel_monitor";
 import { createCoreBrowserTools } from "@/node/services/tools/browser";
 import { wrapWithInitWait } from "@/node/services/tools/wrapWithInitWait";
 import { withHooks, type HookConfig } from "@/node/services/tools/withHooks";
@@ -350,6 +354,10 @@ export async function getToolsForModel(
     parallel_search: createParallelSearchTool(config),
     parallel_extract: createParallelExtractTool(config),
     parallel_research: createParallelResearchTool(config),
+    parallel_findall: createParallelFindAllTool(config),
+    parallel_chat: createParallelChatTool(config),
+    parallel_batch: createParallelBatchTool(config),
+    parallel_monitor: createParallelMonitorTool(config),
   };
 
   // Base tools available for all models

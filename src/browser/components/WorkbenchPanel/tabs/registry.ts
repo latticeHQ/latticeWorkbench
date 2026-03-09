@@ -79,7 +79,18 @@ export interface TabConfig {
 
 /** Static tab configurations (non-terminal tabs) */
 export const TAB_CONFIGS: Record<
-  "costs" | "review" | "browser" | "explorer" | "stats" | "output" | "kanban" | "issues" | "inference" | "schedules" | "sync" | "reflections",
+  | "costs"
+  | "review"
+  | "browser"
+  | "explorer"
+  | "stats"
+  | "output"
+  | "kanban"
+  | "issues"
+  | "inference"
+  | "schedules"
+  | "sync"
+  | "reflections",
   TabConfig
 > = {
   costs: {
@@ -130,6 +141,10 @@ export const TAB_CONFIGS: Record<
   reflections: {
     name: "Insights",
     contentClassName: "overflow-y-auto p-[15px]",
+  },
+  integrations: {
+    name: "Integrations",
+    contentClassName: "overflow-y-auto p-0",
   },
 };
 

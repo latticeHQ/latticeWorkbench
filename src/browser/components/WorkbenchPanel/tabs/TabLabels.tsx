@@ -8,7 +8,20 @@
  */
 
 import React from "react";
-import { Brain, Calendar, Clock, ExternalLink, FolderTree, Globe, Share2, RefreshCw, Megaphone, PenTool, X } from "lucide-react";
+import {
+  Brain,
+  Calendar,
+  Clock,
+  ExternalLink,
+  FolderTree,
+  Globe,
+  Plug,
+  Share2,
+  RefreshCw,
+  Megaphone,
+  PenTool,
+  X,
+} from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { FileIcon } from "../../FileIcon";
 import { formatTabDuration, type ReviewStats } from "./registry";
@@ -273,5 +286,13 @@ export const ReflectionsTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
     <Brain className="h-3 w-3 shrink-0" />
     Insights
+  </span>
+);
+
+/** Integrations tab label — shows plug icon + "Integrations" text. */
+export const IntegrationsTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Plug className="h-3 w-3 shrink-0" />
+    Integrations
   </span>
 );

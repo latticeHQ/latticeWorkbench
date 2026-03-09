@@ -35,6 +35,7 @@ import {
   STATUS_MESSAGE_MAX_LENGTH,
   WEB_FETCH_MAX_OUTPUT_BYTES,
   PARALLEL_MAX_OUTPUT_BYTES,
+  PARALLEL_BATCH_MAX_ITEMS,
 } from "@/common/constants/toolLimits";
 import { TOOL_EDIT_WARNING } from "@/common/types/tools";
 import { SYSTEM1_BASH_OUTPUT_COMPACTION_LIMITS } from "@/common/types/tasks";
@@ -1122,6 +1123,127 @@ export const TOOL_DEFINITIONS = {
         .describe(
           "Research question or topic to investigate deeply. Be specific for better results."
         ),
+      processor: z
+        .enum(["base", "core", "research", "ultra"])
+        .nullish()
+        .describe(
+          "Processor tier — 'base' is fastest, 'ultra' is most thorough (default: 'research')"
+        ),
+      output_schema: z
+        .string()
+        .nullish()
+        .describe(
+          "Optional description of desired JSON output structure for structured results"
+        ),
+    }),
+  },
+  parallel_findall: {
+    description:
+      `Discover entities matching a natural language objective using Parallel AI FindAll. ` +
+      `Searches the web at scale to find matching companies, people, products, or any entity type. ` +
+      `Returns a list of validated candidates with names, URLs, and citation-backed match status. ` +
+      `Takes 30s-5min depending on generator tier. ` +
+      `Output is truncated to ${Math.floor(PARALLEL_MAX_OUTPUT_BYTES / 1024)}KB. ` +
+      `Requires PARALLEL_API_KEY secret to be configured.`,
+    schema: z.object({
+      objective: z
+        .string()
+        .min(1)
+        .describe(
+          "Natural language description of what entities to find (e.g. 'SaaS companies in fintech with >100 employees')"
+        ),
+      generator: z
+        .enum(["preview", "base", "core", "pro"])
+        .nullish()
+        .describe(
+          "Generator tier — 'preview' is fastest (~10 results), 'pro' is most thorough (default: 'preview')"
+        ),
+      match_limit: z
+        .number()
+        .int()
+        .min(5)
+        .max(100)
+        .nullish()
+        .describe("Maximum number of matching entities to return (default: 10, range: 5-100)"),
+    }),
+  },
+  parallel_chat: {
+    description:
+      `Ask a question with live web-grounded answers using Parallel AI Chat. ` +
+      `Returns an AI-generated answer backed by real-time web citations and confidence scores. ` +
+      `Best for factual questions, current events, and queries needing up-to-date information. ` +
+      `Output is truncated to ${Math.floor(PARALLEL_MAX_OUTPUT_BYTES / 1024)}KB. ` +
+      `Requires PARALLEL_API_KEY secret to be configured.`,
+    schema: z.object({
+      message: z
+        .string()
+        .min(1)
+        .describe("The question or prompt to answer with web-grounded information"),
+      model: z
+        .enum(["speed", "lite", "base", "core"])
+        .nullish()
+        .describe(
+          "Model tier — 'speed' (~3s), 'lite' (~30s), 'base' (~60s), 'core' (~3min) (default: 'base')"
+        ),
+      response_format: z
+        .string()
+        .nullish()
+        .describe(
+          "Optional JSON schema description for structured output (e.g. '{ name: string, price: number }')"
+        ),
+    }),
+  },
+  parallel_batch: {
+    description:
+      `Process multiple items in parallel using Parallel AI Task Groups. ` +
+      `Submit 1-${PARALLEL_BATCH_MAX_ITEMS} items that each get independently researched and processed. ` +
+      `Ideal for batch lookups, data enrichment, CRM enrichment, or processing lists of queries. ` +
+      `Returns results for each item with optional sources. Takes 1-10 minutes. ` +
+      `Output is truncated to ${Math.floor(PARALLEL_MAX_OUTPUT_BYTES / 1024)}KB. ` +
+      `Requires PARALLEL_API_KEY secret to be configured.`,
+    schema: z.object({
+      items: z
+        .array(z.string().min(1))
+        .min(1)
+        .max(PARALLEL_BATCH_MAX_ITEMS)
+        .describe(
+          `Array of items/queries to process in parallel (1-${PARALLEL_BATCH_MAX_ITEMS})`
+        ),
+      processor: z
+        .enum(["base", "core", "research"])
+        .nullish()
+        .describe("Processor tier — 'research' is most thorough (default: 'base')"),
+      output_schema: z
+        .string()
+        .nullish()
+        .describe("Optional description of desired JSON output format for each item"),
+    }),
+  },
+  parallel_monitor: {
+    description:
+      `Create and manage web change monitors using Parallel AI Monitor (alpha). ` +
+      `Monitors continuously track the web for changes relevant to a query at a specified frequency. ` +
+      `Use action 'create' to set up a new monitor, 'check' to get latest events, ` +
+      `'list' to see all monitors, or 'delete' to remove one. ` +
+      `Requires PARALLEL_API_KEY secret to be configured.`,
+    schema: z.object({
+      action: z
+        .enum(["create", "check", "list", "delete"])
+        .describe(
+          "Operation: 'create' a new monitor, 'check' events, 'list' all monitors, or 'delete' a monitor"
+        ),
+      query: z
+        .string()
+        .nullish()
+        .describe("Search query to monitor for changes (required for 'create' action)"),
+      frequency: z
+        .enum(["1h", "1d", "1w"])
+        .nullish()
+        .describe("How often to check for changes (default: '1d', used with 'create')"),
+      monitor_id: z
+        .string()
+        .nullish()
+        .describe("Monitor ID (required for 'check' and 'delete' actions)"),
     }),
   },
   code_execution: {
@@ -1685,6 +1807,102 @@ export const ParallelResearchToolResultSchema = z.union([
 ]);
 
 /**
+ * Parallel AI FindAll tool result - entity discovery candidates or error.
+ */
+export const ParallelFindAllToolResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    candidates: z.array(
+      z.object({
+        name: z.string(),
+        url: z.string().optional(),
+        match_status: z.string().optional(),
+        citations: z.array(z.string()).optional(),
+      })
+    ),
+    objective: z.string(),
+    total: z.number(),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
+/**
+ * Parallel AI Chat tool result - web-grounded answer or error.
+ */
+export const ParallelChatToolResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    answer: z.string(),
+    citations: z.array(z.string()).optional(),
+    model: z.string().optional(),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
+/**
+ * Parallel AI Batch tool result - processed items or error.
+ */
+export const ParallelBatchToolResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    results: z.array(
+      z.object({
+        input: z.string(),
+        output: z.string(),
+        sources: z.array(z.string()).optional(),
+      })
+    ),
+    total: z.number(),
+    completed: z.number(),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
+/**
+ * Parallel AI Monitor tool result - varies by action.
+ */
+export const ParallelMonitorToolResultSchema = z.union([
+  z.object({
+    success: z.literal(true),
+    action: z.string(),
+    monitor_id: z.string().optional(),
+    monitors: z
+      .array(
+        z.object({
+          id: z.string(),
+          query: z.string(),
+          frequency: z.string(),
+          status: z.string().optional(),
+        })
+      )
+      .optional(),
+    events: z
+      .array(
+        z.object({
+          timestamp: z.string().optional(),
+          summary: z.string().optional(),
+          url: z.string().optional(),
+        })
+      )
+      .optional(),
+    message: z.string().optional(),
+  }),
+  z.object({
+    success: z.literal(false),
+    error: z.string(),
+  }),
+]);
+
+/**
  * Names of tools that are bridgeable to PTC sandbox.
  * If adding a new tool here, you must also add its result schema below.
  */
@@ -1796,6 +2014,10 @@ export function getAvailableTools(
     "parallel_search",
     "parallel_extract",
     "parallel_research",
+    "parallel_findall",
+    "parallel_chat",
+    "parallel_batch",
+    "parallel_monitor",
     // Lattice SDK progressive disclosure (code execution pattern)
     "lattice_list_categories",
     "lattice_search_tools",

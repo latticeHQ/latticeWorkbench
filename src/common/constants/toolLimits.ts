@@ -34,3 +34,26 @@ export const PARALLEL_RESEARCH_TIMEOUT_MS = 120_000; // 2min total
 export const PARALLEL_RESEARCH_POLL_INTERVAL_MS = 3_000; // 3s poll
 export const PARALLEL_RESEARCH_MAX_POLLS = 40; // max poll iterations
 export const PARALLEL_MAX_OUTPUT_BYTES = 64 * 1024; // 64KB output
+
+// Parallel AI FindAll tool limits
+export const PARALLEL_FINDALL_TIMEOUT_MS = 300_000; // 5min max
+export const PARALLEL_FINDALL_POLL_INTERVAL_MS = 5_000; // 5s poll
+export const PARALLEL_FINDALL_MAX_POLLS = 60; // max poll iterations
+
+// Parallel AI Chat tool limits (per-model timeouts)
+export const PARALLEL_CHAT_TIMEOUT_MS: Record<string, number> = {
+  speed: 10_000,
+  lite: 60_000,
+  base: 120_000,
+  core: 300_000,
+};
+export const PARALLEL_CHAT_DEFAULT_TIMEOUT_MS = 120_000; // fallback
+
+// Parallel AI Batch (Task Group) tool limits
+export const PARALLEL_BATCH_TIMEOUT_MS = 600_000; // 10min total
+export const PARALLEL_BATCH_POLL_INTERVAL_MS = 5_000; // 5s poll
+export const PARALLEL_BATCH_MAX_POLLS = 120; // max poll iterations
+export const PARALLEL_BATCH_MAX_ITEMS = 50; // max items per batch
+
+// Parallel AI Monitor tool limits
+export const PARALLEL_MONITOR_TIMEOUT_MS = 30_000; // 30s per API call

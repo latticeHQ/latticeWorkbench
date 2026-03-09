@@ -88,6 +88,7 @@ import {
   SchedulesTabLabel,
   SyncTabLabel,
   ReflectionsTabLabel,
+  IntegrationsTabLabel,
   OutputTabLabel,
   FileTabLabel,
   ReviewTabLabel,
@@ -104,6 +105,7 @@ import { InferenceTab } from "./WorkbenchPanel/InferenceTab";
 import { SchedulesTab } from "./WorkbenchPanel/SchedulesTab";
 import { SyncTab } from "./WorkbenchPanel/SyncTab";
 import { ReflectionsTab } from "./WorkbenchPanel/ReflectionsTab";
+import { IntegrationsTab } from "./WorkbenchPanel/IntegrationsTab";
 import { useMinionSidebarState } from "@/browser/stores/MinionStore";
 import {
   DndContext,
@@ -158,7 +160,13 @@ const SidebarContainer: React.FC<SidebarContainerProps> = ({
 }) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   // When fillWidth is true (chat pane collapsed), sidebar stretches via flex-1 instead of a fixed width.
-  const width = fillWidth ? undefined : collapsed ? "20px" : customWidth ? `${customWidth}px` : "400px";
+  const width = fillWidth
+    ? undefined
+    : collapsed
+      ? "20px"
+      : customWidth
+        ? `${customWidth}px`
+        : "400px";
 
   React.useEffect(() => {
     const container = containerRef.current;
@@ -433,6 +441,8 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
       label = <SyncTabLabel />;
     } else if (tab === "reflections") {
       label = <ReflectionsTabLabel />;
+    } else if (tab === "integrations") {
+      label = <IntegrationsTabLabel />;
     } else if (isTerminal) {
       const terminalIndex = terminalTabs.indexOf(tab);
       label = (
@@ -707,6 +717,12 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
             <ReflectionsTab minionId={props.minionId} />
           </div>
         )}
+
+        {props.node.activeTab === "integrations" && (
+          <div role="tabpanel" className="h-full">
+            <IntegrationsTab minionId={props.minionId} />
+          </div>
+        )}
       </div>
     </div>
   );
@@ -853,7 +869,8 @@ const WorkbenchPanelComponent: React.FC<WorkbenchPanelProps> = ({
 
   const getBaseLayout = React.useCallback(() => {
     return (
-      layoutDraftRef.current ?? parseWorkbenchPanelLayoutState(layoutRawRef.current, initialActiveTab)
+      layoutDraftRef.current ??
+      parseWorkbenchPanelLayoutState(layoutRawRef.current, initialActiveTab)
     );
   }, [initialActiveTab]);
 
@@ -1064,122 +1081,124 @@ const WorkbenchPanelComponent: React.FC<WorkbenchPanelProps> = ({
     void Promise.all([
       api.terminal.listSessions({ minionId }),
       api.kanban.list({ minionId }).catch(() => []),
-    ]).then(([backendSessions, kanbanCards]) => {
-      if (cancelled) return;
+    ])
+      .then(([backendSessions, kanbanCards]) => {
+        if (cancelled) return;
 
-      // listSessions is the source of truth for which tabs to show (live PTYs only).
-      const backendSessionSet = new Set(backendSessions.map((s) => s.sessionId));
+        // listSessions is the source of truth for which tabs to show (live PTYs only).
+        const backendSessionSet = new Set(backendSessions.map((s) => s.sessionId));
 
-      // Build a profileId/profileName lookup from both sources for name enrichment.
-      const profileLookup = new Map<
-        string,
-        { profileId?: string | null; profileName?: string }
-      >();
-      for (const s of backendSessions) {
-        profileLookup.set(s.sessionId, { profileId: s.profileId });
-      }
-      // Enrich with kanban card metadata (profileName is the display name).
-      for (const card of kanbanCards) {
-        if (!backendSessionSet.has(card.sessionId)) continue; // Only enrich live sessions
-        const existing = profileLookup.get(card.sessionId);
-        profileLookup.set(card.sessionId, {
-          profileId: existing?.profileId ?? card.profileId ?? null,
-          profileName: card.profileName,
-        });
-      }
-
-      // Use functional updater so we always read the *current* layout state,
-      // not a stale closure capture. This prevents races where layout changes
-      // between the API call start and its resolution (e.g. promotion effect
-      // or user interaction modified the layout while we were fetching).
-      setLayout((prev) => {
-        const currentTabs = collectAllTabs(prev.root);
-        const currentTerminalTabs = currentTabs.filter(isTerminalTab);
-        const currentTerminalSessionIds = new Set(
-          currentTerminalTabs.map(getTerminalSessionId).filter(Boolean)
-        );
-
-        // Find live sessions that don't have tabs yet (add them)
-        const missingSessions = backendSessions.filter(
-          (s) => !currentTerminalSessionIds.has(s.sessionId)
-        );
-
-        // Find tabs for sessions that no longer exist in backend (remove them).
-        // Skip bare "terminal" placeholders — those are handled by the promotion effect.
-        const ghostTabs = currentTerminalTabs.filter((tab) => {
-          const sessionId = getTerminalSessionId(tab);
-          return sessionId && !backendSessionSet.has(sessionId);
-        });
-
-        if (missingSessions.length === 0 && ghostTabs.length === 0) {
-          return prev; // No changes needed
+        // Build a profileId/profileName lookup from both sources for name enrichment.
+        const profileLookup = new Map<
+          string,
+          { profileId?: string | null; profileName?: string }
+        >();
+        for (const s of backendSessions) {
+          profileLookup.set(s.sessionId, { profileId: s.profileId });
+        }
+        // Enrich with kanban card metadata (profileName is the display name).
+        for (const card of kanbanCards) {
+          if (!backendSessionSet.has(card.sessionId)) continue; // Only enrich live sessions
+          const existing = profileLookup.get(card.sessionId);
+          profileLookup.set(card.sessionId, {
+            profileId: existing?.profileId ?? card.profileId ?? null,
+            profileName: card.profileName,
+          });
         }
 
-        let next = prev;
+        // Use functional updater so we always read the *current* layout state,
+        // not a stale closure capture. This prevents races where layout changes
+        // between the API call start and its resolution (e.g. promotion effect
+        // or user interaction modified the layout while we were fetching).
+        setLayout((prev) => {
+          const currentTabs = collectAllTabs(prev.root);
+          const currentTerminalTabs = currentTabs.filter(isTerminalTab);
+          const currentTerminalSessionIds = new Set(
+            currentTerminalTabs.map(getTerminalSessionId).filter(Boolean)
+          );
 
-        // Remove ghost tabs first
-        for (const ghostTab of ghostTabs) {
-          next = removeTabEverywhere(next, ghostTab);
-        }
+          // Find live sessions that don't have tabs yet (add them)
+          const missingSessions = backendSessions.filter(
+            (s) => !currentTerminalSessionIds.has(s.sessionId)
+          );
 
-        // Add tabs for live sessions that don't have tabs.
-        // Use addTabToTerminalTabset so new terminals land in the terminal panel
-        // (tabset-1), not the info panel (tabset-2) which is focused by default.
-        for (const session of missingSessions) {
-          next = addTabToTerminalTabset(next, makeTerminalTabType(session.sessionId), false);
-        }
+          // Find tabs for sessions that no longer exist in backend (remove them).
+          // Skip bare "terminal" placeholders — those are handled by the promotion effect.
+          const ghostTabs = currentTerminalTabs.filter((tab) => {
+            const sessionId = getTerminalSessionId(tab);
+            return sessionId && !backendSessionSet.has(sessionId);
+          });
 
-        // After removing ghost tabs, if no terminal tabs remain (e.g. after app
-        // restart when all backend sessions are gone), reset to the default
-        // two-pane layout. This restores the terminal/info split with a bare
-        // "terminal" placeholder that the promotion effect will convert to a
-        // real session. Without this, the split collapses to a single tabset
-        // and the terminal panel disappears.
-        const remainingTabs = collectAllTabs(next.root);
-        const hasTerminal = remainingTabs.some((t) => isTerminalTab(t) || t === "terminal");
-        if (!hasTerminal) {
-          const focusedTab = getFocusedActiveTab(next, "costs");
-          next = getDefaultWorkbenchPanelLayoutState(focusedTab);
-        }
-
-        return next;
-      });
-
-      // Seed profile display names as initial tab titles for newly added sessions.
-      // This gives tabs like "Google Gemini" instead of "Terminal 2".
-      // OSC title changes from the shell will override these later.
-      const sessionsNeedingTitles = backendSessions.filter((s) => {
-        const meta = profileLookup.get(s.sessionId);
-        return meta?.profileName || meta?.profileId || s.profileId;
-      });
-      if (sessionsNeedingTitles.length > 0) {
-        setTerminalTitles((prev) => {
-          const next = new Map(prev);
-          for (const session of sessionsNeedingTitles) {
-            const tab = makeTerminalTabType(session.sessionId);
-            if (next.has(tab)) continue; // Don't overwrite existing titles
-
-            const meta = profileLookup.get(session.sessionId);
-            if (meta?.profileName && meta.profileName !== "Default Terminal") {
-              // Kanban card has a meaningful display name — use it directly
-              next.set(tab, meta.profileName);
-            } else if (meta?.profileId) {
-              // Resolve profileId to display name from definitions
-              const def = getProfileDefinition(meta.profileId);
-              next.set(tab, def?.displayName ?? meta.profileId);
-            } else if (session.profileId) {
-              const def = getProfileDefinition(session.profileId);
-              next.set(tab, def?.displayName ?? session.profileId);
-            }
+          if (missingSessions.length === 0 && ghostTabs.length === 0) {
+            return prev; // No changes needed
           }
-          updatePersistedState(terminalTitlesKey, Object.fromEntries(next));
+
+          let next = prev;
+
+          // Remove ghost tabs first
+          for (const ghostTab of ghostTabs) {
+            next = removeTabEverywhere(next, ghostTab);
+          }
+
+          // Add tabs for live sessions that don't have tabs.
+          // Use addTabToTerminalTabset so new terminals land in the terminal panel
+          // (tabset-1), not the info panel (tabset-2) which is focused by default.
+          for (const session of missingSessions) {
+            next = addTabToTerminalTabset(next, makeTerminalTabType(session.sessionId), false);
+          }
+
+          // After removing ghost tabs, if no terminal tabs remain (e.g. after app
+          // restart when all backend sessions are gone), reset to the default
+          // two-pane layout. This restores the terminal/info split with a bare
+          // "terminal" placeholder that the promotion effect will convert to a
+          // real session. Without this, the split collapses to a single tabset
+          // and the terminal panel disappears.
+          const remainingTabs = collectAllTabs(next.root);
+          const hasTerminal = remainingTabs.some((t) => isTerminalTab(t) || t === "terminal");
+          if (!hasTerminal) {
+            const focusedTab = getFocusedActiveTab(next, "costs");
+            next = getDefaultWorkbenchPanelLayoutState(focusedTab);
+          }
+
           return next;
         });
-      }
-    }).catch((err) => {
-      if (cancelled) return;
-      console.error("[WorkbenchPanel] Failed to sync terminal sessions:", err);
-    });
+
+        // Seed profile display names as initial tab titles for newly added sessions.
+        // This gives tabs like "Google Gemini" instead of "Terminal 2".
+        // OSC title changes from the shell will override these later.
+        const sessionsNeedingTitles = backendSessions.filter((s) => {
+          const meta = profileLookup.get(s.sessionId);
+          return meta?.profileName || meta?.profileId || s.profileId;
+        });
+        if (sessionsNeedingTitles.length > 0) {
+          setTerminalTitles((prev) => {
+            const next = new Map(prev);
+            for (const session of sessionsNeedingTitles) {
+              const tab = makeTerminalTabType(session.sessionId);
+              if (next.has(tab)) continue; // Don't overwrite existing titles
+
+              const meta = profileLookup.get(session.sessionId);
+              if (meta?.profileName && meta.profileName !== "Default Terminal") {
+                // Kanban card has a meaningful display name — use it directly
+                next.set(tab, meta.profileName);
+              } else if (meta?.profileId) {
+                // Resolve profileId to display name from definitions
+                const def = getProfileDefinition(meta.profileId);
+                next.set(tab, def?.displayName ?? meta.profileId);
+              } else if (session.profileId) {
+                const def = getProfileDefinition(session.profileId);
+                next.set(tab, def?.displayName ?? session.profileId);
+              }
+            }
+            updatePersistedState(terminalTitlesKey, Object.fromEntries(next));
+            return next;
+          });
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.error("[WorkbenchPanel] Failed to sync terminal sessions:", err);
+      });
 
     return () => {
       cancelled = true;

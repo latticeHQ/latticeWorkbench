@@ -30,6 +30,10 @@ import type {
   ParallelSearchToolResultSchema,
   ParallelExtractToolResultSchema,
   ParallelResearchToolResultSchema,
+  ParallelFindAllToolResultSchema,
+  ParallelChatToolResultSchema,
+  ParallelBatchToolResultSchema,
+  ParallelMonitorToolResultSchema,
 } from "@/common/utils/tools/toolDefinitions";
 
 // Bash Tool Types — derived from schema (avoid drift)
@@ -340,6 +344,18 @@ export type ParallelExtractToolResult = z.infer<typeof ParallelExtractToolResult
 
 export type ParallelResearchToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_research.schema>;
 export type ParallelResearchToolResult = z.infer<typeof ParallelResearchToolResultSchema>;
+
+export type ParallelFindAllToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_findall.schema>;
+export type ParallelFindAllToolResult = z.infer<typeof ParallelFindAllToolResultSchema>;
+
+export type ParallelChatToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_chat.schema>;
+export type ParallelChatToolResult = z.infer<typeof ParallelChatToolResultSchema>;
+
+export type ParallelBatchToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_batch.schema>;
+export type ParallelBatchToolResult = z.infer<typeof ParallelBatchToolResultSchema>;
+
+export type ParallelMonitorToolArgs = z.infer<typeof TOOL_DEFINITIONS.parallel_monitor.schema>;
+export type ParallelMonitorToolResult = z.infer<typeof ParallelMonitorToolResultSchema>;
 
 // Notify Tool Types
 export type NotifyToolResult =
