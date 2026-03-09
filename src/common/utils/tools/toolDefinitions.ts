@@ -1924,7 +1924,14 @@ export type BridgeableToolName =
   | "task_await"
   | "task_apply_git_patch"
   | "task_list"
-  | "task_terminate";
+  | "task_terminate"
+  | "parallel_search"
+  | "parallel_extract"
+  | "parallel_research"
+  | "parallel_findall"
+  | "parallel_chat"
+  | "parallel_batch"
+  | "parallel_monitor";
 
 /**
  * Lookup map for result schemas by tool name.
@@ -1948,6 +1955,13 @@ export const RESULT_SCHEMAS: Record<BridgeableToolName, z.ZodType> = {
   task_apply_git_patch: TaskApplyGitPatchToolResultSchema,
   task_list: TaskListToolResultSchema,
   task_terminate: TaskTerminateToolResultSchema,
+  parallel_search: ParallelSearchToolResultSchema,
+  parallel_extract: ParallelExtractToolResultSchema,
+  parallel_research: ParallelResearchToolResultSchema,
+  parallel_findall: ParallelFindAllToolResultSchema,
+  parallel_chat: ParallelChatToolResultSchema,
+  parallel_batch: ParallelBatchToolResultSchema,
+  parallel_monitor: ParallelMonitorToolResultSchema,
 };
 
 /**
@@ -2010,14 +2024,9 @@ export function getAvailableTools(
     "status_set",
     "notify",
     "web_fetch",
-    // Parallel AI web research tools
-    "parallel_search",
-    "parallel_extract",
-    "parallel_research",
-    "parallel_findall",
-    "parallel_chat",
-    "parallel_batch",
-    "parallel_monitor",
+    // Parallel AI web research tools — available via PTC code_execution (lattice.parallel_*)
+    // and SDK progressive disclosure: lattice_search_tools → file_read → code_execution.
+    // Not loaded as direct tool definitions to save ~1,400 tokens per inference.
     // Lattice SDK progressive disclosure (code execution pattern)
     "lattice_list_categories",
     "lattice_search_tools",

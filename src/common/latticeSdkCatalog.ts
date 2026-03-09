@@ -32,21 +32,110 @@ export interface LatticeSdkCategory {
  * SDK module categories with descriptions and function counts.
  */
 export const LATTICE_SDK_CATEGORIES: LatticeSdkCategory[] = [
-  { id: "minion", description: "Core agent control: create minions, send messages, execute bash, manage streams, compaction, chat history, mode settings, devcontainer", functionCount: 44, sdkFile: "sdk/minion.ts" },
-  { id: "project", description: "Project CRUD, branches, stages, secrets, MCP servers, idle compaction, file completions", functionCount: 25, sdkFile: "sdk/project.ts" },
-  { id: "server-mgmt", description: "Server status, SSH, auth sessions, updates, signing, Lattice integration, experiments, telemetry", functionCount: 29, sdkFile: "sdk/server-mgmt.ts" },
-  { id: "oauth", description: "Device-code and server-side OAuth flows for Copilot, Codex, MCP servers", functionCount: 17, sdkFile: "sdk/oauth.ts" },
-  { id: "config", description: "Global config, model preferences, provider management, runtime enablement", functionCount: 13, sdkFile: "sdk/config.ts" },
-  { id: "terminal", description: "Terminal sessions: create (with profile support), input, close, list, resize, native, pop-out", functionCount: 8, sdkFile: "sdk/terminal.ts" },
-  { id: "terminal-profiles", description: "CLI tool profiles: detect installed tools (claude-code, gemini-cli, aider, etc.), manage configs, install recipes", functionCount: 3, sdkFile: "sdk/terminal-profiles.ts" },
-  { id: "analytics", description: "Spend tracking: summaries, time series, breakdowns by project/model/agent, cache ratios", functionCount: 8, sdkFile: "sdk/analytics.ts" },
-  { id: "agents", description: "Agent discovery: list/get definitions and skills, skill diagnostics", functionCount: 5, sdkFile: "sdk/agents.ts" },
-  { id: "mcp-management", description: "Global MCP server CRUD: list, add, remove, test, enable/disable, tool allowlists", functionCount: 6, sdkFile: "sdk/mcp-management.ts" },
-  { id: "general", description: "Ping, directory ops, editor integration, log management", functionCount: 6, sdkFile: "sdk/general.ts" },
-  { id: "tokenizer", description: "Token counting: single, batch, chat statistics with cost", functionCount: 3, sdkFile: "sdk/tokenizer.ts" },
-  { id: "secrets", description: "Get/update global or project-scoped secrets", functionCount: 2, sdkFile: "sdk/secrets.ts" },
-  { id: "tasks", description: "Create sub-tasks for parallel agent orchestration", functionCount: 1, sdkFile: "sdk/tasks.ts" },
-  { id: "browser", description: "Per-minion headless browser: navigate, snapshot, click, fill, type, press, hover, scroll, find, wait, eval, viewport/device emulation, tabs, cookies, network, drag, select", functionCount: 25, sdkFile: "sdk/browser.ts" },
+  {
+    id: "minion",
+    description:
+      "Core agent control: create minions, send messages, execute bash, manage streams, compaction, chat history, mode settings, devcontainer",
+    functionCount: 44,
+    sdkFile: "sdk/minion.ts",
+  },
+  {
+    id: "project",
+    description:
+      "Project CRUD, branches, stages, secrets, MCP servers, idle compaction, file completions",
+    functionCount: 25,
+    sdkFile: "sdk/project.ts",
+  },
+  {
+    id: "server-mgmt",
+    description:
+      "Server status, SSH, auth sessions, updates, signing, Lattice integration, experiments, telemetry",
+    functionCount: 29,
+    sdkFile: "sdk/server-mgmt.ts",
+  },
+  {
+    id: "oauth",
+    description: "Device-code and server-side OAuth flows for Copilot, Codex, MCP servers",
+    functionCount: 17,
+    sdkFile: "sdk/oauth.ts",
+  },
+  {
+    id: "config",
+    description: "Global config, model preferences, provider management, runtime enablement",
+    functionCount: 13,
+    sdkFile: "sdk/config.ts",
+  },
+  {
+    id: "terminal",
+    description:
+      "Terminal sessions: create (with profile support), input, close, list, resize, native, pop-out",
+    functionCount: 8,
+    sdkFile: "sdk/terminal.ts",
+  },
+  {
+    id: "terminal-profiles",
+    description:
+      "CLI tool profiles: detect installed tools (claude-code, gemini-cli, aider, etc.), manage configs, install recipes",
+    functionCount: 3,
+    sdkFile: "sdk/terminal-profiles.ts",
+  },
+  {
+    id: "analytics",
+    description:
+      "Spend tracking: summaries, time series, breakdowns by project/model/agent, cache ratios",
+    functionCount: 8,
+    sdkFile: "sdk/analytics.ts",
+  },
+  {
+    id: "agents",
+    description: "Agent discovery: list/get definitions and skills, skill diagnostics",
+    functionCount: 5,
+    sdkFile: "sdk/agents.ts",
+  },
+  {
+    id: "mcp-management",
+    description: "Global MCP server CRUD: list, add, remove, test, enable/disable, tool allowlists",
+    functionCount: 6,
+    sdkFile: "sdk/mcp-management.ts",
+  },
+  {
+    id: "general",
+    description: "Ping, directory ops, editor integration, log management",
+    functionCount: 6,
+    sdkFile: "sdk/general.ts",
+  },
+  {
+    id: "tokenizer",
+    description: "Token counting: single, batch, chat statistics with cost",
+    functionCount: 3,
+    sdkFile: "sdk/tokenizer.ts",
+  },
+  {
+    id: "secrets",
+    description: "Get/update global or project-scoped secrets",
+    functionCount: 2,
+    sdkFile: "sdk/secrets.ts",
+  },
+  {
+    id: "tasks",
+    description: "Create sub-tasks for parallel agent orchestration",
+    functionCount: 1,
+    sdkFile: "sdk/tasks.ts",
+  },
+  {
+    id: "browser",
+    description:
+      "Per-minion headless browser: navigate, snapshot, click, fill, type, press, hover, scroll, find, wait, eval, viewport/device emulation, tabs, cookies, network, drag, select",
+    functionCount: 25,
+    sdkFile: "sdk/browser.ts",
+  },
+  {
+    id: "parallel-ai",
+    description:
+      "Web research: search, extract page content, deep research reports, entity discovery, web-grounded chat, batch processing, web change monitoring",
+    functionCount: 7,
+    sdkFile: "sdk/parallel-ai.ts",
+  },
 ];
 
 /**
@@ -55,44 +144,140 @@ export const LATTICE_SDK_CATEGORIES: LatticeSdkCategory[] = [
  */
 export const LATTICE_SDK_FUNCTIONS: LatticeSdkFunction[] = [
   // ── minion (44) ──────────────────────────────────────────────────────
-  { name: "createMinion", category: "minion", description: "Create a new agent minion in a project" },
+  {
+    name: "createMinion",
+    category: "minion",
+    description: "Create a new agent minion in a project",
+  },
   { name: "listMinions", category: "minion", description: "List all active minions" },
   { name: "getMinionInfo", category: "minion", description: "Get detailed info for a minion" },
   { name: "deleteMinion", category: "minion", description: "Delete a minion permanently" },
   { name: "archiveMinion", category: "minion", description: "Archive a minion (soft-delete)" },
-  { name: "archiveMergedInProject", category: "minion", description: "Bench all minions with merged branches in a project" },
+  {
+    name: "archiveMergedInProject",
+    category: "minion",
+    description: "Bench all minions with merged branches in a project",
+  },
   { name: "sendMessage", category: "minion", description: "Send a message/task to a minion agent" },
   { name: "executeBash", category: "minion", description: "Execute a bash command in a minion" },
   { name: "getChatHistory", category: "minion", description: "Get chat history for a minion" },
-  { name: "getFullReplay", category: "minion", description: "Get full message replay including tool calls" },
-  { name: "getSessionUsage", category: "minion", description: "Get token usage and cost for a session" },
-  { name: "getLastLlmRequest", category: "minion", description: "Get the last LLM request details" },
-  { name: "interruptStream", category: "minion", description: "Interrupt the current streaming response" },
-  { name: "getMinionActivity", category: "minion", description: "Get current minion activity state (streaming/idle)" },
-  { name: "listAllActivity", category: "minion", description: "List activity state for all minions" },
+  {
+    name: "getFullReplay",
+    category: "minion",
+    description: "Get full message replay including tool calls",
+  },
+  {
+    name: "getSessionUsage",
+    category: "minion",
+    description: "Get token usage and cost for a session",
+  },
+  {
+    name: "getLastLlmRequest",
+    category: "minion",
+    description: "Get the last LLM request details",
+  },
+  {
+    name: "interruptStream",
+    category: "minion",
+    description: "Interrupt the current streaming response",
+  },
+  {
+    name: "getMinionActivity",
+    category: "minion",
+    description: "Get current minion activity state (streaming/idle)",
+  },
+  {
+    name: "listAllActivity",
+    category: "minion",
+    description: "List activity state for all minions",
+  },
   { name: "updateModel", category: "minion", description: "Change the AI model for a minion" },
   { name: "updateSystemPrompt", category: "minion", description: "Update minion system prompt" },
-  { name: "getConfiguredModel", category: "minion", description: "Get the currently configured model" },
+  {
+    name: "getConfiguredModel",
+    category: "minion",
+    description: "Get the currently configured model",
+  },
   { name: "getPlanContent", category: "minion", description: "Get the plan file content" },
   { name: "getMinionStats", category: "minion", description: "Get minion performance stats" },
   { name: "clearMinionStats", category: "minion", description: "Reset minion stats" },
-  { name: "getSessionUsageBatch", category: "minion", description: "Get usage for multiple minions at once" },
+  {
+    name: "getSessionUsageBatch",
+    category: "minion",
+    description: "Get usage for multiple minions at once",
+  },
   { name: "regenerateTitle", category: "minion", description: "Regenerate minion title from chat" },
-  { name: "updateModeAISettings", category: "minion", description: "Update AI mode settings (auto-accept, etc.)" },
-  { name: "answerDelegatedToolCall", category: "minion", description: "Answer a delegated tool call (human-in-the-loop)" },
-  { name: "setAutoRetryEnabled", category: "minion", description: "Enable/disable auto-retry on failure" },
-  { name: "getStartupAutoRetryModel", category: "minion", description: "Get startup auto-retry model config" },
-  { name: "setAutoCompactionThreshold", category: "minion", description: "Set context window compaction threshold" },
-  { name: "replaceChatHistory", category: "minion", description: "Replace entire chat history (compaction)" },
-  { name: "getDevcontainerInfo", category: "minion", description: "Get devcontainer configuration" },
-  { name: "loadMoreHistory", category: "minion", description: "Load additional chat history pages" },
-  { name: "sendBashToBackground", category: "minion", description: "Move a running bash command to background" },
-  { name: "setPostCompactionExclusion", category: "minion", description: "Set messages excluded from compaction" },
-  { name: "getMinionMcpOverrides", category: "minion", description: "Get MCP server overrides for a minion" },
-  { name: "setMinionMcpOverrides", category: "minion", description: "Set MCP server overrides for a minion" },
+  {
+    name: "updateModeAISettings",
+    category: "minion",
+    description: "Update AI mode settings (auto-accept, etc.)",
+  },
+  {
+    name: "answerDelegatedToolCall",
+    category: "minion",
+    description: "Answer a delegated tool call (human-in-the-loop)",
+  },
+  {
+    name: "setAutoRetryEnabled",
+    category: "minion",
+    description: "Enable/disable auto-retry on failure",
+  },
+  {
+    name: "getStartupAutoRetryModel",
+    category: "minion",
+    description: "Get startup auto-retry model config",
+  },
+  {
+    name: "setAutoCompactionThreshold",
+    category: "minion",
+    description: "Set context window compaction threshold",
+  },
+  {
+    name: "replaceChatHistory",
+    category: "minion",
+    description: "Replace entire chat history (compaction)",
+  },
+  {
+    name: "getDevcontainerInfo",
+    category: "minion",
+    description: "Get devcontainer configuration",
+  },
+  {
+    name: "loadMoreHistory",
+    category: "minion",
+    description: "Load additional chat history pages",
+  },
+  {
+    name: "sendBashToBackground",
+    category: "minion",
+    description: "Move a running bash command to background",
+  },
+  {
+    name: "setPostCompactionExclusion",
+    category: "minion",
+    description: "Set messages excluded from compaction",
+  },
+  {
+    name: "getMinionMcpOverrides",
+    category: "minion",
+    description: "Get MCP server overrides for a minion",
+  },
+  {
+    name: "setMinionMcpOverrides",
+    category: "minion",
+    description: "Set MCP server overrides for a minion",
+  },
   { name: "cancelLlmRequest", category: "minion", description: "Cancel the current LLM request" },
-  { name: "waitUntilIdle", category: "minion", description: "Block until minion finishes streaming" },
-  { name: "setMinionAutoCompaction", category: "minion", description: "Enable/disable auto-compaction" },
+  {
+    name: "waitUntilIdle",
+    category: "minion",
+    description: "Block until minion finishes streaming",
+  },
+  {
+    name: "setMinionAutoCompaction",
+    category: "minion",
+    description: "Enable/disable auto-compaction",
+  },
   { name: "setMinionArchivePolicy", category: "minion", description: "Set minion archive policy" },
   { name: "getGitDiff", category: "minion", description: "Get git diff for minion changes" },
   { name: "sendRetry", category: "minion", description: "Retry the last failed message" },
@@ -102,78 +287,230 @@ export const LATTICE_SDK_FUNCTIONS: LatticeSdkFunction[] = [
 
   // ── project (25) ────────────────────────────────────────────────────────
   { name: "listProjects", category: "project", description: "List all registered projects" },
-  { name: "createProject", category: "project", description: "Register a new project from a directory path" },
+  {
+    name: "createProject",
+    category: "project",
+    description: "Register a new project from a directory path",
+  },
   { name: "deleteProject", category: "project", description: "Remove a project registration" },
   { name: "getProjectDetails", category: "project", description: "Get detailed project info" },
   { name: "updateProject", category: "project", description: "Update project configuration" },
   { name: "listBranches", category: "project", description: "List git branches for a project" },
   { name: "switchBranch", category: "project", description: "Switch git branch for a project" },
-  { name: "createStage", category: "project", description: "Create a project section (organization)" },
+  {
+    name: "createStage",
+    category: "project",
+    description: "Create a project section (organization)",
+  },
   { name: "updateStage", category: "project", description: "Update a section name or order" },
   { name: "deleteSection", category: "project", description: "Delete a project section" },
   { name: "listStages", category: "project", description: "List all project stages" },
   { name: "getProjectSecrets", category: "project", description: "Get project-scoped secrets" },
-  { name: "updateProjectSecrets", category: "project", description: "Update project-scoped secrets" },
-  { name: "addProjectMcpServer", category: "project", description: "Add an MCP server to a project" },
-  { name: "removeProjectMcpServer", category: "project", description: "Remove an MCP server from a project" },
-  { name: "listProjectMcpServers", category: "project", description: "List MCP servers for a project" },
-  { name: "testProjectMcpServer", category: "project", description: "Test an MCP server connection" },
-  { name: "setProjectMcpServerEnabled", category: "project", description: "Enable/disable a project MCP server" },
-  { name: "setProjectMcpServerToolAllowlist", category: "project", description: "Set tool allowlist for a project MCP server" },
-  { name: "getIdleCompactionConfig", category: "project", description: "Get idle compaction config for a project" },
-  { name: "setIdleCompactionConfig", category: "project", description: "Set idle compaction config for a project" },
-  { name: "getProjectFileCompletions", category: "project", description: "Get file path completions for a project" },
-  { name: "archiveMergedInProject", category: "project", description: "Archive minions with merged branches" },
+  {
+    name: "updateProjectSecrets",
+    category: "project",
+    description: "Update project-scoped secrets",
+  },
+  {
+    name: "addProjectMcpServer",
+    category: "project",
+    description: "Add an MCP server to a project",
+  },
+  {
+    name: "removeProjectMcpServer",
+    category: "project",
+    description: "Remove an MCP server from a project",
+  },
+  {
+    name: "listProjectMcpServers",
+    category: "project",
+    description: "List MCP servers for a project",
+  },
+  {
+    name: "testProjectMcpServer",
+    category: "project",
+    description: "Test an MCP server connection",
+  },
+  {
+    name: "setProjectMcpServerEnabled",
+    category: "project",
+    description: "Enable/disable a project MCP server",
+  },
+  {
+    name: "setProjectMcpServerToolAllowlist",
+    category: "project",
+    description: "Set tool allowlist for a project MCP server",
+  },
+  {
+    name: "getIdleCompactionConfig",
+    category: "project",
+    description: "Get idle compaction config for a project",
+  },
+  {
+    name: "setIdleCompactionConfig",
+    category: "project",
+    description: "Set idle compaction config for a project",
+  },
+  {
+    name: "getProjectFileCompletions",
+    category: "project",
+    description: "Get file path completions for a project",
+  },
+  {
+    name: "archiveMergedInProject",
+    category: "project",
+    description: "Archive minions with merged branches",
+  },
   { name: "getProjectSettings", category: "project", description: "Get project-level settings" },
-  { name: "updateProjectSettings", category: "project", description: "Update project-level settings" },
+  {
+    name: "updateProjectSettings",
+    category: "project",
+    description: "Update project-level settings",
+  },
 
   // ── server-mgmt (29) ───────────────────────────────────────────────────
-  { name: "getApiServerStatus", category: "server-mgmt", description: "Get API server status and info" },
-  { name: "setApiServerSettings", category: "server-mgmt", description: "Update API server settings" },
+  {
+    name: "getApiServerStatus",
+    category: "server-mgmt",
+    description: "Get API server status and info",
+  },
+  {
+    name: "setApiServerSettings",
+    category: "server-mgmt",
+    description: "Update API server settings",
+  },
   { name: "getSshHost", category: "server-mgmt", description: "Get configured SSH host" },
   { name: "setSshHost", category: "server-mgmt", description: "Set SSH host for remote minions" },
-  { name: "getLaunchProject", category: "server-mgmt", description: "Get the project opened on launch" },
+  {
+    name: "getLaunchProject",
+    category: "server-mgmt",
+    description: "Get the project opened on launch",
+  },
   { name: "listAuthSessions", category: "server-mgmt", description: "List active auth sessions" },
-  { name: "revokeAuthSession", category: "server-mgmt", description: "Revoke a specific auth session" },
-  { name: "revokeOtherAuthSessions", category: "server-mgmt", description: "Revoke all other auth sessions" },
+  {
+    name: "revokeAuthSession",
+    category: "server-mgmt",
+    description: "Revoke a specific auth session",
+  },
+  {
+    name: "revokeOtherAuthSessions",
+    category: "server-mgmt",
+    description: "Revoke all other auth sessions",
+  },
   { name: "getStatsTabState", category: "server-mgmt", description: "Get stats tab display state" },
-  { name: "setStatsTabOverride", category: "server-mgmt", description: "Override stats tab visibility" },
-  { name: "getPolicy", category: "server-mgmt", description: "Get current security/governance policy" },
+  {
+    name: "setStatsTabOverride",
+    category: "server-mgmt",
+    description: "Override stats tab visibility",
+  },
+  {
+    name: "getPolicy",
+    category: "server-mgmt",
+    description: "Get current security/governance policy",
+  },
   { name: "refreshPolicy", category: "server-mgmt", description: "Refresh policy from server" },
   { name: "checkForUpdates", category: "server-mgmt", description: "Check for app updates" },
   { name: "downloadUpdate", category: "server-mgmt", description: "Download an available update" },
   { name: "installUpdate", category: "server-mgmt", description: "Install a downloaded update" },
-  { name: "getUpdateChannel", category: "server-mgmt", description: "Get current update channel (stable/beta)" },
+  {
+    name: "getUpdateChannel",
+    category: "server-mgmt",
+    description: "Get current update channel (stable/beta)",
+  },
   { name: "setUpdateChannel", category: "server-mgmt", description: "Set update channel" },
-  { name: "getSigningCapabilities", category: "server-mgmt", description: "Get code signing capabilities" },
+  {
+    name: "getSigningCapabilities",
+    category: "server-mgmt",
+    description: "Get code signing capabilities",
+  },
   { name: "signMessage", category: "server-mgmt", description: "Sign a message with app identity" },
-  { name: "clearIdentityCache", category: "server-mgmt", description: "Clear cached identity data" },
+  {
+    name: "clearIdentityCache",
+    category: "server-mgmt",
+    description: "Clear cached identity data",
+  },
   { name: "getLatticeInfo", category: "server-mgmt", description: "Get Lattice integration info" },
-  { name: "listLatticeTemplates", category: "server-mgmt", description: "List available Lattice templates" },
+  {
+    name: "listLatticeTemplates",
+    category: "server-mgmt",
+    description: "List available Lattice templates",
+  },
   { name: "listLatticePresets", category: "server-mgmt", description: "List Lattice presets" },
   { name: "listLatticeMinions", category: "server-mgmt", description: "List Lattice minions" },
   { name: "generateName", category: "server-mgmt", description: "Generate a random minion name" },
-  { name: "getTelemetryStatus", category: "server-mgmt", description: "Get telemetry enabled status" },
-  { name: "getExperiments", category: "server-mgmt", description: "Get active experiments/feature flags" },
-  { name: "reloadExperiments", category: "server-mgmt", description: "Reload experiments from server" },
+  {
+    name: "getTelemetryStatus",
+    category: "server-mgmt",
+    description: "Get telemetry enabled status",
+  },
+  {
+    name: "getExperiments",
+    category: "server-mgmt",
+    description: "Get active experiments/feature flags",
+  },
+  {
+    name: "reloadExperiments",
+    category: "server-mgmt",
+    description: "Reload experiments from server",
+  },
 
   // ── oauth (17) ─────────────────────────────────────────────────────────
-  { name: "copilotStartDeviceFlow", category: "oauth", description: "Start GitHub Copilot device code OAuth flow" },
-  { name: "copilotWaitForDeviceFlow", category: "oauth", description: "Wait for Copilot device flow completion" },
+  {
+    name: "copilotStartDeviceFlow",
+    category: "oauth",
+    description: "Start GitHub Copilot device code OAuth flow",
+  },
+  {
+    name: "copilotWaitForDeviceFlow",
+    category: "oauth",
+    description: "Wait for Copilot device flow completion",
+  },
   { name: "copilotCancelDeviceFlow", category: "oauth", description: "Cancel Copilot device flow" },
-  { name: "codexStartDeviceFlow", category: "oauth", description: "Start OpenAI Codex device code OAuth flow" },
-  { name: "codexWaitForDeviceFlow", category: "oauth", description: "Wait for Codex device flow completion" },
+  {
+    name: "codexStartDeviceFlow",
+    category: "oauth",
+    description: "Start OpenAI Codex device code OAuth flow",
+  },
+  {
+    name: "codexWaitForDeviceFlow",
+    category: "oauth",
+    description: "Wait for Codex device flow completion",
+  },
   { name: "codexCancelDeviceFlow", category: "oauth", description: "Cancel Codex device flow" },
   { name: "codexDisconnect", category: "oauth", description: "Disconnect Codex OAuth" },
-  { name: "mcpStartServerFlow", category: "oauth", description: "Start OAuth flow for an MCP server" },
-  { name: "mcpWaitForServerFlow", category: "oauth", description: "Wait for MCP server OAuth completion" },
+  {
+    name: "mcpStartServerFlow",
+    category: "oauth",
+    description: "Start OAuth flow for an MCP server",
+  },
+  {
+    name: "mcpWaitForServerFlow",
+    category: "oauth",
+    description: "Wait for MCP server OAuth completion",
+  },
   { name: "mcpCancelServerFlow", category: "oauth", description: "Cancel MCP server OAuth flow" },
   { name: "mcpGetAuthStatus", category: "oauth", description: "Get MCP server auth status" },
   { name: "mcpLogout", category: "oauth", description: "Logout from an MCP server" },
-  { name: "projectMcpStartServerFlow", category: "oauth", description: "Start project-scoped MCP OAuth flow" },
-  { name: "projectMcpWaitForServerFlow", category: "oauth", description: "Wait for project MCP OAuth completion" },
-  { name: "projectMcpCancelServerFlow", category: "oauth", description: "Cancel project MCP OAuth flow" },
-  { name: "projectMcpGetAuthStatus", category: "oauth", description: "Get project MCP server auth status" },
+  {
+    name: "projectMcpStartServerFlow",
+    category: "oauth",
+    description: "Start project-scoped MCP OAuth flow",
+  },
+  {
+    name: "projectMcpWaitForServerFlow",
+    category: "oauth",
+    description: "Wait for project MCP OAuth completion",
+  },
+  {
+    name: "projectMcpCancelServerFlow",
+    category: "oauth",
+    description: "Cancel project MCP OAuth flow",
+  },
+  {
+    name: "projectMcpGetAuthStatus",
+    category: "oauth",
+    description: "Get project MCP server auth status",
+  },
   { name: "projectMcpLogout", category: "oauth", description: "Logout from a project MCP server" },
 
   // ── config (13) ────────────────────────────────────────────────────────
@@ -182,34 +519,90 @@ export const LATTICE_SDK_FUNCTIONS: LatticeSdkFunction[] = [
   { name: "getModelPreferences", category: "config", description: "Get model preference settings" },
   { name: "setModelPreferences", category: "config", description: "Set model preference settings" },
   { name: "listProviders", category: "config", description: "List all AI provider configurations" },
-  { name: "getProviderConfig", category: "config", description: "Get config for a specific provider" },
+  {
+    name: "getProviderConfig",
+    category: "config",
+    description: "Get config for a specific provider",
+  },
   { name: "setProviderEnabled", category: "config", description: "Enable/disable an AI provider" },
-  { name: "getRuntimeEnabled", category: "config", description: "Get runtime enabled status (local/SSH/Docker)" },
+  {
+    name: "getRuntimeEnabled",
+    category: "config",
+    description: "Get runtime enabled status (local/SSH/Docker)",
+  },
   { name: "setRuntimeEnabled", category: "config", description: "Enable/disable a runtime type" },
   { name: "getProviderStatus", category: "config", description: "Get provider connection status" },
-  { name: "refreshProviderStatus", category: "config", description: "Refresh provider connection status" },
+  {
+    name: "refreshProviderStatus",
+    category: "config",
+    description: "Refresh provider connection status",
+  },
 
   // ── terminal (8) ───────────────────────────────────────────────────────
-  { name: "createTerminal", category: "terminal", description: "Create a terminal session (optionally with a profile)" },
-  { name: "sendTerminalInput", category: "terminal", description: "Send input to a terminal session" },
+  {
+    name: "createTerminal",
+    category: "terminal",
+    description: "Create a terminal session (optionally with a profile)",
+  },
+  {
+    name: "sendTerminalInput",
+    category: "terminal",
+    description: "Send input to a terminal session",
+  },
   { name: "closeTerminal", category: "terminal", description: "Close a terminal session" },
-  { name: "listTerminals", category: "terminal", description: "List terminal sessions for a minion" },
+  {
+    name: "listTerminals",
+    category: "terminal",
+    description: "List terminal sessions for a minion",
+  },
   { name: "resizeTerminal", category: "terminal", description: "Resize a terminal session" },
-  { name: "openNativeTerminal", category: "terminal", description: "Open native OS terminal for minion" },
-  { name: "popOutTerminal", category: "terminal", description: "Pop out terminal into separate window" },
-  { name: "getTerminalBuffer", category: "terminal", description: "Get terminal screen buffer content" },
+  {
+    name: "openNativeTerminal",
+    category: "terminal",
+    description: "Open native OS terminal for minion",
+  },
+  {
+    name: "popOutTerminal",
+    category: "terminal",
+    description: "Pop out terminal into separate window",
+  },
+  {
+    name: "getTerminalBuffer",
+    category: "terminal",
+    description: "Get terminal screen buffer content",
+  },
 
   // ── terminal-profiles (3) ──────────────────────────────────────────────
-  { name: "listProfiles", category: "terminal-profiles", description: "List all terminal profiles with detection status" },
-  { name: "setProfileConfig", category: "terminal-profiles", description: "Update terminal profile config (enable/disable, overrides)" },
-  { name: "getInstallRecipe", category: "terminal-profiles", description: "Get install instructions for a profile" },
+  {
+    name: "listProfiles",
+    category: "terminal-profiles",
+    description: "List all terminal profiles with detection status",
+  },
+  {
+    name: "setProfileConfig",
+    category: "terminal-profiles",
+    description: "Update terminal profile config (enable/disable, overrides)",
+  },
+  {
+    name: "getInstallRecipe",
+    category: "terminal-profiles",
+    description: "Get install instructions for a profile",
+  },
 
   // ── analytics (8) ──────────────────────────────────────────────────────
   { name: "getSummary", category: "analytics", description: "Get aggregate spend/usage summary" },
   { name: "getTimeSeries", category: "analytics", description: "Get spend time series data" },
-  { name: "getSpendByProject", category: "analytics", description: "Get spend breakdown by project" },
+  {
+    name: "getSpendByProject",
+    category: "analytics",
+    description: "Get spend breakdown by project",
+  },
   { name: "getSpendByModel", category: "analytics", description: "Get spend breakdown by model" },
-  { name: "getAgentCostBreakdown", category: "analytics", description: "Get cost breakdown by agent" },
+  {
+    name: "getAgentCostBreakdown",
+    category: "analytics",
+    description: "Get cost breakdown by agent",
+  },
   { name: "getCacheHitRatio", category: "analytics", description: "Get prompt cache hit ratio" },
   { name: "getAnalyticsEvents", category: "analytics", description: "Get raw analytics events" },
   { name: "rebuildAnalyticsDb", category: "analytics", description: "Rebuild analytics database" },
@@ -219,15 +612,35 @@ export const LATTICE_SDK_FUNCTIONS: LatticeSdkFunction[] = [
   { name: "getAgent", category: "agents", description: "Get a specific agent definition" },
   { name: "listSkills", category: "agents", description: "List available agent skills" },
   { name: "getSkill", category: "agents", description: "Get a specific agent skill" },
-  { name: "getSkillDiagnostics", category: "agents", description: "Get diagnostics for skill loading" },
+  {
+    name: "getSkillDiagnostics",
+    category: "agents",
+    description: "Get diagnostics for skill loading",
+  },
 
   // ── mcp-management (6) ─────────────────────────────────────────────────
-  { name: "listMcpServers", category: "mcp-management", description: "List configured MCP servers" },
+  {
+    name: "listMcpServers",
+    category: "mcp-management",
+    description: "List configured MCP servers",
+  },
   { name: "addMcpServer", category: "mcp-management", description: "Add a new MCP server" },
   { name: "removeMcpServer", category: "mcp-management", description: "Remove an MCP server" },
-  { name: "testMcpServer", category: "mcp-management", description: "Test MCP server connectivity" },
-  { name: "setMcpServerEnabled", category: "mcp-management", description: "Enable/disable an MCP server" },
-  { name: "setMcpToolAllowlist", category: "mcp-management", description: "Set tool allowlist for an MCP server" },
+  {
+    name: "testMcpServer",
+    category: "mcp-management",
+    description: "Test MCP server connectivity",
+  },
+  {
+    name: "setMcpServerEnabled",
+    category: "mcp-management",
+    description: "Enable/disable an MCP server",
+  },
+  {
+    name: "setMcpToolAllowlist",
+    category: "mcp-management",
+    description: "Set tool allowlist for an MCP server",
+  },
 
   // ── general (6) ────────────────────────────────────────────────────────
   { name: "ping", category: "general", description: "Health check ping" },
@@ -239,42 +652,139 @@ export const LATTICE_SDK_FUNCTIONS: LatticeSdkFunction[] = [
 
   // ── tokenizer (3) ──────────────────────────────────────────────────────
   { name: "countTokens", category: "tokenizer", description: "Count tokens in a text string" },
-  { name: "countTokensBatch", category: "tokenizer", description: "Count tokens for multiple texts" },
-  { name: "calculateStats", category: "tokenizer", description: "Calculate chat token stats with cost" },
+  {
+    name: "countTokensBatch",
+    category: "tokenizer",
+    description: "Count tokens for multiple texts",
+  },
+  {
+    name: "calculateStats",
+    category: "tokenizer",
+    description: "Calculate chat token stats with cost",
+  },
 
   // ── secrets (2) ────────────────────────────────────────────────────────
   { name: "getSecrets", category: "secrets", description: "Get global or project-scoped secrets" },
-  { name: "updateSecrets", category: "secrets", description: "Update global or project-scoped secrets" },
+  {
+    name: "updateSecrets",
+    category: "secrets",
+    description: "Update global or project-scoped secrets",
+  },
 
   // ── tasks (1) ──────────────────────────────────────────────────────────
-  { name: "createTask", category: "tasks", description: "Create a sub-task for parallel agent orchestration" },
+  {
+    name: "createTask",
+    category: "tasks",
+    description: "Create a sub-task for parallel agent orchestration",
+  },
 
   // ── browser (25) ────────────────────────────────────────────────────────
-  { name: "navigate", category: "browser", description: "Navigate to a URL (creates session if needed)" },
-  { name: "snapshot", category: "browser", description: "Get accessibility tree with element refs (@e1, @e2, ...)" },
+  {
+    name: "navigate",
+    category: "browser",
+    description: "Navigate to a URL (creates session if needed)",
+  },
+  {
+    name: "snapshot",
+    category: "browser",
+    description: "Get accessibility tree with element refs (@e1, @e2, ...)",
+  },
   { name: "screenshot", category: "browser", description: "Take a screenshot (base64 PNG)" },
-  { name: "annotatedScreenshot", category: "browser", description: "Screenshot with numbered labels on interactive elements" },
+  {
+    name: "annotatedScreenshot",
+    category: "browser",
+    description: "Screenshot with numbered labels on interactive elements",
+  },
   { name: "click", category: "browser", description: "Click an element by snapshot ref" },
   { name: "fill", category: "browser", description: "Fill a form field by snapshot ref" },
   { name: "type", category: "browser", description: "Type text into the focused element" },
-  { name: "press", category: "browser", description: "Press a key or combination (Enter, Tab, Control+A)" },
+  {
+    name: "press",
+    category: "browser",
+    description: "Press a key or combination (Enter, Tab, Control+A)",
+  },
   { name: "hover", category: "browser", description: "Hover over an element by snapshot ref" },
-  { name: "find", category: "browser", description: "Find element by semantic locator (role/text/label/placeholder/testid)" },
-  { name: "selectOption", category: "browser", description: "Select option from a <select> dropdown" },
+  {
+    name: "find",
+    category: "browser",
+    description: "Find element by semantic locator (role/text/label/placeholder/testid)",
+  },
+  {
+    name: "selectOption",
+    category: "browser",
+    description: "Select option from a <select> dropdown",
+  },
   { name: "drag", category: "browser", description: "Drag and drop between two elements" },
   { name: "scrollDown", category: "browser", description: "Scroll the page down" },
   { name: "scrollUp", category: "browser", description: "Scroll the page up" },
   { name: "back", category: "browser", description: "Navigate browser history back" },
   { name: "forward", category: "browser", description: "Navigate browser history forward" },
-  { name: "wait", category: "browser", description: "Wait for condition: selector, text, URL, or time" },
+  {
+    name: "wait",
+    category: "browser",
+    description: "Wait for condition: selector, text, URL, or time",
+  },
   { name: "evalJS", category: "browser", description: "Execute JavaScript in the page context" },
-  { name: "dialog", category: "browser", description: "Handle browser dialogs (alert, confirm, prompt)" },
-  { name: "setViewport", category: "browser", description: "Set viewport dimensions (width × height)" },
-  { name: "setDevice", category: "browser", description: "Emulate a device (iPhone 14, iPad Pro, Pixel 7)" },
+  {
+    name: "dialog",
+    category: "browser",
+    description: "Handle browser dialogs (alert, confirm, prompt)",
+  },
+  {
+    name: "setViewport",
+    category: "browser",
+    description: "Set viewport dimensions (width × height)",
+  },
+  {
+    name: "setDevice",
+    category: "browser",
+    description: "Emulate a device (iPhone 14, iPad Pro, Pixel 7)",
+  },
   { name: "tabs", category: "browser", description: "Manage tabs: list, new, switch, close" },
   { name: "cookies", category: "browser", description: "Manage cookies: list, set, clear" },
   { name: "networkRequests", category: "browser", description: "View tracked network requests" },
-  { name: "sessionInfo", category: "browser", description: "Get browser session info (URL, status, stream port)" },
+  {
+    name: "sessionInfo",
+    category: "browser",
+    description: "Get browser session info (URL, status, stream port)",
+  },
+
+  // ── parallel-ai (7) ─────────────────────────────────────────────────
+  {
+    name: "parallelSearch",
+    category: "parallel-ai",
+    description: "Search the web with ranked results, URLs, titles, and excerpts",
+  },
+  {
+    name: "parallelExtract",
+    category: "parallel-ai",
+    description: "Extract and parse main content from one or more URLs",
+  },
+  {
+    name: "parallelResearch",
+    category: "parallel-ai",
+    description: "Run deep multi-source research (base/core/research/ultra processors)",
+  },
+  {
+    name: "parallelFindAll",
+    category: "parallel-ai",
+    description: "Discover entities at web scale with citations",
+  },
+  {
+    name: "parallelChat",
+    category: "parallel-ai",
+    description: "Web-grounded Q&A with live citations (speed/lite/base/core models)",
+  },
+  {
+    name: "parallelBatch",
+    category: "parallel-ai",
+    description: "Process up to 50 items in parallel via task groups",
+  },
+  {
+    name: "parallelMonitor",
+    category: "parallel-ai",
+    description: "Create and manage web change monitors (create/check/list/delete)",
+  },
 ];
 
 /**
