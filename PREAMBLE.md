@@ -4,8 +4,8 @@
 
 ### The founding document of the Lattice ecosystem
 
-*Lattice is the open-source AI agent workbench —
-run a team of AI specialists on your own hardware.*
+*Lattice Runtime is the open-source coordination layer for institutional AI.
+Lattice Workbench is the reference Engineering Stack — the first stack built on Runtime.*
 
 </div>
 
@@ -13,7 +13,7 @@ run a team of AI specialists on your own hardware.*
 
 ## Why This Exists
 
-The models are here. The tool-use protocols are here. What's missing is the layer that organizes AI into something that works like a team — specialists with clear responsibilities, workflows that move work from idea to delivery, and isolation that lets agents work in parallel without stepping on each other.
+The models are here. The tool-use protocols are here. What's missing is the layer that coordinates AI across an entire organization — not just better individual tools, but governance that ensures every department's AI agents authenticate, communicate, and operate under the same rules.
 
 Lattice is that layer.
 
@@ -21,33 +21,70 @@ Lattice is that layer.
 
 ## What We Believe
 
-### 1. Teams, not chatbots.
+### 1. Institutions, not individuals.
 
-The AI industry got the abstraction wrong.
+The AI industry optimized for individual productivity. But institutions don't fail because one person lacks a copilot — they fail because departments can't coordinate, AI decisions can't be audited, and there's no governance over who authorized what.
+
+AI should be organized as coordinated teams across departments — not as isolated assistants on individual desks.
+
+### 2. Teams, not chatbots.
 
 A chatbot is a toy. A copilot is a tool. Neither is a team.
 
 AI should be organized as specialists who work in parallel — not as one omniscient assistant. An agent that writes code. An agent that reviews it. An agent that tests it. Each with its own workspace, its own tools, its own conversation history.
 
-### 2. Your work should run on your desk.
+### 3. Your work should run on your desk.
 
 Not scattered across SaaS dashboards. Not dependent on services that raise prices, change terms, or disappear. On hardware you own, with data you control.
 
-### 3. Local first. Cloud optional.
+### 4. Local first. Cloud optional.
 
 Your agents run on your hardware. Your data stays on your machine. Cloud is an option for those who want it — never a requirement. Privacy is the default, not a premium feature.
 
-### 4. Open by nature.
+### 5. Open by nature.
 
-The platform is open source. Agent definitions are markdown files you can read and edit. Every tool runs on code you can audit.
+The platform is open source. Agent definitions are markdown files you can read and edit. Every tool runs on code you can audit. Enforcement logic must be auditable to be trusted.
 
 No black boxes. No vendor lock-in. No surprises.
 
 ---
 
-## What Lattice Is
+## The Architecture
 
-**Lattice Workbench** is a multi-model AI agent workbench for software engineering.
+```
+┌──────────────────────────────────────────────────────────────┐
+│                    LATTICE RUNTIME (Go)                       │
+│              The Coordination Layer                           │
+│                                                              │
+│  Identity ─── Authorization ─── Audit ─── Budget             │
+│  Cross-department routing · Agent lifecycle · Mesh networking │
+│                                                              │
+├──────────┬──────────┬──────────┬──────────┬─────────────────┤
+│          │          │          │          │                   │
+│  ┌───────▼──┐ ┌─────▼────┐ ┌──▼─────┐ ┌─▼────────┐         │
+│  │   Eng    │ │ Clinical │ │ Legal  │ │ Finance  │  ...     │
+│  │  Stack   │ │  Stack   │ │ Stack  │ │  Stack   │         │
+│  │(Workbnch)│ │          │ │        │ │          │         │
+│  └──────────┘ └──────────┘ └────────┘ └──────────┘         │
+│                                                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │          LATTICE INFERENCE (MLX) — Optional            │  │
+│  │  Local AI on Apple Silicon · Zero-config clustering    │  │
+│  └────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Runtime** is the coordination layer — it doesn't do the work, it governs the work.
+
+**Stacks** are domain-specific AI workspaces. Each department plugs in the stack that fits their workflow. Runtime ensures every stack plays by the same rules.
+
+**Workbench** is the reference Engineering Stack — the first stack built on Runtime, purpose-built for software teams.
+
+---
+
+## What Lattice Workbench Is
+
+The reference Engineering Stack for [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime). Purpose-built for software engineering teams.
 
 You create minions (AI agents). Each gets its own git worktree, conversation history, and tool access. They work in parallel — planning, coding, testing, reviewing — organized into pipeline stages.
 
@@ -65,29 +102,6 @@ You create minions (AI agents). Each gets its own git worktree, conversation his
 - **Platforms**: Desktop (macOS, Windows, Linux), web server mode, CLI, VS Code extension
 - **Agent definitions**: Markdown files with frontmatter that configure agent behavior, base type, and prompts
 
-### Architecture
-
-```
-┌──────────────────────────────────────────────────────┐
-│                   Your Hardware                       │
-│                                                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │          LATTICE WORKBENCH                     │  │
-│  │                                                │  │
-│  │  Minions · Stages · Schedules · MCP Tools      │  │
-│  │  Multi-model AI · Git worktree isolation       │  │
-│  │  Cost tracking · Agent definitions             │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                      │
-│  ┌────────────────────────────────────────────────┐  │
-│  │          LATTICE INFERENCE (optional)          │  │
-│  │  Local AI models on Apple Silicon via MLX      │  │
-│  │  Zero API costs · Zero data leakage            │  │
-│  └────────────────────────────────────────────────┘  │
-│                                                      │
-└──────────────────────────────────────────────────────┘
-```
-
 ---
 
 ## The Vocabulary
@@ -95,6 +109,7 @@ You create minions (AI agents). Each gets its own git worktree, conversation his
 | Term | What It Means |
 | --- | --- |
 | **Minion** | An AI agent. It has a git worktree, a conversation history, tool access, and work to do. |
+| **Stack** | A domain-specific AI workspace that connects to Runtime for coordination. Workbench is the Engineering Stack. |
 | **Stage** | A pipeline stage — Intake, Build, Review, Deploy. Organizes minions visually. |
 | **Sidekick** | A minion spawned by another minion to handle a subtask. |
 | **Agent definition** | A markdown file (`.lattice/agents/*.md`) that configures an agent's base type, prompt, and behavior. |
@@ -126,16 +141,16 @@ Plus `chief-of-staff.md` (orchestrator base) and generic `exec.md` / `plan.md` a
 
 | Component | What It Does | License |
 | --- | --- | --- |
-| [**Lattice Workbench**](https://github.com/latticeHQ/latticeWorkbench) | AI agent workbench. Minions, stages, scheduling, multi-model chat. | MIT |
+| [**Lattice Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget. | Apache 2.0 |
+| [**Lattice Workbench**](https://github.com/latticeHQ/latticeWorkbench) | Reference Engineering Stack — minions, stages, multi-model chat. | MIT |
 | [**Lattice Inference**](https://github.com/latticeHQ/lattice-inference) | Local AI serving. MLX on Apple Silicon, zero-config clustering. | Apache 2.0 |
-| [**Lattice Runtime**](https://github.com/latticeHQ/lattice) | Identity, authorization, audit, deployment constraints. | Apache 2.0 |
 | [**Homebrew Tap**](https://github.com/latticeHQ/homebrew-lattice) | One-line install on macOS and Linux. | MIT |
 
 ---
 
 ## The Open Source Commitment
 
-Lattice is open source because your tools should be inspectable, modifiable, and owned by you.
+Lattice is open source because enforcement must be auditable to be trusted. If the software decides "allow" or "deny", the decision logic must be inspectable.
 
 Every agent definition is a markdown file you can read and edit. Every tool runs on code you can audit.
 
@@ -145,8 +160,8 @@ Every agent definition is a markdown file you can read and edit. Every tool runs
 
 - **Use it.** Install the Workbench, create some minions, build something.
 - **Break it.** File issues, report security findings, push the edges.
-- **Build on it.** Write agent definitions, create integrations.
-- **Shape it.** Join the discussion on architecture decisions that affect everyone.
+- **Build a stack.** See the [Stack SDK guide](https://github.com/latticeHQ/latticeRuntime/blob/develop/docs/stacks/README.md) for building domain-specific stacks on Runtime.
+- **Shape it.** Join [GitHub Discussions](https://github.com/latticeHQ/latticeRuntime/discussions) on architecture decisions that affect everyone.
 
 ---
 

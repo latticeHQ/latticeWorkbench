@@ -1,25 +1,27 @@
-> **Work in Progress** — First stable release targeted for **March 31, 2026**. Current releases are incomplete builds. Star and watch this repo to follow along.
+---
 
-<div align="center">
+**Work in Progress** — First stable release targeted for **March 31, 2026**. Star and watch to follow along.
 
 # Lattice Workbench
 
-### Multi-model AI agent workbench
+### The Reference Engineering Stack for Lattice Runtime
 
-**Run a team of AI specialists on your hardware.**
+**Run a team of AI specialists on your hardware — governed by [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime).**
 
 [![Latest Release](https://img.shields.io/github/v/release/latticeHQ/latticeWorkbench?style=flat-square&label=latest)](https://github.com/latticeHQ/latticeWorkbench/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
-
-</div>
 
 > Read the **[Preamble](./PREAMBLE.md)** for the founding vision and philosophy.
 
 ---
 
-## What Is Lattice Workbench?
+## What Is This?
 
-A workbench for running multiple AI agents in parallel. Each agent (called a **minion**) gets its own git worktree, conversation history, and tool access. Organize them into pipeline stages. Let them spawn child agents for parallel work.
+Lattice Workbench is the **first stack built on [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime)** — the open-source coordination layer for institutional AI.
+
+Runtime handles identity, authorization, audit, and budget across your organization. Workbench is the **Engineering Stack** — purpose-built for software teams. Each agent (called a **minion**) gets its own git worktree, conversation history, and tool access. Organize them into pipeline stages. Let them spawn child agents for parallel work.
+
+**Building a stack for a different domain?** Study this repo as the reference implementation. See the [Stack SDK guide](https://github.com/latticeHQ/latticeRuntime/blob/develop/docs/stacks/README.md) for how stacks connect to Runtime.
 
 ---
 
@@ -87,15 +89,29 @@ brew install latticehq/lattice/lattice
 
 ## Getting Started
 
+### Standalone Mode
+
+Workbench works standalone — no Runtime required for local development:
+
 1. Install Lattice Workbench (download or `brew install`)
 2. Open Lattice and create a project pointing at your repo
 3. Create minions — each gets its own git worktree
-4. Organize them into stages if you want pipeline-style organization
+4. Organize them into stages for pipeline-style organization
 5. Set up scheduled jobs for recurring tasks (optional)
 
-### Agent Definitions
+### With Lattice Runtime
 
-Lattice ships with agent definitions for a 10-stage software delivery pipeline in `.lattice/agents/`:
+For institutional coordination — identity, audit, cross-team governance:
+
+1. [Deploy Lattice Runtime](https://github.com/latticeHQ/latticeRuntime#get-started-in-30-seconds)
+2. Connect Workbench to your Runtime instance
+3. Your agents now inherit organizational identity, authorization, and audit
+
+---
+
+## Agent Definitions
+
+Lattice ships with a 10-stage software delivery pipeline in `.lattice/agents/`:
 
 | Agent | Purpose |
 | --- | --- |
@@ -114,23 +130,13 @@ Plus `chief-of-staff.md` (orchestrator), `exec.md`, and `plan.md`.
 
 ---
 
-## The Vocabulary
-
-| Term | What It Means |
-| --- | --- |
-| **Minion** | An AI agent with its own git worktree, conversation history, and tools. |
-| **Stage** | A pipeline stage for organizing minions visually — Intake, Build, Review, Deploy, etc. |
-| **Sidekick** | A child minion spawned by another minion for parallel work. |
-
----
-
 ## Ecosystem
 
 | Component | What It Does | License |
 | --- | --- | --- |
-| **Workbench** (this repo) | AI agent workbench — minions, stages, scheduling, multi-model chat | MIT |
+| [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget | Apache 2.0 |
+| **Workbench** (this repo) | Reference Engineering Stack — minions, stages, multi-model chat | MIT |
 | [**Inference**](https://github.com/latticeHQ/lattice-inference) | Local AI serving — MLX on Apple Silicon, zero-config clustering | Apache 2.0 |
-| [**Runtime**](https://github.com/latticeHQ/lattice) | Identity, authorization, audit, deployment constraints | Apache 2.0 |
 
 ---
 
@@ -140,12 +146,8 @@ See [AGENTS.md](./AGENTS.md) for development setup and guidelines.
 
 ## License
 
-Lattice is licensed under [MIT](./LICENSE).
+Lattice Workbench is licensed under [MIT](./LICENSE).
 
 ---
 
-<div align="center">
-
 **[latticeruntime.com](https://latticeruntime.com)**
-
-</div>
