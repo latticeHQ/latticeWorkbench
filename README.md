@@ -132,11 +132,12 @@ Plus `chief-of-staff.md` (orchestrator), `exec.md`, and `plan.md`.
 
 ## Ecosystem
 
-| Component | What It Does | License |
-| --- | --- | --- |
-| [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget | Apache 2.0 |
-| **Workbench** (this repo) | Reference Engineering Stack — minions, stages, multi-model chat | MIT |
-| [**Inference**](https://github.com/latticeHQ/lattice-inference) | Local AI serving — MLX on Apple Silicon, zero-config clustering | Apache 2.0 |
+| Component | Role | Repository |
+|-----------|------|------------|
+| [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget | [latticeRuntime](https://github.com/latticeHQ/latticeRuntime) |
+| **Workbench** (this repo) | Reference Engineering Stack — multi-model agent workspace | You are here |
+| [**Inference**](https://github.com/latticeHQ/latticeInference) | Local AI serving — MLX on Apple Silicon, zero-config clustering | [latticeInference](https://github.com/latticeHQ/latticeInference) |
+| [**Registry**](https://github.com/latticeHQ/latticeRegistry) | Community ecosystem — Terraform modules, templates, stacks | [latticeRegistry](https://github.com/latticeHQ/latticeRegistry) |
 
 ---
 
