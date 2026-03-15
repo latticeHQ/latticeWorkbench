@@ -1,35 +1,66 @@
----
-
-**Work in Progress** — First stable release targeted for **March 31, 2026**. Star and watch to follow along.
+<div align="center">
 
 # Lattice Workbench
 
 ### The Reference Engineering Stack for Lattice Runtime
 
-**Run a team of AI specialists on your hardware — governed by [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime).**
-
 [![Latest Release](https://img.shields.io/github/v/release/latticeHQ/latticeWorkbench?style=flat-square&label=latest)](https://github.com/latticeHQ/latticeWorkbench/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
 
+**Run a team of AI specialists on your hardware — governed by [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime).**
+
+[Download](https://github.com/latticeHQ/latticeWorkbench/releases/latest) · [Preamble](./PREAMBLE.md) · [Discussions](https://github.com/latticeHQ/latticeRuntime/discussions)
+
+</div>
+
+---
+
+**Work in Progress** — First stable release targeted for **March 31, 2026**. Star and watch to follow along.
+
+---
+
+## Why Workbench Exists
+
+[Lattice Runtime](https://github.com/latticeHQ/latticeRuntime) is the open-source coordination layer for institutional AI — identity, authorization, audit, and budget for every agent in the organization. But a coordination layer alone is not useful. Departments need applications built on top of it.
+
+**Department Stacks** are vertical applications that inherit Runtime's governance and add domain-specific agent workflows. Workbench is the **first stack** — purpose-built for software engineering teams.
+
+This repo serves two purposes:
+
+1. **A production tool for engineering teams.** Workbench gives every developer a governed team of AI agents — each with its own git worktree, conversation history, and tool access — organized into pipeline stages that mirror how software actually ships.
+
+2. **A reference implementation for stack developers.** If you're building a stack for a different domain — clinical, legal, finance, support — study this codebase. It demonstrates how stacks connect to Runtime, inherit governance, and add domain-specific agent behavior. See the [Stack SDK guide](https://github.com/latticeHQ/latticeRuntime/blob/develop/docs/stacks/README.md).
+
 > Read the **[Preamble](./PREAMBLE.md)** for the founding vision and philosophy.
 
----
+## What It Does
 
-## What Is This?
+Workbench organizes AI agents (called **minions**) into a software delivery pipeline. Each minion gets its own isolated execution environment, its own conversation history, and its own tool access. Organize them into stages. Let them spawn child agents for parallel work. Connect to Runtime for institutional governance — or run standalone for local development.
 
-Lattice Workbench is the **first stack built on [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime)** — the open-source coordination layer for institutional AI.
-
-Runtime handles identity, authorization, audit, and budget across your organization. Workbench is the **Engineering Stack** — purpose-built for software teams. Each agent (called a **minion**) gets its own git worktree, conversation history, and tool access. Organize them into pipeline stages. Let them spawn child agents for parallel work.
-
-**Building a stack for a different domain?** Study this repo as the reference implementation. See the [Stack SDK guide](https://github.com/latticeHQ/latticeRuntime/blob/develop/docs/stacks/README.md) for how stacks connect to Runtime.
-
----
-
-## Features
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       LATTICE WORKBENCH                                      │
+│                  Engineering Stack on Runtime                                │
+│                                                                             │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          │
+│  │  Intake  │ │  Build   │ │  Review  │ │  Deploy  │ │ Monitor  │  ...      │
+│  │──────────│ │──────────│ │──────────│ │──────────│ │──────────│          │
+│  │ Triage   │ │ Feature  │ │ Code Rev │ │ CI/CD    │ │ Alerts   │          │
+│  │ Classify │ │ Bug Fix  │ │ Security │ │ Release  │ │ Health   │          │
+│  │ Assign   │ │ Refactor │ │ Approve  │ │ Rollback │ │ Respond  │          │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘          │
+│                                                                             │
+│  Each minion: own git worktree · own conversation · own tools · governed    │
+│                                                                             │
+│  ┌────────────────────────────────────────────────────────────────────────┐  │
+│  │  Inherits from Runtime: Identity · Auth · Budget · Audit · Networking │  │
+│  └────────────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
 ### Agents
 
-- **Minion isolation**: Each minion gets its own git worktree, runtime, and conversation history
+- **Minion isolation**: Each minion gets its own git worktree, runtime, and conversation history — no cross-contamination between agents
 - **Multi-model support**: Claude, GPT, Gemini, Grok, Deepseek, Ollama, OpenRouter, Lattice Inference — any provider, swap freely
 - **Built-in agent types**: Pre-configured exec, plan, explore, and orchestrator agents with distinct tool policies
 - **Sidekick spawning**: Minions spawn child minions for parallel work — each with its own worktree
@@ -40,7 +71,7 @@ Runtime handles identity, authorization, audit, and budget across your organizat
 
 - **Stages**: Pipeline stages (Intake, Build, Review, Deploy, etc.) for organizing minions visually
 - **Scheduling**: Cron-based jobs — morning briefings, nightly builds, weekly reports
-- **Cost tracking**: Token usage and API spend per minion
+- **Cost tracking**: Token usage and API spend per minion, per project, per team
 
 ### Tools
 
@@ -53,22 +84,11 @@ Runtime handles identity, authorization, audit, and budget across your organizat
 | Mode | Description |
 | --- | --- |
 | **Local** | Direct execution in your project directory |
-| **Git Worktree** | Isolated branch-based development |
+| **Git Worktree** | Isolated branch-based development — each minion on its own branch |
 | **SSH** | Remote execution on any server |
 | **Docker** | Container-based sandboxed execution |
 
 ### Platforms
-
-- **Desktop**: macOS, Windows, Linux (Electron)
-- **Web**: Server mode accessible from any browser
-- **CLI**: Command-line interface for scripting and automation
-- **VS Code Extension**: Jump into your minions from VS Code
-
----
-
-## Download
-
-**[Latest Release](https://github.com/latticeHQ/latticeWorkbench/releases/latest)**
 
 | Platform | Architecture | Installer |
 | -------- | ------------ | --------- |
@@ -79,10 +99,18 @@ Runtime handles identity, authorization, audit, and budget across your organizat
 | Linux | arm64 | `.AppImage` |
 | Linux | x86_64 | `.AppImage` |
 
+Desktop (Electron), Web (server mode), CLI, and VS Code Extension.
+
+---
+
+## Download
+
+**[Latest Release](https://github.com/latticeHQ/latticeWorkbench/releases/latest)**
+
 Or install via Homebrew (macOS / Linux):
 
 ```bash
-brew install latticehq/lattice/lattice
+brew install latticehq/lattice/lattice-workbench
 ```
 
 ---
@@ -103,9 +131,11 @@ Workbench works standalone — no Runtime required for local development:
 
 For institutional coordination — identity, audit, cross-team governance:
 
-1. [Deploy Lattice Runtime](https://github.com/latticeHQ/latticeRuntime#get-started-in-30-seconds)
+1. [Deploy Lattice Runtime](https://github.com/latticeHQ/latticeRuntime#get-started)
 2. Connect Workbench to your Runtime instance
 3. Your agents now inherit organizational identity, authorization, and audit
+
+When connected to Runtime, every agent action passes through the four enforcement gates — Identity, Authorization, Constraints, Audit — without Workbench implementing any of it. The stack inherits governance from the coordination layer.
 
 ---
 
@@ -128,14 +158,50 @@ Lattice ships with a 10-stage software delivery pipeline in `.lattice/agents/`:
 
 Plus `chief-of-staff.md` (orchestrator), `exec.md`, and `plan.md`.
 
+Agent definitions are markdown files with frontmatter. Build your own agents or customize the built-in ones:
+
+```markdown
+---
+name: code-reviewer
+base: review
+model: claude-sonnet-4-6
+tools: [read, grep, glob]
+---
+
+You are a senior code reviewer. Focus on security, performance,
+and maintainability. Flag any OWASP Top 10 vulnerabilities.
+```
+
+---
+
+## How Workbench Relates to Other Stacks
+
+Workbench is the **Engineering Stack**. It is not the only stack.
+
+The same architecture that powers Workbench can power stacks for any department:
+
+| Stack | Domain | Who Builds It |
+|---|---|---|
+| **Engineering** (Workbench) | CI/CD, code review, testing, deployment | [@latticeHQ](https://github.com/latticeHQ) |
+| **Clinical** | Patient coordination, care plans, compliance | Community |
+| **Legal** | Contract review, compliance monitoring, drafting | Community |
+| **Finance** | Expense tracking, forecasting, audit, reporting | Community |
+| **Support** | Ticket triage, resolution, escalation, knowledge | Community |
+
+Every stack inherits the same coordination primitives from Runtime — identity, authorization, budget, audit, networking. Stack developers focus entirely on domain logic.
+
+**Building a stack?** See the [Stack SDK guide](https://github.com/latticeHQ/latticeRuntime/blob/develop/docs/stacks/README.md) and study this repo as the reference implementation.
+
 ---
 
 ## Ecosystem
 
 | Component | Role | Repository |
 |-----------|------|------------|
+| [**Enterprise**](https://github.com/latticeHQ/latticeEnterprise) | Enterprise administration and governance | Coming soon |
 | [**Homebrew**](https://github.com/latticeHQ/latticeHomebrew) | One-line install on macOS and Linux | [latticeHomebrew](https://github.com/latticeHQ/latticeHomebrew) |
 | [**Inference**](https://github.com/latticeHQ/latticeInference) | Local AI serving — MLX on Apple Silicon, zero-config clustering | [latticeInference](https://github.com/latticeHQ/latticeInference) |
+| [**Operator**](https://github.com/latticeHQ/latticeOperator) | Self-hosted deployment management for Lattice infrastructure | [latticeOperator](https://github.com/latticeHQ/latticeOperator) |
 | [**Public**](https://github.com/latticeHQ/lattice) | Website + binary releases | [lattice](https://github.com/latticeHQ/lattice) |
 | [**Registry**](https://github.com/latticeHQ/latticeRegistry) | Community ecosystem — Terraform modules, templates, stacks | [latticeRegistry](https://github.com/latticeHQ/latticeRegistry) |
 | [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget | [latticeRuntime](https://github.com/latticeHQ/latticeRuntime) |
@@ -155,4 +221,8 @@ Lattice Workbench is licensed under [MIT](./LICENSE).
 
 ---
 
-**[latticeruntime.com](https://latticeruntime.com)**
+<div align="center">
+
+**[latticeruntime.com](https://latticeruntime.com)** — The open-source coordination layer for institutional AI.
+
+</div>
