@@ -141,10 +141,13 @@ Plus `chief-of-staff.md` (orchestrator base) and generic `exec.md` / `plan.md` a
 
 | Component | What It Does | License |
 | --- | --- | --- |
-| [**Lattice Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget. | Apache 2.0 |
-| [**Lattice Workbench**](https://github.com/latticeHQ/latticeWorkbench) | Reference Engineering Stack — minions, stages, multi-model chat. | MIT |
-| [**Lattice Inference**](https://github.com/latticeHQ/lattice-inference) | Local AI serving. MLX on Apple Silicon, zero-config clustering. | Apache 2.0 |
-| [**Homebrew Tap**](https://github.com/latticeHQ/homebrew-lattice) | One-line install on macOS and Linux. | MIT |
+| [**Homebrew**](https://github.com/latticeHQ/latticeHomebrew) | One-line install on macOS and Linux | MIT |
+| [**Inference**](https://github.com/latticeHQ/latticeInference) | Local AI serving — MLX on Apple Silicon, zero-config clustering | Apache 2.0 |
+| [**Registry**](https://github.com/latticeHQ/latticeRegistry) | Community ecosystem — Terraform modules, templates, stacks | Apache 2.0 |
+| [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget | Apache 2.0 |
+| [**Terraform Provider**](https://github.com/latticeHQ/terraform-provider-lattice) | Infrastructure as code for Lattice deployments | MPL 2.0 |
+| [**Toolbox**](https://github.com/latticeHQ/latticeToolbox) | macOS app manager for Lattice products | MIT |
+| [**Workbench**](https://github.com/latticeHQ/latticeWorkbench) | Reference Engineering Stack — multi-model agent workspace | MIT |
 
 ---
 
