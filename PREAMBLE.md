@@ -148,6 +148,7 @@ Plus `chief-of-staff.md` (orchestrator base) and generic `exec.md` / `plan.md` a
 | [**Public**](https://github.com/latticeHQ/lattice) | Website + binary releases | — |
 | [**Registry**](https://github.com/latticeHQ/latticeRegistry) | Community ecosystem — Terraform modules, templates, stacks | Apache 2.0 |
 | [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget | Apache 2.0 |
+| [**SDK**](https://github.com/latticeHQ/latticeSDK) | Go SDK for building Department Stacks | Apache 2.0 |
 | [**Terraform Provider**](https://github.com/latticeHQ/terraform-provider-lattice) | Infrastructure as code for Lattice deployments | MPL 2.0 |
 | [**Toolbox**](https://github.com/latticeHQ/latticeToolbox) | macOS app manager for Lattice products | MIT |
 | [**Workbench**](https://github.com/latticeHQ/latticeWorkbench) | Reference Engineering Stack — multi-model agent workspace | MIT |
