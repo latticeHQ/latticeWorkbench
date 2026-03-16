@@ -60,7 +60,7 @@ export function getDefaultWorkbenchPanelLayoutState(activeTab: TabType): Workben
   // Default: two-stage split — terminal on top, info tabs on bottom.
   // The bare "terminal" placeholder is promoted to a real "terminal:<sessionId>"
   // by WorkbenchPanel's promoteBareTerminalPlaceholders effect on mount.
-  const bottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "browser", "kanban", "issues", "inference", "schedules", "sync"];
+  const bottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "browser", "kanban", "issues", "inference", "schedules", "sync", "reflections", "research", "simulation"];
 
   return {
     version: 1,
@@ -141,6 +141,25 @@ export function parseWorkbenchPanelLayoutState(
     }
     if (!layoutContainsTab(raw.root, "browser")) {
       injectTabIntoLayout(raw.root, "browser");
+    }
+    if (!layoutContainsTab(raw.root, "reflections")) {
+      injectTabIntoLayout(raw.root, "reflections");
+    }
+    if (!layoutContainsTab(raw.root, "research")) {
+      injectTabIntoLayout(raw.root, "research");
+    }
+    if (!layoutContainsTab(raw.root, "simulation")) {
+      injectTabIntoLayout(raw.root, "simulation");
+    }
+
+    // Migrate: remove inference sub-tabs from top-level layout
+    // (they are accessed via the sidebar within the Inference tab)
+    const infSubTabs = ["inf-models", "inf-pool", "inf-machines", "inf-benchmark", "inf-metrics"] as const;
+    for (const infTab of infSubTabs) {
+      if (layoutContainsTab(raw.root, infTab as unknown as TabType)) {
+        const cleaned = removeTabFromNode(raw.root, infTab as unknown as TabType);
+        if (cleaned) raw.root = cleaned;
+      }
     }
 
     // Self-heal: if the split collapsed to a single tabset (e.g. all terminal

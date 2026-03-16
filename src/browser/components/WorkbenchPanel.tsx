@@ -88,6 +88,8 @@ import {
   SchedulesTabLabel,
   SyncTabLabel,
   ReflectionsTabLabel,
+  ResearchTabLabel,
+  SimulationTabLabel,
   OutputTabLabel,
   FileTabLabel,
   ReviewTabLabel,
@@ -104,6 +106,8 @@ import { InferenceTab } from "./WorkbenchPanel/InferenceTab";
 import { SchedulesTab } from "./WorkbenchPanel/SchedulesTab";
 import { SyncTab } from "./WorkbenchPanel/SyncTab";
 import { ReflectionsTab } from "./WorkbenchPanel/ReflectionsTab";
+import { ResearchTab } from "./WorkbenchPanel/Research/ResearchTab";
+import { SimulationTab } from "./WorkbenchPanel/Simulation/SimulationTab";
 import { useMinionSidebarState } from "@/browser/stores/MinionStore";
 import {
   DndContext,
@@ -433,6 +437,10 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
       label = <SyncTabLabel />;
     } else if (tab === "reflections") {
       label = <ReflectionsTabLabel />;
+    } else if (tab === "research") {
+      label = <ResearchTabLabel />;
+    } else if (tab === "simulation") {
+      label = <SimulationTabLabel />;
     } else if (isTerminal) {
       const terminalIndex = terminalTabs.indexOf(tab);
       label = (
@@ -689,7 +697,6 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
             <InferenceTab minionId={props.minionId} />
           </div>
         )}
-
         {props.node.activeTab === "schedules" && (
           <div role="tabpanel" className="h-full">
             <SchedulesTab minionId={props.minionId} projectPath={props.projectPath} />
@@ -705,6 +712,18 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
         {props.node.activeTab === "reflections" && (
           <div role="tabpanel" className="h-full">
             <ReflectionsTab minionId={props.minionId} />
+          </div>
+        )}
+
+        {props.node.activeTab === "research" && (
+          <div role="tabpanel" className="h-full">
+            <ResearchTab minionId={props.minionId} />
+          </div>
+        )}
+
+        {props.node.activeTab === "simulation" && (
+          <div role="tabpanel" className="h-full">
+            <SimulationTab minionId={props.minionId} />
           </div>
         )}
       </div>

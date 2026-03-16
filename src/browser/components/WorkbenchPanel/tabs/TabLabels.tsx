@@ -8,7 +8,7 @@
  */
 
 import React from "react";
-import { Brain, CircleDot, Clock, Columns3, ExternalLink, FolderTree, Globe, Network, RefreshCw, Terminal as TerminalIcon, X } from "lucide-react";
+import { Activity, Brain, CircleDot, Clock, Columns3, Cpu, Database, ExternalLink, FolderTree, Globe, MonitorSmartphone, Network, RefreshCw, Terminal as TerminalIcon, TrendingUp, Users, X, Zap } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { FileIcon } from "../../FileIcon";
 import { formatTabDuration, type ReviewStats } from "./registry";
@@ -273,5 +273,61 @@ export const ReflectionsTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
     <Brain className="h-3 w-3 shrink-0" />
     Reflections
+  </span>
+);
+
+/** Research tab label — shows trending icon + "Research" text. */
+export const ResearchTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <TrendingUp className="h-3 w-3 shrink-0" />
+    Research
+  </span>
+);
+
+/** Simulation tab label — shows users icon + "Simulation" text. */
+export const SimulationTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Users className="h-3 w-3 shrink-0" />
+    Simulation
+  </span>
+);
+
+/** Inference Models tab label */
+export const InfModelsTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Cpu className="h-3 w-3 shrink-0" />
+    Models
+  </span>
+);
+
+/** Inference Pool tab label */
+export const InfPoolTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Database className="h-3 w-3 shrink-0" />
+    Pool
+  </span>
+);
+
+/** Inference Machines tab label */
+export const InfMachinesTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <MonitorSmartphone className="h-3 w-3 shrink-0" />
+    Machines
+  </span>
+);
+
+/** Inference Benchmark tab label */
+export const InfBenchmarkTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Zap className="h-3 w-3 shrink-0" />
+    Benchmark
+  </span>
+);
+
+/** Inference Metrics tab label */
+export const InfMetricsTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Activity className="h-3 w-3 shrink-0" />
+    Metrics
   </span>
 );

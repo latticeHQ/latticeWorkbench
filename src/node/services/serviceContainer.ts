@@ -262,9 +262,57 @@ export class ServiceContainer {
     this.browserService = new BrowserService(config);
     this.minionService.setBrowserService(this.browserService);
     // OpenBB — embedded financial data platform (lazy-started on first use)
-    this.openbbService = new OpenBBService(config.rootDir);
-    // Simulation engine — multi-agent prediction system
-    this.simulationService = new SimulationService(DEFAULT_SIMULATION_SETTINGS);
+    this.openbbService = new OpenBBService(config.rootDir, {
+      getSecrets: () => {
+        try {
+          const secrets = config.getGlobalSecrets();
+          const record: Record<string, string> = {};
+          for (const s of secrets) {
+            if (s && typeof s.key === "string" && typeof s.value === "string" && s.value.trim()) {
+              record[s.key] = s.value;
+            }
+          }
+          return record;
+        } catch {
+          return {};
+        }
+      },
+    });
+    // Simulation engine — merge persisted settings from config into defaults
+    const simConfig = config.loadConfigOrDefault().simulation;
+    const simSettings = { ...DEFAULT_SIMULATION_SETTINGS };
+    if (simConfig?.graphDb) {
+      simSettings.graphDb = {
+        ...simSettings.graphDb,
+        ...simConfig.graphDb,
+      } as typeof simSettings.graphDb;
+    }
+    if (simConfig?.autoStartGraphDb !== undefined) {
+      simSettings.autoStartGraphDb = simConfig.autoStartGraphDb;
+    }
+    if (simConfig?.accuracyTrackingEnabled !== undefined) {
+      simSettings.accuracyTrackingEnabled = simConfig.accuracyTrackingEnabled;
+    }
+    this.simulationService = new SimulationService(simSettings);
+    // Bridge AIService → SimulationService LLM provider
+    const aiServiceRef = this.aiService;
+    this.simulationService.setLLMProvider({
+      async chat(opts) {
+        const modelString = `${opts.provider}:${opts.model}`;
+        const modelResult = await aiServiceRef.createModel(modelString);
+        if (!modelResult.success) {
+          throw new Error(`Failed to create model ${modelString}: ${modelResult.error.type}`);
+        }
+        const { generateText } = await import("ai");
+        const result = await generateText({
+          model: modelResult.data,
+          system: opts.systemPrompt,
+          prompt: opts.userPrompt,
+          temperature: opts.temperature,
+        });
+        return result.text;
+      },
+    });
     this.aiService.setBrowserService(this.browserService);
     // Scheduler service — late-binds minion service to send agent messages
     this.schedulerService = new SchedulerService(config);

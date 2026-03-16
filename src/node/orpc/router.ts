@@ -4391,6 +4391,50 @@ export const router = (authToken?: string) => {
         }),
     },
 
+    // Lattice Inference Cluster — latticeinference as alternate clustering provider
+    latticeInferenceCluster: {
+      getStatus: t
+        .input(schemas.latticeInferenceCluster.getStatus.input)
+        .output(schemas.latticeInferenceCluster.getStatus.output)
+        .handler(async ({ context }) => {
+          return context.latticeInferenceClusterService.getState();
+        }),
+      subscribe: t
+        .input(schemas.latticeInferenceCluster.subscribe.input)
+        .output(schemas.latticeInferenceCluster.subscribe.output)
+        .handler(async function* ({ context, signal }) {
+          if (signal?.aborted) return;
+
+          const queue =
+            createAsyncEventQueue<
+              Awaited<ReturnType<typeof context.latticeInferenceClusterService.getState>>
+            >();
+
+          // Yield initial state
+          queue.push(await context.latticeInferenceClusterService.getState());
+
+          // Start polling and subscribe to changes
+          context.latticeInferenceClusterService.startPolling();
+          const unsubscribe = context.latticeInferenceClusterService.onChange(() => {
+            void context.latticeInferenceClusterService
+              .getState()
+              .then((state) => queue.push(state));
+          });
+
+          const onAbort = () => queue.end();
+          if (signal) signal.addEventListener("abort", onAbort, { once: true });
+
+          try {
+            yield* queue.iterate();
+          } finally {
+            signal?.removeEventListener("abort", onAbort);
+            queue.end();
+            unsubscribe();
+            context.latticeInferenceClusterService.stopPolling();
+          }
+        }),
+    },
+
     // Lattice Inference — local on-device LLM inference engine
     latticeInference: {
       getStatus: t
@@ -4436,15 +4480,36 @@ export const router = (authToken?: string) => {
             }
           }
 
+          // Fallback: when the Go binary reports 0 for memory budget,
+          // use actual system memory so the UI shows real values
+          const os = await import("os");
+          let memoryBudget = pool.memoryBudgetBytes;
+          let estimatedVram = pool.estimatedVramBytes;
+          if (memoryBudget === 0) {
+            memoryBudget = os.totalmem();
+          }
+          if (estimatedVram === 0 && pool.loadedModels.length > 0) {
+            // Sum up loaded model sizes as estimated VRAM usage
+            estimatedVram = pool.loadedModels.reduce(
+              (sum, m) => sum + (m.estimated_bytes || 0),
+              0,
+            );
+          }
+          // If the Go binary reports 0 for estimatedVram but we have
+          // actual memory pressure data, use real memory usage
+          if (estimatedVram === 0) {
+            estimatedVram = os.totalmem() - os.freemem();
+          }
+
           return {
             available: true,
             loadedModelId: svc.loadedModelId,
             cachedModels: models,
             loadedModels: pool.loadedModels,
             modelsLoaded: pool.modelsLoaded,
-            maxLoadedModels: pool.maxLoadedModels,
-            memoryBudgetBytes: pool.memoryBudgetBytes,
-            estimatedVramBytes: pool.estimatedVramBytes,
+            maxLoadedModels: pool.maxLoadedModels || 8,
+            memoryBudgetBytes: memoryBudget,
+            estimatedVramBytes: estimatedVram,
           };
         }),
       listModels: t
@@ -5046,6 +5111,230 @@ export const router = (authToken?: string) => {
             return Ok(undefined);
           }),
       },
+    },
+
+    // OpenBB — embedded financial data platform
+    openbb: {
+      getStatus: t
+        .input(schemas.openbb.getStatus.input)
+        .output(schemas.openbb.getStatus.output)
+        .handler(async ({ context }) => {
+          return context.openbbService.getState();
+        }),
+      subscribe: t
+        .input(schemas.openbb.subscribe.input)
+        .output(schemas.openbb.subscribe.output)
+        .handler(async function* ({ context, signal }) {
+          // Yield initial state immediately
+          yield await context.openbbService.getState();
+
+          // Set up polling + change listener
+          const queue: Array<Awaited<ReturnType<typeof context.openbbService.getState>>> = [];
+          let resolve: (() => void) | null = null;
+
+          const unsub = context.openbbService.onChange((state) => {
+            queue.push(state);
+            resolve?.();
+          });
+          context.openbbService.startPolling();
+
+          try {
+            while (!signal?.aborted) {
+              if (queue.length > 0) {
+                yield queue.shift()!;
+              } else {
+                await new Promise<void>((r) => {
+                  resolve = r;
+                  // Also resolve on abort
+                  signal?.addEventListener("abort", () => r(), { once: true });
+                });
+              }
+            }
+          } finally {
+            unsub();
+            context.openbbService.stopPolling();
+          }
+        }),
+      bootstrap: t
+        .input(schemas.openbb.bootstrap.input)
+        .output(schemas.openbb.bootstrap.output)
+        .handler(async ({ context }) => {
+          try {
+            await context.openbbService.bootstrap();
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
+      start: t
+        .input(schemas.openbb.start.input)
+        .output(schemas.openbb.start.output)
+        .handler(async ({ context }) => {
+          try {
+            await context.openbbService.ensureRunning();
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
+      stop: t
+        .input(schemas.openbb.stop.input)
+        .output(schemas.openbb.stop.output)
+        .handler(async ({ context }) => {
+          try {
+            await context.openbbService.stop();
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
+    },
+
+    // Simulation — multi-agent prediction engine
+    simulation: {
+      getStatus: t
+        .input(schemas.simulation.getStatus.input)
+        .output(schemas.simulation.getStatus.output)
+        .handler(async ({ context }) => {
+          return context.simulationService.getState();
+        }),
+      subscribe: t
+        .input(schemas.simulation.subscribe.input)
+        .output(schemas.simulation.subscribe.output)
+        .handler(async function* ({ context, signal }) {
+          yield await context.simulationService.getState();
+
+          const queue: Array<Awaited<ReturnType<typeof context.simulationService.getState>>> = [];
+          let resolve: (() => void) | null = null;
+
+          const unsub = context.simulationService.onChange((state) => {
+            queue.push(state);
+            resolve?.();
+          });
+          context.simulationService.startPolling();
+
+          try {
+            while (!signal?.aborted) {
+              if (queue.length > 0) {
+                yield queue.shift()!;
+              } else {
+                await new Promise<void>((r) => {
+                  resolve = r;
+                  signal?.addEventListener("abort", () => r(), { once: true });
+                });
+              }
+            }
+          } finally {
+            unsub();
+            context.simulationService.stopPolling();
+          }
+        }),
+      createScenario: t
+        .input(schemas.simulation.createScenario.input)
+        .output(schemas.simulation.createScenario.output)
+        .handler(async ({ context, input }) => {
+          const scenario = await context.simulationService.createScenario(input as any);
+          return {
+            id: scenario.id,
+            name: scenario.name,
+            description: scenario.description,
+            status: scenario.status,
+            createdAt: scenario.createdAt,
+          } as any;
+        }),
+      listScenarios: t
+        .input(schemas.simulation.listScenarios.input)
+        .output(schemas.simulation.listScenarios.output)
+        .handler(async ({ context }) => {
+          return context.simulationService.listScenarios().map((s) => ({
+            id: s.id,
+            name: s.name,
+            description: s.description,
+            status: s.status,
+            createdAt: s.createdAt,
+          })) as any;
+        }),
+      runSimulation: t
+        .input(schemas.simulation.runSimulation.input)
+        .output(schemas.simulation.runSimulation.output)
+        .handler(async function* ({ context, input }) {
+          for await (const result of context.simulationService.runSimulation(input.scenarioId)) {
+            yield result as any;
+          }
+        }),
+      stopSimulation: t
+        .input(schemas.simulation.stopSimulation.input)
+        .output(schemas.simulation.stopSimulation.output)
+        .handler(async ({ context, input }) => {
+          try {
+            context.simulationService.stopSimulation(input.scenarioId);
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
+      getResults: t
+        .input(schemas.simulation.getResults.input)
+        .output(schemas.simulation.getResults.output)
+        .handler(async ({ context, input }) => {
+          return context.simulationService.getResults(input.scenarioId) as any;
+        }),
+      updateSettings: t
+        .input(schemas.simulation.updateSettings.input)
+        .output(schemas.simulation.updateSettings.output)
+        .handler(async ({ context, input }) => {
+          try {
+            context.simulationService.updateSettings(input as any);
+            // Persist key settings to config.json
+            const partial: Record<string, unknown> = {};
+            if ((input as any).graphDb) partial.graphDb = (input as any).graphDb;
+            if ((input as any).autoStartGraphDb !== undefined) partial.autoStartGraphDb = (input as any).autoStartGraphDb;
+            if ((input as any).accuracyTrackingEnabled !== undefined) partial.accuracyTrackingEnabled = (input as any).accuracyTrackingEnabled;
+            if (Object.keys(partial).length > 0) {
+              await context.config.editConfig((cfg) => ({
+                ...cfg,
+                simulation: { ...cfg.simulation, ...partial },
+              }));
+            }
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
+      checkSetup: t
+        .input(schemas.simulation.checkSetup.input)
+        .output(schemas.simulation.checkSetup.output)
+        .handler(async ({ context }) => {
+          return context.simulationService.checkSetup() as any;
+        }),
+      startFalkorDb: t
+        .input(schemas.simulation.startFalkorDb.input)
+        .output(schemas.simulation.startFalkorDb.output)
+        .handler(async ({ context }) => {
+          try {
+            const { execSync } = await import("child_process");
+            // Check if already running
+            const running = execSync(
+              "docker ps --filter ancestor=falkordb/falkordb --format '{{.Names}}'",
+              { encoding: "utf8", timeout: 5000 },
+            ).trim();
+            if (running) {
+              return Ok(undefined);
+            }
+            // Start container
+            const settings = (context.simulationService as any).settings;
+            const port = settings?.graphDb?.port ?? 6379;
+            execSync(
+              `docker run -d --name lattice-falkordb -p ${port}:6379 falkordb/falkordb`,
+              { encoding: "utf8", timeout: 30000 },
+            );
+            // Reinitialize graph layer after container starts
+            await context.simulationService.initialize();
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
     },
   });
 };

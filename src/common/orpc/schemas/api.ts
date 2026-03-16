@@ -40,6 +40,7 @@ import {
   KanbanSubscribeInputSchema,
 } from "./kanban";
 import { ExoStatusSchema } from "./inference";
+import { LatticeInferenceClusterStatusSchema } from "./latticeInferenceCluster";
 import {
   LatticeInferenceStatusSchema,
   DownloadProgressSchema,
@@ -1918,6 +1919,21 @@ export const inference = {
   },
 };
 
+// Lattice Inference Cluster — latticeinference as alternate clustering provider
+
+export const latticeInferenceCluster = {
+  /** Get current latticeinference cluster status (detect + fetch state) */
+  getStatus: {
+    input: z.void(),
+    output: LatticeInferenceClusterStatusSchema,
+  },
+  /** Subscribe to latticeinference cluster state changes (live polling updates) */
+  subscribe: {
+    input: z.void(),
+    output: eventIterator(LatticeInferenceClusterStatusSchema),
+  },
+};
+
 // Lattice Inference — local on-device LLM inference engine
 
 export const latticeInference = {
@@ -2482,5 +2498,213 @@ export const ssh = {
       input: SshPromptResponseInputSchema,
       output: ResultSchema(z.void(), z.string()),
     },
+  },
+};
+
+// OpenBB — embedded financial data platform
+
+export const OpenBBStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("not_installed") }),
+  z.object({
+    status: z.literal("installed_not_running"),
+    bootstrapped: z.boolean(),
+    platformRoot: z.string(),
+  }),
+  z.object({ status: z.literal("starting") }),
+  z.object({
+    status: z.literal("running"),
+    port: z.number(),
+    baseUrl: z.string(),
+    endpointCount: z.number(),
+  }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+
+export const openbb = {
+  /** Get current OpenBB service status (detect + fetch state) */
+  getStatus: {
+    input: z.void(),
+    output: OpenBBStatusSchema,
+  },
+  /** Subscribe to OpenBB state changes (live polling updates) */
+  subscribe: {
+    input: z.void(),
+    output: eventIterator(OpenBBStatusSchema),
+  },
+  /** Bootstrap the OpenBB Python venv (first-time setup) */
+  bootstrap: {
+    input: z.void(),
+    output: ResultSchema(z.void(), z.string()),
+  },
+  /** Start the OpenBB API server */
+  start: {
+    input: z.void(),
+    output: ResultSchema(z.void(), z.string()),
+  },
+  /** Stop the OpenBB API server */
+  stop: {
+    input: z.void(),
+    output: ResultSchema(z.void(), z.string()),
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Simulation — multi-agent prediction engine
+// ---------------------------------------------------------------------------
+
+export const SimulationStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("not_configured") }),
+  z.object({ status: z.literal("initializing") }),
+  z.object({
+    status: z.literal("ready"),
+    graphDbConnected: z.boolean(),
+    activeSimulations: z.number(),
+  }),
+  z.object({
+    status: z.literal("running"),
+    simulationId: z.string(),
+    progress: z.number(),
+  }),
+  z.object({ status: z.literal("error"), message: z.string() }),
+]);
+
+export const SimulationScenarioSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  status: z.enum(["created", "building_graph", "generating_ontology", "generating_profiles", "ready", "running", "completed", "failed"]),
+  createdAt: z.string(),
+});
+
+export const SimulationRoundResultSchema = z.object({
+  round: z.number(),
+  simulatedHour: z.number(),
+  actions: z.array(z.object({
+    agentId: z.string(),
+    agentName: z.string(),
+    actionType: z.string(),
+    content: z.string().optional(),
+    targetId: z.string().optional(),
+  })),
+  sentimentDistribution: z.object({
+    positive: z.number(),
+    neutral: z.number(),
+    negative: z.number(),
+  }),
+  viralPosts: z.array(z.object({
+    id: z.string(),
+    content: z.string(),
+    votes: z.number(),
+    authorId: z.string().optional(),
+    authorName: z.string().optional(),
+    isViral: z.boolean().optional(),
+  })),
+  platformSnapshot: z.object({
+    totalPosts: z.number(),
+    totalComments: z.number(),
+    totalVotes: z.number().optional(),
+    activeAgents: z.number(),
+    topPosts: z.array(z.object({
+      id: z.string(),
+      content: z.string(),
+      votes: z.number(),
+    })),
+    trending: z.array(z.string()).optional(),
+  }),
+});
+
+export const CreateScenarioInputSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  seedDocuments: z.array(z.object({
+    filename: z.string(),
+    content: z.string(),
+  })),
+  department: z.string().optional(),
+  platforms: z.array(z.string()).optional(),
+  rounds: z.number().optional(),
+  modelRouting: z.record(z.string(), z.object({
+    provider: z.string(),
+    model: z.string(),
+  })).optional(),
+});
+
+export const SimulationSettingsSchema = z.object({
+  modelRouting: z.any(),
+  socialDynamics: z.any(),
+  graphDb: z.object({
+    host: z.string(),
+    port: z.number(),
+    protocol: z.string(),
+  }).optional(),
+  defaultEnsemble: z.object({
+    runs: z.number(),
+    personalityVariance: z.number(),
+    initialConditionVariance: z.number(),
+  }).optional(),
+  accuracyTrackingEnabled: z.boolean().optional(),
+});
+
+export const SimulationSetupStatusSchema = z.object({
+  llmProviderConfigured: z.boolean(),
+  graphDbConfigured: z.boolean(),
+  graphDbConnected: z.boolean(),
+  graphDbHost: z.string(),
+  graphDbPort: z.number(),
+  dockerAvailable: z.boolean(),
+  falkorDbContainerRunning: z.boolean(),
+  ready: z.boolean(),
+});
+
+export const simulation = {
+  /** Get current simulation service status */
+  getStatus: {
+    input: z.void(),
+    output: SimulationStatusSchema,
+  },
+  /** Subscribe to simulation state changes */
+  subscribe: {
+    input: z.void(),
+    output: eventIterator(SimulationStatusSchema),
+  },
+  /** Create a new simulation scenario */
+  createScenario: {
+    input: CreateScenarioInputSchema,
+    output: SimulationScenarioSchema,
+  },
+  /** List all scenarios */
+  listScenarios: {
+    input: z.void(),
+    output: z.array(SimulationScenarioSchema),
+  },
+  /** Run a simulation (streaming round results) */
+  runSimulation: {
+    input: z.object({ scenarioId: z.string() }),
+    output: eventIterator(SimulationRoundResultSchema),
+  },
+  /** Stop a running simulation */
+  stopSimulation: {
+    input: z.object({ scenarioId: z.string() }),
+    output: ResultSchema(z.void(), z.string()),
+  },
+  /** Get results for a completed simulation */
+  getResults: {
+    input: z.object({ scenarioId: z.string() }),
+    output: z.array(SimulationRoundResultSchema),
+  },
+  /** Update simulation settings */
+  updateSettings: {
+    input: SimulationSettingsSchema,
+    output: ResultSchema(z.void(), z.string()),
+  },
+  /** Check setup dependencies */
+  checkSetup: {
+    input: z.void(),
+    output: SimulationSetupStatusSchema,
+  },
+  /** Start FalkorDB Docker container */
+  startFalkorDb: {
+    input: z.void(),
+    output: ResultSchema(z.void(), z.string()),
   },
 };

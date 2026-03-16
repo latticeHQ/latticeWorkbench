@@ -34,12 +34,15 @@ import type { SshPromptService } from "@/node/services/sshPromptService";
 import type { AnalyticsService } from "@/node/services/analytics/analyticsService";
 import type { KanbanService } from "@/node/services/kanbanService";
 import type { ExoService } from "@/node/services/exoService";
+import type { LatticeInferenceClusterService } from "@/node/services/latticeInferenceClusterService";
 import type { InferenceService } from "@/node/services/inference/inferenceService";
 import type { InferenceSetupService } from "@/node/services/inference/inferenceSetupService";
 import type { SchedulerService } from "@/node/services/schedulerService";
 import type { SyncService } from "@/node/services/syncService";
 import type { InboxService } from "@/node/services/inboxService";
 import type { BrowserService } from "@/node/services/browserService";
+import type { OpenBBService } from "@/node/services/openbbService";
+import type { SimulationService } from "@/node/services/simulation";
 
 export interface ORPCContext {
   config: Config;
@@ -77,11 +80,14 @@ export interface ORPCContext {
   analyticsService: AnalyticsService;
   kanbanService: KanbanService;
   exoService: ExoService;
+  latticeInferenceClusterService: LatticeInferenceClusterService;
   inferenceService: InferenceService;
   inferenceSetupService: InferenceSetupService;
   schedulerService: SchedulerService;
   syncService: SyncService;
   inboxService: InboxService;
   browserService: BrowserService;
+  openbbService: OpenBBService;
+  simulationService: SimulationService;
   headers?: IncomingHttpHeaders;
 }

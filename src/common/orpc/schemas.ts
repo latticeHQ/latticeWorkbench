@@ -307,6 +307,7 @@ export {
   browser,
   terminalProfiles,
   inference,
+  latticeInferenceCluster,
   latticeInference,
   inferenceSetup,
   inbox,
@@ -319,5 +320,13 @@ export {
   voice,
   window,
   minion,
+  openbb,
+  simulation,
+  SimulationStatusSchema,
+  SimulationScenarioSchema,
+  SimulationRoundResultSchema,
+  CreateScenarioInputSchema,
+  SimulationSettingsSchema,
+  SimulationSetupStatusSchema,
 } from "./schemas/api";
 export type { MinionSendMessageOutput } from "./schemas/api";

@@ -12,6 +12,20 @@ export const WORKBENCH_PANEL_TABS = [
   "schedules",
   "sync",
   "reflections",
+  "research",
+  "simulation",
+] as const;
+
+/**
+ * Inference sub-tabs — accessed via the sidebar within the Inference tab,
+ * not shown as top-level tabs. Kept as valid tab types for programmatic use.
+ */
+export const INFERENCE_SUB_TABS = [
+  "inf-models",
+  "inf-pool",
+  "inf-machines",
+  "inf-benchmark",
+  "inf-metrics",
 ] as const;
 
 /** Base tab types that are always valid */

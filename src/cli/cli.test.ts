@@ -92,12 +92,15 @@ async function createTestServer(authToken?: string): Promise<TestServerHandle> {
     analyticsService: services.analyticsService,
     kanbanService: services.kanbanService,
     exoService: services.exoService,
+    latticeInferenceClusterService: services.latticeInferenceClusterService,
     schedulerService: services.schedulerService,
     syncService: services.syncService,
     inboxService: services.inboxService,
     inferenceService: services.inferenceService,
     inferenceSetupService: services.inferenceSetupService,
     browserService: services.browserService,
+    openbbService: services.openbbService,
+    simulationService: services.simulationService,
   };
 
   // Use the actual createOrpcServer function

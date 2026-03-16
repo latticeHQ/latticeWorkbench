@@ -31,6 +31,8 @@ export {
   SchedulesTabLabel,
   SyncTabLabel,
   ReflectionsTabLabel,
+  ResearchTabLabel,
+  SimulationTabLabel,
   OutputTabLabel,
   FileTabLabel,
   ReviewTabLabel,
