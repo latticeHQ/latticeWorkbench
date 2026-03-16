@@ -201,11 +201,10 @@ export function getActivityMultiplier(
 export function computeSimulatedHour(
   round: number,
   minutesPerRound: number,
-  startHour = 0,
+  startHourOffset: number = 0,
 ): number {
-  const totalMinutes = (round - 1) * minutesPerRound;
-  const totalHours = Math.floor(totalMinutes / 60);
-  return (startHour + totalHours) % 24;
+  const totalMinutes = round * minutesPerRound;
+  return ((totalMinutes / 60) + startHourOffset) % 24;
 }
 
 // ---------------------------------------------------------------------------

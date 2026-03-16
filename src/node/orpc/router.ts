@@ -5240,6 +5240,9 @@ export const router = (authToken?: string) => {
             description: scenario.description,
             status: scenario.status,
             createdAt: scenario.createdAt,
+            totalRounds: scenario.config.totalRounds,
+            platforms: scenario.config.platforms,
+            agentCount: scenario.agents.length + scenario.statisticalAgents.length,
           } as any;
         }),
       listScenarios: t
@@ -5252,6 +5255,9 @@ export const router = (authToken?: string) => {
             description: s.description,
             status: s.status,
             createdAt: s.createdAt,
+            totalRounds: s.config.totalRounds,
+            platforms: s.config.platforms,
+            agentCount: s.agents.length + s.statisticalAgents.length,
           })) as any;
         }),
       runSimulation: t
@@ -5500,6 +5506,45 @@ export const router = (authToken?: string) => {
         .handler(async () => {
           const { isClaudeCodeAuthenticated } = await import("@/node/services/claudeCodeSubprocess");
           return isClaudeCodeAuthenticated();
+        }),
+      generateReport: t
+        .input(schemas.simulation.generateReport.input)
+        .output(schemas.simulation.generateReport.output)
+        .handler(async ({ context, input }) => {
+          try {
+            const { generateReport } = await import("@/node/services/simulation/reportEngine");
+            const scenario = context.simulationService.getScenario(input.scenarioId);
+            if (!scenario) {
+              return { status: "failed" as const, error: "Scenario not found" };
+            }
+            const results = context.simulationService.getResults(input.scenarioId);
+            if (!results || results.length === 0) {
+              return { status: "failed" as const, error: "No simulation results found. Run the simulation first." };
+            }
+            // Get the LLM provider from the simulation service
+            const llmProvider = (context.simulationService as any).llmProvider;
+            if (!llmProvider) {
+              return { status: "failed" as const, error: "LLM provider not configured" };
+            }
+            const graphLayer = (context.simulationService as any).graphLayer;
+            const modelRouting = (context.simulationService as any).settings?.modelRouting;
+            const report = await generateReport(
+              scenario,
+              results,
+              null, // no ensemble result for single run
+              { llm: llmProvider, graphLayer, modelRouting },
+            );
+            return {
+              status: report.status,
+              markdownContent: report.markdownContent,
+              error: report.status === "failed" ? "Report generation failed" : undefined,
+            };
+          } catch (err) {
+            return {
+              status: "failed" as const,
+              error: err instanceof Error ? err.message : String(err),
+            };
+          }
         }),
     },
   });

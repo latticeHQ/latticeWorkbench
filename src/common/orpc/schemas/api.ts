@@ -29,6 +29,8 @@ import {
 } from "./terminal";
 import {
   BrowserActionResultSchema,
+  BrowserProviderConfigSchema,
+  BrowserSessionConfigSchema,
   BrowserSessionInfoSchema,
 } from "./browser";
 import {
@@ -1737,6 +1739,198 @@ export const browser = {
     }),
     output: BrowserActionResultSchema,
   },
+
+  // ── Phase 4: Full-strength agent-browser ──
+
+  /** Save session state (cookies, localStorage, sessionStorage) to file with optional encryption. */
+  saveState: {
+    input: z.object({
+      minionId: z.string(),
+      path: z.string().optional().describe("File path to save state to"),
+      encrypt: z.boolean().optional().describe("Encrypt with AES-256-GCM"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Restore session state from a previously saved file. */
+  restoreState: {
+    input: z.object({
+      minionId: z.string(),
+      path: z.string().optional().describe("File path to restore state from"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** localStorage/sessionStorage operations. */
+  storage: {
+    input: z.object({
+      minionId: z.string(),
+      storageType: z.enum(["local", "session"]).describe("Storage type"),
+      action: z.enum(["get", "set", "remove", "clear", "keys"]).describe("Storage operation"),
+      key: z.string().optional().describe("Storage key"),
+      value: z.string().optional().describe("Value to set"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Compare current snapshot with previous to detect page changes. */
+  snapshotDiff: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Compare current screenshot with previous visually. */
+  screenshotDiff: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Take a screenshot of a specific element by ref. */
+  screenshotElement: {
+    input: z.object({
+      minionId: z.string(),
+      ref: z.string().describe("Element ref to screenshot"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Print current page to PDF. */
+  pdf: {
+    input: z.object({
+      minionId: z.string(),
+      landscape: z.boolean().optional().describe("Landscape orientation"),
+      format: z.string().optional().describe("Page format: A4, Letter, Legal, etc."),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Get browser console logs. */
+  consoleLogs: {
+    input: z.object({
+      minionId: z.string(),
+      level: z.string().optional().describe("Filter by level: log, warn, error, info"),
+      clear: z.boolean().optional().describe("Clear logs after reading"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Set geolocation for the browser session. */
+  setGeolocation: {
+    input: z.object({
+      minionId: z.string(),
+      latitude: z.number().describe("Latitude (-90 to 90)"),
+      longitude: z.number().describe("Longitude (-180 to 180)"),
+      accuracy: z.number().optional().describe("Accuracy in meters"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Set browser permissions. */
+  setPermissions: {
+    input: z.object({
+      minionId: z.string(),
+      permission: z.string().describe("Permission name: geolocation, notifications, camera, microphone, etc."),
+      state: z.enum(["grant", "deny", "prompt"]).describe("Permission state"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Toggle offline mode (network emulation). */
+  setOffline: {
+    input: z.object({
+      minionId: z.string(),
+      offline: z.boolean().describe("Whether to enable offline mode"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Set custom HTTP headers for all requests. */
+  setHeaders: {
+    input: z.object({
+      minionId: z.string(),
+      headers: z.record(z.string()).describe("Header name-value pairs"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Intercept network requests matching a URL pattern. */
+  interceptNetwork: {
+    input: z.object({
+      minionId: z.string(),
+      pattern: z.string().describe("URL pattern to intercept"),
+      action: z.enum(["block", "modify", "log"]).describe("What to do with matched requests"),
+      modifyResponse: z.string().optional().describe("JSON response body for modify action"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Start recording the browser session. */
+  startRecording: {
+    input: z.object({
+      minionId: z.string(),
+      outputPath: z.string().optional().describe("Path to save recording"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Stop recording the browser session. */
+  stopRecording: {
+    input: z.object({ minionId: z.string() }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Connect to a cloud browser provider. */
+  connectProvider: {
+    input: z.object({
+      minionId: z.string(),
+      provider: BrowserProviderConfigSchema,
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** List all active browser sessions. */
+  listSessions: {
+    input: z.object({}),
+    output: z.array(BrowserSessionInfoSchema),
+  },
+
+  /** Configure session-specific settings. */
+  configureSession: {
+    input: z.object({
+      minionId: z.string(),
+      config: BrowserSessionConfigSchema,
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Delete specific cookies by name. */
+  deleteCookies: {
+    input: z.object({
+      minionId: z.string(),
+      name: z.string().describe("Cookie name to delete"),
+      domain: z.string().optional().describe("Cookie domain"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Scroll to a specific element by ref. */
+  scrollToElement: {
+    input: z.object({
+      minionId: z.string(),
+      ref: z.string().describe("Element ref to scroll to"),
+    }),
+    output: BrowserActionResultSchema,
+  },
+
+  /** Scroll by a specific pixel amount in any direction. */
+  scrollByPixels: {
+    input: z.object({
+      minionId: z.string(),
+      direction: z.enum(["up", "down", "left", "right"]).describe("Scroll direction"),
+      pixels: z.number().describe("Number of pixels to scroll"),
+    }),
+    output: BrowserActionResultSchema,
+  },
 };
 
 // Terminal Profiles — CLI tool detection, install recipes, user config
@@ -2574,17 +2768,27 @@ export const SimulationScenarioSchema = z.object({
   description: z.string(),
   status: z.enum(["created", "building_graph", "generating_ontology", "generating_profiles", "ready", "running", "completed", "failed"]),
   createdAt: z.string(),
+  totalRounds: z.number().optional(),
+  platforms: z.array(z.string()).optional(),
+  agentCount: z.number().optional(),
 });
 
 export const SimulationRoundResultSchema = z.object({
   round: z.number(),
   simulatedHour: z.number(),
+  activeAgentCount: z.number().optional(),
   actions: z.array(z.object({
     agentId: z.string(),
+    round: z.number().optional(),
     agentName: z.string(),
     actionType: z.string(),
     content: z.string().optional(),
+    target: z.string().optional(),
     targetId: z.string().optional(),
+    platform: z.string().optional(),
+    thinking: z.string().optional(),
+    timestamp: z.string().optional(),
+    success: z.boolean().optional(),
   })),
   sentimentDistribution: z.object({
     positive: z.number(),
@@ -2599,6 +2803,7 @@ export const SimulationRoundResultSchema = z.object({
     authorName: z.string().optional(),
     isViral: z.boolean().optional(),
   })),
+  trending: z.array(z.string()).optional(),
   platformSnapshot: z.object({
     totalPosts: z.number(),
     totalComments: z.number(),
@@ -2609,8 +2814,7 @@ export const SimulationRoundResultSchema = z.object({
       content: z.string(),
       votes: z.number(),
     })),
-    trending: z.array(z.string()).optional(),
-  }),
+  }).optional(),
 });
 
 export const CreateScenarioInputSchema = z.object({
@@ -2755,6 +2959,15 @@ export const simulation = {
     output: z.object({
       ok: z.boolean(),
       message: z.string(),
+    }),
+  },
+  /** Generate a report for a completed simulation */
+  generateReport: {
+    input: z.object({ scenarioId: z.string() }),
+    output: z.object({
+      status: z.enum(["pending", "planning", "generating", "completed", "failed"]),
+      markdownContent: z.string().optional(),
+      error: z.string().optional(),
     }),
   },
 };

@@ -362,3 +362,52 @@ export function useSimulationEnvVars() {
 
   return { envVars, loading, saving, refresh, setEnvVar };
 }
+
+// ---------------------------------------------------------------------------
+// Report generation
+// ---------------------------------------------------------------------------
+
+export interface ReportResult {
+  status: "pending" | "planning" | "generating" | "completed" | "failed";
+  markdownContent?: string;
+  error?: string;
+}
+
+export function useSimulationReport() {
+  const { api } = useAPI();
+  const [report, setReport] = useState<ReportResult | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = useCallback(
+    async (scenarioId: string) => {
+      if (!api) return;
+      setGenerating(true);
+      setError(null);
+      setReport({ status: "planning" });
+      try {
+        const result = await (api as any).simulation.generateReport({
+          scenarioId,
+        });
+        setReport(result as ReportResult);
+        if (result.status === "failed") {
+          setError(result.error ?? "Report generation failed");
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setError(msg);
+        setReport({ status: "failed", error: msg });
+      } finally {
+        setGenerating(false);
+      }
+    },
+    [api],
+  );
+
+  const clear = useCallback(() => {
+    setReport(null);
+    setError(null);
+  }, []);
+
+  return { report, generating, error, generate, clear };
+}

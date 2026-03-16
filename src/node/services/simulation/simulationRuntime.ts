@@ -59,6 +59,12 @@ export interface LLMProvider {
     responseFormat?: "json";
     temperature?: number;
   }): Promise<string>;
+
+  /**
+   * Check if the provider has at least one usable model configured.
+   * Returns true if any provider (Anthropic, Google, etc.) has valid credentials.
+   */
+  checkAvailability?(): Promise<boolean>;
 }
 
 export interface RuntimeCallbacks {
@@ -191,9 +197,11 @@ export class SimulationRuntime {
   // ---------------------------------------------------------------------------
 
   private async executeRound(round: number): Promise<RoundResult> {
+    // Offset to start at 9am (work hours) so agents are active from round 1
     const simulatedHour = computeSimulatedHour(
       round,
       this.scenario.config.minutesPerRound,
+      9, // startHourOffset — begin at 9am
     );
 
     const allActions: AgentAction[] = [];
@@ -233,7 +241,8 @@ export class SimulationRuntime {
         const agent = llmAgents[i];
 
         if (decision.status === "rejected") {
-          log.warn(`[simulation:runtime] Agent ${agent.name} decision failed: ${decision.reason}`);
+          const reason = decision.reason instanceof Error ? decision.reason.stack ?? decision.reason.message : String(decision.reason);
+          log.warn(`[simulation:runtime] Agent ${agent.name} decision FAILED:\n${reason}`);
           continue;
         }
 
@@ -343,6 +352,8 @@ export class SimulationRuntime {
     const systemPrompt = this.buildAgentSystemPrompt(agent, platform);
     const userPrompt = this.buildRoundPrompt(agent, platform, feed, round, memories);
 
+    log.info(`[simulation:runtime] Agent ${agent.name} (tier ${agent.tier}) → ${modelRoute.provider}:${modelRoute.model}`);
+
     const response = await this.llm.chat({
       provider: modelRoute.provider,
       model: modelRoute.model,
@@ -352,6 +363,7 @@ export class SimulationRuntime {
       temperature: 0.7,
     });
 
+    log.info(`[simulation:runtime] Agent ${agent.name} response: ${response.slice(0, 100)}`);
     return this.parseDecision(agent.id, response);
   }
 
@@ -415,8 +427,9 @@ What do you do this round?`;
   }
 
   private parseDecision(agentId: string, response: string): AgentDecision {
+    const json = this.extractJSON(response);
     try {
-      const parsed = JSON.parse(response);
+      const parsed = JSON.parse(json);
       return {
         agentId,
         thinking: parsed.thinking ?? "",
@@ -425,13 +438,62 @@ What do you do this round?`;
         content: parsed.content ?? undefined,
       };
     } catch {
-      log.warn(`[simulation:runtime] Failed to parse agent decision, defaulting to DO_NOTHING`);
+      log.warn(`[simulation:runtime] Failed to parse agent decision, response was: ${response.slice(0, 300)}`);
       return {
         agentId,
         thinking: "Failed to parse response",
         action: "DO_NOTHING",
       };
     }
+  }
+
+  /**
+   * Extract JSON from LLM response that may be wrapped in markdown code fences,
+   * conversational text, or other non-JSON content.
+   */
+  private extractJSON(text: string): string {
+    // 1. Try direct parse first (already valid JSON)
+    const trimmed = text.trim();
+    if (trimmed.startsWith("{")) {
+      return trimmed;
+    }
+
+    // 2. Extract from markdown code fences: ```json ... ``` or ``` ... ```
+    const fenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    if (fenceMatch) {
+      return fenceMatch[1].trim();
+    }
+
+    // 3. Find the first { ... } block (greedy — finds outermost braces)
+    const braceStart = trimmed.indexOf("{");
+    if (braceStart !== -1) {
+      // Walk forward to find matching closing brace
+      let depth = 0;
+      let inString = false;
+      let escape = false;
+      for (let i = braceStart; i < trimmed.length; i++) {
+        const ch = trimmed[i];
+        if (escape) { escape = false; continue; }
+        if (ch === "\\") { escape = true; continue; }
+        if (ch === '"') { inString = !inString; continue; }
+        if (inString) continue;
+        if (ch === "{") depth++;
+        if (ch === "}") {
+          depth--;
+          if (depth === 0) {
+            return trimmed.slice(braceStart, i + 1);
+          }
+        }
+      }
+      // Fallback: just take from first brace to last brace
+      const lastBrace = trimmed.lastIndexOf("}");
+      if (lastBrace > braceStart) {
+        return trimmed.slice(braceStart, lastBrace + 1);
+      }
+    }
+
+    // 4. Return as-is — will fail JSON.parse and hit the catch block
+    return trimmed;
   }
 
   // ---------------------------------------------------------------------------
