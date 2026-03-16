@@ -2,6 +2,10 @@
  * Research Terminal MCP Tools — registered in the lattice MCP server for
  * progressive disclosure (search_tools / list_tool_categories).
  *
+ * Auto-discovers ALL available tools from the OpenBB sidecar's /openapi.json
+ * instead of hand-coding each endpoint. Lifecycle + composite tools are always
+ * registered synchronously; dynamic tools are loaded when the sidecar is running.
+ *
  * These same tools are also available via the standalone research-terminal-mcp
  * built-in server. Having them here ensures minions can discover them through
  * the lattice MCP server's tool catalog.
@@ -30,10 +34,10 @@ async function getBaseUrl(client: RouterClient<AppRouter>): Promise<string> {
 
 async function fetchData<T>(
   baseUrl: string,
-  path: string,
+  apiPath: string,
   params?: Record<string, string>,
 ): Promise<T> {
-  const url = new URL(`${baseUrl}${path}`);
+  const url = new URL(`${baseUrl}${apiPath}`);
   if (!params?.provider) {
     url.searchParams.set("provider", "yfinance");
   }
@@ -53,17 +57,17 @@ async function fetchData<T>(
     const sym = params?.symbol ?? "";
     if (res.status === 404) {
       throw new Error(
-        `Endpoint not available: ${path}. The required data extension may not be installed.`,
+        `Endpoint not available: ${apiPath}. The required data extension may not be installed.`,
       );
     }
     if (res.status === 422) {
       throw new Error(
         sym
           ? `"${sym}" may not be a valid symbol. Try a different ticker.`
-          : `Invalid parameters for ${path}.`,
+          : `Invalid parameters for ${apiPath}.`,
       );
     }
-    throw new Error(`Data API ${res.status} ${res.statusText} — ${path}`);
+    throw new Error(`Data API ${res.status} ${res.statusText} — ${apiPath}`);
   }
 
   const text = await res.text();
@@ -75,22 +79,196 @@ async function fetchData<T>(
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error(`Invalid JSON from ${path}`);
+    throw new Error(`Invalid JSON from ${apiPath}`);
   }
 
   return ((json as Record<string, unknown>)?.results ?? json) as T;
 }
 
 // ---------------------------------------------------------------------------
-// Registration
+// OpenAPI → MCP Tool Auto-Generation
 // ---------------------------------------------------------------------------
 
+interface OpenApiParam {
+  name: string;
+  in: string;
+  required?: boolean;
+  description?: string;
+  schema?: {
+    type?: string | null;
+    anyOf?: Array<{ type?: string | null; enum?: string[]; format?: string }>;
+    enum?: string[];
+    default?: unknown;
+    description?: string;
+    title?: string;
+    const?: unknown;
+  };
+}
+
+interface OpenApiOperation {
+  summary?: string;
+  description?: string;
+  operationId?: string;
+  tags?: string[];
+  parameters?: OpenApiParam[];
+}
+
+interface OpenApiSpec {
+  paths: Record<string, { get?: OpenApiOperation; post?: OpenApiOperation }>;
+}
+
+function pathToToolName(apiPath: string): string {
+  return (
+    "research_terminal_" +
+    apiPath
+      .replace(/^\/api\/v1\//, "")
+      .replace(/\//g, "_")
+      .replace(/[^a-z0-9_]/gi, "_")
+      .replace(/_+/g, "_")
+      .replace(/_$/, "")
+  );
+}
+
+function resolveParamType(
+  schema: OpenApiParam["schema"],
+): { type: "string" | "number" | "boolean"; enumValues?: string[] } {
+  if (!schema) return { type: "string" };
+
+  if (schema.enum && schema.type === "string") {
+    return { type: "string", enumValues: schema.enum };
+  }
+
+  if (schema.anyOf) {
+    for (const variant of schema.anyOf) {
+      if (variant.type === null || variant.type === "null") continue;
+      if (variant.enum) {
+        return { type: "string", enumValues: variant.enum };
+      }
+      if (variant.type === "integer" || variant.type === "number") {
+        return { type: "number" };
+      }
+      if (variant.type === "boolean") {
+        return { type: "boolean" };
+      }
+      return { type: "string" };
+    }
+  }
+
+  if (schema.type === "integer" || schema.type === "number") {
+    return { type: "number" };
+  }
+  if (schema.type === "boolean") {
+    return { type: "boolean" };
+  }
+
+  return { type: "string" };
+}
+
+function paramToZod(param: OpenApiParam): z.ZodTypeAny {
+  const desc =
+    param.description || param.schema?.description || param.schema?.title || param.name;
+  const { type, enumValues } = resolveParamType(param.schema);
+
+  let zodType: z.ZodTypeAny;
+
+  if (enumValues && enumValues.length > 0) {
+    zodType = z.enum(enumValues as [string, ...string[]]);
+  } else if (type === "number") {
+    zodType = z.number();
+  } else if (type === "boolean") {
+    zodType = z.boolean();
+  } else {
+    zodType = z.string();
+  }
+
+  const defaultVal = param.schema?.default;
+  const descParts = [desc];
+  if (defaultVal !== undefined && defaultVal !== null) {
+    descParts.push(`(default: ${defaultVal})`);
+  }
+  zodType = zodType.describe(descParts.join(" "));
+
+  if (!param.required) {
+    zodType = zodType.optional();
+  }
+
+  return zodType;
+}
+
+// Track registered tools to avoid duplicates
+const registeredToolNames = new Set<string>();
+
+function registerDynamicToolsFromSpec(
+  server: McpServer,
+  client: RouterClient<AppRouter>,
+  spec: OpenApiSpec,
+): number {
+  let count = 0;
+
+  for (const [apiPath, methods] of Object.entries(spec.paths)) {
+    if (!apiPath.startsWith("/api/v1/")) continue;
+
+    const operation = methods.get;
+    if (!operation) continue;
+
+    const toolName = pathToToolName(apiPath);
+    if (registeredToolNames.has(toolName)) continue;
+
+    const descParts = [operation.summary, operation.description].filter(Boolean);
+    const description = descParts.join(". ").slice(0, 500) || `Query ${apiPath}`;
+
+    const queryParams = (operation.parameters ?? []).filter(
+      (p) => p.in === "query",
+    );
+
+    const zodShape: Record<string, z.ZodTypeAny> = {};
+    for (const param of queryParams) {
+      try {
+        zodShape[param.name] = paramToZod(param);
+      } catch {
+        zodShape[param.name] = z.string().optional().describe(param.name);
+      }
+    }
+
+    const relativePath = apiPath.replace(/^\/api\/v1/, "");
+
+    server.tool(toolName, description, zodShape, (args) =>
+      withErrorHandling(async () => {
+        const baseUrl = await getBaseUrl(client);
+        const params: Record<string, string> = {};
+        for (const [key, value] of Object.entries(args)) {
+          if (value !== undefined && value !== null) {
+            params[key] = String(value);
+          }
+        }
+        const data = await fetchData(baseUrl, relativePath, params);
+        return { content: [jsonContent(data)] };
+      }),
+    );
+
+    registeredToolNames.add(toolName);
+    count++;
+  }
+
+  return count;
+}
+
+// ---------------------------------------------------------------------------
+// Registration (exported for lattice MCP server)
+// ---------------------------------------------------------------------------
+
+/**
+ * Register research terminal tools in the lattice MCP server.
+ *
+ * Always registers lifecycle + composite tools synchronously.
+ * Attempts to auto-discover dynamic tools if the sidecar is running.
+ */
 export function registerResearchTerminalTools(
   server: McpServer,
   client: RouterClient<AppRouter>,
 ): void {
   // ═══════════════════════════════════════════════════════════════════════════
-  // LIFECYCLE TOOLS
+  // LIFECYCLE TOOLS (always available)
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
@@ -103,18 +281,48 @@ export function registerResearchTerminalTools(
         return { content: [jsonContent(status)] };
       }),
   );
+  registeredToolNames.add("research_terminal_status");
 
   server.tool(
     "research_terminal_start",
-    "Start the Research Terminal data server. Bootstraps the Python environment if needed. Returns the running status once healthy.",
+    "Start the Research Terminal data server. Bootstraps the Python environment if needed. After starting, auto-discovers all available financial data tools.",
     {},
     () =>
       withErrorHandling(async () => {
         await (client as any).openbb.start();
         const status = await (client as any).openbb.getStatus();
+
+        // Auto-discover tools after start
+        if (status?.status === "running") {
+          try {
+            const res = await fetch(`${status.baseUrl}/openapi.json`, {
+              signal: AbortSignal.timeout(15_000),
+            });
+            if (res.ok) {
+              const spec = (await res.json()) as OpenApiSpec;
+              const count = registerDynamicToolsFromSpec(server, client, spec);
+              return {
+                content: [
+                  jsonContent({
+                    ...status,
+                    dynamicToolsRegistered: count,
+                    message:
+                      count > 0
+                        ? `Server started. ${count} financial data tools auto-discovered.`
+                        : "Server started. Tools were already registered.",
+                  }),
+                ],
+              };
+            }
+          } catch {
+            // Spec fetch failed — return status without dynamic tools
+          }
+        }
+
         return { content: [jsonContent(status)] };
       }),
   );
+  registeredToolNames.add("research_terminal_start");
 
   server.tool(
     "research_terminal_stop",
@@ -128,415 +336,125 @@ export function registerResearchTerminalTools(
         };
       }),
   );
+  registeredToolNames.add("research_terminal_stop");
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // EQUITY TOOLS
+  // COMPOSITE / CONVENIENCE TOOLS (always available, handle "not running" internally)
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "research_terminal_equity_quote",
-    "Get real-time stock quote for one or more symbols. Returns price, change, volume, market cap, high, low, prev close, and more.",
-    {
-      symbol: z.string().describe("Ticker symbol (e.g. AAPL, MSFT, NVDA). Comma-separated for multiple."),
-      provider: z.string().optional().describe("Data provider (default: yfinance). Options: yfinance, fmp, polygon"),
-    },
-    (params) =>
-      withErrorHandling(async () => {
-        const baseUrl = await getBaseUrl(client);
-        const data = await fetchData(baseUrl, "/equity/price/quote", {
-          symbol: params.symbol,
-          ...(params.provider && { provider: params.provider }),
-        });
-        return { content: [jsonContent(data)] };
-      }),
-  );
-
-  server.tool(
-    "research_terminal_equity_historical",
-    "Get OHLCV price history for a stock. Returns date, open, high, low, close, volume for each period.",
-    {
-      symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      start_date: z.string().optional().describe("Start date in YYYY-MM-DD format"),
-      end_date: z.string().optional().describe("End date in YYYY-MM-DD format"),
-      interval: z.string().optional().describe("Candle interval: 1d, 1h, 5m, 1w, 1mo (default: 1d)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) =>
-      withErrorHandling(async () => {
-        const baseUrl = await getBaseUrl(client);
-        const p: Record<string, string> = { symbol: params.symbol };
-        if (params.start_date) p.start_date = params.start_date;
-        if (params.end_date) p.end_date = params.end_date;
-        if (params.interval) p.interval = params.interval;
-        if (params.provider) p.provider = params.provider;
-        const data = await fetchData(baseUrl, "/equity/price/historical", p);
-        return { content: [jsonContent(data)] };
-      }),
-  );
-
-  server.tool(
-    "research_terminal_equity_profile",
-    "Get company profile: sector, industry, description, website, employees, market cap, and more.",
-    {
-      symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) =>
-      withErrorHandling(async () => {
-        const baseUrl = await getBaseUrl(client);
-        const data = await fetchData(baseUrl, "/equity/profile", {
-          symbol: params.symbol,
-          ...(params.provider && { provider: params.provider }),
-        });
-        return { content: [jsonContent(data)] };
-      }),
-  );
-
-  server.tool(
-    "research_terminal_equity_search",
-    "Search for stocks by name or ticker. Returns matching symbols, names, and exchanges.",
-    {
-      query: z.string().describe("Search query (e.g. 'apple', 'rare earth', 'lithium')"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) =>
-      withErrorHandling(async () => {
-        const baseUrl = await getBaseUrl(client);
-        const data = await fetchData(baseUrl, "/equity/search", {
-          query: params.query,
-          ...(params.provider && { provider: params.provider }),
-        });
-        return { content: [jsonContent(data)] };
-      }),
-  );
-
-  server.tool(
-    "research_terminal_equity_fundamentals",
-    "Get financial statements: income statement, balance sheet, or cash flow.",
-    {
-      symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      statement: z.enum(["income", "balance", "cash"]).describe("Financial statement type"),
-      period: z.enum(["annual", "quarter"]).optional().describe("Reporting period (default: annual)"),
-      limit: z.number().optional().describe("Number of periods to return (default: 5)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) =>
-      withErrorHandling(async () => {
-        const baseUrl = await getBaseUrl(client);
-        const pathMap = { income: "/equity/fundamental/income", balance: "/equity/fundamental/balance", cash: "/equity/fundamental/cash" };
-        const p: Record<string, string> = { symbol: params.symbol };
-        if (params.period) p.period = params.period;
-        if (params.limit) p.limit = String(params.limit);
-        if (params.provider) p.provider = params.provider;
-        const data = await fetchData(baseUrl, pathMap[params.statement], p);
-        return { content: [jsonContent(data)] };
-      }),
-  );
-
-  server.tool(
-    "research_terminal_equity_filings",
-    "Get SEC filings for a company: 10-K, 10-Q, 8-K, and more.",
-    {
-      symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      form_type: z.string().optional().describe("SEC form type filter (e.g. 10-K, 10-Q, 8-K)"),
-      limit: z.number().optional().describe("Number of filings to return (default: 20)"),
-      provider: z.string().optional().describe("Data provider (default: sec)"),
-    },
-    (params) =>
-      withErrorHandling(async () => {
-        const baseUrl = await getBaseUrl(client);
-        const p: Record<string, string> = { symbol: params.symbol, provider: params.provider ?? "sec" };
-        if (params.form_type) p.form_type = params.form_type;
-        if (params.limit) p.limit = String(params.limit);
-        const data = await fetchData(baseUrl, "/equity/fundamental/filings", p);
-        return { content: [jsonContent(data)] };
-      }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CRYPTO TOOLS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_crypto_historical",
-    "Get historical OHLCV price data for a cryptocurrency.",
-    {
-      symbol: z.string().describe("Crypto symbol (e.g. BTC-USD, ETH-USD, SOL-USD)"),
-      start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-      interval: z.string().optional().describe("Candle interval: 1d, 1h (default: 1d)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = { symbol: params.symbol };
-      if (params.start_date) p.start_date = params.start_date;
-      if (params.interval) p.interval = params.interval;
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, "/crypto/price/historical", p))] };
-    }),
-  );
-
-  server.tool("research_terminal_crypto_search", "Search for cryptocurrencies by name or symbol.",
-    { query: z.string().describe("Search query (e.g. 'bitcoin', 'ethereum')") },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      return { content: [jsonContent(await fetchData(baseUrl, "/crypto/search", { query: params.query }))] };
-    }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // CURRENCY / FX TOOLS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_currency_historical",
-    "Get historical exchange rate data for a currency pair.",
-    {
-      symbol: z.string().describe("FX pair symbol (e.g. EURUSD=X, GBPJPY=X)"),
-      start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = { symbol: params.symbol };
-      if (params.start_date) p.start_date = params.start_date;
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, "/currency/price/historical", p))] };
-    }),
-  );
-
-  server.tool("research_terminal_currency_snapshots",
-    "Get current exchange rate snapshots for major currency pairs.",
-    { provider: z.string().optional().describe("Data provider (default: yfinance)") },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      return { content: [jsonContent(await fetchData(baseUrl, "/currency/snapshots", { ...(params.provider && { provider: params.provider }) }))] };
-    }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // INDEX TOOLS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_index_historical",
-    "Get historical OHLCV data for a market index (S&P 500, Nasdaq, Dow, etc.).",
-    {
-      symbol: z.string().describe("Index symbol (e.g. ^GSPC, ^DJI, ^IXIC)"),
-      start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = { symbol: params.symbol };
-      if (params.start_date) p.start_date = params.start_date;
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, "/index/price/historical", p))] };
-    }),
-  );
-
-  server.tool("research_terminal_index_constituents",
-    "Get the constituent stocks of a market index.",
-    {
-      symbol: z.string().describe("Index symbol (e.g. ^GSPC, ^DJI)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      return { content: [jsonContent(await fetchData(baseUrl, "/index/constituents", { symbol: params.symbol, ...(params.provider && { provider: params.provider }) }))] };
-    }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // TECHNICAL ANALYSIS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_technical_indicators",
-    "Calculate technical indicators: RSI, MACD, Bollinger Bands, SMA, or EMA.",
-    {
-      symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      indicator: z.enum(["rsi", "macd", "bbands", "sma", "ema"]).describe("Indicator type"),
-      period: z.number().optional().describe("Lookback period"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = { symbol: params.symbol };
-      if (params.period) p.period = String(params.period);
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, `/technical/${params.indicator}`, p))] };
-    }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // ECONOMY / MACRO
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_economy_calendar",
-    "Get the economic events calendar (CPI, jobs, Fed decisions, etc.).",
-    {
-      start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-      end_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
-      provider: z.string().optional().describe("Data provider (default: fmp)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = { provider: params.provider ?? "fmp" };
-      if (params.start_date) p.start_date = params.start_date;
-      if (params.end_date) p.end_date = params.end_date;
-      return { content: [jsonContent(await fetchData(baseUrl, "/economy/calendar", p))] };
-    }),
-  );
-
-  server.tool("research_terminal_economy_cpi", "Get Consumer Price Index (CPI) inflation data.",
-    {
-      country: z.string().optional().describe("Country name (e.g. 'united_states')"),
-      provider: z.string().optional().describe("Data provider"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = {};
-      if (params.country) p.country = params.country;
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, "/economy/cpi", p))] };
-    }),
-  );
-
-  server.tool("research_terminal_economy_gdp", "Get nominal GDP data for a country.",
-    {
-      country: z.string().optional().describe("Country name (e.g. 'united_states')"),
-      provider: z.string().optional().describe("Data provider"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = {};
-      if (params.country) p.country = params.country;
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, "/economy/gdp/nominal", p))] };
-    }),
-  );
-
-  server.tool("research_terminal_fred_series",
-    "Get FRED (Federal Reserve) economic data series.",
-    {
-      symbol: z.string().describe("FRED series ID (e.g. DGS10, FEDFUNDS, UNRATE, CPIAUCSL, GDP)"),
-      start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-      provider: z.string().optional().describe("Data provider (default: fred)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = { symbol: params.symbol, provider: params.provider ?? "fred" };
-      if (params.start_date) p.start_date = params.start_date;
-      return { content: [jsonContent(await fetchData(baseUrl, "/economy/fred_series", p))] };
-    }),
-  );
-
-  server.tool("research_terminal_treasury_rates",
-    "Get current US Treasury yield curve rates across all maturities.",
-    { provider: z.string().optional().describe("Data provider") },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = {};
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, "/fixedincome/government/treasury_rates", p))] };
-    }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // DERIVATIVES
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_options_chains",
-    "Get options chain data: strikes, expirations, bids, asks, IV, OI, greeks.",
-    {
-      symbol: z.string().describe("Ticker symbol (e.g. AAPL, SPY)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      return { content: [jsonContent(await fetchData(baseUrl, "/derivatives/options/chains", { symbol: params.symbol, ...(params.provider && { provider: params.provider }) }))] };
-    }),
-  );
-
-  server.tool("research_terminal_futures_curve",
-    "Get the futures term structure / forward curve.",
-    {
-      symbol: z.string().describe("Futures symbol (e.g. GC=F for gold, CL=F for crude oil)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      return { content: [jsonContent(await fetchData(baseUrl, "/derivatives/futures/curve", { symbol: params.symbol, ...(params.provider && { provider: params.provider }) }))] };
-    }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // NEWS
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_news",
-    "Get financial news articles for one or more symbols.",
-    {
-      symbol: z.string().describe("Ticker symbol(s), comma-separated (e.g. AAPL, AAPL,MSFT,NVDA)"),
-      limit: z.number().optional().describe("Maximum articles to return (default: 20)"),
-      provider: z.string().optional().describe("Data provider (default: yfinance)"),
-    },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const p: Record<string, string> = { symbol: params.symbol };
-      if (params.limit) p.limit = String(params.limit);
-      if (params.provider) p.provider = params.provider;
-      return { content: [jsonContent(await fetchData(baseUrl, "/news/company", p))] };
-    }),
-  );
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // COMPOSITE / CONVENIENCE
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  server.tool("research_terminal_market_snapshot",
+    "research_terminal_market_snapshot",
     "Get quotes for multiple symbols in a single call. Ideal for dashboards and watchlists.",
     {
       symbols: z.string().describe("Comma-separated tickers (e.g. AAPL,MSFT,GOOGL,SPY,QQQ)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const symbolList = params.symbols.split(",").map((s) => s.trim()).filter(Boolean);
-      const results: Record<string, unknown>[] = [];
-      for (const symbol of symbolList) {
-        try {
-          const quote = await fetchData<Record<string, unknown>[]>(baseUrl, "/equity/price/quote", { symbol, ...(params.provider && { provider: params.provider }) });
-          if (Array.isArray(quote) && quote.length > 0) results.push(quote[0]);
-        } catch { results.push({ symbol, error: "Quote unavailable" }); }
-      }
-      return { content: [jsonContent({ count: results.length, quotes: results })] };
-    }),
+    (params) =>
+      withErrorHandling(async () => {
+        const baseUrl = await getBaseUrl(client);
+        const symbolList = params.symbols.split(",").map((s) => s.trim()).filter(Boolean);
+        const results: Record<string, unknown>[] = [];
+        for (const symbol of symbolList) {
+          try {
+            const quote = await fetchData<Record<string, unknown>[]>(baseUrl, "/equity/price/quote", {
+              symbol,
+              ...(params.provider && { provider: params.provider }),
+            });
+            if (Array.isArray(quote) && quote.length > 0) results.push(quote[0]);
+          } catch {
+            results.push({ symbol, error: "Quote unavailable" });
+          }
+        }
+        return { content: [jsonContent({ count: results.length, quotes: results })] };
+      }),
   );
+  registeredToolNames.add("research_terminal_market_snapshot");
 
-  server.tool("research_terminal_stock_analysis",
+  server.tool(
+    "research_terminal_stock_analysis",
     "Comprehensive stock analysis: quote, profile, and recent price history in one call.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
       days: z.number().optional().describe("Days of price history (default: 30)"),
     },
-    (params) => withErrorHandling(async () => {
-      const baseUrl = await getBaseUrl(client);
-      const symbol = params.symbol;
-      const days = params.days ?? 30;
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      const startStr = startDate.toISOString().slice(0, 10);
-      const [quote, profile, history] = await Promise.all([
-        fetchData(baseUrl, "/equity/price/quote", { symbol }).catch(() => null),
-        fetchData(baseUrl, "/equity/profile", { symbol }).catch(() => null),
-        fetchData(baseUrl, "/equity/price/historical", { symbol, start_date: startStr, interval: "1d" }).catch(() => null),
-      ]);
-      return {
-        content: [jsonContent({
-          symbol,
-          quote: Array.isArray(quote) && quote.length > 0 ? quote[0] : quote,
-          profile: Array.isArray(profile) && profile.length > 0 ? profile[0] : profile,
-          history: { days, data_points: Array.isArray(history) ? history.length : 0, data: history },
-        })],
-      };
-    }),
+    (params) =>
+      withErrorHandling(async () => {
+        const baseUrl = await getBaseUrl(client);
+        const symbol = params.symbol;
+        const days = params.days ?? 30;
+        const startDate = new Date();
+        startDate.setDate(startDate.getDate() - days);
+        const startStr = startDate.toISOString().slice(0, 10);
+        const [quote, profile, history] = await Promise.all([
+          fetchData(baseUrl, "/equity/price/quote", { symbol }).catch(() => null),
+          fetchData(baseUrl, "/equity/profile", { symbol }).catch(() => null),
+          fetchData(baseUrl, "/equity/price/historical", { symbol, start_date: startStr, interval: "1d" }).catch(() => null),
+        ]);
+        return {
+          content: [jsonContent({
+            symbol,
+            quote: Array.isArray(quote) && quote.length > 0 ? quote[0] : quote,
+            profile: Array.isArray(profile) && profile.length > 0 ? profile[0] : profile,
+            history: { days, data_points: Array.isArray(history) ? history.length : 0, data: history },
+          })],
+        };
+      }),
   );
+  registeredToolNames.add("research_terminal_stock_analysis");
+
+  server.tool(
+    "research_terminal_discover_tools",
+    "List all available Research Terminal tools by category. Shows what financial data endpoints are available.",
+    {},
+    () =>
+      withErrorHandling(async () => {
+        const categories: Record<string, string[]> = {};
+        for (const toolName of registeredToolNames) {
+          const parts = toolName.replace(/^research_terminal_/, "").split("_");
+          const cat = parts[0] || "other";
+          if (!categories[cat]) categories[cat] = [];
+          categories[cat].push(toolName);
+        }
+        return {
+          content: [jsonContent({
+            totalTools: registeredToolNames.size,
+            categories: Object.fromEntries(
+              Object.entries(categories)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([cat, tools]) => [cat, { count: tools.length, tools: tools.sort() }]),
+            ),
+            hint: "Call research_terminal_start if you see fewer tools than expected.",
+          })],
+        };
+      }),
+  );
+  registeredToolNames.add("research_terminal_discover_tools");
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DYNAMIC TOOL DISCOVERY (async — attempts to load if sidecar is running)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Fire-and-forget: try to load dynamic tools in background
+  // This won't block the synchronous registration call
+  (async () => {
+    try {
+      const status = await (client as any).openbb.getStatus();
+      if (status?.status === "running") {
+        const res = await fetch(`${status.baseUrl}/openapi.json`, {
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (res.ok) {
+          const spec = (await res.json()) as OpenApiSpec;
+          const count = registerDynamicToolsFromSpec(server, client, spec);
+          if (count > 0) {
+            process.stderr?.write?.(
+              `[lattice-mcp] Auto-discovered ${count} research-terminal tools from OpenAPI spec\n`,
+            );
+          }
+        }
+      }
+    } catch {
+      // Sidecar not running — dynamic tools will load on research_terminal_start
+    }
+  })();
 }
