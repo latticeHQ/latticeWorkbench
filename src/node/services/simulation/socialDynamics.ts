@@ -340,8 +340,17 @@ export function computeSentimentDistribution(
 
 /**
  * Generate actions for statistical agents based on probability distributions.
- * These agents don't use LLM — they react based on crowd behavior patterns
- * derived from higher-tier agent actions.
+ *
+ * These agents don't use LLM — they react to real content produced by
+ * higher-tier agents. Targeting is meaningful:
+ *
+ * - supportive_lurker → preferentially upvotes positive/neutral content
+ * - critical_reader → more likely to downvote, targets controversial posts
+ * - neutral_observer → reacts proportionally to crowd sentiment
+ * - early_majority / late_majority → follows popular content (most upvoted)
+ *
+ * If no LLM content exists yet, stat agents react to each other's content,
+ * weighted by recency and activity level.
  */
 export function generateStatisticalActions(
   statisticalAgents: StatisticalAgentProfile[],
@@ -350,9 +359,58 @@ export function generateStatisticalActions(
   simulatedHour: number,
   schedule: ActivitySchedule,
   recentSentiment: { positive: number; neutral: number; negative: number },
+  /** Actions from this round's LLM agents + previous rounds — used for meaningful targeting */
+  recentActions?: AgentAction[],
 ): AgentAction[] {
   const actions: AgentAction[] = [];
   const hourMultiplier = getActivityMultiplier(simulatedHour, schedule);
+
+  // Build targetable content: agents who actually produced visible actions
+  // Prefer content creators (CREATE_POST, COMMENT, REPLY) over passive actions
+  const contentActions = (recentActions ?? []).filter(
+    (a) => a.actionType !== "DO_NOTHING" && a.actionType !== "UPVOTE" && a.actionType !== "DOWNVOTE",
+  );
+  const reactableActions = (recentActions ?? []).filter(
+    (a) => a.actionType !== "DO_NOTHING",
+  );
+
+  // Score each targetable agent by their content contribution
+  const agentScores = new Map<string, { id: string; name: string; score: number; sentiment: "positive" | "negative" | "neutral" }>();
+  for (const a of contentActions) {
+    const existing = agentScores.get(a.agentId);
+    const contentScore = a.actionType === "CREATE_POST" ? 3
+      : a.actionType === "COMMENT" || a.actionType === "REPLY_THREAD" ? 2
+      : a.actionType === "REACT" ? 1.5
+      : 1;
+    // Recency bonus: actions from current round score higher
+    const recencyBonus = a.round === currentRound ? 1.5 : 1;
+    if (existing) {
+      existing.score += contentScore * recencyBonus;
+    } else {
+      agentScores.set(a.agentId, {
+        id: a.agentId,
+        name: a.agentName,
+        score: contentScore * recencyBonus,
+        sentiment: inferActionSentiment(a),
+      });
+    }
+  }
+
+  // Fallback: if no content actions, use any non-DO_NOTHING actions
+  if (agentScores.size === 0) {
+    for (const a of reactableActions) {
+      if (!agentScores.has(a.agentId)) {
+        agentScores.set(a.agentId, {
+          id: a.agentId,
+          name: a.agentName,
+          score: 1,
+          sentiment: inferActionSentiment(a),
+        });
+      }
+    }
+  }
+
+  const targetableAgents = Array.from(agentScores.values());
 
   for (const agent of statisticalAgents) {
     // Activity check
@@ -362,16 +420,16 @@ export function generateStatisticalActions(
     const selectedAction = weightedRandomSelect(agent.preferredActions);
     if (!selectedAction || selectedAction === "DO_NOTHING") continue;
 
-    // Determine sentiment alignment based on crowd sentiment
-    const sentimentRoll = Math.random();
-    let content: string | undefined;
-    if (sentimentRoll < recentSentiment.positive) {
-      content = `[Statistical: positive ${agent.archetype} reaction]`;
-    } else if (sentimentRoll < recentSentiment.positive + recentSentiment.negative) {
-      content = `[Statistical: negative ${agent.archetype} reaction]`;
-    } else {
-      content = `[Statistical: neutral ${agent.archetype} reaction]`;
-    }
+    // Meaningful target selection based on archetype
+    const target = selectMeaningfulTarget(
+      agent,
+      selectedAction,
+      targetableAgents,
+      recentSentiment,
+    );
+
+    // Generate contextual content based on what they're reacting to
+    const content = generateReactionContent(agent, selectedAction, target);
 
     actions.push({
       round: currentRound,
@@ -381,11 +439,127 @@ export function generateStatisticalActions(
       agentName: `stat_${agent.archetype}_${agent.id.slice(0, 4)}`,
       actionType: selectedAction as ActionType,
       content,
+      target: target?.id,
       success: true,
     });
   }
 
   return actions;
+}
+
+/** Infer sentiment from an action */
+function inferActionSentiment(action: AgentAction): "positive" | "negative" | "neutral" {
+  if (action.actionType === "UPVOTE" || action.actionType === "REACT") return "positive";
+  if (action.actionType === "DOWNVOTE") return "negative";
+  // For posts/comments, check content for sentiment hints
+  const content = (action.content ?? "").toLowerCase();
+  if (content.includes("positive") || content.includes("support") || content.includes("agree")) return "positive";
+  if (content.includes("negative") || content.includes("critical") || content.includes("disagree")) return "negative";
+  return "neutral";
+}
+
+/** Select a meaningful target based on the stat agent's archetype and action */
+function selectMeaningfulTarget(
+  agent: StatisticalAgentProfile,
+  action: string,
+  targetableAgents: Array<{ id: string; name: string; score: number; sentiment: "positive" | "negative" | "neutral" }>,
+  _crowdSentiment: { positive: number; neutral: number; negative: number },
+): { id: string; name: string; score: number; sentiment: string } | undefined {
+  if (targetableAgents.length === 0) return undefined;
+
+  // Don't target self
+  const candidates = targetableAgents.filter((t) => t.id !== agent.id);
+  if (candidates.length === 0) return undefined;
+
+  const archetype = agent.archetype.toLowerCase();
+
+  // Weight candidates based on archetype behavior
+  const weighted = candidates.map((c) => {
+    let weight = c.score; // Base weight = content contribution score
+
+    if (archetype.includes("supportive") || archetype.includes("lurker")) {
+      // Supportive lurkers prefer to upvote popular/positive content
+      if (action === "UPVOTE" || action === "LIKE") {
+        if (c.sentiment === "positive") weight *= 2.5;
+        else if (c.sentiment === "neutral") weight *= 1.5;
+        else weight *= 0.3; // Rarely upvote negative content
+      } else if (action === "DOWNVOTE") {
+        if (c.sentiment === "negative") weight *= 2;
+        else weight *= 0.5; // Rarely downvote positive content
+      }
+    } else if (archetype.includes("critical") || archetype.includes("reader")) {
+      // Critical readers scrutinize content, more likely to engage with controversial/popular posts
+      weight *= 1.5; // Engage more with high-activity agents
+      if (action === "DOWNVOTE") {
+        if (c.sentiment === "positive") weight *= 1.8; // Contrarian tendency
+        else if (c.sentiment === "neutral") weight *= 1.2;
+      } else if (action === "UPVOTE") {
+        if (c.sentiment === "negative") weight *= 1.5; // Appreciates critical thinking
+        else weight *= 0.8;
+      }
+    } else if (archetype.includes("neutral") || archetype.includes("observer")) {
+      // Neutral observers react proportionally, slight preference for high-activity
+      // No strong sentiment bias
+    } else if (archetype.includes("early") || archetype.includes("majority")) {
+      // Early/late majority follows popular content
+      weight *= c.score; // Square the score — strong preference for popular agents
+    }
+
+    return { ...c, weight: Math.max(weight, 0.1) };
+  });
+
+  // Weighted random selection
+  const totalWeight = weighted.reduce((sum, c) => sum + c.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const candidate of weighted) {
+    roll -= candidate.weight;
+    if (roll <= 0) return candidate;
+  }
+  return weighted[weighted.length - 1];
+}
+
+/** Generate contextual reaction content */
+function generateReactionContent(
+  agent: StatisticalAgentProfile,
+  action: string,
+  target: { id: string; name: string; sentiment: string } | undefined,
+): string {
+  const archetype = agent.archetype.replace(/_/g, " ");
+  if (!target) {
+    return `[${archetype}: ${action.toLowerCase()} reaction]`;
+  }
+
+  const targetName = target.name.replace(/^stat_/, "").replace(/_/g, " ");
+
+  if (action === "UPVOTE" || action === "LIKE") {
+    const reasons = [
+      `agrees with ${targetName}'s take`,
+      `found ${targetName}'s post insightful`,
+      `supports ${targetName}'s perspective`,
+      `resonated with ${targetName}'s analysis`,
+    ];
+    return `[${archetype}: ${reasons[Math.floor(Math.random() * reasons.length)]}]`;
+  }
+
+  if (action === "DOWNVOTE") {
+    const reasons = [
+      `questions ${targetName}'s reasoning`,
+      `disagrees with ${targetName}'s conclusion`,
+      `finds ${targetName}'s take oversimplified`,
+      `challenges ${targetName}'s assumptions`,
+    ];
+    return `[${archetype}: ${reasons[Math.floor(Math.random() * reasons.length)]}]`;
+  }
+
+  if (action === "COMMENT" || action === "REPLY") {
+    return `[${archetype}: responding to ${targetName}'s post]`;
+  }
+
+  if (action === "SHARE") {
+    return `[${archetype}: sharing ${targetName}'s content]`;
+  }
+
+  return `[${archetype}: reacting to ${targetName}]`;
 }
 
 /**

@@ -313,6 +313,7 @@ export class SimulationRuntime {
       }
 
       // 8. Statistical agents (tier 4) — no LLM calls
+      // Pass allActions so stat agents can meaningfully target content creators
       const recentSentiment = computeSentimentDistribution(allActions, this.agentProfiles);
       const statActions = generateStatisticalActions(
         this.scenario.statisticalAgents,
@@ -321,6 +322,7 @@ export class SimulationRuntime {
         simulatedHour,
         this.scenario.config.socialDynamics.activitySchedule,
         recentSentiment,
+        allActions,
       );
       for (const action of statActions) {
         platform.applyAction(action);

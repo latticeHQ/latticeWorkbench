@@ -102,24 +102,51 @@ function agentAvatarColor(name: string): string {
 function buildGraphData(
   rounds: SimulationRoundResult[],
 ): { nodes: GraphNode[]; edges: GraphEdge[] } {
-  const agentActions = new Map<string, { name: string; count: number; types: Set<string> }>();
+  const agentActions = new Map<string, {
+    name: string;
+    count: number;
+    types: Set<string>;
+    platform: string;
+    lastAction: string;
+    sentimentSum: number;
+    sentimentCount: number;
+  }>();
   const interactions = new Map<string, { source: string; target: string; count: number; type: string }>();
 
   for (const round of rounds) {
     for (const action of round.actions) {
       if (action.actionType === "DO_NOTHING") continue;
 
-      // Track agents
+      // Track agents with enriched data
       const existing = agentActions.get(action.agentId);
       if (existing) {
         existing.count++;
         existing.types.add(action.actionType);
+        existing.lastAction = action.actionType;
+        if (action.platform) existing.platform = action.platform;
       } else {
         agentActions.set(action.agentId, {
           name: action.agentName,
           count: 1,
           types: new Set([action.actionType]),
+          platform: action.platform ?? "forum",
+          lastAction: action.actionType,
+          sentimentSum: 0,
+          sentimentCount: 0,
         });
+      }
+
+      // Infer sentiment from action types
+      const agent = agentActions.get(action.agentId)!;
+      if (action.actionType === "UPVOTE" || action.actionType === "LIKE") {
+        agent.sentimentSum += 0.1;
+        agent.sentimentCount++;
+      } else if (action.actionType === "DOWNVOTE") {
+        agent.sentimentSum -= 0.15;
+        agent.sentimentCount++;
+      } else if (["CREATE_POST", "COMMENT", "REPLY", "SHARE"].includes(action.actionType)) {
+        agent.sentimentSum += 0.05;
+        agent.sentimentCount++;
       }
 
       // Track interactions (agent → target)
@@ -133,7 +160,7 @@ function buildGraphData(
             source: action.agentId,
             target: action.target,
             count: 1,
-            type: action.actionType === "LIKE" ? "like" : action.actionType === "SHARE" ? "share" : "reply",
+            type: action.actionType.toLowerCase(),
           });
         }
       }
@@ -145,12 +172,16 @@ function buildGraphData(
     label: data.name,
     type: inferNodeType(data.name, data.count),
     size: Math.min(Math.max(data.count * 0.5, 3), 12),
+    actionCount: data.count,
+    sentiment: data.sentimentCount > 0 ? Math.max(-1, Math.min(1, data.sentimentSum / data.sentimentCount * 5)) : 0,
+    platform: data.platform,
+    lastAction: data.lastAction,
   }));
 
   const edges: GraphEdge[] = Array.from(interactions.values()).map((i) => ({
     source: i.source,
     target: i.target,
-    weight: Math.min(i.count, 5),
+    weight: Math.min(i.count, 8),
     type: i.type,
   }));
 
@@ -160,9 +191,14 @@ function buildGraphData(
 function inferNodeType(name: string, actionCount: number): string {
   const lower = name.toLowerCase();
   if (lower.includes("exec") || lower.includes("ceo") || lower.includes("director")) return "tier1";
-  if (lower.includes("influencer") || lower.includes("analyst")) return "tier2";
-  if (actionCount > 10) return "tier2";
-  if (actionCount > 3) return "tier3";
+  if (lower.includes("influencer")) return "influencer";
+  if (lower.includes("journalist")) return "journalist";
+  if (lower.includes("skeptic")) return "skeptic";
+  if (lower.includes("analyst")) return "analyst";
+  if (lower.startsWith("stat_")) return "tier4";
+  if (actionCount > 10) return "tier1";
+  if (actionCount > 5) return "tier2";
+  if (actionCount > 2) return "tier3";
   return "tier4";
 }
 
