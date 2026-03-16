@@ -303,6 +303,7 @@ export class Config {
           notebooklm?: unknown;
           gws?: unknown;
           researchTerminal?: unknown;
+          inference?: unknown;
         };
 
         // Config is stored as array of [path, config] pairs
@@ -412,6 +413,9 @@ export class Config {
             researchTerminal: parsed.researchTerminal && typeof (parsed.researchTerminal as Record<string, unknown>).enabled === "boolean"
               ? { enabled: (parsed.researchTerminal as Record<string, unknown>).enabled as boolean }
               : undefined,
+            inference: parsed.inference && typeof parsed.inference === "object"
+              ? parsed.inference as ProjectsConfig["inference"]
+              : undefined,
           };
         }
       }
@@ -469,6 +473,7 @@ export class Config {
         notebooklm?: ProjectsConfig["notebooklm"];
         gws?: ProjectsConfig["gws"];
         researchTerminal?: ProjectsConfig["researchTerminal"];
+        inference?: ProjectsConfig["inference"];
       } = {
         projects: Array.from(config.projects.entries()).map(
           ([projectPath, projectConfig]) =>
@@ -638,6 +643,11 @@ export class Config {
       // Research Terminal: default ON, persist only when explicitly disabled.
       if (config.researchTerminal?.enabled === false) {
         data.researchTerminal = { enabled: false };
+      }
+
+      // Inference config: persist model directory and polling interval
+      if (config.inference) {
+        data.inference = config.inference;
       }
 
       await writeFileAtomic(this.configFile, JSON.stringify(data, null, 2), "utf-8");
