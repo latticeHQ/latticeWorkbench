@@ -232,22 +232,58 @@ const WEIGHT_EXTENSIONS = [".safetensors", ".gguf", ".bin"];
  * Check if a model directory contains a complete download.
  * A model is complete if it has:
  * - A .lattice-model.json manifest (written after successful pull), OR
- * - At least one weight file (.safetensors, .gguf, .bin)
- * This filters out half-downloaded models that only have config/vocab files.
+ * - All expected weight shards present (checked via index files), OR
+ * - A single weight file (non-sharded model)
+ * This filters out half-downloaded models from terminal tools like
+ * huggingface-cli or mlx_lm.download.
  */
 async function isCompleteModel(modelPath: string): Promise<boolean> {
   try {
-    // Fast path: manifest exists = download completed
+    // Fast path: Lattice manifest = download completed
     await fsp.access(path.join(modelPath, ".lattice-model.json"));
     return true;
   } catch {
-    // No manifest — check for weight files (models from other tools)
+    // No manifest — check weight files
   }
   try {
     const entries = await fsp.readdir(modelPath);
-    return entries.some((name) =>
+    const weightFiles = entries.filter((name) =>
       WEIGHT_EXTENSIONS.some((ext) => name.endsWith(ext)),
     );
+    if (weightFiles.length === 0) return false;
+
+    // Check for sharded safetensors: model.safetensors.index.json tells us
+    // how many shards are expected (e.g. model-00001-of-00091.safetensors)
+    const indexFile = entries.find((n) => n === "model.safetensors.index.json");
+    if (indexFile) {
+      // Parse the expected shard count from file names like "model-00001-of-00091.safetensors"
+      const shardPattern = /^model-\d+-of-(\d+)\.safetensors$/;
+      let expectedShards = 0;
+      let actualShards = 0;
+      for (const name of entries) {
+        const match = name.match(shardPattern);
+        if (match) {
+          actualShards++;
+          expectedShards = parseInt(match[1], 10);
+        }
+      }
+      if (expectedShards > 0 && actualShards < expectedShards) {
+        return false; // Still downloading shards
+      }
+    }
+
+    // Check for sharded GGUF: e.g. model-00001-of-00003.gguf
+    const ggufShardPattern = /^.*-(\d+)-of-(\d+)\.gguf$/;
+    const ggufShards = entries.filter((n) => ggufShardPattern.test(n));
+    if (ggufShards.length > 0) {
+      const match = ggufShards[0].match(ggufShardPattern);
+      if (match) {
+        const expected = parseInt(match[2], 10);
+        if (ggufShards.length < expected) return false;
+      }
+    }
+
+    return true;
   } catch {
     return false;
   }
