@@ -472,6 +472,123 @@ function generateRuleBasedProfile(
 }
 
 // ---------------------------------------------------------------------------
+// Template-based Agent Generation (no LLM, no graph — pure archetype rules)
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate agents directly from department template archetypes.
+ * Used when no seed documents or graph entities are available.
+ * Creates realistic rule-based profiles that can participate immediately.
+ */
+export function generateTemplateAgents(
+  template: DepartmentTemplate,
+  simulationContext: string,
+): {
+  agents: AgentProfile[];
+  statisticalAgents: StatisticalAgentProfile[];
+} {
+  const agents: AgentProfile[] = [];
+
+  // Names pool for generating unique agent names per archetype
+  const namesByArchetype: Record<string, string[]> = {
+    target_customer: ["Alex Rivera", "Jordan Chen", "Sam Patel", "Morgan Kim", "Taylor Brooks"],
+    community_influencer: ["Chris Martinez", "Avery Thompson", "Casey Williams", "Riley Johnson"],
+    industry_skeptic: ["Blake Anderson", "Drew Campbell", "Quinn Sullivan", "Harper Davis"],
+    brand_advocate: ["Jamie Wilson", "Dakota Lee", "Reese Cooper", "Finley Scott"],
+    senior_engineer: ["Dr. Sarah Chen", "Marcus Wei", "Elena Kowalski"],
+    architect: ["James Nakamura"],
+    junior_dev: ["Aisha Patel", "Tom Rodriguez", "Yuki Tanaka", "Ben Foster"],
+    pm: ["Lisa Chang", "David Mueller"],
+    security_reviewer: ["Raj Krishnamurthy"],
+    devops: ["Nina Volkov", "Omar Habib"],
+    enterprise_buyer: ["Catherine Powers", "Robert Sterling"],
+    technical_evaluator: ["Dr. Alan Fischer", "Priya Sharma"],
+    budget_holder: ["Michael Zhang"],
+    end_user: ["Karen Mitchell", "Steve Park", "Linda Costa"],
+    competitor_sales: ["Derek Nash", "Vanessa Cole"],
+    procurement: ["Patricia Yuen"],
+    competitor_ceo: ["Satoshi Yamamoto", "Anna Bergström"],
+    regulator: ["Commissioner Maria Santos"],
+    investor: ["Victor Huang", "Sarah Goldstein"],
+    market_analyst: ["Dr. Kenji Takeda", "Rachel Moore"],
+    board_member: ["Charles Wellington III"],
+    lobbyist: ["Diane Foster", "James Kearney"],
+    power_user: ["@devguru_99", "techie_max", "ProUser_42"],
+    new_user: ["FirstTimer_2024", "JustStarted_Here"],
+    churned_user: ["ExFan_Mike", "WasGreat_Now_Meh"],
+    support_engineer: ["HelpDesk_Anna", "TechSupport_Leo"],
+    competitor_user: ["switched_from_X", "comparing_tools"],
+  };
+
+  for (const archetype of template.agentArchetypes) {
+    const names = namesByArchetype[archetype.name] ?? [];
+    const count = Math.min(archetype.defaultCount, Math.max(names.length, 1));
+
+    for (let i = 0; i < count; i++) {
+      const name = names[i] ?? `${archetype.name.replace(/_/g, " ")} ${i + 1}`;
+      const stanceVal = archetype.stanceRange[0] +
+        Math.random() * (archetype.stanceRange[1] - archetype.stanceRange[0]);
+      const influence = archetype.influenceRange[0] +
+        Math.random() * (archetype.influenceRange[1] - archetype.influenceRange[0]);
+      const activityLevel = archetype.tier === 1 ? 0.7 + Math.random() * 0.3
+        : archetype.tier === 2 ? 0.4 + Math.random() * 0.4
+        : 0.2 + Math.random() * 0.3;
+
+      agents.push({
+        id: `agent_${archetype.name}_${i}_${Date.now().toString(36)}`,
+        name,
+        username: generateUsername(name),
+        bio: `${archetype.description}`,
+        persona: `${name} is a ${archetype.description.toLowerCase()}. ` +
+          `Context: ${simulationContext}. ` +
+          `They bring ${archetype.tier === 1 ? "deep expertise and strong opinions" :
+            archetype.tier === 2 ? "practical experience and moderate views" :
+            "fresh perspectives and learning attitude"} to discussions.`,
+        tier: archetype.tier as AgentTier,
+        age: 25 + Math.floor(Math.random() * 35),
+        gender: undefined,
+        mbti: MBTI_TYPES[Math.floor(Math.random() * MBTI_TYPES.length)],
+        country: "United States",
+        profession: archetype.name.replace(/_/g, " "),
+        communicationStyle: archetype.tier === 1 ? "Authoritative and detailed"
+          : archetype.tier === 2 ? "Conversational and practical"
+          : "Casual and curious",
+        interestedTopics: simulationContext.split(/\s+/).filter(w => w.length > 4).slice(0, 5),
+        currentMood: stanceVal > 0.3 ? "Optimistic" : stanceVal < -0.3 ? "Skeptical" : "Neutral",
+        beliefSystem: {
+          stances: { [simulationContext.split(/\s+/)[0] ?? "topic"]: stanceVal },
+          coreValues: archetype.tier === 1 ? ["expertise", "quality", "leadership"] : ["fairness", "progress"],
+          fears: stanceVal < 0 ? ["poor outcomes", "wasted resources"] : ["missed opportunities"],
+          goals: ["contribute meaningfully", "influence decisions"],
+        },
+        activityLevel,
+        postsPerHour: archetype.tier === 1 ? 0.8 : 0.4,
+        commentsPerHour: archetype.tier === 1 ? 1.5 : 0.8,
+        activeHours: generateActiveHours(activityLevel),
+        responseDelayMin: archetype.tier === 1 ? 1 : 5,
+        responseDelayMax: archetype.tier === 1 ? 15 : 60,
+        sentimentBias: stanceVal,
+        stance: inferStance(stanceVal),
+        influenceWeight: influence,
+        karma: 500 + Math.floor(Math.random() * 4500),
+        sourceEntityUuid: "",
+        sourceEntityType: archetype.name,
+        createdAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  const statisticalAgents = generateStatisticalAgentProfiles(template);
+
+  log.info(
+    `[simulation:forge] Generated ${agents.length} template-based agents + ` +
+    `${statisticalAgents.length} statistical agents for ${template.department}`,
+  );
+
+  return { agents, statisticalAgents };
+}
+
+// ---------------------------------------------------------------------------
 // Statistical Agent Generation
 // ---------------------------------------------------------------------------
 

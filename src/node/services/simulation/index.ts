@@ -16,7 +16,7 @@ export { SimulationRuntime } from "./simulationRuntime";
 export type { LLMProvider, RuntimeCallbacks } from "./simulationRuntime";
 export { GraphLayer } from "./graphLayer";
 export { generateOntology, splitTextIntoChunks } from "./ontologyGenerator";
-export { forgeAgentProfiles } from "./agentForge";
+export { forgeAgentProfiles, generateTemplateAgents } from "./agentForge";
 export { generateReport } from "./reportEngine";
 export * from "./types";
 export * from "./socialDynamics";

@@ -267,6 +267,13 @@ export class SimulationService extends EventEmitter {
       department: department as any,
     };
 
+    // Generate agents from template archetypes (rule-based, no LLM needed)
+    const { generateTemplateAgents } = await import("./agentForge");
+    const { agents, statisticalAgents } = generateTemplateAgents(
+      template,
+      input.description,
+    );
+
     const scenario: SimulationScenario = {
       id,
       name: input.name,
@@ -274,8 +281,8 @@ export class SimulationService extends EventEmitter {
       projectId: "",
       graphId: "",
       ontology: { entityTypes: [], edgeTypes: [], analysisSummary: "" },
-      agents: [],
-      statisticalAgents: [],
+      agents,
+      statisticalAgents,
       config,
       seedDocuments: input.seedDocuments.map((d) => d.filename),
       createdAt: new Date().toISOString(),
@@ -283,7 +290,7 @@ export class SimulationService extends EventEmitter {
     };
 
     this.scenarios.set(id, scenario);
-    log.info(`[simulation] Scenario created: ${id} (${department})`);
+    log.info(`[simulation] Scenario created: ${id} (${department}) with ${agents.length} agents + ${statisticalAgents.length} statistical`);
     return scenario;
   }
 
