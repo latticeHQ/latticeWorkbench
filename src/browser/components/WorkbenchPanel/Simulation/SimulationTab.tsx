@@ -1166,6 +1166,30 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
               </div>
             )}
 
+            {/* LLM agents failing notification */}
+            {rounds.length >= 2 && (() => {
+              const llmActions = rounds.flatMap(r => r.actions).filter(a =>
+                !a.agentName.startsWith("stat_") && a.actionType !== "DO_NOTHING" && a.actionType !== "UPVOTE" && a.actionType !== "DOWNVOTE"
+              );
+              if (llmActions.length === 0) {
+                return (
+                  <div className="px-4 py-2 bg-amber-500/10 border-t border-amber-500/20 text-xs text-amber-300 flex items-center gap-2">
+                    <AlertCircle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                    <div>
+                      <span className="font-medium">No LLM agent activity detected.</span>
+                      {" "}Only statistical agents are producing actions. Your configured provider may not be available.
+                      <br />
+                      <span className="text-amber-400/80">
+                        → Go to <strong>Settings → Providers</strong> and ensure at least one provider has valid credentials
+                        (Anthropic, OpenAI, Google, Claude Code, etc.). The simulation auto-discovers available providers as fallback.
+                      </span>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {/* Generate Reports button + report display */}
             {!running && rounds.length > 0 && selectedScenarioId && (
               <div className="border-t border-border bg-card/30">

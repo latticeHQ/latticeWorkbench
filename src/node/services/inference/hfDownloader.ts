@@ -281,6 +281,16 @@ export class HfDownloader extends EventEmitter {
 
     const resp = await fetch(dlURL, { headers, signal });
 
+    // HTTP 416 = Range Not Satisfiable — file already fully downloaded
+    if (resp.status === 416) {
+      this.emit("progress", {
+        fileName: file.rfilename,
+        downloadedBytes: existingSize,
+        totalBytes: existingSize,
+      } satisfies DownloadProgress);
+      return;
+    }
+
     if (resp.status !== 200 && resp.status !== 206) {
       throw new Error(`HTTP ${resp.status} downloading ${file.rfilename}`);
     }

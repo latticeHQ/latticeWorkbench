@@ -237,7 +237,7 @@ const WEIGHT_EXTENSIONS = [".safetensors", ".gguf", ".bin"];
  * This filters out half-downloaded models from terminal tools like
  * huggingface-cli or mlx_lm.download.
  */
-async function isCompleteModel(modelPath: string): Promise<boolean> {
+export async function isCompleteModel(modelPath: string): Promise<boolean> {
   try {
     // Fast path: Lattice manifest = download completed
     await fsp.access(path.join(modelPath, ".lattice-model.json"));
@@ -252,24 +252,20 @@ async function isCompleteModel(modelPath: string): Promise<boolean> {
     );
     if (weightFiles.length === 0) return false;
 
-    // Check for sharded safetensors: model.safetensors.index.json tells us
-    // how many shards are expected (e.g. model-00001-of-00091.safetensors)
-    const indexFile = entries.find((n) => n === "model.safetensors.index.json");
-    if (indexFile) {
-      // Parse the expected shard count from file names like "model-00001-of-00091.safetensors"
-      const shardPattern = /^model-\d+-of-(\d+)\.safetensors$/;
-      let expectedShards = 0;
-      let actualShards = 0;
-      for (const name of entries) {
-        const match = name.match(shardPattern);
-        if (match) {
-          actualShards++;
-          expectedShards = parseInt(match[1], 10);
-        }
+    // Check for sharded safetensors: parse shard naming pattern
+    // e.g. model-00001-of-00091.safetensors — always check, not just when index file exists
+    const shardPattern = /^model-\d+-of-(\d+)\.safetensors$/;
+    let expectedShards = 0;
+    let actualShards = 0;
+    for (const name of entries) {
+      const match = name.match(shardPattern);
+      if (match) {
+        actualShards++;
+        expectedShards = parseInt(match[1], 10);
       }
-      if (expectedShards > 0 && actualShards < expectedShards) {
-        return false; // Still downloading shards
-      }
+    }
+    if (expectedShards > 0 && actualShards < expectedShards) {
+      return false; // Still downloading shards
     }
 
     // Check for sharded GGUF: e.g. model-00001-of-00003.gguf

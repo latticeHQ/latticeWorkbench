@@ -296,6 +296,63 @@ export class ServiceContainer {
     this.simulationService = new SimulationService(simSettings);
     // Bridge AIService → SimulationService LLM provider
     const aiServiceRef = this.aiService;
+    const inferenceServiceRef = this.inferenceService;
+    const providerServiceRef = this.providerService;
+    // Shared fallback discovery function — dynamically finds all configured providers
+    const discoverFallbacks = async (): Promise<Array<{ provider: string; model: string }>> => {
+      const providerConfig = providerServiceRef.getConfig();
+      const fallbacks: Array<{ provider: string; model: string }> = [];
+
+      // Default model per provider for fallback (cheapest capable model)
+      const defaultModels: Record<string, string> = {
+        "claude-code": "claude-sonnet-4-6",
+        "anthropic": "claude-sonnet-4-6",
+        "openai": "gpt-4o-mini",
+        "google": "gemini-2.5-flash",
+        "xai": "grok-3-mini",
+        "deepseek": "deepseek-chat",
+        "openrouter": "anthropic/claude-sonnet-4-6",
+        "ollama": "llama3.1",
+        "bedrock": "anthropic.claude-sonnet-4-6-v1",
+        "github-copilot": "gpt-4o",
+      };
+
+      for (const [providerName, info] of Object.entries(providerConfig)) {
+        if (!info.isConfigured) continue;
+        const rawModel = info.models?.[0];
+        const model: string | undefined = typeof rawModel === "string" ? rawModel : rawModel?.id ?? defaultModels[providerName];
+        if (model) {
+          try {
+            const result = await aiServiceRef.createModel(`${providerName}:${model}`);
+            if (result.success) {
+              fallbacks.push({ provider: providerName, model });
+            }
+          } catch { /* skip */ }
+        }
+      }
+
+      // claude-code (CLI subscription) — always try if not already found
+      if (!fallbacks.some(f => f.provider === "claude-code")) {
+        try {
+          const result = await aiServiceRef.createModel("claude-code:claude-sonnet-4-6");
+          if (result.success) {
+            fallbacks.push({ provider: "claude-code", model: "claude-sonnet-4-6" });
+          }
+        } catch { /* not available */ }
+      }
+
+      // lattice-inference — check if local inference engine has models
+      if (!fallbacks.some(f => f.provider === "lattice-inference") && inferenceServiceRef?.isAvailable) {
+        try {
+          const models = await inferenceServiceRef.listModels();
+          if (models.length > 0) {
+            fallbacks.push({ provider: "lattice-inference", model: models[0].id });
+          }
+        } catch { /* not available */ }
+      }
+
+      return fallbacks;
+    };
     this.simulationService.setLLMProvider({
       async chat(opts) {
         const modelString = `${opts.provider}:${opts.model}`;
@@ -312,25 +369,22 @@ export class ServiceContainer {
         });
         return result.text;
       },
-      async checkAvailability() {
-        // Try to create any model — tests if at least one provider has credentials.
-        // Includes claude-code (Pro/Max via CLI) and lattice-inference (local MLX).
-        const candidates = [
-          "anthropic:claude-sonnet-4-6",
-          "google:gemini-2.5-flash",
-          "openai:gpt-4o-mini",
-          "claude-code:claude-sonnet-4-6",
-          "lattice-inference:llama-3.1-70b",
-        ];
-        for (const model of candidates) {
-          try {
-            const result = await aiServiceRef.createModel(model);
-            if (result.success) return true;
-          } catch {
-            // Some providers may throw — skip
+      async tryLoadModel(model: string) {
+        try {
+          if (inferenceServiceRef && inferenceServiceRef.isAvailable) {
+            await inferenceServiceRef.loadModel(model);
+            return true;
           }
+        } catch (err) {
+          log.warn(`[simulation:llm-bridge] tryLoadModel(${model}) failed: ${err instanceof Error ? err.message : String(err)}`);
         }
         return false;
+      },
+      discoverFallbackProviders: discoverFallbacks,
+      async checkAvailability() {
+        // Uses discoverFallbackProviders — if any provider is found, we're good
+        const providers = await discoverFallbacks();
+        return providers.length > 0;
       },
     });
     this.aiService.setBrowserService(this.browserService);

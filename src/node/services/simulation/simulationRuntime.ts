@@ -65,12 +65,27 @@ export interface LLMProvider {
    * Returns true if any provider (Anthropic, Google, etc.) has valid credentials.
    */
   checkAvailability?(): Promise<boolean>;
+
+  /**
+   * Try to load a model in the local inference engine.
+   * Returns true if the model was loaded, false if not available.
+   */
+  tryLoadModel?(model: string): Promise<boolean>;
+
+  /**
+   * Discover all available providers that can handle chat requests.
+   * Returns an array of { provider, model } pairs that are ready to use.
+   * Used for dynamic fallback — no hardcoded provider list.
+   */
+  discoverFallbackProviders?(): Promise<Array<{ provider: string; model: string }>>;
 }
 
 export interface RuntimeCallbacks {
   onRoundComplete?: (result: RoundResult) => void;
   onStatusChange?: (status: RunStatus) => void;
   onError?: (error: Error) => void;
+  /** Called when the runtime detects a model needs loading (UI can show notification) */
+  onModelLoadRequired?: (provider: string, model: string, status: "loading" | "loaded" | "failed") => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -371,32 +386,65 @@ export class SimulationRuntime {
     const systemPrompt = this.buildAgentSystemPrompt(agent, platform);
     const userPrompt = this.buildRoundPrompt(agent, platform, feed, round, memories);
 
-    log.info(`[simulation:runtime] Agent ${agent.name} (tier ${agent.tier}) → ${modelRoute.provider}:${modelRoute.model}`);
+    // Dynamic fallback chain: configured provider first, then discover available alternatives
+    const primaryRoute = { provider: modelRoute.provider, model: modelRoute.model };
+
+    log.info(`[simulation:runtime] Agent ${agent.name} (tier ${agent.tier}) → ${primaryRoute.provider}:${primaryRoute.model}`);
 
     const startTime = Date.now();
-    let response: string;
+    let response: string | undefined;
+    let lastError: unknown;
+
+    // --- Attempt 1: Primary configured provider ---
     try {
-      response = await this.llm.chat({
-        provider: modelRoute.provider,
-        model: modelRoute.model,
-        systemPrompt,
-        userPrompt,
-        responseFormat: "json",
-        temperature: 0.7,
-      });
+      response = await this.tryProviderWithAutoLoad(agent.name, primaryRoute, systemPrompt, userPrompt);
     } catch (err) {
+      lastError = err;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn(`[simulation:runtime] Primary provider ${primaryRoute.provider}:${primaryRoute.model} failed for ${agent.name}: ${errMsg.slice(0, 150)}`);
+    }
+
+    // --- Attempt 2: Dynamic fallback — discover all available providers ---
+    if (!response || response.trim().length === 0) {
+      const fallbacks = await this.llm.discoverFallbackProviders?.() ?? [];
+      // Filter out the primary (already tried) and deduplicate
+      const alternates = fallbacks.filter(
+        (f) => !(f.provider === primaryRoute.provider && f.model === primaryRoute.model),
+      );
+
+      if (alternates.length > 0) {
+        log.info(`[simulation:runtime] Trying ${alternates.length} fallback provider(s) for ${agent.name}: ${alternates.map(a => `${a.provider}:${a.model}`).join(", ")}`);
+
+        for (const alt of alternates) {
+          try {
+            response = await this.tryProviderWithAutoLoad(agent.name, alt, systemPrompt, userPrompt);
+            if (response && response.trim().length > 0) {
+              log.info(`[simulation:runtime] Agent ${agent.name} succeeded via fallback ${alt.provider}:${alt.model}`);
+              break;
+            }
+          } catch (err) {
+            lastError = err;
+            log.warn(`[simulation:runtime] Fallback ${alt.provider}:${alt.model} also failed for ${agent.name}`);
+          }
+        }
+      }
+    }
+
+    // --- All providers exhausted ---
+    if (!response || response.trim().length === 0) {
       const elapsed = Date.now() - startTime;
-      log.error(`[simulation:runtime] LLM call FAILED for ${agent.name} after ${elapsed}ms: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
-      throw err;
+      if (lastError) {
+        log.error(`[simulation:runtime] LLM call FAILED for ${agent.name} after ${elapsed}ms — all providers exhausted. Configure a working provider in Settings.`);
+        // Signal to UI that no providers are working
+        this.callbacks.onModelLoadRequired?.("none", "none", "failed");
+        throw lastError;
+      }
+      log.warn(`[simulation:runtime] Agent ${agent.name} returned EMPTY response`);
+      return { agentId: agent.id, thinking: "Empty LLM response", action: "DO_NOTHING" as ActionType };
     }
 
     const elapsed = Date.now() - startTime;
     log.info(`[simulation:runtime] Agent ${agent.name} responded in ${elapsed}ms (${response.length} chars): ${response.slice(0, 200)}`);
-
-    if (!response || response.trim().length === 0) {
-      log.warn(`[simulation:runtime] Agent ${agent.name} returned EMPTY response`);
-      return { agentId: agent.id, thinking: "Empty LLM response", action: "DO_NOTHING" as ActionType };
-    }
 
     return this.parseDecision(agent.id, response);
   }
@@ -478,6 +526,60 @@ What do you do this round?`;
         thinking: "Failed to parse response",
         action: "DO_NOTHING",
       };
+    }
+  }
+
+  /**
+   * Try a single provider, with auto-load support for lattice-inference.
+   * Returns the response text or throws on failure.
+   */
+  private async tryProviderWithAutoLoad(
+    _agentName: string,
+    route: { provider: string; model: string },
+    systemPrompt: string,
+    userPrompt: string,
+  ): Promise<string> {
+    try {
+      const response = await this.llm.chat({
+        provider: route.provider,
+        model: route.model,
+        systemPrompt,
+        userPrompt,
+        responseFormat: "json",
+        temperature: 0.7,
+      });
+      return response;
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+
+      // Auto-load support for lattice-inference "model_not_loaded" errors
+      if (route.provider === "lattice-inference" && errMsg.includes("model_not_loaded") && this.llm.tryLoadModel) {
+        log.info(`[simulation:runtime] Model not loaded — attempting auto-load of ${route.model}...`);
+        this.callbacks.onModelLoadRequired?.(route.provider, route.model, "loading");
+
+        try {
+          const loaded = await this.llm.tryLoadModel(route.model);
+          if (loaded) {
+            log.info(`[simulation:runtime] Auto-loaded ${route.model} successfully, retrying...`);
+            this.callbacks.onModelLoadRequired?.(route.provider, route.model, "loaded");
+            return await this.llm.chat({
+              provider: route.provider,
+              model: route.model,
+              systemPrompt,
+              userPrompt,
+              responseFormat: "json",
+              temperature: 0.7,
+            });
+          } else {
+            this.callbacks.onModelLoadRequired?.(route.provider, route.model, "failed");
+          }
+        } catch (loadErr) {
+          log.warn(`[simulation:runtime] Auto-load threw: ${loadErr instanceof Error ? loadErr.message : String(loadErr)}`);
+          this.callbacks.onModelLoadRequired?.(route.provider, route.model, "failed");
+        }
+      }
+
+      throw err;
     }
   }
 

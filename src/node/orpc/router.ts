@@ -1,4 +1,4 @@
-import { os } from "@orpc/server";
+import { os, ORPCError } from "@orpc/server";
 import * as schemas from "@/common/orpc/schemas";
 import type { ORPCContext } from "./context";
 import { Err, Ok } from "@/common/types/result";
@@ -4617,39 +4617,73 @@ export const router = (authToken?: string) => {
           }
           let models = await svc.listModels();
 
+          // Filter out incomplete models from Go binary (it doesn't check shard completeness)
+          {
+            const { isCompleteModel } = await import("@/node/services/inference/modelRegistry");
+            const filtered: typeof models = [];
+            for (const m of models) {
+              if (m.localPath) {
+                try {
+                  if (await isCompleteModel(m.localPath)) {
+                    filtered.push(m);
+                  }
+                } catch {
+                  filtered.push(m); // can't check, keep it
+                }
+              } else {
+                filtered.push(m);
+              }
+            }
+            models = filtered;
+          }
+
           // Enrich models with data from the registry (size, format, etc.)
-          // and merge in any models the Go binary doesn't know about
+          // and merge in any models the Go binary doesn't know about.
+          // Scan both the configured dir AND the Go binary's default cache
+          // so models in either location get correct sizes.
           {
             const registryDir = configModelDir ?? svc.modelDir;
-            try {
-              const registry = new ModelRegistry(registryDir);
-              const registryModels = await registry.listModels();
-              const registryMap = new Map(registryModels.map(m => [m.id, m]));
+            const dirsToScan = [registryDir];
+            // Also scan Go binary's default cache if it differs
+            if (configModelDir && configModelDir !== svc.modelDir) {
+              dirsToScan.push(svc.modelDir);
+            }
 
-              // Enrich Go binary models that have missing data (e.g. sizeBytes=0)
-              models = models.map(m => {
-                const reg = registryMap.get(m.id);
-                if (!reg) return m;
-                return {
-                  ...m,
-                  sizeBytes: m.sizeBytes || reg.sizeBytes,
-                  format: m.format === "unknown" ? reg.format : m.format,
-                  quantization: m.quantization || reg.quantization,
-                  parameterCount: m.parameterCount || reg.parameterCount,
-                  pulledAt: m.pulledAt || reg.pulledAt,
-                  storageLocation: m.storageLocation || reg.storageLocation,
-                  storageLabel: m.storageLabel || reg.storageLabel,
-                };
-              });
-
-              // Add models only in registry (not known to Go binary)
-              const knownIds = new Set(models.map(m => m.id));
-              for (const m of registryModels) {
-                if (!knownIds.has(m.id)) {
-                  models.push(m);
+            const registryMap = new Map<string, Awaited<ReturnType<InstanceType<typeof ModelRegistry>["listModels"]>>[number]>();
+            for (const dir of dirsToScan) {
+              try {
+                const registry = new ModelRegistry(dir);
+                const registryModels = await registry.listModels();
+                for (const m of registryModels) {
+                  // Don't overwrite — first scan (configured dir) takes priority
+                  if (!registryMap.has(m.id)) registryMap.set(m.id, m);
                 }
+              } catch { /* dir may not exist */ }
+            }
+
+            // Enrich Go binary models that have missing data (e.g. sizeBytes=0)
+            models = models.map(m => {
+              const reg = registryMap.get(m.id);
+              if (!reg) return m;
+              return {
+                ...m,
+                sizeBytes: m.sizeBytes || reg.sizeBytes,
+                format: m.format === "unknown" ? reg.format : m.format,
+                quantization: m.quantization || reg.quantization,
+                parameterCount: m.parameterCount || reg.parameterCount,
+                pulledAt: m.pulledAt || reg.pulledAt,
+                storageLocation: m.storageLocation || reg.storageLocation,
+                storageLabel: m.storageLabel || reg.storageLabel,
+              };
+            });
+
+            // Add models only in registry (not known to Go binary)
+            const knownIds = new Set(models.map(m => m.id));
+            for (const [, m] of registryMap) {
+              if (!knownIds.has(m.id)) {
+                models.push(m);
               }
-            } catch { /* dir may not exist */ }
+            }
           }
           const pool = await svc.getPoolStatus();
 
@@ -4712,8 +4746,24 @@ export const router = (authToken?: string) => {
         .input(schemas.latticeInference.listModels.input)
         .output(schemas.latticeInference.listModels.output)
         .handler(async ({ context }) => {
-          const { ModelRegistry } = await import("@/node/services/inference/modelRegistry");
+          const { ModelRegistry, isCompleteModel } = await import("@/node/services/inference/modelRegistry");
           let models = await context.inferenceService.listModels();
+
+          // Filter out incomplete models from Go binary
+          {
+            const filtered: typeof models = [];
+            for (const m of models) {
+              if (m.localPath) {
+                try {
+                  if (await isCompleteModel(m.localPath)) filtered.push(m);
+                } catch { filtered.push(m); }
+              } else {
+                filtered.push(m);
+              }
+            }
+            models = filtered;
+          }
+
           const config = context.config.loadConfigOrDefault();
           const registryDir = config.inference?.modelDir ?? context.inferenceService.modelDir;
           try {
@@ -4747,26 +4797,48 @@ export const router = (authToken?: string) => {
         .input(schemas.latticeInference.pullModel.input)
         .output(schemas.latticeInference.pullModel.output)
         .handler(async ({ context, input }) => {
+          // Validate model ID format
+          const modelId = input.modelId.trim();
+          if (!modelId.includes("/") || modelId.split("/").length !== 2) {
+            throw new ORPCError("BAD_REQUEST", {
+              message: `Invalid model ID "${modelId}". Expected format: org/model-name (e.g. mlx-community/Qwen2.5-0.5B-Instruct-4bit)`,
+            });
+          }
+
           // Sync configured model directory before downloading
           const config = context.config.loadConfigOrDefault();
           const configModelDir = config.inference?.modelDir;
           if (configModelDir) {
-            context.inferenceService.setModelDir(configModelDir);
+            await context.inferenceService.setModelDir(configModelDir);
           }
-          const modelDir = await context.inferenceService.pullModel(input.modelId);
-          return { modelDir };
+
+          try {
+            const modelDir = await context.inferenceService.pullModel(modelId);
+            return { modelDir };
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new ORPCError("INTERNAL_SERVER_ERROR", {
+              message: `Failed to pull model: ${msg}`,
+            });
+          }
         }),
       deleteModel: t
         .input(schemas.latticeInference.deleteModel.input)
         .output(schemas.latticeInference.deleteModel.output)
         .handler(async ({ context, input }) => {
-          // Sync configured model directory before deleting
           const config = context.config.loadConfigOrDefault();
           const configModelDir = config.inference?.modelDir;
           if (configModelDir) {
-            context.inferenceService.setModelDir(configModelDir);
+            await context.inferenceService.setModelDir(configModelDir);
           }
-          await context.inferenceService.deleteModel(input.modelId);
+          try {
+            await context.inferenceService.deleteModel(input.modelId);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new ORPCError("INTERNAL_SERVER_ERROR", {
+              message: `Failed to delete model: ${msg}`,
+            });
+          }
         }),
       loadModel: t
         .input(schemas.latticeInference.loadModel.input)
@@ -4776,9 +4848,16 @@ export const router = (authToken?: string) => {
           const config = context.config.loadConfigOrDefault();
           const configModelDir = config.inference?.modelDir;
           if (configModelDir) {
-            context.inferenceService.setModelDir(configModelDir);
+            await context.inferenceService.setModelDir(configModelDir);
           }
-          await context.inferenceService.loadModel(input.modelId, input.backend);
+          try {
+            await context.inferenceService.loadModel(input.modelId, input.backend);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            throw new ORPCError("INTERNAL_SERVER_ERROR", {
+              message: `Failed to load model: ${msg}`,
+            });
+          }
 
           // Auto-register the loaded model in the provider config so it
           // appears in the Models settings page as a selectable model.

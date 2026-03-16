@@ -59,6 +59,7 @@ import { registerSchedulerTools } from "./tools/scheduler";
 import { registerSyncTools } from "./tools/sync";
 import { registerBrowserTools } from "./tools/browser";
 import { registerCodeExecutionTools } from "./tools/code-execution";
+import { registerResearchTerminalTools } from "./tools/research-terminal";
 
 // Discovery, resources, prompts
 import { registerDiscoveryTools, toolCatalog } from "./tools/discovery";
@@ -164,6 +165,7 @@ async function main(): Promise<void> {
   registerAndCatalog(mcpServer, "sync", () => registerSyncTools(mcpServer, client));
   registerAndCatalog(mcpServer, "browser", () => registerBrowserTools(mcpServer, client));
   registerAndCatalog(mcpServer, "code-execution", () => registerCodeExecutionTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "research-terminal", () => registerResearchTerminalTools(mcpServer, client));
 
   // Register discovery tools (search_tools + list_tool_categories)
   // These tools use the populated toolCatalog to enable progressive disclosure.

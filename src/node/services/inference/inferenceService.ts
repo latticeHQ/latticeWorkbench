@@ -67,11 +67,21 @@ export class InferenceService extends EventEmitter {
 
   /**
    * Update the model storage directory at runtime.
-   * Takes effect for subsequent downloads; Go binary needs restart for its cache.
+   * Syncs to both the Node.js downloader and the Go binary.
    */
-  setModelDir(dir: string): void {
+  async setModelDir(dir: string): Promise<void> {
     this._modelDir = dir;
     this.downloader = new HfDownloader(dir);
+
+    // Also update the Go binary's registry path
+    if (this.httpClient) {
+      try {
+        await this.httpClient.setModelDir(dir);
+        log.info(`[inference] Go binary model dir updated to: ${dir}`);
+      } catch (err) {
+        log.warn(`[inference] failed to update Go binary model dir: ${err}`);
+      }
+    }
   }
 
   /**

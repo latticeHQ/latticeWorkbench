@@ -334,6 +334,11 @@ export class SimulationService extends EventEmitter {
           callbacks?.onStatusChange?.(status);
         },
         onError: callbacks?.onError,
+        onModelLoadRequired: (provider, model, status) => {
+          log.info(`[simulation] Model load event: ${provider}:${model} → ${status}`);
+          this.emit("model-load", { provider, model, status });
+          callbacks?.onModelLoadRequired?.(provider, model, status);
+        },
       },
     );
 

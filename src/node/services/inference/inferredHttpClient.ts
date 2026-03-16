@@ -87,6 +87,20 @@ export class InferredHttpClient {
     return resp.json() as Promise<ModelListResponse>;
   }
 
+  // ─── Configuration ─────────────────────────────────────────────────
+
+  async setModelDir(dir: string): Promise<void> {
+    const resp = await fetch(`${this.baseUrl}/inference/config/model-dir`, {
+      method: "PUT",
+      headers: this.headers(),
+      body: JSON.stringify({ model_dir: dir }),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      throw new Error(`setModelDir failed: ${resp.status} ${text}`);
+    }
+  }
+
   // ─── Inference ───────────────────────────────────────────────────────
 
   async chatCompletions(req: ChatCompletionRequest): Promise<ChatCompletionResponse> {

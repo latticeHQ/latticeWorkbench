@@ -14,6 +14,8 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
+  Users,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 import type { SimulationRoundResult } from "./useSimulation";
@@ -243,12 +245,22 @@ function formatTime(timestamp: string): string {
 // Activity Feed
 // ---------------------------------------------------------------------------
 
+type FeedFilter = "all" | "content" | "reactions";
+
+const FEED_TABS: { id: FeedFilter; label: string; icon: LucideIcon; description: string }[] = [
+  { id: "all", label: "All", icon: Zap, description: "All activity" },
+  { id: "content", label: "Content", icon: Users, description: "Posts, replies & comments from LLM agents" },
+  { id: "reactions", label: "Audience", icon: BarChart3, description: "Upvotes, downvotes & engagement from statistical agents" },
+];
+
 export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   rounds,
   maxItems = 100,
   className = "",
   onAgentClick,
 }) => {
+  const [filter, setFilter] = useState<FeedFilter>("all");
+
   // Flatten all actions from all rounds, most recent first
   // IMPORTANT: Enrich with round number from parent since oRPC may strip it
   const allActions = useMemo(() => {
@@ -275,6 +287,20 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
     }
     return actions;
   }, [rounds, maxItems]);
+
+  // Apply filter
+  const filteredActions = useMemo(() => {
+    if (filter === "all") return allActions;
+    if (filter === "content") return allActions.filter((a) => !a.agentName.startsWith("stat_"));
+    return allActions.filter((a) => a.agentName.startsWith("stat_"));
+  }, [allActions, filter]);
+
+  // Per-tab counts
+  const tabCounts = useMemo(() => {
+    const content = allActions.filter((a) => !a.agentName.startsWith("stat_")).length;
+    const reactions = allActions.filter((a) => a.agentName.startsWith("stat_")).length;
+    return { all: allActions.length, content, reactions };
+  }, [allActions]);
 
   // Comprehensive stats
   const stats = useMemo(() => {
@@ -340,17 +366,52 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
         </div>
       </div>
 
+      {/* Filter tabs */}
+      <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/50 bg-card/30">
+        {FEED_TABS.map((tab) => {
+          const count = tabCounts[tab.id];
+          const isActive = filter === tab.id;
+          const TabIcon = tab.icon;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setFilter(tab.id)}
+              title={tab.description}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors ${
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/30"
+              }`}
+            >
+              <TabIcon className="h-3 w-3" />
+              {tab.label}
+              {count > 0 && (
+                <span className={`text-[9px] px-1 rounded-full ${
+                  isActive ? "bg-primary/20 text-primary" : "bg-muted/50 text-muted-foreground/40"
+                }`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Feed */}
       <div className="flex-1 overflow-y-auto">
-        {allActions.length === 0 ? (
+        {filteredActions.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
             <MessageSquare className="h-8 w-8 text-muted-foreground/15 mb-2" />
             <p className="text-xs text-muted-foreground/40">
-              No activity yet — run a simulation to see agent interactions
+              {filter === "all"
+                ? "No activity yet — run a simulation to see agent interactions"
+                : filter === "content"
+                  ? "No content posts yet"
+                  : "No audience reactions yet"}
             </p>
           </div>
         ) : (
-          allActions.map((action, i) => (
+          filteredActions.map((action, i) => (
             <FeedItem
               key={`${action.round}-${action.agentId}-${action.actionType}-${i}`}
               action={action}
