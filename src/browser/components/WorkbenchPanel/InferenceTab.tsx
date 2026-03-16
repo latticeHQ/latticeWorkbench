@@ -449,14 +449,16 @@ function LatticeRunningDashboard({
   const [pollIntervalMs, setPollIntervalMs] = useState(5_000);
   const [lastBenchmark, setLastBenchmark] = useState<BenchmarkResult | null>(null);
   const [modelHistory, setModelHistory] = useState<Array<{ modelId: string; action: "loaded" | "unloaded"; timestamp: string }>>([]);
+  const [configModelDir, setConfigModelDir] = useState("~/.lattice/models");
 
-  // Load polling interval from server config
+  // Load config (polling interval + model dir) from server
   useEffect(() => {
     if (!api) return;
     (async () => {
       try {
         const cfg = await (api as any).latticeInference.getInferenceConfig();
         if (cfg?.pollIntervalMs) setPollIntervalMs(cfg.pollIntervalMs);
+        if (cfg?.modelDir) setConfigModelDir(cfg.modelDir);
       } catch { /* use default */ }
     })();
   }, [api]);
@@ -524,14 +526,14 @@ function LatticeRunningDashboard({
         {/* View content */}
         <div className="flex-1 overflow-y-auto">
           {activeView === "dashboard" && <DashboardOverview status={status} lastBenchmark={lastBenchmark} modelHistory={modelHistory} />}
-          {activeView === "models" && <DarkModelsView initialStatus={status} />}
+          {activeView === "models" && <DarkModelsView initialStatus={status} modelDir={configModelDir} />}
           {activeView === "pool" && <DarkPoolView status={status} />}
           {activeView === "machines" && <DarkMachinesView />}
           {activeView === "network" && <DarkNetworkView />}
           {activeView === "benchmark" && <DarkBenchmarkView onResult={setLastBenchmark} />}
           {activeView === "metrics" && <DarkMetricsView />}
           {activeView === "setup" && <DarkSetupView />}
-          {activeView === "config" && <DarkConfigView />}
+          {activeView === "config" && <DarkConfigView onModelDirChange={setConfigModelDir} />}
         </div>
       </div>
     </div>
@@ -732,7 +734,7 @@ function DarkMemoryBar({ percent }: { percent: number }) {
 }
 
 /** Dark-themed models view */
-function DarkModelsView({ initialStatus }: { initialStatus: LatticeInferenceStatus }) {
+function DarkModelsView({ initialStatus, modelDir }: { initialStatus: LatticeInferenceStatus; modelDir?: string }) {
   const { api } = useAPI();
   const [models, setModels] = useState<LatticeModelInfo[]>(initialStatus.cachedModels);
   const [pullInput, setPullInput] = useState("");
@@ -887,7 +889,7 @@ function DarkModelsView({ initialStatus }: { initialStatus: LatticeInferenceStat
           </table>
         </div>
       )}
-      <ModelStorageFooter />
+      <ModelStorageFooter modelDirOverride={modelDir} />
     </div>
   );
 }
@@ -1159,7 +1161,7 @@ function DarkSetupView() {
 }
 
 /** Dark config view — storage location, polling interval, and system info */
-function DarkConfigView() {
+function DarkConfigView({ onModelDirChange }: { onModelDirChange?: (dir: string) => void }) {
   const { api } = useAPI();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1198,6 +1200,7 @@ function DarkConfigView() {
     // Update local state immediately (optimistic)
     if (newDir) {
       setModelDir(newDir);
+      onModelDirChange?.(newDir);
       // Add to storage paths list if not already present
       if (!storagePaths.some(sp => sp.path === newDir)) {
         const label = newDir.startsWith("/Volumes/")
@@ -1748,7 +1751,7 @@ function BenchmarkStat({ label, value }: { label: string; value: string }) {
 }
 
 /** Shows current model storage path with NAS connectivity indicator */
-function ModelStorageFooter() {
+function ModelStorageFooter({ modelDirOverride }: { modelDirOverride?: string }) {
   const { api } = useAPI();
   const [storageInfo, setStorageInfo] = useState<{
     modelDir: string;
@@ -1762,17 +1765,26 @@ function ModelStorageFooter() {
     (async () => {
       try {
         const cfg = await (api as any).latticeInference.getInferenceConfig();
-        const currentPath = cfg.modelDir;
+        const currentPath = modelDirOverride ?? cfg.modelDir;
         const match = cfg.availableStoragePaths.find((p: any) => p.path === currentPath);
         setStorageInfo({
           modelDir: currentPath,
-          type: match?.type ?? "local",
+          type: match?.type ?? (currentPath.startsWith("/Volumes/") ? "external" : "local"),
           available: match?.available ?? true,
           freeSpaceBytes: match?.freeSpaceBytes ?? 0,
         });
-      } catch { /* ignore */ }
+      } catch {
+        // Endpoint not available — use override or default
+        const dir = modelDirOverride ?? "~/.lattice/models";
+        setStorageInfo({
+          modelDir: dir,
+          type: dir.startsWith("/Volumes/") ? "external" : "local",
+          available: true,
+          freeSpaceBytes: 0,
+        });
+      }
     })();
-  }, [api]);
+  }, [api, modelDirOverride]);
 
   if (!storageInfo) return null;
 
