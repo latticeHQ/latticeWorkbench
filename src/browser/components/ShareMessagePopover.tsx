@@ -384,7 +384,7 @@ export const ShareMessagePopover: React.FC<ShareMessagePopoverProps> = ({
           aria-label={isAlreadyShared ? "Already shared" : "Share"}
           className={cn(
             "flex h-6 w-6 items-center justify-center [&_svg]:size-3.5",
-            isAlreadyShared ? "text-blue-400" : "text-placeholder"
+            isAlreadyShared ? "text-blue-600 dark:text-blue-400" : "text-placeholder"
           )}
         >
           <Link2 />

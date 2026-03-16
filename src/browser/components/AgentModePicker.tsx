@@ -135,22 +135,22 @@ const AgentTooltipContent: React.FC<{ opt: AgentOption }> = ({ opt }) => {
       {opt.autonomy && (
         <div className="flex flex-wrap gap-1 pt-0.5">
           {opt.autonomy.circuitBreaker && (
-            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-400">
+            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-400">
               Circuit Breaker
             </span>
           )}
           {opt.autonomy.phases && (
-            <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-medium text-sky-400">
+            <span className="rounded-full bg-sky-500/20 px-1.5 py-0.5 text-[9px] font-medium text-sky-600 dark:text-sky-400">
               Phases
             </span>
           )}
           {opt.autonomy.siblingContext && (
-            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-medium text-emerald-400">
+            <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
               Sibling Context
             </span>
           )}
           {opt.autonomy.challenger && (
-            <span className="rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[9px] font-medium text-violet-400">
+            <span className="rounded-full bg-violet-500/20 px-1.5 py-0.5 text-[9px] font-medium text-violet-600 dark:text-violet-400">
               Challenger
             </span>
           )}
@@ -536,7 +536,7 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
                   className={cn(
                     "flex-shrink-0 p-0.5 transition-colors",
                     disableMinionAgents
-                      ? "text-red-500 hover:text-red-400"
+                      ? "text-red-600 dark:text-red-500 hover:text-red-500 dark:hover:text-red-400"
                       : "text-muted hover:text-foreground"
                   )}
                 >
@@ -545,7 +545,7 @@ export const AgentModePicker: React.FC<AgentModePickerProps> = (props) => {
               </TooltipTrigger>
               <TooltipContent side="bottom" align="end" className="max-w-56">
                 {disableMinionAgents ? (
-                  <span className="text-red-400">
+                  <span className="text-red-600 dark:text-red-400">
                     Minion agents disabled — using built-in/global only. Click to re-enable.
                   </span>
                 ) : (

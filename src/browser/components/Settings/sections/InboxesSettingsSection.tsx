@@ -76,11 +76,11 @@ function StatusBadge(props: { adapter: AdapterStatus | undefined }) {
       className={cn(
         "flex items-center gap-1 text-xs",
         isConnected
-          ? "text-green-400"
+          ? "text-green-600 dark:text-green-400"
           : isError
-            ? "text-red-400"
+            ? "text-red-600 dark:text-red-400"
             : isConnecting
-              ? "text-yellow-400"
+              ? "text-yellow-700 dark:text-yellow-400"
               : "text-muted",
       )}
     >
@@ -94,7 +94,7 @@ function StatusBadge(props: { adapter: AdapterStatus | undefined }) {
         <span className="text-muted">({description})</span>
       )}
       {error && (
-        <span className="ml-1 text-red-400/70">{error}</span>
+        <span className="ml-1 text-red-600/70 dark:text-red-400/70">{error}</span>
       )}
     </span>
   );
@@ -286,7 +286,7 @@ function ChannelRow(props: {
               size="sm"
               onClick={() => void handleClear()}
               disabled={saving}
-              className="text-red-400 hover:text-red-300"
+              className="text-red-600 dark:text-red-400 hover:text-red-500 dark:hover:text-red-300"
             >
               Remove Token
             </Button>

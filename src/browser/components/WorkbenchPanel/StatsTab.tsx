@@ -503,7 +503,7 @@ function AutonomySection({ metrics }: { metrics: AutonomyMetrics }) {
           {metrics.revertCount > 0 && (
             <>
               <span>·</span>
-              <span className="text-amber-400">{metrics.revertCount} reverts</span>
+              <span className="text-amber-700 dark:text-amber-400">{metrics.revertCount} reverts</span>
             </>
           )}
         </div>
@@ -572,10 +572,10 @@ function AutonomySection({ metrics }: { metrics: AutonomyMetrics }) {
             {(metrics.circuitBreakerSoftLimitHit ?? metrics.circuitBreakerHardLimitHit) && (
               <div className="text-muted-light mt-1 flex flex-wrap gap-x-2 gap-y-1 text-[11px]">
                 {metrics.circuitBreakerSoftLimitHit && (
-                  <span className="text-amber-400">Soft limit hit</span>
+                  <span className="text-amber-700 dark:text-amber-400">Soft limit hit</span>
                 )}
                 {metrics.circuitBreakerHardLimitHit && (
-                  <span className="text-red-400">Hard limit hit</span>
+                  <span className="text-red-600 dark:text-red-400">Hard limit hit</span>
                 )}
               </div>
             )}

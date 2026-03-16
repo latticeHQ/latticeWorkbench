@@ -272,17 +272,17 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
     "built-in": {
       label: "Built-in",
       icon: <Server className="h-3 w-3" />,
-      badgeClass: "bg-blue-500/10 text-blue-400",
+      badgeClass: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
     },
     global: {
       label: "Global",
       icon: <Globe className="h-3 w-3" />,
-      badgeClass: "bg-emerald-500/10 text-emerald-400",
+      badgeClass: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
     },
     project: {
       label: "Project",
       icon: <FolderOpen className="h-3 w-3" />,
-      badgeClass: "bg-amber-500/10 text-amber-400",
+      badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
     },
   };
 
@@ -320,8 +320,8 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
                   className={cn(
                     "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
                     info.transport === "stdio"
-                      ? "bg-blue-500/10 text-blue-400"
-                      : "bg-purple-500/10 text-purple-400"
+                      ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                      : "bg-purple-500/10 text-purple-600 dark:text-purple-400"
                   )}
                 >
                   {info.transport}
@@ -381,7 +381,7 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
                 Tools ({allowedTools.length}/{tools.length})
               </span>
               {!hasNoAllowlist(name) && (
-                <span className="text-amber-400 ml-1">
+                <span className="text-amber-700 dark:text-amber-400 ml-1">
                   filtered
                 </span>
               )}
@@ -491,17 +491,17 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
                 {Object.keys(servers).length} servers total
               </span>
               {groupedServers["built-in"].length > 0 && (
-                <span className="text-blue-400">
+                <span className="text-blue-600 dark:text-blue-400">
                   {groupedServers["built-in"].length} built-in
                 </span>
               )}
               {groupedServers.global.length > 0 && (
-                <span className="text-emerald-400">
+                <span className="text-emerald-600 dark:text-emerald-400">
                   {groupedServers.global.length} global
                 </span>
               )}
               {groupedServers.project.length > 0 && (
-                <span className="text-amber-400">
+                <span className="text-amber-700 dark:text-amber-400">
                   {groupedServers.project.length} project
                 </span>
               )}

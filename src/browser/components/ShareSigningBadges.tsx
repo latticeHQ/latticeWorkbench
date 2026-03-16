@@ -68,7 +68,7 @@ export const SigningBadge = ({
   // - yellow/warning = encrypted key found but unusable
   // - muted = disabled or no key at all
   const isActive = signed || (signingEnabled && hasKey);
-  const iconColor = isActive ? "text-blue-400" : hasEncryptedKey ? "text-yellow-500" : "text-muted";
+  const iconColor = isActive ? "text-blue-600 dark:text-blue-400" : hasEncryptedKey ? "text-yellow-600 dark:text-yellow-500" : "text-muted";
 
   // Determine status header content
   const getStatusHeader = (): React.ReactNode => {

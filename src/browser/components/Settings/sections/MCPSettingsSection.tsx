@@ -1175,7 +1175,7 @@ export const MCPSettingsSection: React.FC = () => {
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-2">
                                 <span className="text-foreground text-sm font-medium">{name}</span>
-                                <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-400">
+                                <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-xs text-blue-600 dark:text-blue-400">
                                   built-in
                                 </span>
                               </div>
@@ -1276,15 +1276,15 @@ export const MCPSettingsSection: React.FC = () => {
                             <span className={cn(
                               "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
                               entry.transport === "stdio"
-                                ? "bg-blue-500/10 text-blue-400"
-                                : "bg-purple-500/10 text-purple-400"
+                                ? "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                : "bg-purple-500/10 text-purple-600 dark:text-purple-400"
                             )}>
                               {entry.transport}
                             </span>
                             {cached?.result.success && !isEditing && isEnabled && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
-                                  <span className="rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-500">
+                                  <span className="rounded bg-green-500/10 px-1.5 py-0.5 text-xs text-green-600 dark:text-green-500">
                                     {cached.result.tools.length} tools
                                   </span>
                                 </TooltipTrigger>

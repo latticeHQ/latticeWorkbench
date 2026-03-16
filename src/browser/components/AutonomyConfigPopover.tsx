@@ -142,7 +142,7 @@ export const AutonomyConfigPopover: React.FC<AutonomyConfigPopoverProps> = (prop
           <PopoverTrigger asChild>
             <button
               type="button"
-              className={cn(btnClass, hasAnyEnabled && "text-amber-400")}
+              className={cn(btnClass, hasAnyEnabled && "text-amber-700 dark:text-amber-400")}
               data-testid="autonomy-config-button"
             >
               <Zap className="h-3.5 w-3.5" />

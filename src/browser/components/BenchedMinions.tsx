@@ -199,7 +199,7 @@ const BulkProgressModal: React.FC<{
 
         {/* Errors */}
         {operation.errors.length > 0 && (
-          <div className="max-h-32 overflow-y-auto rounded bg-red-500/10 p-2 text-xs text-red-400">
+          <div className="max-h-32 overflow-y-auto rounded bg-red-500/10 p-2 text-xs text-red-600 dark:text-red-400">
             {operation.errors.map((err, i) => (
               <div key={i}>{err}</div>
             ))}
@@ -622,7 +622,7 @@ export const BenchedMinions: React.FC<BenchedMinionsProps> = ({
                     <TooltipTrigger asChild>
                       <button
                         onClick={() => setBulkDeleteConfirm(true)}
-                        className="text-muted rounded p-1 transition-colors hover:bg-white/10 hover:text-red-400"
+                        className="text-muted rounded p-1 transition-colors hover:bg-white/10 dark:hover:bg-white/10 hover:bg-red-50 hover:text-red-600 dark:hover:text-red-400"
                         aria-label="Delete selected"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -764,7 +764,7 @@ export const BenchedMinions: React.FC<BenchedMinionsProps> = ({
                                 <button
                                   onClick={() => void handleDelete(minion.id)}
                                   disabled={isProcessing}
-                                  className="text-muted rounded p-1.5 transition-colors hover:bg-white/10 hover:text-red-400 disabled:opacity-50"
+                                  className="text-muted rounded p-1.5 transition-colors hover:bg-red-50 dark:hover:bg-white/10 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
                                   aria-label={`Delete minion ${displayTitle}`}
                                 >
                                   {isProcessing ? (

@@ -55,7 +55,7 @@ interface AdapterStatus {
 function ConnectionBanner(props: { adapters: AdapterStatus[] }) {
   if (props.adapters.length === 0) {
     return (
-      <div className="flex items-center gap-2 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-400">
+      <div className="flex items-center gap-2 bg-yellow-500/10 px-3 py-1.5 text-xs text-yellow-700 dark:text-yellow-400">
         <WifiOff className="h-3 w-3" />
         No channel adapters configured — add telegramBotToken to ~/.lattice/config.json
       </div>
@@ -73,10 +73,10 @@ function ConnectionBanner(props: { adapters: AdapterStatus[] }) {
             className={cn(
               "flex items-center gap-1",
               isConnected
-                ? "text-green-400"
+                ? "text-green-600 dark:text-green-400"
                 : isError
-                  ? "text-red-400"
-                  : "text-yellow-400",
+                  ? "text-red-600 dark:text-red-400"
+                  : "text-yellow-700 dark:text-yellow-400",
             )}
           >
             {isConnected ? (
@@ -89,7 +89,7 @@ function ConnectionBanner(props: { adapters: AdapterStatus[] }) {
               <span className="text-muted">({adapter.description})</span>
             )}
             {adapter.error && (
-              <span className="text-red-400/70">{adapter.error}</span>
+              <span className="text-red-600/70 dark:text-red-400/70">{adapter.error}</span>
             )}
           </div>
         );
@@ -209,10 +209,10 @@ function ConversationList(props: {
 
 function StatusIndicator(props: { status: string }) {
   const colors: Record<string, string> = {
-    unread: "text-blue-400",
-    processing: "text-yellow-400",
-    replied: "text-green-400",
-    errored: "text-red-400",
+    unread: "text-blue-600 dark:text-blue-400",
+    processing: "text-yellow-700 dark:text-yellow-400",
+    replied: "text-green-600 dark:text-green-400",
+    errored: "text-red-600 dark:text-red-400",
     archived: "text-muted",
   };
   return (

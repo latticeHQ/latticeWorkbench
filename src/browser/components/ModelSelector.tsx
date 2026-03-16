@@ -397,7 +397,7 @@ export const ModelSelector = forwardRef<ModelSelectorRef, ModelSelectorProps>(
                               className={cn(
                                 "flex h-5 w-5 items-center justify-center rounded-sm transition-colors duration-150 cursor-pointer",
                                 defaultModel === model
-                                  ? "text-yellow-400 cursor-default"
+                                  ? "text-yellow-600 dark:text-yellow-400 cursor-default"
                                   : "text-muted-light hover:text-foreground"
                               )}
                               aria-label={

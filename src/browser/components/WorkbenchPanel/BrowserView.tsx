@@ -745,7 +745,7 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
 
       {/* Error banner */}
       {error && (
-        <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
+        <div className="border-b border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs text-red-600 dark:text-red-400">
           {error}
           <button
             type="button"

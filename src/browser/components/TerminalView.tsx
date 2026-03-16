@@ -868,7 +868,7 @@ export function TerminalView({
       onClick={handleContainerClick}
     >
       {errorMessage && (
-        <div className="border-b border-red-900/30 bg-red-900/20 p-2 text-sm text-red-400">
+        <div className="border-b border-red-900/30 bg-red-500/10 dark:bg-red-900/20 p-2 text-sm text-red-600 dark:text-red-400">
           Terminal Error: {errorMessage}
         </div>
       )}
