@@ -623,30 +623,6 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
 
   return (
     <div className="flex h-full flex-col">
-      {/* URL bar */}
-      <div className="border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
-        <div className="flex items-center gap-1.5">
-          <Globe className="h-3.5 w-3.5 shrink-0 text-[var(--color-muted)]" />
-          <input
-            ref={urlInputRef}
-            type="text"
-            className="min-w-0 flex-1 rounded bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-foreground)] placeholder:text-[var(--color-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
-            placeholder="Enter URL..."
-            value={urlInput}
-            onChange={(e) => setUrlInput(e.target.value)}
-            onKeyDown={handleUrlKeyDown}
-          />
-          <button
-            type="button"
-            className="rounded bg-[var(--color-accent)] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[var(--color-accent)]/80 disabled:opacity-50"
-            onClick={() => handleNavigate()}
-            disabled={!urlInput.trim() || isLoading}
-          >
-            Go
-          </button>
-        </div>
-      </div>
-
       {/* Toolbar */}
       <div className="flex items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1">
         <ToolbarButton onClick={handleBack} disabled={isLoading} title="Back">
