@@ -301,6 +301,7 @@ export class Config {
           telegramBotToken?: unknown;
           telemetryEnabled?: unknown;
           notebooklm?: unknown;
+          gws?: unknown;
         };
 
         // Config is stored as array of [path, config] pairs
@@ -404,6 +405,9 @@ export class Config {
             notebooklm: parsed.notebooklm && typeof (parsed.notebooklm as Record<string, unknown>).enabled === "boolean"
               ? { enabled: (parsed.notebooklm as Record<string, unknown>).enabled as boolean }
               : undefined,
+            gws: parsed.gws && typeof (parsed.gws as Record<string, unknown>).enabled === "boolean"
+              ? { enabled: (parsed.gws as Record<string, unknown>).enabled as boolean }
+              : undefined,
           };
         }
       }
@@ -459,6 +463,7 @@ export class Config {
         telegramBotToken?: string;
         telemetryEnabled?: boolean;
         notebooklm?: ProjectsConfig["notebooklm"];
+        gws?: ProjectsConfig["gws"];
       } = {
         projects: Array.from(config.projects.entries()).map(
           ([projectPath, projectConfig]) =>
@@ -618,6 +623,11 @@ export class Config {
       // NotebookLM: default ON, persist only when explicitly disabled.
       if (config.notebooklm?.enabled === false) {
         data.notebooklm = { enabled: false };
+      }
+
+      // Google Workspace CLI: default ON, persist only when explicitly disabled.
+      if (config.gws?.enabled === false) {
+        data.gws = { enabled: false };
       }
 
       await writeFileAtomic(this.configFile, JSON.stringify(data, null, 2), "utf-8");
