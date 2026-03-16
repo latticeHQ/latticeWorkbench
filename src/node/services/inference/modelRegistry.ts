@@ -37,7 +37,8 @@ export class ModelRegistry {
   }
 
   /**
-   * List all models in the cache.
+   * List all fully-downloaded models in the cache.
+   * Skips partially-downloaded models (no manifest + no weight files).
    */
   async listModels(): Promise<ModelInfo[]> {
     try {
@@ -46,8 +47,11 @@ export class ModelRegistry {
 
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
+        const modelPath = path.join(this.cacheDir, entry.name);
         try {
-          const info = await this.inspectModel(path.join(this.cacheDir, entry.name));
+          // Skip incomplete downloads: must have a manifest or weight files
+          if (!(await isCompleteModel(modelPath))) continue;
+          const info = await this.inspectModel(modelPath);
           models.push(info);
         } catch {
           // Skip invalid model directories
@@ -219,6 +223,34 @@ function detectStorageLocation(modelPath: string): {
   }
 
   return { location: "local", label: "Local" };
+}
+
+/** Weight file extensions that indicate a model is actually present. */
+const WEIGHT_EXTENSIONS = [".safetensors", ".gguf", ".bin"];
+
+/**
+ * Check if a model directory contains a complete download.
+ * A model is complete if it has:
+ * - A .lattice-model.json manifest (written after successful pull), OR
+ * - At least one weight file (.safetensors, .gguf, .bin)
+ * This filters out half-downloaded models that only have config/vocab files.
+ */
+async function isCompleteModel(modelPath: string): Promise<boolean> {
+  try {
+    // Fast path: manifest exists = download completed
+    await fsp.access(path.join(modelPath, ".lattice-model.json"));
+    return true;
+  } catch {
+    // No manifest — check for weight files (models from other tools)
+  }
+  try {
+    const entries = await fsp.readdir(modelPath);
+    return entries.some((name) =>
+      WEIGHT_EXTENSIONS.some((ext) => name.endsWith(ext)),
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
