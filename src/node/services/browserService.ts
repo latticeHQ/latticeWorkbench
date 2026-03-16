@@ -218,10 +218,25 @@ export class BrowserService {
     }
   }
 
-  /** Get session info for a minion (returns null if no active session). */
-  getSessionInfo(minionId: string): BrowserSessionInfo | null {
+  /**
+   * Get session info for a minion.
+   * Fetches the real current URL from agent-browser so the URL bar
+   * stays in sync even when the user navigates via the live stream.
+   */
+  async getSessionInfo(minionId: string): Promise<BrowserSessionInfo | null> {
     const session = this.sessions.get(minionId);
     if (!session) return null;
+
+    // Refresh currentUrl from agent-browser (non-blocking best-effort)
+    try {
+      const result = await this.execBrowserCommand(session, "get", ["url"]);
+      if (result.success && result.output.trim()) {
+        session.currentUrl = result.output.trim();
+      }
+    } catch {
+      // Keep cached URL on error
+    }
+
     return {
       minionId: session.minionId,
       sessionName: session.sessionName,

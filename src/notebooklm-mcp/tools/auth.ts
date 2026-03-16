@@ -17,8 +17,10 @@ import { jsonContent, withErrorHandling } from "../utils";
 import {
   loadDefaultProfile,
   listProfiles,
+  saveProfile,
 } from "../auth/cookieManager";
 import { extractCookiesFromCdp, launchAndExtract } from "../auth/cdpExtractor";
+import type { AuthProfile } from "../auth/types";
 
 export function registerAuthTools(
   server: McpServer,
@@ -83,14 +85,27 @@ export function registerAuthTools(
           };
         }
 
-        // Re-initialize the client with new cookies
+        // Save cookies to disk so client.init() can find them
+        const profileName = params.profile ?? "default";
+        const profile: AuthProfile = {
+          name: profileName,
+          cookies,
+          csrfToken: "",
+          sessionId: "",
+          buildLabel: "",
+          extractedAt: new Date().toISOString(),
+        };
+        saveProfile(profile);
+
+        // Re-initialize the client — it will load cookies from disk
+        // and fetch csrfToken/sessionId/buildLabel from NotebookLM
         await client.init();
 
         return {
           content: [
             jsonContent({
               success: true,
-              message: "Cookies extracted and client re-initialized.",
+              message: `Cookies extracted, saved to profile '${profileName}', and client re-initialized.`,
               cookieCount: Object.keys(cookies).length,
             }),
           ],

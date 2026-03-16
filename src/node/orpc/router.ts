@@ -3969,7 +3969,7 @@ export const router = (authToken?: string) => {
       sessionInfo: t
         .input(schemas.browser.sessionInfo.input)
         .output(schemas.browser.sessionInfo.output)
-        .handler(({ context, input }) => {
+        .handler(async ({ context, input }) => {
           return context.browserService.getSessionInfo(input.minionId);
         }),
 

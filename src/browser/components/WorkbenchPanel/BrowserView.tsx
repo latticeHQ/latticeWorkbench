@@ -110,13 +110,16 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     }
   }, [api, minionId]);
 
-  // Poll session info when visible
+  // Poll session info when visible.
+  // Use faster polling (2s) during live stream so URL bar stays in sync
+  // when the user navigates via stream interaction (clicking links).
   useEffect(() => {
     if (!visible || !api) return;
     fetchSessionInfo();
-    const interval = setInterval(fetchSessionInfo, 5000);
+    const pollInterval = wsConnected ? 2000 : 5000;
+    const interval = setInterval(fetchSessionInfo, pollInterval);
     return () => clearInterval(interval);
-  }, [visible, api, fetchSessionInfo]);
+  }, [visible, api, fetchSessionInfo, wsConnected]);
 
   // ── WebSocket streaming ────────────────────────────────────────────────
   useEffect(() => {

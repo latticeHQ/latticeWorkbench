@@ -328,7 +328,7 @@ export const createBrowserSessionInfoTool: ToolFactory = (config) =>
     execute: async () => {
       if (!config.browserService) return noBrowser();
       if (!config.minionId) return noMinion();
-      const info = config.browserService.getSessionInfo(config.minionId);
+      const info = await config.browserService.getSessionInfo(config.minionId);
       if (!info) {
         return {
           success: true,
