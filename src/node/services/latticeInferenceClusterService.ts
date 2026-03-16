@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import * as si from "systeminformation";
 import { log } from "@/node/services/log";
 import type { InferenceService } from "@/node/services/inference/inferenceService";
 
@@ -76,32 +77,28 @@ let cachedTemperature: number | null = null;
 let cachedPowerWatts: number | null = null;
 
 /**
- * Get CPU utilization via macOS `top` — same source as Activity Monitor.
- * Parses "CPU usage: X% user, Y% sys, Z% idle" and returns 100 - idle.
- * This is the most accurate method on macOS; os.cpus() tick deltas are unreliable
- * when polled at short intervals or from multiple callers.
+ * Get CPU utilization via systeminformation (same accuracy as Activity Monitor).
+ * Falls back to os.loadavg() if the library call fails.
  */
-async function getCpuFromTop(): Promise<number> {
+async function getCpuUtilization(): Promise<number> {
   try {
-    const { stdout } = await execFileAsync("top", ["-l", "1", "-n", "0"], { timeout: 5000 });
-    const match = stdout.match(/CPU usage:\s*([\d.]+)%\s*user,\s*([\d.]+)%\s*sys,\s*([\d.]+)%\s*idle/);
-    if (match) {
-      const idle = parseFloat(match[3]);
-      return Math.round(100 - idle);
-    }
+    const load = await si.currentLoad();
+    return Math.round(load.currentLoad);
   } catch {
-    // top failed — fall back to os.cpus() snapshot
+    // Fallback: rough estimate from load average
+    const os = require("os") as typeof import("os");
+    const avg = os.loadavg()[0];
+    const cores = os.cpus().length;
+    return Math.min(100, Math.round((avg / cores) * 100));
   }
-  // Fallback: rough estimate from os.cpus() load average
-  const os = require("os") as typeof import("os");
-  const load = os.loadavg()[0]; // 1-minute load average
-  const cores = os.cpus().length;
-  return Math.min(100, Math.round((load / cores) * 100));
 }
 
 /**
  * Get GPU utilization via ioreg AGXAccelerator — reads "Device Utilization %"
  * from the GPU driver's PerformanceStatistics dict. No sudo required.
+ *
+ * Note: systeminformation returns undefined for Apple Silicon GPU utilization,
+ * so we read ioreg directly which works reliably on M1/M2/M3/M4.
  */
 async function getGpuUtilization(): Promise<number> {
   try {
@@ -212,8 +209,8 @@ async function collectLocalMetrics(): Promise<SystemMetrics> {
 
   // Collect all metrics in parallel — each can fail independently
   const [cpuResult, gpuResult, tempResult, memPressureResult] = await Promise.allSettled([
-    isDarwin ? getCpuFromTop() : Promise.resolve(0),
-    isDarwin ? getGpuUtilization() : Promise.resolve(0),
+    getCpuUtilization(),
+    getGpuUtilization(),
     isDarwin ? getTemperature() : Promise.resolve(null as number | null),
     isDarwin ? getMemoryPressure() : Promise.resolve(0),
   ]);
