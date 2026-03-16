@@ -1205,6 +1205,19 @@ function DarkConfigView() {
     }
   };
 
+  const handleBrowse = async () => {
+    if (!api) return;
+    try {
+      const picked = await (api as any).projects.pickDirectory();
+      if (picked) {
+        void handleSave(picked);
+      }
+    } catch {
+      // Picker not available (web mode) — fall back to text input
+      setShowCustom(true);
+    }
+  };
+
   const handleCustomPathSubmit = () => {
     if (!customPath.trim()) return;
     void handleSave(customPath.trim());
@@ -1277,7 +1290,7 @@ function DarkConfigView() {
               </button>
             ))}
 
-            {/* Custom path */}
+            {/* Browse / Custom path */}
             {showCustom ? (
               <div className="flex gap-1">
                 <input
@@ -1301,11 +1314,12 @@ function DarkConfigView() {
             ) : (
               <button
                 type="button"
-                onClick={() => setShowCustom(true)}
+                onClick={() => void handleBrowse()}
+                disabled={saving}
                 className="flex w-full items-center gap-2 rounded-md border border-dashed border-neutral-700 px-3 py-2 text-xs text-neutral-500 hover:border-neutral-600 hover:text-neutral-400"
               >
                 <FolderOpen className="h-3.5 w-3.5" />
-                Custom path...
+                Browse...
               </button>
             )}
           </div>
