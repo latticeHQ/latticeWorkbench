@@ -342,11 +342,263 @@ export const createBrowserSessionInfoTool: ToolFactory = (config) =>
     },
   });
 
+// ── Phase 4: Full-strength agent-browser tools ──────────────────────────
+
+export const createBrowserSaveStateTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_save_state.description,
+    inputSchema: TOOL_DEFINITIONS.browser_save_state.schema,
+    execute: async ({ path, encrypt }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.saveState(ctx.minionId, path ?? undefined, encrypt ?? undefined);
+    },
+  });
+
+export const createBrowserRestoreStateTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_restore_state.description,
+    inputSchema: TOOL_DEFINITIONS.browser_restore_state.schema,
+    execute: async ({ path }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.restoreState(ctx.minionId, path ?? undefined);
+    },
+  });
+
+export const createBrowserStorageTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_storage.description,
+    inputSchema: TOOL_DEFINITIONS.browser_storage.schema,
+    execute: async ({ storageType, action, key, value }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.storage(ctx.minionId, storageType, action, key ?? undefined, value ?? undefined);
+    },
+  });
+
+export const createBrowserSnapshotDiffTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_snapshot_diff.description,
+    inputSchema: TOOL_DEFINITIONS.browser_snapshot_diff.schema,
+    execute: async () => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.snapshotDiff(ctx.minionId);
+    },
+  });
+
+export const createBrowserScreenshotDiffTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_screenshot_diff.description,
+    inputSchema: TOOL_DEFINITIONS.browser_screenshot_diff.schema,
+    execute: async () => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.screenshotDiff(ctx.minionId);
+    },
+  });
+
+export const createBrowserScreenshotElementTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_screenshot_element.description,
+    inputSchema: TOOL_DEFINITIONS.browser_screenshot_element.schema,
+    execute: async ({ ref }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.screenshotElement(ctx.minionId, ref);
+    },
+  });
+
+export const createBrowserPdfTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_pdf.description,
+    inputSchema: TOOL_DEFINITIONS.browser_pdf.schema,
+    execute: async ({ landscape, format }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.pdf(ctx.minionId, {
+        landscape: landscape ?? undefined,
+        format: format ?? undefined,
+      });
+    },
+  });
+
+export const createBrowserConsoleLogsTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_console_logs.description,
+    inputSchema: TOOL_DEFINITIONS.browser_console_logs.schema,
+    execute: async ({ level, clear }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.consoleLogs(ctx.minionId, level ?? undefined, clear ?? undefined);
+    },
+  });
+
+export const createBrowserSetGeolocationTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_set_geolocation.description,
+    inputSchema: TOOL_DEFINITIONS.browser_set_geolocation.schema,
+    execute: async ({ latitude, longitude, accuracy }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.setGeolocation(ctx.minionId, latitude, longitude, accuracy ?? undefined);
+    },
+  });
+
+export const createBrowserSetPermissionsTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_set_permissions.description,
+    inputSchema: TOOL_DEFINITIONS.browser_set_permissions.schema,
+    execute: async ({ permission, state }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.setPermissions(ctx.minionId, permission, state);
+    },
+  });
+
+export const createBrowserSetOfflineTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_set_offline.description,
+    inputSchema: TOOL_DEFINITIONS.browser_set_offline.schema,
+    execute: async ({ offline }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.setOffline(ctx.minionId, offline);
+    },
+  });
+
+export const createBrowserSetHeadersTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_set_headers.description,
+    inputSchema: TOOL_DEFINITIONS.browser_set_headers.schema,
+    execute: async ({ headers }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.setHeaders(ctx.minionId, headers as Record<string, string>);
+    },
+  });
+
+export const createBrowserInterceptNetworkTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_intercept_network.description,
+    inputSchema: TOOL_DEFINITIONS.browser_intercept_network.schema,
+    execute: async ({ pattern, action, modifyResponse }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.interceptNetwork(ctx.minionId, pattern, action, modifyResponse ?? undefined);
+    },
+  });
+
+export const createBrowserStartRecordingTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_start_recording.description,
+    inputSchema: TOOL_DEFINITIONS.browser_start_recording.schema,
+    execute: async ({ outputPath }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.startRecording(ctx.minionId, outputPath ?? undefined);
+    },
+  });
+
+export const createBrowserStopRecordingTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_stop_recording.description,
+    inputSchema: TOOL_DEFINITIONS.browser_stop_recording.schema,
+    execute: async () => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.stopRecording(ctx.minionId);
+    },
+  });
+
+export const createBrowserConnectProviderTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_connect_provider.description,
+    inputSchema: TOOL_DEFINITIONS.browser_connect_provider.schema,
+    execute: async ({ provider, apiKey, endpoint, projectId }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.connectProvider(ctx.minionId, {
+        provider,
+        apiKey,
+        endpoint: endpoint ?? undefined,
+        projectId: projectId ?? undefined,
+      });
+    },
+  });
+
+export const createBrowserListSessionsTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_list_sessions.description,
+    inputSchema: TOOL_DEFINITIONS.browser_list_sessions.schema,
+    execute: async () => {
+      if (!config.browserService) return noBrowser();
+      const sessions = config.browserService.listSessions();
+      return {
+        success: true,
+        output: sessions.length > 0
+          ? JSON.stringify(sessions, null, 2)
+          : "No active browser sessions.",
+      } as BrowserActionResult;
+    },
+  });
+
+export const createBrowserConfigureSessionTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_configure_session.description,
+    inputSchema: TOOL_DEFINITIONS.browser_configure_session.schema,
+    execute: async ({ headed, colorScheme, proxy, userAgent, timeout }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.configureSession(ctx.minionId, {
+        headed: headed ?? undefined,
+        colorScheme: colorScheme ?? undefined,
+        proxy: proxy ?? undefined,
+        userAgent: userAgent ?? undefined,
+        timeout: timeout ?? undefined,
+      });
+    },
+  });
+
+export const createBrowserDeleteCookiesTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_delete_cookies.description,
+    inputSchema: TOOL_DEFINITIONS.browser_delete_cookies.schema,
+    execute: async ({ name, domain }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.deleteCookies(ctx.minionId, name, domain ?? undefined);
+    },
+  });
+
+export const createBrowserScrollToElementTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_scroll_to_element.description,
+    inputSchema: TOOL_DEFINITIONS.browser_scroll_to_element.schema,
+    execute: async ({ ref }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.scrollToElement(ctx.minionId, ref);
+    },
+  });
+
+export const createBrowserScrollByPixelsTool: ToolFactory = (config) =>
+  tool({
+    description: TOOL_DEFINITIONS.browser_scroll_by_pixels.description,
+    inputSchema: TOOL_DEFINITIONS.browser_scroll_by_pixels.schema,
+    execute: async ({ direction, pixels }) => {
+      const ctx = getCtx(config);
+      if ("error" in ctx) return ctx.error;
+      return ctx.browser.scrollByPixels(ctx.minionId, direction, pixels);
+    },
+  });
+
 /**
  * Core browser tools loaded directly into every agent context (5 tools).
  * These cover the fundamental browse-and-interact loop.
  *
- * Additional browser tools (20) are available via SDK progressive disclosure:
+ * Additional browser tools (41) are available via SDK progressive disclosure:
  *   lattice_search_tools({ query: "browser" }) → file_read SDK → bash code execution
  * See: src/mcp-server/sdk/browser.ts
  */
@@ -364,32 +616,70 @@ export function createCoreBrowserTools(config: ToolFactory extends (c: infer C) 
  * Create ALL browser tools (25) as a record keyed by tool name.
  * Used by tests or for full tool registration when progressive disclosure is disabled.
  */
+/**
+ * Create ALL browser tools (46) as a record keyed by tool name.
+ * Full agent-browser feature coverage including state persistence,
+ * storage, diffing, PDF, console, geolocation, network interception,
+ * recording, cloud providers, and session configuration.
+ */
 export function createAllBrowserTools(config: ToolFactory extends (c: infer C) => unknown ? C : never): Record<string, ReturnType<ToolFactory>> {
   return {
+    // Core (5)
     browser_navigate: createBrowserNavigateTool(config),
     browser_snapshot: createBrowserSnapshotTool(config),
     browser_screenshot: createBrowserScreenshotTool(config),
-    browser_annotated_screenshot: createBrowserAnnotatedScreenshotTool(config),
     browser_click: createBrowserClickTool(config),
     browser_fill: createBrowserFillTool(config),
+    // Interaction (7)
     browser_type: createBrowserTypeTool(config),
     browser_press: createBrowserPressTool(config),
     browser_hover: createBrowserHoverTool(config),
-    browser_scroll: createBrowserScrollTool(config),
     browser_find: createBrowserFindTool(config),
+    browser_drag: createBrowserDragTool(config),
+    browser_select_option: createBrowserSelectOptionTool(config),
     browser_wait: createBrowserWaitTool(config),
+    // Visual (5)
+    browser_annotated_screenshot: createBrowserAnnotatedScreenshotTool(config),
+    browser_screenshot_diff: createBrowserScreenshotDiffTool(config),
+    browser_screenshot_element: createBrowserScreenshotElementTool(config),
+    browser_snapshot_diff: createBrowserSnapshotDiffTool(config),
+    browser_pdf: createBrowserPdfTool(config),
+    // JS & Console (2)
     browser_eval: createBrowserEvalTool(config),
+    browser_console_logs: createBrowserConsoleLogsTool(config),
+    // Navigation & Scrolling (5)
+    browser_scroll: createBrowserScrollTool(config),
+    browser_scroll_to_element: createBrowserScrollToElementTool(config),
+    browser_scroll_by_pixels: createBrowserScrollByPixelsTool(config),
+    browser_back: createBrowserBackTool(config),
+    browser_forward: createBrowserForwardTool(config),
+    // Viewport & Emulation (4)
     browser_set_viewport: createBrowserSetViewportTool(config),
     browser_set_device: createBrowserSetDeviceTool(config),
+    browser_set_geolocation: createBrowserSetGeolocationTool(config),
+    browser_set_permissions: createBrowserSetPermissionsTool(config),
+    // Network (4)
+    browser_network_requests: createBrowserNetworkRequestsTool(config),
+    browser_set_offline: createBrowserSetOfflineTool(config),
+    browser_set_headers: createBrowserSetHeadersTool(config),
+    browser_intercept_network: createBrowserInterceptNetworkTool(config),
+    // State & Storage (3)
+    browser_save_state: createBrowserSaveStateTool(config),
+    browser_restore_state: createBrowserRestoreStateTool(config),
+    browser_storage: createBrowserStorageTool(config),
+    // Tabs & Dialogs & Cookies (4)
     browser_tabs: createBrowserTabsTool(config),
     browser_dialog: createBrowserDialogTool(config),
     browser_cookies: createBrowserCookiesTool(config),
-    browser_network_requests: createBrowserNetworkRequestsTool(config),
-    browser_drag: createBrowserDragTool(config),
-    browser_select_option: createBrowserSelectOptionTool(config),
-    browser_back: createBrowserBackTool(config),
-    browser_forward: createBrowserForwardTool(config),
+    browser_delete_cookies: createBrowserDeleteCookiesTool(config),
+    // Session Management (5)
     browser_close: createBrowserCloseTool(config),
     browser_session_info: createBrowserSessionInfoTool(config),
+    browser_list_sessions: createBrowserListSessionsTool(config),
+    browser_configure_session: createBrowserConfigureSessionTool(config),
+    browser_connect_provider: createBrowserConnectProviderTool(config),
+    // Recording (2)
+    browser_start_recording: createBrowserStartRecordingTool(config),
+    browser_stop_recording: createBrowserStopRecordingTool(config),
   };
 }

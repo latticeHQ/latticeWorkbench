@@ -32,14 +32,14 @@ export interface ModelRoutingConfig {
 
 export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
   routes: {
-    tier1_reasoning: { provider: "anthropic", model: "claude-opus-4-6" },
-    tier2_agents: { provider: "google", model: "gemini-2.5-flash" },
-    tier3_agents: { provider: "lattice-inference", model: "llama-3.1-70b" },
-    ontology: { provider: "google", model: "gemini-2.5-pro" },
-    persona_generation: { provider: "anthropic", model: "claude-sonnet-4-6" },
-    report_react: { provider: "anthropic", model: "claude-opus-4-6" },
-    embeddings: { provider: "google", model: "gemini-embedding-2" },
-    classification: { provider: "google", model: "gemini-2.5-flash" },
+    tier1_reasoning: { provider: "claude-code", model: "claude-opus-4-6" },
+    tier2_agents: { provider: "claude-code", model: "claude-sonnet-4-6" },
+    tier3_agents: { provider: "claude-code", model: "claude-haiku-4-5" },
+    ontology: { provider: "claude-code", model: "claude-sonnet-4-6" },
+    persona_generation: { provider: "claude-code", model: "claude-sonnet-4-6" },
+    report_react: { provider: "claude-code", model: "claude-opus-4-6" },
+    embeddings: { provider: "claude-code", model: "claude-haiku-4-5" },
+    classification: { provider: "claude-code", model: "claude-haiku-4-5" },
   },
 };
 

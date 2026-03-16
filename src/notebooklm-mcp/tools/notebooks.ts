@@ -20,7 +20,7 @@ export function registerNotebookTools(
         .optional()
         .describe("Filter by ownership: 'mine' (default) or 'shared'"),
     },
-    (params) =>
+    (_params) =>
       withErrorHandling(async () => {
         const notebooks = await client.notebooks.list();
         return { content: [jsonContent(notebooks)] };

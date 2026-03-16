@@ -64,9 +64,10 @@ export class DownloadService {
     }
 
     // Resolve relative URLs against NotebookLM base
-    const fullUrl = downloadUrl.startsWith("http")
-      ? downloadUrl
-      : `${BASE_URL}${downloadUrl}`;
+    const resolvedUrl: string = downloadUrl;
+    const fullUrl = resolvedUrl.startsWith("http")
+      ? resolvedUrl
+      : `${BASE_URL}${resolvedUrl}`;
 
     const cookieHeader = this.client.getCookieHeader();
     const resp = await fetch(fullUrl, {

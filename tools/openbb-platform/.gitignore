@@ -1,0 +1,8 @@
+.venv/
+wheelhouse/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+.bootstrap-complete

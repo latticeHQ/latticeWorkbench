@@ -11,6 +11,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { RouterClient } from "@orpc/server";
 import type { AppRouter } from "@/node/orpc/router";
+import path from "node:path";
+import fs from "node:fs";
 
 /** Static orientation data — teaches LLMs the Lattice mental model. */
 const ORIENTATION = {
@@ -88,6 +90,138 @@ const ORIENTATION = {
     "2. Call search_tools({ category: 'minion' }) to list all tools in a category. " +
     "3. Call search_tools({ query: 'terminal profile' }) to search by keyword. " +
     "4. Use detail='full' for complete descriptions, 'names' for minimal token usage.",
+
+  codeExecutionGuide: {
+    summary:
+      "For complex multi-step workflows, use execute_code instead of chaining individual tools. " +
+      "The execute_code tool runs TypeScript with the full Lattice SDK pre-imported.",
+    workflow: [
+      "1. Read lattice://sdk to see all available modules and functions",
+      "2. Use read_sdk_module to inspect specific function signatures",
+      "3. Write code with execute_code — the client `c` and all modules are pre-imported",
+      "4. Save reusable workflows as skills with save_skill",
+    ],
+    example:
+      "execute_code({ code: 'const projects = await project.listProjects(c); return projects.length;' })",
+  },
+};
+
+/** Guide for using the code execution pattern effectively. */
+const CODE_EXECUTION_GUIDE = {
+  overview:
+    "The execute_code tool lets you write TypeScript code that calls the Lattice SDK directly. " +
+    "This is far more efficient than chaining individual MCP tool calls — a single execute_code " +
+    "call can replace 5-10 sequential tool calls while keeping data processing in code, not context.",
+
+  pattern: {
+    step1: "Read lattice://sdk to understand available modules and function counts",
+    step2: "Use read_sdk_module or lattice://sdk/{module} to see exact function signatures",
+    step3: "Write TypeScript code using execute_code with the pre-imported SDK client `c`",
+    step4: "Use save_skill to persist useful code for reuse across sessions",
+  },
+
+  preImported: {
+    client: "`c` — RouterClient<AppRouter>, pre-initialized and connected to the Lattice backend",
+    modules: [
+      "minion — 44 functions: agent control, messaging, bash execution, chat history",
+      "project — 25 functions: project CRUD, branches, stages, secrets",
+      "terminal — 8 functions: terminal sessions, input, resize",
+      "terminalProfiles — 3 functions: CLI tool profiles",
+      "browser — 46 functions: headless browser control (navigate, snapshot, click, fill...)",
+      "config — 13 functions: global config, model preferences, providers",
+      "agents — 5 functions: agent definitions and skills",
+      "tasks — 1 function: parallel sub-task orchestration",
+      "analytics — 8 functions: spend tracking, breakdowns",
+      "tokenizer — 3 functions: token counting and cost stats",
+      "serverMgmt — 34 functions: server status, auth, updates, telemetry",
+      "mcpManagement — 6 functions: MCP server CRUD",
+      "secrets — 2 functions: secrets management",
+      "general — 6 functions: ping, directory ops, logs",
+      "oauth — 17 functions: OAuth flows for Copilot, Codex, MCP",
+      "inbox — 9 functions: messaging bridge (Slack, Discord, Telegram)",
+      "kanban — 3 functions: kanban board state",
+      "scheduler — 6 functions: cron/interval automation",
+      "sync — 9 functions: git sync push/pull",
+      "researchTerminal — 20 functions: financial data (equities, crypto, FX, FRED, technicals)",
+    ],
+  },
+
+  examples: [
+    {
+      name: "Multi-project status dashboard",
+      description: "Get all projects with their active minion counts and total spend",
+      code: [
+        "const projects = await project.listProjects(c);",
+        "const allMinions = await minion.listMinions(c);",
+        "const summary = await analytics.getSummary(c);",
+        "",
+        "return projects.map(([path, cfg]) => ({",
+        "  project: cfg.name ?? path,",
+        "  activeMinions: allMinions.filter(m => m.projectPath === path).length,",
+        "}));",
+      ].join("\n"),
+    },
+    {
+      name: "Automated minion deployment",
+      description: "Create a minion, configure it, send a task, and wait for completion",
+      code: [
+        "const ws = await minion.summonMinion(c, 'feat/new-feature', '/path/to/project');",
+        "await minion.sendMessage(c, ws.minionId, 'Implement the login page with OAuth support');",
+        "",
+        "// Poll until complete",
+        "let isActive = true;",
+        "while (isActive) {",
+        "  await new Promise(r => setTimeout(r, 3000));",
+        "  const activity = await minion.getMinionActivity(c, ws.minionId);",
+        "  isActive = activity?.isStreaming ?? false;",
+        "}",
+        "",
+        "const history = await minion.getChatHistory(c, ws.minionId, 5);",
+        "return { minionId: ws.minionId, lastMessages: history };",
+      ].join("\n"),
+    },
+    {
+      name: "Browser scraping workflow",
+      description: "Navigate to a page, extract data, process it in code",
+      code: [
+        "const mid = 'your-minion-id';",
+        "await browser.navigate(c, mid, 'https://example.com/data');",
+        "const snap = await browser.snapshot(c, mid);",
+        "console.log('Page loaded:', snap.output?.substring(0, 200));",
+        "",
+        "// Click a button and wait",
+        "await browser.click(c, mid, '@e5');",
+        "await browser.wait(c, mid, '2000');",
+        "",
+        "const updated = await browser.snapshot(c, mid);",
+        "return { snapshot: updated.output?.substring(0, 1000) };",
+      ].join("\n"),
+    },
+  ],
+
+  bestPractices: [
+    "Read the SDK module source before writing code — use read_sdk_module or lattice://sdk/{module}",
+    "Use return to output results — console.log is captured separately",
+    "Handle errors with try/catch for graceful failure reporting",
+    "Save frequently-used workflows as skills with save_skill",
+    "Use timeout_ms for operations that may take longer (browser navigation, heavy analytics)",
+    "Process and filter data in code — return only what the LLM needs, not raw API responses",
+    "Chain multiple SDK calls in one execute_code to minimize round-trips",
+  ],
+
+  whenToUseCodeExecution: [
+    "Multi-step workflows that chain 3+ API calls",
+    "Data aggregation across multiple endpoints (projects + minions + analytics)",
+    "Conditional logic (if project has X, then do Y)",
+    "Loops and batch operations (iterate over all minions, process each)",
+    "Data transformation and filtering before returning to context",
+  ],
+
+  whenToUseDirectTools: [
+    "Single API calls (create_minion, send_message)",
+    "Simple queries (list_projects, get_config)",
+    "When you don't know which SDK functions to call yet (use search_tools first)",
+  ],
 };
 
 export function registerResources(
@@ -409,5 +543,100 @@ export function registerResources(
         };
       }
     }
+  );
+
+  // ── Static: SDK reference (SKILL.md) ──────────────────────────────────
+  server.resource(
+    "sdk",
+    "lattice://sdk",
+    {
+      description:
+        "Lattice SDK reference: all 222+ typed functions across 20 modules. " +
+        "Read this to understand what functions are available for execute_code.",
+      mimeType: "text/markdown",
+    },
+    async () => {
+      const sdkDir = path.resolve(__dirname, "sdk");
+      const skillPath = path.join(sdkDir, "SKILL.md");
+      let content = "# SDK reference not available";
+      try {
+        content = fs.readFileSync(skillPath, "utf-8");
+      } catch {}
+      return {
+        contents: [{
+          uri: "lattice://sdk",
+          mimeType: "text/markdown",
+          text: content,
+        }],
+      };
+    }
+  );
+
+  // ── Template: SDK module source ──────────────────────────────────────
+  const sdkTemplate = new ResourceTemplate("lattice://sdk/{module}", {
+    list: async () => {
+      const sdkDir = path.resolve(__dirname, "sdk");
+      try {
+        const files = fs.readdirSync(sdkDir).filter((f) => f.endsWith(".ts"));
+        return {
+          resources: files.map((f) => {
+            const mod = f.replace(".ts", "");
+            return {
+              uri: `lattice://sdk/${mod}`,
+              name: `SDK: ${mod}`,
+              description: `Source code for the ${mod} SDK module`,
+              mimeType: "text/x-typescript",
+            };
+          }),
+        };
+      } catch {
+        return { resources: [] };
+      }
+    },
+  });
+
+  server.resource(
+    "sdk-module",
+    sdkTemplate,
+    {
+      description:
+        "TypeScript source for an individual SDK module. Read to understand " +
+        "function signatures and JSDoc before writing execute_code calls.",
+      mimeType: "text/x-typescript",
+    },
+    async (uri, { module: mod }) => {
+      const sdkDir = path.resolve(__dirname, "sdk");
+      const filePath = path.join(sdkDir, `${mod as string}.ts`);
+      let content = `Module '${mod as string}' not found`;
+      try {
+        content = fs.readFileSync(filePath, "utf-8");
+      } catch {}
+      return {
+        contents: [{
+          uri: uri.href,
+          mimeType: "text/x-typescript",
+          text: content,
+        }],
+      };
+    }
+  );
+
+  // ── Static: Code execution guide ──────────────────────────────────────
+  server.resource(
+    "code-execution-guide",
+    "lattice://code-execution-guide",
+    {
+      description:
+        "Guide for using the execute_code tool with the Lattice SDK. " +
+        "Explains the code execution pattern, available modules, and best practices.",
+      mimeType: "application/json",
+    },
+    async () => ({
+      contents: [{
+        uri: "lattice://code-execution-guide",
+        mimeType: "application/json",
+        text: JSON.stringify(CODE_EXECUTION_GUIDE, null, 2),
+      }],
+    })
   );
 }

@@ -11,6 +11,20 @@
  * Sessions persist across invocations (Chromium profile is retained
  * by agent-browser's session flag).
  *
+ * Full agent-browser feature coverage:
+ *   Core: navigate, snapshot, screenshot, click, fill, type, scroll, back, forward
+ *   Interaction: press, hover, find, wait, drag, selectOption
+ *   Visual: annotatedScreenshot, screenshotDiff, screenshotElement, pdf
+ *   JS: evalJS, consoleLogs
+ *   Viewport: setViewport, setDevice, setGeolocation, setPermissions
+ *   Network: networkRequests, setHeaders, setOffline, interceptNetwork
+ *   State: saveState, restoreState, storage (localStorage/sessionStorage)
+ *   Tabs: tabs (list/new/switch/close)
+ *   Dialogs: dialog (accept/dismiss)
+ *   Cookies: cookies (list/set/clear/delete)
+ *   Session: close, sessionInfo, listSessions
+ *   Advanced: snapshotDiff, startRecording, stopRecording, connectProvider
+ *
  * WebSocket streaming:
  *   When AGENT_BROWSER_STREAM_PORT is set, agent-browser starts a
  *   WebSocket server that streams JPEG frames and accepts mouse/keyboard
@@ -36,8 +50,44 @@ const execFileAsync = promisify(execFile);
 /** Default timeout for browser commands (ms). */
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/** Extended timeout for heavy operations (PDF, recording, provider connect). */
+const EXTENDED_TIMEOUT_MS = 120_000;
+
 /** Base port for WebSocket streaming allocation. */
 const STREAM_PORT_BASE = 19200;
+
+/** Cloud browser provider configuration. */
+export interface BrowserProviderConfig {
+  provider: "browserbase" | "browserless" | "browseruse" | "kernel";
+  apiKey: string;
+  endpoint?: string;
+  projectId?: string;
+}
+
+/** Browser session configuration (per-minion overrides). */
+export interface BrowserSessionConfig {
+  headed?: boolean;
+  colorScheme?: "dark" | "light" | "no-preference";
+  ignoreHttpsErrors?: boolean;
+  /** Cloud browser provider (overrides local Chrome). */
+  provider?: BrowserProviderConfig;
+  /** Action policy: allow/deny/confirm rules. */
+  policy?: BrowserActionPolicy;
+  /** Proxy configuration. */
+  proxy?: string;
+  /** User agent override. */
+  userAgent?: string;
+  /** Custom command timeout (ms). */
+  timeout?: number;
+}
+
+/** Action policy for safety enforcement. */
+export interface BrowserActionPolicy {
+  default?: "allow" | "deny";
+  allow?: string[];
+  deny?: string[];
+  confirm?: string[];
+}
 
 /** Internal session tracking state. */
 interface BrowserSessionState {
@@ -47,6 +97,12 @@ interface BrowserSessionState {
   createdAt: number;
   /** Allocated WebSocket stream port for live frame streaming. */
   streamPort: number | null;
+  /** Per-session configuration overrides. */
+  sessionConfig?: BrowserSessionConfig;
+  /** Previous snapshot for diffing. */
+  lastSnapshotRaw?: string;
+  /** Whether recording is active. */
+  isRecording?: boolean;
 }
 
 /**
@@ -83,8 +139,20 @@ export class BrowserService {
   private readonly mutexes = new Map<string, AsyncMutex>();
   private readonly allocatedPorts = new Set<number>();
   private resolvedBinaryPath: string | null = null;
+  /** Global browser config defaults (can be overridden per-session). */
+  private globalConfig: BrowserSessionConfig = {};
 
   constructor(private readonly config: Config) {}
+
+  /** Update global browser configuration defaults. */
+  setGlobalConfig(config: BrowserSessionConfig): void {
+    this.globalConfig = { ...this.globalConfig, ...config };
+  }
+
+  /** Get current global browser configuration. */
+  getGlobalConfig(): BrowserSessionConfig {
+    return { ...this.globalConfig };
+  }
 
   // ── Session lifecycle ───────────────────────────────────────────────────
 
@@ -93,7 +161,7 @@ export class BrowserService {
    * agent-browser itself handles session persistence via --session flag,
    * so "creating" a session is just internal bookkeeping + port allocation.
    */
-  private async ensureSession(minionId: string): Promise<BrowserSessionState> {
+  private async ensureSession(minionId: string, sessionConfig?: BrowserSessionConfig): Promise<BrowserSessionState> {
     let session = this.sessions.get(minionId);
     if (!session) {
       const streamPort = await this.allocateStreamPort();
@@ -103,8 +171,11 @@ export class BrowserService {
         currentUrl: null,
         createdAt: Date.now(),
         streamPort,
+        sessionConfig: sessionConfig ?? this.globalConfig,
       };
       this.sessions.set(minionId, session);
+    } else if (sessionConfig) {
+      session.sessionConfig = { ...session.sessionConfig, ...sessionConfig };
     }
     return session;
   }
@@ -464,6 +535,377 @@ export class BrowserService {
     });
   }
 
+  // ── Browser actions — Phase 4: Full-strength agent-browser ────────────
+
+  /**
+   * Save session state (cookies, localStorage, sessionStorage) to a file.
+   * CLI: state save [path] [--encrypt]
+   * Uses AES-256-GCM encryption when key is set via AGENT_BROWSER_ENCRYPTION_KEY.
+   */
+  async saveState(minionId: string, statePath?: string, encrypt?: boolean): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args: string[] = ["save"];
+      if (statePath) args.push(statePath);
+      if (encrypt) args.push("--encrypt");
+      return this.execBrowserCommand(session, "state", args);
+    });
+  }
+
+  /**
+   * Restore session state (cookies, localStorage, sessionStorage) from a file.
+   * CLI: state restore [path]
+   */
+  async restoreState(minionId: string, statePath?: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args: string[] = ["restore"];
+      if (statePath) args.push(statePath);
+      return this.execBrowserCommand(session, "state", args);
+    });
+  }
+
+  /**
+   * localStorage/sessionStorage operations.
+   * CLI: storage <local|session> <get|set|remove|clear|keys> [key] [value]
+   */
+  async storage(
+    minionId: string,
+    storageType: "local" | "session",
+    action: "get" | "set" | "remove" | "clear" | "keys",
+    key?: string,
+    value?: string
+  ): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args: string[] = [storageType, action];
+      if (key) args.push(key);
+      if (value !== undefined) args.push(value);
+      return this.execBrowserCommand(session, "storage", args);
+    });
+  }
+
+  /**
+   * Compare current snapshot with previous snapshot to detect page changes.
+   * Uses agent-browser's built-in diff command.
+   * CLI: diff snapshot
+   */
+  async snapshotDiff(minionId: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      // Take current snapshot first
+      const current = await this.execBrowserCommand(session, "snapshot", ["-i"]);
+      if (!current.success) return current;
+
+      if (!session.lastSnapshotRaw) {
+        session.lastSnapshotRaw = current.output;
+        return {
+          success: true,
+          output: "First snapshot captured — no previous snapshot to diff against. Take another snapshot after page changes to see the diff.",
+        };
+      }
+
+      // Use agent-browser's diff command
+      const result = await this.execBrowserCommand(session, "diff", ["snapshot"]);
+      session.lastSnapshotRaw = current.output;
+      return result;
+    });
+  }
+
+  /**
+   * Compare two screenshots visually.
+   * CLI: diff screenshot
+   */
+  async screenshotDiff(minionId: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const tmpDir = path.join(this.config.rootDir, "tmp");
+      await fs.mkdir(tmpDir, { recursive: true });
+      const diffPath = path.join(tmpDir, `diff-${minionId}-${Date.now()}.png`);
+      const result = await this.execBrowserCommand(session, "diff", ["screenshot", diffPath]);
+      if (result.success) {
+        try {
+          const data = await fs.readFile(diffPath);
+          result.screenshot = {
+            minionId,
+            base64: data.toString("base64"),
+            url: session.currentUrl ?? "",
+            timestamp: Date.now(),
+          };
+          await fs.unlink(diffPath).catch(() => {});
+        } catch {
+          // Diff image may not exist if pages are identical
+        }
+      }
+      return result;
+    });
+  }
+
+  /**
+   * Take a screenshot of a specific element by ref.
+   * CLI: screenshot --element <ref> [path]
+   */
+  async screenshotElement(minionId: string, ref: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const tmpDir = path.join(this.config.rootDir, "tmp");
+      await fs.mkdir(tmpDir, { recursive: true });
+      const screenshotPath = path.join(tmpDir, `element-${minionId}-${Date.now()}.png`);
+      const result = await this.execBrowserCommand(session, "screenshot", [
+        "--element", ref, screenshotPath,
+      ]);
+      if (result.success) {
+        try {
+          const data = await fs.readFile(screenshotPath);
+          result.screenshot = {
+            minionId,
+            base64: data.toString("base64"),
+            url: session.currentUrl ?? "",
+            timestamp: Date.now(),
+          };
+          await fs.unlink(screenshotPath).catch(() => {});
+        } catch (err) {
+          result.success = false;
+          result.error = `Failed to read element screenshot: ${err}`;
+        }
+      }
+      return result;
+    });
+  }
+
+  /**
+   * Print current page to PDF.
+   * CLI: pdf [path] [--landscape] [--format <A4|Letter|...>]
+   */
+  async pdf(
+    minionId: string,
+    options?: { landscape?: boolean; format?: string }
+  ): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const tmpDir = path.join(this.config.rootDir, "tmp");
+      await fs.mkdir(tmpDir, { recursive: true });
+      const pdfPath = path.join(tmpDir, `page-${minionId}-${Date.now()}.pdf`);
+      const args: string[] = [pdfPath];
+      if (options?.landscape) args.push("--landscape");
+      if (options?.format) args.push("--format", options.format);
+      const result = await this.execBrowserCommand(session, "pdf", args, EXTENDED_TIMEOUT_MS);
+      if (result.success) {
+        try {
+          const data = await fs.readFile(pdfPath);
+          result.output = data.toString("base64");
+          await fs.unlink(pdfPath).catch(() => {});
+        } catch (err) {
+          result.success = false;
+          result.error = `Failed to read PDF file: ${err}`;
+        }
+      }
+      return result;
+    });
+  }
+
+  /**
+   * Get browser console logs (console.log, console.error, etc.).
+   * CLI: console [--clear] [--level <log|warn|error|info>]
+   */
+  async consoleLogs(minionId: string, level?: string, clear?: boolean): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args: string[] = [];
+      if (level) args.push("--level", level);
+      if (clear) args.push("--clear");
+      return this.execBrowserCommand(session, "console", args);
+    });
+  }
+
+  /**
+   * Set geolocation for the browser session.
+   * CLI: set geolocation <latitude> <longitude> [accuracy]
+   */
+  async setGeolocation(
+    minionId: string,
+    latitude: number,
+    longitude: number,
+    accuracy?: number
+  ): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args = ["geolocation", String(latitude), String(longitude)];
+      if (accuracy !== undefined) args.push(String(accuracy));
+      return this.execBrowserCommand(session, "set", args);
+    });
+  }
+
+  /**
+   * Set browser permissions (geolocation, notifications, camera, microphone, etc.).
+   * CLI: set permissions <permission> <grant|deny|prompt>
+   */
+  async setPermissions(
+    minionId: string,
+    permission: string,
+    state: "grant" | "deny" | "prompt"
+  ): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      return this.execBrowserCommand(session, "set", ["permissions", permission, state]);
+    });
+  }
+
+  /**
+   * Toggle offline mode (network emulation).
+   * CLI: network offline [true|false]
+   */
+  async setOffline(minionId: string, offline: boolean): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      return this.execBrowserCommand(session, "network", ["offline", String(offline)]);
+    });
+  }
+
+  /**
+   * Set custom HTTP headers for all requests.
+   * CLI: network headers <json>
+   */
+  async setHeaders(minionId: string, headers: Record<string, string>): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      return this.execBrowserCommand(session, "network", ["headers", JSON.stringify(headers)]);
+    });
+  }
+
+  /**
+   * Intercept network requests matching a URL pattern.
+   * CLI: network intercept <pattern> [--block|--modify <json>]
+   */
+  async interceptNetwork(
+    minionId: string,
+    pattern: string,
+    action: "block" | "modify" | "log",
+    modifyResponse?: string
+  ): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args = ["intercept", pattern];
+      if (action === "block") args.push("--block");
+      else if (action === "modify" && modifyResponse) args.push("--modify", modifyResponse);
+      else args.push("--log");
+      return this.execBrowserCommand(session, "network", args);
+    });
+  }
+
+  /**
+   * Start recording the browser session.
+   * CLI: record start [path]
+   */
+  async startRecording(minionId: string, outputPath?: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args: string[] = ["start"];
+      if (outputPath) args.push(outputPath);
+      const result = await this.execBrowserCommand(session, "record", args);
+      if (result.success) session.isRecording = true;
+      return result;
+    });
+  }
+
+  /**
+   * Stop recording the browser session.
+   * CLI: record stop
+   */
+  async stopRecording(minionId: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const result = await this.execBrowserCommand(session, "record", ["stop"]);
+      if (result.success) session.isRecording = false;
+      return result;
+    });
+  }
+
+  /**
+   * Connect to a cloud browser provider (Browserbase, Browserless, Browser Use, Kernel).
+   * Sets the provider for the session and connects via CDP WebSocket URL.
+   */
+  async connectProvider(
+    minionId: string,
+    provider: BrowserProviderConfig
+  ): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    session.sessionConfig = { ...session.sessionConfig, provider };
+    return this.withMutex(minionId, async () => {
+      // Provider connection is handled via environment variables on next command
+      return {
+        success: true,
+        output: `Connected to ${provider.provider} provider. Subsequent commands will use the cloud browser.`,
+      };
+    });
+  }
+
+  /**
+   * List all active browser sessions across all minions.
+   */
+  listSessions(): BrowserSessionInfo[] {
+    const sessions: BrowserSessionInfo[] = [];
+    for (const session of this.sessions.values()) {
+      sessions.push({
+        minionId: session.minionId,
+        sessionName: session.sessionName,
+        url: session.currentUrl,
+        isActive: true,
+        streamPort: session.streamPort,
+      });
+    }
+    return sessions;
+  }
+
+  /**
+   * Configure session-specific settings (headed mode, proxy, user agent, etc.).
+   */
+  async configureSession(
+    minionId: string,
+    sessionConfig: BrowserSessionConfig
+  ): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId, sessionConfig);
+    return {
+      success: true,
+      output: `Session ${session.sessionName} configured: ${JSON.stringify(sessionConfig)}`,
+    };
+  }
+
+  /**
+   * Delete specific cookies by name.
+   * CLI: cookies delete <name> [--domain <domain>]
+   */
+  async deleteCookies(minionId: string, name: string, domain?: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      const args = ["delete", name];
+      if (domain) args.push("--domain", domain);
+      return this.execBrowserCommand(session, "cookies", args);
+    });
+  }
+
+  /**
+   * Scroll to a specific element by ref.
+   * CLI: scroll element <ref>
+   */
+  async scrollToElement(minionId: string, ref: string): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      return this.execBrowserCommand(session, "scroll", ["element", ref]);
+    });
+  }
+
+  /**
+   * Scroll by a specific pixel amount.
+   * CLI: scroll <direction> <pixels>
+   */
+  async scrollByPixels(minionId: string, direction: "up" | "down" | "left" | "right", pixels: number): Promise<BrowserActionResult> {
+    const session = await this.ensureSession(minionId);
+    return this.withMutex(minionId, async () => {
+      return this.execBrowserCommand(session, "scroll", [direction, String(pixels)]);
+    });
+  }
+
   // ── Internal helpers ────────────────────────────────────────────────────
 
   /**
@@ -479,9 +921,12 @@ export class BrowserService {
   private async execBrowserCommand(
     session: BrowserSessionState,
     command: string,
-    args: string[] = []
+    args: string[] = [],
+    timeoutOverride?: number
   ): Promise<BrowserActionResult> {
     const binaryPath = await this.resolveBinaryPath();
+    const cfg = session.sessionConfig ?? this.globalConfig;
+    const timeout = timeoutOverride ?? cfg.timeout ?? DEFAULT_TIMEOUT_MS;
 
     // Only pass per-command flags; daemon-startup flags go via env vars
     const fullArgs = [
@@ -495,9 +940,9 @@ export class BrowserService {
       ...process.env as Record<string, string>,
       NO_COLOR: "1",
       // Daemon-startup flags as env vars (avoids "daemon already running" warnings)
-      AGENT_BROWSER_HEADED: "false",
-      AGENT_BROWSER_IGNORE_HTTPS_ERRORS: "1",
-      AGENT_BROWSER_COLOR_SCHEME: "dark",
+      AGENT_BROWSER_HEADED: String(cfg.headed ?? false),
+      AGENT_BROWSER_IGNORE_HTTPS_ERRORS: cfg.ignoreHttpsErrors !== false ? "1" : "0",
+      AGENT_BROWSER_COLOR_SCHEME: cfg.colorScheme ?? "dark",
     };
 
     // Enable WebSocket streaming if port is allocated
@@ -505,9 +950,48 @@ export class BrowserService {
       env.AGENT_BROWSER_STREAM_PORT = String(session.streamPort);
     }
 
+    // Proxy configuration
+    if (cfg.proxy) {
+      env.AGENT_BROWSER_PROXY = cfg.proxy;
+    }
+
+    // User agent override
+    if (cfg.userAgent) {
+      env.AGENT_BROWSER_USER_AGENT = cfg.userAgent;
+    }
+
+    // Cloud browser provider environment variables
+    const provider = cfg.provider;
+    if (provider) {
+      switch (provider.provider) {
+        case "browserbase":
+          env.BROWSERBASE_API_KEY = provider.apiKey;
+          if (provider.projectId) env.BROWSERBASE_PROJECT_ID = provider.projectId;
+          if (provider.endpoint) env.BROWSERBASE_API_URL = provider.endpoint;
+          break;
+        case "browserless":
+          env.BROWSERLESS_TOKEN = provider.apiKey;
+          if (provider.endpoint) env.BROWSERLESS_URL = provider.endpoint;
+          break;
+        case "browseruse":
+          env.BROWSER_USE_API_KEY = provider.apiKey;
+          if (provider.endpoint) env.BROWSER_USE_API_URL = provider.endpoint;
+          break;
+        case "kernel":
+          env.KERNEL_API_KEY = provider.apiKey;
+          if (provider.endpoint) env.KERNEL_API_URL = provider.endpoint;
+          break;
+      }
+    }
+
+    // Action policy enforcement
+    if (cfg.policy) {
+      env.AGENT_BROWSER_ACTION_POLICY = JSON.stringify(cfg.policy);
+    }
+
     try {
       const { stdout, stderr } = await execFileAsync(binaryPath, fullArgs, {
-        timeout: DEFAULT_TIMEOUT_MS,
+        timeout,
         maxBuffer: 10 * 1024 * 1024, // 10MB for large snapshots
         env,
       });
@@ -528,7 +1012,7 @@ export class BrowserService {
         return {
           success: false,
           output: error.stdout ?? "",
-          error: `Browser command timed out after ${DEFAULT_TIMEOUT_MS}ms`,
+          error: `Browser command '${command}' timed out after ${timeout}ms`,
         };
       }
 
@@ -536,7 +1020,7 @@ export class BrowserService {
       return {
         success: false,
         output: error.stdout ?? "",
-        error: error.stderr?.trim() || error.message || "Unknown browser command error",
+        error: error.stderr?.trim() || error.message || `Browser command '${command}' failed`,
       };
     }
   }

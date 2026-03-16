@@ -176,6 +176,9 @@ export const WorkbenchPanelTabStrip: React.FC<WorkbenchPanelTabStripProps> = ({
   const enabledProfiles = terminalProfiles?.filter((p) => p.installed) ?? [];
   const showProfileDropdown = enabledProfiles.length > 0 && onAddProfileTerminal != null;
 
+  // Ref for the scrollable tab container — used to convert vertical wheel → horizontal scroll
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   return (
     <div
       ref={setNodeRef}
@@ -191,7 +194,18 @@ export const WorkbenchPanelTabStrip: React.FC<WorkbenchPanelTabStripProps> = ({
       role="tablist"
       aria-label={ariaLabel}
     >
-      <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <div
+        ref={scrollRef}
+        className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        onWheel={(e) => {
+          // Convert vertical mousewheel to horizontal scroll
+          if (scrollRef.current && e.deltaY !== 0) {
+            e.preventDefault();
+            scrollRef.current.scrollLeft += e.deltaY;
+          }
+        }}
+      >
         {items.map((item, index) => (
           <SortableTab
             key={item.id}

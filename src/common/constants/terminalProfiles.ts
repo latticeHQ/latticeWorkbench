@@ -178,6 +178,29 @@ export const TERMINAL_PROFILE_DEFINITIONS: Record<string, TerminalProfileDefinit
       ],
     },
   },
+  "latticeinference-cluster": {
+    id: "latticeinference-cluster",
+    displayName: "Lattice Inference Cluster",
+    command: "latticeinference",
+    defaultArgs: ["cluster", "status"],
+    description: "Distributed inference cluster via latticeinference Go binary",
+    category: "tool",
+    group: "community",
+    knownPaths: [
+      "~/.lattice/bin/latticeinference",
+      "/opt/homebrew/bin/latticeinference",
+      "/usr/local/bin/latticeinference",
+    ],
+    install: {
+      local: [
+        {
+          method: "curl",
+          command:
+            "curl -fsSL https://raw.githubusercontent.com/latticeHQ/latticeInference/main/install.sh | bash",
+        },
+      ],
+    },
+  },
 } as const satisfies Record<string, TerminalProfileDefinition>;
 
 /** Ordered list of known profile IDs (display order) */

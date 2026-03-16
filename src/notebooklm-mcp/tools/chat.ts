@@ -75,7 +75,7 @@ export function registerChatTools(
     {
       notebookId: z.string().describe("The notebook ID"),
     },
-    (params) =>
+    (_params) =>
       withErrorHandling(async () => {
         client.chat.clearConversation();
         return {

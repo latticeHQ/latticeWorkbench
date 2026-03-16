@@ -1316,6 +1316,161 @@ export const TOOL_DEFINITIONS = {
     description: "Get information about the minion's browser session (URL, status, stream port).",
     schema: z.object({}),
   },
+
+  // Phase 4: Full-strength agent-browser tools
+  browser_save_state: {
+    description:
+      "Save the browser session state (cookies, localStorage, sessionStorage) to a file. " +
+      "Supports AES-256-GCM encryption. Useful for preserving login sessions across restarts.",
+    schema: z.object({
+      path: z.string().nullish().describe("File path to save state to (auto-generated if omitted)"),
+      encrypt: z.boolean().nullish().describe("Encrypt state file with AES-256-GCM"),
+    }),
+  },
+  browser_restore_state: {
+    description: "Restore a previously saved browser session state (cookies, localStorage, sessionStorage) from a file.",
+    schema: z.object({
+      path: z.string().nullish().describe("File path to restore state from"),
+    }),
+  },
+  browser_storage: {
+    description:
+      "Manage localStorage or sessionStorage: get, set, remove, clear, or list keys. " +
+      "Useful for reading/writing client-side data without JavaScript eval.",
+    schema: z.object({
+      storageType: z.enum(["local", "session"]).describe("Storage type: local or session"),
+      action: z.enum(["get", "set", "remove", "clear", "keys"]).describe("Storage operation"),
+      key: z.string().nullish().describe("Storage key (required for get/set/remove)"),
+      value: z.string().nullish().describe("Value to set (required for set)"),
+    }),
+  },
+  browser_snapshot_diff: {
+    description:
+      "Compare the current page snapshot with the previous one to detect DOM changes. " +
+      "Returns a diff showing added, removed, and modified elements. " +
+      "Call twice — first to capture baseline, then after page changes to see the diff.",
+    schema: z.object({}),
+  },
+  browser_screenshot_diff: {
+    description: "Compare the current screenshot with the previous one to visually detect changes.",
+    schema: z.object({}),
+  },
+  browser_screenshot_element: {
+    description: "Take a screenshot of a specific element by its snapshot ref. Returns base64-encoded PNG.",
+    schema: z.object({
+      ref: z.string().describe("Element reference from snapshot (e.g., '@e5')"),
+    }),
+  },
+  browser_pdf: {
+    description: "Print the current page to PDF. Returns base64-encoded PDF data.",
+    schema: z.object({
+      landscape: z.boolean().nullish().describe("Landscape orientation"),
+      format: z.string().nullish().describe("Page format: A4, Letter, Legal, Tabloid, etc."),
+    }),
+  },
+  browser_console_logs: {
+    description:
+      "Get browser console output (console.log, console.error, console.warn, etc.). " +
+      "Useful for debugging JavaScript errors, monitoring API responses, and understanding page behavior.",
+    schema: z.object({
+      level: z.string().nullish().describe("Filter by level: log, warn, error, info"),
+      clear: z.boolean().nullish().describe("Clear logs after reading"),
+    }),
+  },
+  browser_set_geolocation: {
+    description: "Set the browser's geolocation. Useful for testing location-dependent features.",
+    schema: z.object({
+      latitude: z.number().describe("Latitude (-90 to 90)"),
+      longitude: z.number().describe("Longitude (-180 to 180)"),
+      accuracy: z.number().nullish().describe("Accuracy in meters"),
+    }),
+  },
+  browser_set_permissions: {
+    description: "Set browser permissions (geolocation, notifications, camera, microphone, clipboard-read, etc.).",
+    schema: z.object({
+      permission: z.string().describe("Permission name"),
+      state: z.enum(["grant", "deny", "prompt"]).describe("Permission state"),
+    }),
+  },
+  browser_set_offline: {
+    description: "Toggle offline mode to simulate network disconnection. Useful for testing offline behavior.",
+    schema: z.object({
+      offline: z.boolean().describe("Whether to enable offline mode"),
+    }),
+  },
+  browser_set_headers: {
+    description: "Set custom HTTP headers for all subsequent requests. Useful for auth tokens, API keys, etc.",
+    schema: z.object({
+      headers: z.record(z.string(), z.string()).describe("Header name-value pairs"),
+    }),
+  },
+  browser_intercept_network: {
+    description:
+      "Intercept network requests matching a URL pattern. Can block, modify, or log matching requests. " +
+      "Useful for mocking APIs, blocking tracking scripts, or monitoring specific endpoints.",
+    schema: z.object({
+      pattern: z.string().describe("URL pattern to intercept (e.g., '**/api/**')"),
+      action: z.enum(["block", "modify", "log"]).describe("What to do with matched requests"),
+      modifyResponse: z.string().nullish().describe("JSON response body for modify action"),
+    }),
+  },
+  browser_start_recording: {
+    description: "Start recording the browser session for replay or debugging.",
+    schema: z.object({
+      outputPath: z.string().nullish().describe("Path to save recording"),
+    }),
+  },
+  browser_stop_recording: {
+    description: "Stop recording the browser session and save the recording.",
+    schema: z.object({}),
+  },
+  browser_connect_provider: {
+    description:
+      "Connect to a cloud browser provider (Browserbase, Browserless, Browser Use, or Kernel). " +
+      "Subsequent browser commands will use the cloud browser instead of local Chrome.",
+    schema: z.object({
+      provider: z.enum(["browserbase", "browserless", "browseruse", "kernel"]).describe("Provider name"),
+      apiKey: z.string().describe("API key for the provider"),
+      endpoint: z.string().nullish().describe("Custom API endpoint"),
+      projectId: z.string().nullish().describe("Project ID (for Browserbase)"),
+    }),
+  },
+  browser_list_sessions: {
+    description: "List all active browser sessions across all minions.",
+    schema: z.object({}),
+  },
+  browser_configure_session: {
+    description:
+      "Configure session-specific browser settings: headed mode, proxy, user agent, " +
+      "color scheme, timeout, and safety policy.",
+    schema: z.object({
+      headed: z.boolean().nullish().describe("Run in headed mode (visible browser window)"),
+      colorScheme: z.enum(["dark", "light", "no-preference"]).nullish().describe("Color scheme preference"),
+      proxy: z.string().nullish().describe("Proxy URL"),
+      userAgent: z.string().nullish().describe("Custom user agent string"),
+      timeout: z.number().nullish().describe("Command timeout in milliseconds"),
+    }),
+  },
+  browser_delete_cookies: {
+    description: "Delete specific cookies by name, optionally filtered by domain.",
+    schema: z.object({
+      name: z.string().describe("Cookie name to delete"),
+      domain: z.string().nullish().describe("Cookie domain filter"),
+    }),
+  },
+  browser_scroll_to_element: {
+    description: "Scroll to bring a specific element into view by its snapshot ref.",
+    schema: z.object({
+      ref: z.string().describe("Element reference to scroll to (e.g., '@e12')"),
+    }),
+  },
+  browser_scroll_by_pixels: {
+    description: "Scroll by a specific number of pixels in any direction.",
+    schema: z.object({
+      direction: z.enum(["up", "down", "left", "right"]).describe("Scroll direction"),
+      pixels: z.number().describe("Number of pixels to scroll"),
+    }),
+  },
   // #endregion BROWSER_TOOLS
 } as const;
 

@@ -4,7 +4,7 @@
 
 import type { BaseClient } from "../client/base";
 import { RPC, OWNERSHIP_MINE, OWNERSHIP_SHARED } from "../client/constants";
-import { type Notebook, parseTimestamp, notebookUrl } from "../client/types";
+import { type Notebook, parseTimestamp } from "../client/types";
 
 export class NotebookService {
   constructor(private readonly client: BaseClient) {}

@@ -1,5 +1,5 @@
 import React from "react";
-import { Menu, Settings, Network, Plus, Building } from "lucide-react";
+import { Menu, Settings, Plus, Building } from "lucide-react";
 import type { FrontendMinionMetadata } from "@/common/types/minion";
 import { cn } from "@/common/lib/utils";
 import { AgentProvider } from "@/browser/contexts/AgentContext";

@@ -513,4 +513,428 @@ export function registerBrowserTools(
         return { content: [jsonContent(info)] };
       })
   );
+
+  // ── Phase 4: Full-strength agent-browser tools ──────────────────────
+
+  // ── Save State ─────────────────────────────────────────────────────────
+  server.tool(
+    "browser_save_state",
+    "Save a minion's browser session state (cookies, localStorage, sessionStorage) to a file. " +
+      "Supports AES-256-GCM encryption for secure state persistence across restarts.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      path: z.string().optional().describe("File path to save state to (auto-generated if omitted)"),
+      encrypt: z.boolean().optional().describe("Encrypt state file with AES-256-GCM"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.saveState({
+          minionId: params.minionId,
+          path: params.path,
+          encrypt: params.encrypt,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Restore State ──────────────────────────────────────────────────────
+  server.tool(
+    "browser_restore_state",
+    "Restore a minion's previously saved browser session state " +
+      "(cookies, localStorage, sessionStorage) from a file.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      path: z.string().optional().describe("File path to restore state from"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.restoreState({
+          minionId: params.minionId,
+          path: params.path,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Storage ────────────────────────────────────────────────────────────
+  server.tool(
+    "browser_storage",
+    "Manage localStorage or sessionStorage: get, set, remove, clear, or list keys. " +
+      "Provides direct access without JavaScript eval.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      storageType: z.enum(["local", "session"]).describe("Storage type"),
+      action: z.enum(["get", "set", "remove", "clear", "keys"]).describe("Storage operation"),
+      key: z.string().optional().describe("Storage key (for get/set/remove)"),
+      value: z.string().optional().describe("Value to set"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.storage({
+          minionId: params.minionId,
+          storageType: params.storageType,
+          action: params.action,
+          key: params.key,
+          value: params.value,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Snapshot Diff ──────────────────────────────────────────────────────
+  server.tool(
+    "browser_snapshot_diff",
+    "Compare current page snapshot with the previous one to detect DOM changes. " +
+      "Shows added, removed, and modified elements. Call twice: once for baseline, once after changes.",
+    {
+      minionId: z.string().describe("The minion ID"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.snapshotDiff({
+          minionId: params.minionId,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Screenshot Diff ────────────────────────────────────────────────────
+  server.tool(
+    "browser_screenshot_diff",
+    "Compare current screenshot with the previous one to visually detect page changes.",
+    {
+      minionId: z.string().describe("The minion ID"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.screenshotDiff({
+          minionId: params.minionId,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Screenshot Element ─────────────────────────────────────────────────
+  server.tool(
+    "browser_screenshot_element",
+    "Take a screenshot of a specific element by its snapshot ref. Returns base64-encoded PNG.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      ref: z.string().describe("Element reference from snapshot (e.g., '@e5')"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.screenshotElement({
+          minionId: params.minionId,
+          ref: params.ref,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── PDF ────────────────────────────────────────────────────────────────
+  server.tool(
+    "browser_pdf",
+    "Print the current page to PDF. Returns base64-encoded PDF data.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      landscape: z.boolean().optional().describe("Landscape orientation"),
+      format: z.string().optional().describe("Page format: A4, Letter, Legal, Tabloid"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.pdf({
+          minionId: params.minionId,
+          landscape: params.landscape,
+          format: params.format,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Console Logs ───────────────────────────────────────────────────────
+  server.tool(
+    "browser_console_logs",
+    "Get browser console output (console.log, error, warn, info). " +
+      "Essential for debugging JavaScript errors and monitoring API responses.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      level: z.string().optional().describe("Filter by level: log, warn, error, info"),
+      clear: z.boolean().optional().describe("Clear logs after reading"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.consoleLogs({
+          minionId: params.minionId,
+          level: params.level,
+          clear: params.clear,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Set Geolocation ────────────────────────────────────────────────────
+  server.tool(
+    "browser_set_geolocation",
+    "Set the browser's geolocation for testing location-dependent features.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      latitude: z.number().describe("Latitude (-90 to 90)"),
+      longitude: z.number().describe("Longitude (-180 to 180)"),
+      accuracy: z.number().optional().describe("Accuracy in meters"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.setGeolocation({
+          minionId: params.minionId,
+          latitude: params.latitude,
+          longitude: params.longitude,
+          accuracy: params.accuracy,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Set Permissions ────────────────────────────────────────────────────
+  server.tool(
+    "browser_set_permissions",
+    "Set browser permissions (geolocation, notifications, camera, microphone, " +
+      "clipboard-read, clipboard-write, etc.).",
+    {
+      minionId: z.string().describe("The minion ID"),
+      permission: z.string().describe("Permission name"),
+      state: z.enum(["grant", "deny", "prompt"]).describe("Permission state"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.setPermissions({
+          minionId: params.minionId,
+          permission: params.permission,
+          state: params.state,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Set Offline ────────────────────────────────────────────────────────
+  server.tool(
+    "browser_set_offline",
+    "Toggle offline mode to simulate network disconnection. " +
+      "Useful for testing offline-first behavior and service workers.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      offline: z.boolean().describe("Whether to enable offline mode"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.setOffline({
+          minionId: params.minionId,
+          offline: params.offline,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Set Headers ────────────────────────────────────────────────────────
+  server.tool(
+    "browser_set_headers",
+    "Set custom HTTP headers for all subsequent browser requests. " +
+      "Useful for auth tokens, API keys, accept-language, etc.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      headers: z.record(z.string(), z.string()).describe("Header name-value pairs"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.setHeaders({
+          minionId: params.minionId,
+          headers: params.headers,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Intercept Network ──────────────────────────────────────────────────
+  server.tool(
+    "browser_intercept_network",
+    "Intercept network requests matching a URL pattern. " +
+      "Can block, modify response, or log matching requests. " +
+      "Useful for mocking APIs, blocking tracking, or monitoring endpoints.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      pattern: z.string().describe("URL pattern to intercept (e.g., '**/api/**')"),
+      action: z.enum(["block", "modify", "log"]).describe("Action for matched requests"),
+      modifyResponse: z.string().optional().describe("JSON response body for modify action"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.interceptNetwork({
+          minionId: params.minionId,
+          pattern: params.pattern,
+          action: params.action,
+          modifyResponse: params.modifyResponse,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Start Recording ────────────────────────────────────────────────────
+  server.tool(
+    "browser_start_recording",
+    "Start recording the browser session for replay or debugging.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      outputPath: z.string().optional().describe("Path to save recording"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.startRecording({
+          minionId: params.minionId,
+          outputPath: params.outputPath,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Stop Recording ─────────────────────────────────────────────────────
+  server.tool(
+    "browser_stop_recording",
+    "Stop recording the browser session and save the recording.",
+    {
+      minionId: z.string().describe("The minion ID"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.stopRecording({
+          minionId: params.minionId,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Connect Provider ───────────────────────────────────────────────────
+  server.tool(
+    "browser_connect_provider",
+    "Connect to a cloud browser provider (Browserbase, Browserless, Browser Use, or Kernel). " +
+      "Subsequent browser commands will use the cloud browser instead of local Chrome.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      provider: z.enum(["browserbase", "browserless", "browseruse", "kernel"]).describe("Provider name"),
+      apiKey: z.string().describe("API key for the provider"),
+      endpoint: z.string().optional().describe("Custom API endpoint URL"),
+      projectId: z.string().optional().describe("Project ID (for Browserbase)"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.connectProvider({
+          minionId: params.minionId,
+          provider: {
+            provider: params.provider,
+            apiKey: params.apiKey,
+            endpoint: params.endpoint,
+            projectId: params.projectId,
+          },
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── List Sessions ──────────────────────────────────────────────────────
+  server.tool(
+    "browser_list_sessions",
+    "List all active browser sessions across all minions.",
+    {},
+    () =>
+      withErrorHandling(async () => {
+        const sessions = await client.browser.listSessions({});
+        return { content: [jsonContent(sessions)] };
+      })
+  );
+
+  // ── Configure Session ──────────────────────────────────────────────────
+  server.tool(
+    "browser_configure_session",
+    "Configure session-specific browser settings: headed mode, proxy, " +
+      "user agent, color scheme, command timeout.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      headed: z.boolean().optional().describe("Run browser with visible window"),
+      colorScheme: z.enum(["dark", "light", "no-preference"]).optional().describe("Color scheme"),
+      proxy: z.string().optional().describe("Proxy URL"),
+      userAgent: z.string().optional().describe("Custom user agent"),
+      timeout: z.number().optional().describe("Command timeout in ms"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.configureSession({
+          minionId: params.minionId,
+          config: {
+            headed: params.headed,
+            colorScheme: params.colorScheme,
+            proxy: params.proxy,
+            userAgent: params.userAgent,
+            timeout: params.timeout,
+          },
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Delete Cookies ─────────────────────────────────────────────────────
+  server.tool(
+    "browser_delete_cookies",
+    "Delete specific cookies by name, optionally filtered by domain.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      name: z.string().describe("Cookie name to delete"),
+      domain: z.string().optional().describe("Cookie domain filter"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.deleteCookies({
+          minionId: params.minionId,
+          name: params.name,
+          domain: params.domain,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Scroll To Element ──────────────────────────────────────────────────
+  server.tool(
+    "browser_scroll_to_element",
+    "Scroll to bring a specific element into view by its snapshot ref.",
+    {
+      minionId: z.string().describe("The minion ID"),
+      ref: z.string().describe("Element ref to scroll to (e.g., '@e12')"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.scrollToElement({
+          minionId: params.minionId,
+          ref: params.ref,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
+
+  // ── Scroll By Pixels ───────────────────────────────────────────────────
+  server.tool(
+    "browser_scroll_by_pixels",
+    "Scroll by a specific number of pixels in any direction (up, down, left, right).",
+    {
+      minionId: z.string().describe("The minion ID"),
+      direction: z.enum(["up", "down", "left", "right"]).describe("Scroll direction"),
+      pixels: z.number().describe("Number of pixels to scroll"),
+    },
+    (params) =>
+      withErrorHandling(async () => {
+        const result = await client.browser.scrollByPixels({
+          minionId: params.minionId,
+          direction: params.direction,
+          pixels: params.pixels,
+        });
+        return { content: [jsonContent(result)] };
+      })
+  );
 }

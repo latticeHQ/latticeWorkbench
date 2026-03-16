@@ -389,7 +389,7 @@ function MissionProfilePicker(props: MissionProfilePickerProps) {
                           borderColor: color,
                           backgroundColor: `${color}12`,
                           "--stage-glow-color": `${color}40`,
-                        } satisfies React.CSSProperties as React.CSSProperties
+                        } as React.CSSProperties
                       : undefined
                   }
                 >

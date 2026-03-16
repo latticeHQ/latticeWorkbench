@@ -127,6 +127,24 @@ export const MinionConfigSchema = z.object({
   stageId: z.string().optional().meta({
     description: "ID of the stage this minion belongs to (optional, unstaged if absent)",
   }),
+  autonomyOverrides: z
+    .object({
+      circuitBreaker: z
+        .object({
+          enabled: z.boolean(),
+          softLimit: z.number().optional(),
+          hardLimit: z.number().optional(),
+        })
+        .optional(),
+      phases: z.object({ enabled: z.boolean() }).optional(),
+      siblingContext: z.object({ enabled: z.boolean() }).optional(),
+      challenger: z.object({ enabled: z.boolean() }).optional(),
+    })
+    .optional()
+    .meta({
+      description:
+        "Per-minion autonomy overrides (from preset or manual config). Persisted for restart-safe sessions.",
+    }),
 });
 
 export const ProjectConfigSchema = z.object({

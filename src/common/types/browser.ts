@@ -7,10 +7,13 @@
  */
 import type { z } from "zod";
 import type {
+  BrowserActionPolicySchema,
   BrowserActionResultSchema,
   BrowserAnnotatedScreenshotSchema,
   BrowserElementRefSchema,
+  BrowserProviderConfigSchema,
   BrowserScreenshotSchema,
+  BrowserSessionConfigSchema,
   BrowserSessionInfoSchema,
   BrowserSnapshotSchema,
 } from "../orpc/schemas/browser";
@@ -26,6 +29,15 @@ export type BrowserScreenshot = z.infer<typeof BrowserScreenshotSchema>;
 
 /** Annotated screenshot with numbered element labels overlaid. */
 export type BrowserAnnotatedScreenshot = z.infer<typeof BrowserAnnotatedScreenshotSchema>;
+
+/** Cloud browser provider configuration. */
+export type BrowserProviderConfig = z.infer<typeof BrowserProviderConfigSchema>;
+
+/** Action policy for browser safety enforcement. */
+export type BrowserActionPolicy = z.infer<typeof BrowserActionPolicySchema>;
+
+/** Per-session browser configuration. */
+export type BrowserSessionConfig = z.infer<typeof BrowserSessionConfigSchema>;
 
 /** Metadata about a minion's active browser session. */
 export type BrowserSessionInfo = z.infer<typeof BrowserSessionInfoSchema>;

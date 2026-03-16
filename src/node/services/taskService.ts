@@ -3156,14 +3156,10 @@ export class TaskService {
   ): Promise<boolean> {
     try {
       const agentId = entry.minion.agentId ?? entry.minion.agentType ?? "exec";
-      const metadata: {
-        projectPath: string;
-        name: string;
-        runtimeConfig?: { type: string };
-      } = {
+      const metadata = {
         projectPath: entry.projectPath,
         name: entry.minion.name ?? minionId,
-        runtimeConfig: entry.minion.runtimeConfig,
+        runtimeConfig: entry.minion.runtimeConfig ?? { type: "local" as const },
       };
       const runtime = createRuntimeForMinion(metadata);
       const isInPlace = entry.projectPath === metadata.name;

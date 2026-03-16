@@ -32,6 +32,7 @@ const usage = await getSessionUsage(c, ws.minionId);
 | `project` | 25 | Project CRUD, branches, stages, secrets, MCP servers, idle compaction, file completions |
 | `terminal` | 8 | Terminal sessions: create (with profile support), input, close, list, resize, native, pop-out |
 | `terminal-profiles` | 3 | CLI tool profiles: detect installed tools (claude-code, gemini-cli, aider, etc.), manage configs, install recipes |
+| `browser` | 46 | Headless browser: navigate, snapshot, screenshot, click, fill, type, press, hover, scroll, tabs, cookies, network, state, recording, cloud providers |
 | `config` | 13 | Global config, model preferences, provider management, runtime enablement |
 | `agents` | 5 | Agent discovery: list/get definitions and skills, skill diagnostics |
 | `tasks` | 1 | Create sub-tasks for parallel agent orchestration |
@@ -48,7 +49,26 @@ const usage = await getSessionUsage(c, ws.minionId);
 | `sync` | 9 | Git sync: push/pull state, manage repos, check GitHub auth, configure categories |
 | `researchTerminal` | 20 | Research Terminal: equity quotes/history/fundamentals, crypto, FX, indices, technicals, FRED, treasury rates, options, futures, news |
 
-**Total: 222 typed functions** covering the full Lattice oRPC API surface.
+**Total: 268 typed functions** covering the full Lattice oRPC API surface.
+
+## Code Execution Pattern
+
+Instead of calling 200+ individual MCP tools, use `execute_code` to write TypeScript that imports SDK modules directly:
+
+```typescript
+// The SDK client `c` and all modules are pre-imported
+const projects = await project.listProjects(c);
+const allMinions = await minion.listMinions(c);
+const results = projects.map(([path, cfg]) => ({
+  project: cfg.name ?? path,
+  minions: allMinions.filter(m => m.projectPath === path).length,
+}));
+return results;
+```
+
+### When to use execute_code vs direct tools
+- **execute_code**: Multi-step workflows, data aggregation, conditional logic, loops, filtering
+- **Direct tools**: Single API calls, simple queries, when you need to discover available functions
 
 ## Module Details
 
@@ -72,6 +92,9 @@ const usage = await getSessionUsage(c, ws.minionId);
 
 ### terminal-profiles (3 functions)
 `listProfiles`, `setProfileConfig`, `getInstallRecipe`
+
+### browser (46 functions)
+`navigate`, `snapshot`, `screenshot`, `annotatedScreenshot`, `click`, `fill`, `type`, `press`, `hover`, `find`, `selectOption`, `drag`, `scrollDown`, `scrollUp`, `back`, `forward`, `wait`, `evalJS`, `dialog`, `setViewport`, `setDevice`, `tabs`, `cookies`, `networkRequests`, `close`, `sessionInfo`, `saveState`, `restoreState`, `storage`, `snapshotDiff`, `screenshotDiff`, `screenshotElement`, `pdf`, `consoleLogs`, `setGeolocation`, `setPermissions`, `setOffline`, `setHeaders`, `interceptNetwork`, `startRecording`, `stopRecording`, `connectProvider`, `listSessions`, `configureSession`, `deleteCookies`, `scrollToElement`, `scrollByPixels`
 
 ### analytics (8 functions)
 `getSummary`, `getTimeSeries`, `getSpendByProject`, `getSpendByModel`, `getAgentCostBreakdown`, `getCacheHitRatio`, `getAnalyticsEvents`, `rebuildAnalyticsDb`

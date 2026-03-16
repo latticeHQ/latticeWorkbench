@@ -103,7 +103,6 @@ export class StudioService {
     },
   ): Promise<unknown> {
     const diffCode = opts?.difficulty ? FlashcardDifficulties.getCode(opts.difficulty) : FlashcardDifficulties.getCode("medium");
-    const sources = opts?.sourceIds?.map((id) => [id]) ?? [];
 
     const params: unknown[] = [notebookId, null, null, StudioTypes.getCode("flashcards")];
     // Fill to position 8
@@ -123,7 +122,6 @@ export class StudioService {
     },
   ): Promise<unknown> {
     const diffCode = opts?.difficulty ? FlashcardDifficulties.getCode(opts.difficulty) : FlashcardDifficulties.getCode("medium");
-    const sources = opts?.sourceIds?.map((id) => [id]) ?? [];
 
     const params: unknown[] = [notebookId, null, null, StudioTypes.getCode("flashcards")]; // Quiz shares type with flashcards
     for (let i = 4; i < 9; i++) params.push(null);
@@ -143,7 +141,6 @@ export class StudioService {
   ): Promise<unknown> {
     const orientCode = opts?.orientation ? InfographicOrientations.getCode(opts.orientation) : InfographicOrientations.getCode("landscape");
     const detailCode = opts?.detail ? InfographicDetails.getCode(opts.detail) : InfographicDetails.getCode("standard");
-    const sources = opts?.sourceIds?.map((id) => [id]) ?? [];
 
     const params: unknown[] = [notebookId, null, null, StudioTypes.getCode("infographic")];
     // Fill to position 13
@@ -164,7 +161,6 @@ export class StudioService {
   ): Promise<unknown> {
     const formatCode = opts?.format ? SlideDeckFormats.getCode(opts.format) : SlideDeckFormats.getCode("detailed_deck");
     const lengthCode = opts?.length ? SlideDeckLengths.getCode(opts.length) : SlideDeckLengths.getCode("default");
-    const sources = opts?.sourceIds?.map((id) => [id]) ?? [];
 
     const params: unknown[] = [notebookId, null, null, StudioTypes.getCode("slide_deck")];
     // Fill to position 15
@@ -181,8 +177,6 @@ export class StudioService {
       sourceIds?: string[];
     },
   ): Promise<unknown> {
-    const sources = opts?.sourceIds?.map((id) => [id]) ?? [];
-
     const params: unknown[] = [notebookId, null, null, StudioTypes.getCode("data_table")];
     // Fill to position 17
     for (let i = 4; i < 18; i++) params.push(null);

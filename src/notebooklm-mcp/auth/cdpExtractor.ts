@@ -13,7 +13,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { homedir, platform } from "os";
 import type { CdpTarget } from "./types";
-import { parseCookies, validateCookies } from "./cookieManager";
+import { validateCookies } from "./cookieManager";
 
 // ─── Chrome Discovery ───────────────────────────────────────────────────────
 

@@ -84,7 +84,8 @@ export class TelegramAdapter implements InboxChannelAdapter {
       const bot = new Bot(this.botToken);
 
       // Rate limiting: respects Telegram's global (30/s) and per-chat (1/s) limits
-      bot.api.config.use(apiThrottler());
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      bot.api.config.use(apiThrottler() as any);
 
       // Sequentialization: per-chat ordering via @grammyjs/runner
       bot.use(

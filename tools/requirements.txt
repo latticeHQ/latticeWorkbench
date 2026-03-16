@@ -1,0 +1,19 @@
+# Content Machine Data Pipeline Dependencies
+# Install: pip install -r tools/requirements.txt
+
+# MCP Server SDK
+mcp>=1.0.0
+
+# Data storage
+duckdb>=1.0.0
+
+# Reddit data ingestion (Arctic dumps)
+zstandard>=0.23.0
+tqdm>=4.66.0
+
+# OpenBB financial data
+openbb>=4.0.0
+
+# Web scraping (Scrapling - install separately)
+# pip install "scrapling[all]"
+# scrapling install  # downloads browser dependencies
