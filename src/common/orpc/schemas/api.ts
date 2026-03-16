@@ -2707,4 +2707,54 @@ export const simulation = {
     input: z.void(),
     output: ResultSchema(z.void(), z.string()),
   },
+  /** Get available models from configured providers (same pool as chat) */
+  getAvailableModels: {
+    input: z.void(),
+    output: z.object({
+      models: z.array(z.object({
+        id: z.string(),
+        provider: z.string(),
+        providerDisplayName: z.string(),
+        modelId: z.string(),
+      })),
+      currentRouting: z.record(z.string(), z.object({
+        provider: z.string(),
+        model: z.string(),
+      })),
+    }),
+  },
+  /** Update model routing for a specific route key */
+  updateModelRouting: {
+    input: z.object({
+      routeKey: z.string(),
+      provider: z.string(),
+      model: z.string(),
+    }),
+    output: ResultSchema(z.void(), z.string()),
+  },
+  /** Get/set environment variables for provider API keys */
+  getEnvVars: {
+    input: z.void(),
+    output: z.array(z.object({
+      key: z.string(),
+      isSet: z.boolean(),
+      provider: z.string().optional(),
+    })),
+  },
+  /** Set an environment variable and restart provider */
+  setEnvVar: {
+    input: z.object({
+      key: z.string(),
+      value: z.string(),
+    }),
+    output: ResultSchema(z.void(), z.string()),
+  },
+  /** Check Claude Code CLI binary availability and authentication */
+  checkClaudeCode: {
+    input: z.void(),
+    output: z.object({
+      ok: z.boolean(),
+      message: z.string(),
+    }),
+  },
 };

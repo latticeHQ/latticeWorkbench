@@ -16,9 +16,12 @@ import {
   useCreateScenario,
   useSimulationRun,
   useSimulationSetup,
+  useSimulationModels,
   type SimulationRoundResult,
   type SimulationScenario,
+  type SimulationModelInfo,
 } from "./useSimulation";
+import { useSettings } from "@/browser/contexts/SettingsContext";
 import {
   Activity,
   AlertCircle,
@@ -26,10 +29,13 @@ import {
   ChevronRight,
   Database,
   Download,
+  Key,
   Loader2,
   Play,
   Plus,
   RefreshCw,
+  Settings,
+  Sliders,
   Square,
   Users,
   X,
@@ -46,6 +52,18 @@ const DEPARTMENT_PRESETS = [
   { id: "strategy", name: "Strategy", description: "Market landscape, regulatory, competitive intelligence" },
   { id: "product", name: "Product", description: "User segments, feature adoption, migration paths" },
 ];
+
+// Human-readable labels for model route keys
+const ROUTE_LABELS: Record<string, { label: string; description: string }> = {
+  tier1_reasoning: { label: "Tier 1 — Reasoning", description: "Key decision-makers (highest quality)" },
+  tier2_agents: { label: "Tier 2 — Agents", description: "Active participants (fast, high volume)" },
+  tier3_agents: { label: "Tier 3 — Local", description: "Background actors (free, local inference)" },
+  ontology: { label: "Ontology", description: "Knowledge graph extraction" },
+  persona_generation: { label: "Persona Gen", description: "Agent profile creation" },
+  report_react: { label: "Report (ReACT)", description: "Analysis report generation" },
+  embeddings: { label: "Embeddings", description: "Semantic embeddings" },
+  classification: { label: "Classification", description: "Content classification" },
+};
 
 // ---------------------------------------------------------------------------
 // Sub-components
@@ -86,6 +104,7 @@ const NotConfiguredView: React.FC = () => {
     startingFalkorDb,
     startError,
   } = useSimulationSetup();
+  const { open: openSettings } = useSettings();
 
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 text-center">
@@ -110,8 +129,8 @@ const NotConfiguredView: React.FC = () => {
             ok={setup.llmProviderConfigured}
             detail={
               setup.llmProviderConfigured
-                ? "Configured"
-                : "Configure a provider in Settings"
+                ? "Configured (API key, Claude Code, or Lattice Inference)"
+                : "Configure in Settings > Providers"
             }
           />
 
@@ -157,7 +176,15 @@ const NotConfiguredView: React.FC = () => {
       )}
 
       {/* Action buttons */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap justify-center">
+        <button
+          onClick={() => openSettings("simulation")}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+        >
+          <Settings className="h-3.5 w-3.5" />
+          Configure Simulation
+        </button>
+
         <button
           onClick={() => void checkSetup()}
           disabled={checking}
@@ -206,6 +233,17 @@ const NotConfiguredView: React.FC = () => {
           </code>
         </p>
       )}
+
+      <p className="text-xs text-muted-foreground mt-4 max-w-sm">
+        Supports all configured providers: Anthropic, Google, OpenAI, Claude Code (Pro/Max),
+        Lattice Inference (local MLX), and more. Configure in{" "}
+        <button
+          onClick={() => openSettings("simulation")}
+          className="text-primary hover:underline font-medium"
+        >
+          Settings &gt; Simulation
+        </button>
+      </p>
     </div>
   );
 };
@@ -224,6 +262,123 @@ const ErrorView: React.FC<{ message: string }> = ({ message }) => (
     <p className="text-xs text-muted-foreground max-w-sm">{message}</p>
   </div>
 );
+
+// ---------------------------------------------------------------------------
+// Model Routing Config — lets users pick which model for each route
+// ---------------------------------------------------------------------------
+
+const ModelRoutingConfig: React.FC = () => {
+  const { models, currentRouting, loading, updateRoute } = useSimulationModels();
+  const { open: openSettings } = useSettings();
+  const [expanded, setExpanded] = useState(false);
+
+  if (loading && models.length === 0) {
+    return (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading models...
+      </div>
+    );
+  }
+
+  // Group models by provider for the dropdown
+  const modelsByProvider = models.reduce<Record<string, SimulationModelInfo[]>>(
+    (acc, m) => {
+      (acc[m.providerDisplayName] ??= []).push(m);
+      return acc;
+    },
+    {},
+  );
+
+  const routeKeys = Object.keys(ROUTE_LABELS);
+
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+      >
+        <Sliders className="h-3.5 w-3.5" />
+        Model Routing
+        <ChevronRight className={`h-3 w-3 transition-transform ${expanded ? "rotate-90" : ""}`} />
+        <span className="ml-auto text-[10px] text-muted-foreground/60">
+          {models.length} models available
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="space-y-2 pl-1">
+          <p className="text-[10px] text-muted-foreground mb-2">
+            Choose which model handles each simulation task. Uses the same providers
+            configured in{" "}
+            <button
+              onClick={() => openSettings("providers")}
+              className="text-primary hover:underline"
+            >
+              Settings
+            </button>.
+          </p>
+
+          {routeKeys.map((routeKey) => {
+            const routeInfo = ROUTE_LABELS[routeKey];
+            const current = currentRouting[routeKey];
+            const currentModelId = current ? `${current.provider}:${current.model}` : "";
+
+            return (
+              <div key={routeKey} className="flex items-center gap-2">
+                <div className="w-28 shrink-0">
+                  <div className="text-[11px] font-medium truncate" title={routeInfo.description}>
+                    {routeInfo.label}
+                  </div>
+                </div>
+                <select
+                  value={currentModelId}
+                  onChange={(e) => {
+                    const [provider, ...modelParts] = e.target.value.split(":");
+                    const model = modelParts.join(":");
+                    if (provider && model) {
+                      void updateRoute(routeKey, provider, model);
+                    }
+                  }}
+                  className="flex-1 px-2 py-1 text-[11px] bg-background border border-border rounded focus:outline-none focus:ring-1 focus:ring-ring min-w-0"
+                  title={routeInfo.description}
+                >
+                  {!currentModelId && <option value="">Select model...</option>}
+                  {Object.entries(modelsByProvider).map(([providerName, providerModels]) => (
+                    <optgroup key={providerName} label={providerName}>
+                      {providerModels.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.modelId}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+
+          <div className="flex items-center gap-2 mt-2">
+            <button
+              onClick={() => openSettings("providers")}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground bg-muted rounded transition-colors"
+            >
+              <Key className="h-3 w-3" />
+              Manage Providers
+            </button>
+            <button
+              onClick={() => openSettings("simulation")}
+              className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground bg-muted rounded transition-colors"
+            >
+              <Settings className="h-3 w-3" />
+              API Keys
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Scenario Builder
@@ -585,6 +740,11 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
             onSelect={setSelectedScenarioId}
             selectedId={selectedScenarioId ?? undefined}
           />
+        </div>
+
+        {/* Model routing config in sidebar bottom */}
+        <div className="border-t border-border p-2">
+          <ModelRoutingConfig />
         </div>
       </div>
 

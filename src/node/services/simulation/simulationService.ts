@@ -183,8 +183,18 @@ export class SimulationService extends EventEmitter {
    * Returns a requirements checklist for the setup UI.
    */
   async checkSetup(): Promise<SimulationSetupStatus> {
+    // Check if provider can actually create models (has API keys configured)
+    let providerAvailable = !!this.llmProvider;
+    if (this.llmProvider?.checkAvailability) {
+      try {
+        providerAvailable = await this.llmProvider.checkAvailability();
+      } catch {
+        providerAvailable = false;
+      }
+    }
+
     const result: SimulationSetupStatus = {
-      llmProviderConfigured: !!this.llmProvider,
+      llmProviderConfigured: providerAvailable,
       graphDbConfigured: !!(this.settings.graphDb.host && this.settings.graphDb.port),
       graphDbConnected: false,
       graphDbHost: this.settings.graphDb.host,
@@ -194,9 +204,14 @@ export class SimulationService extends EventEmitter {
       ready: false,
     };
 
-    // Check FalkorDB connectivity
+    // Check FalkorDB connectivity — attempt reconnect if not connected
     try {
-      const graphStatus = this.graphLayer.status;
+      let graphStatus = this.graphLayer.status;
+      if (graphStatus.status !== "connected") {
+        // Try to reconnect — container may have started since last init
+        await this.graphLayer.initialize();
+        graphStatus = this.graphLayer.status;
+      }
       result.graphDbConnected = graphStatus.status === "connected";
     } catch {
       // Not connected

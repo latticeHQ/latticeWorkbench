@@ -22,6 +22,7 @@ import {
   Network,
   BarChart3,
   TrendingUp,
+  Users,
 } from "lucide-react";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { useOnboardingPause } from "@/browser/components/splashScreens/SplashScreenProvider";
@@ -49,6 +50,7 @@ import { ArchivedSection } from "./sections/ArchivedSection";
 import { LatticeInferenceSection } from "./sections/LatticeInferenceSection";
 import { AnalyticsSection } from "./sections/AnalyticsSection";
 import { ResearchProvidersSection } from "./sections/ResearchProvidersSection";
+import { SimulationSettingsSection } from "./sections/SimulationSettingsSection";
 import type { SettingsSection } from "./types";
 
 const BASE_SECTIONS: SettingsSection[] = [
@@ -99,6 +101,12 @@ const BASE_SECTIONS: SettingsSection[] = [
     label: "Integrations",
     icon: <TrendingUp className="h-4 w-4" />,
     component: ResearchProvidersSection,
+  },
+  {
+    id: "simulation",
+    label: "Simulation",
+    icon: <Users className="h-4 w-4" />,
+    component: SimulationSettingsSection,
   },
   {
     id: "server-access",

@@ -243,3 +243,122 @@ export function useSimulationSetup() {
 
   return { setup, checking, checkSetup, startFalkorDb, startingFalkorDb, startError };
 }
+
+// ---------------------------------------------------------------------------
+// Available models (same pool as chat — uses configured providers)
+// ---------------------------------------------------------------------------
+
+export interface SimulationModelInfo {
+  id: string;
+  provider: string;
+  providerDisplayName: string;
+  modelId: string;
+}
+
+export interface ModelRouteEntry {
+  provider: string;
+  model: string;
+}
+
+export function useSimulationModels() {
+  const { api } = useAPI();
+  const [models, setModels] = useState<SimulationModelInfo[]>([]);
+  const [currentRouting, setCurrentRouting] = useState<Record<string, ModelRouteEntry>>({});
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!api) return;
+    setLoading(true);
+    try {
+      const result = await (api as any).simulation.getAvailableModels();
+      setModels(result.models as SimulationModelInfo[]);
+      setCurrentRouting(result.currentRouting as Record<string, ModelRouteEntry>);
+    } catch (err) {
+      console.error("Failed to load simulation models:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  const updateRoute = useCallback(
+    async (routeKey: string, provider: string, model: string) => {
+      if (!api) return;
+      try {
+        await (api as any).simulation.updateModelRouting({
+          routeKey,
+          provider,
+          model,
+        });
+        // Update local state immediately
+        setCurrentRouting((prev) => ({
+          ...prev,
+          [routeKey]: { provider, model },
+        }));
+      } catch (err) {
+        console.error("Failed to update model routing:", err);
+      }
+    },
+    [api],
+  );
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { models, currentRouting, loading, refresh, updateRoute };
+}
+
+// ---------------------------------------------------------------------------
+// Environment variables (provider API keys)
+// ---------------------------------------------------------------------------
+
+export interface EnvVarInfo {
+  key: string;
+  isSet: boolean;
+  provider?: string;
+}
+
+export function useSimulationEnvVars() {
+  const { api } = useAPI();
+  const [envVars, setEnvVars] = useState<EnvVarInfo[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!api) return;
+    setLoading(true);
+    try {
+      const result = await (api as any).simulation.getEnvVars();
+      setEnvVars(result as EnvVarInfo[]);
+    } catch (err) {
+      console.error("Failed to load env vars:", err);
+    } finally {
+      setLoading(false);
+    }
+  }, [api]);
+
+  const setEnvVar = useCallback(
+    async (key: string, value: string) => {
+      if (!api) return;
+      setSaving(true);
+      try {
+        await (api as any).simulation.setEnvVar({ key, value });
+        // Update local state
+        setEnvVars((prev) =>
+          prev.map((v) => (v.key === key ? { ...v, isSet: true } : v)),
+        );
+      } catch (err) {
+        console.error("Failed to set env var:", err);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [api],
+  );
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { envVars, loading, saving, refresh, setEnvVar };
+}

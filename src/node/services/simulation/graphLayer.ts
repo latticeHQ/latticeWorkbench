@@ -433,14 +433,22 @@ export class GraphLayer extends EventEmitter {
   }
 
   private async checkConnection(host: string, port: number): Promise<boolean> {
-    try {
-      const response = await fetch(`http://${host}:${port}`, {
-        signal: AbortSignal.timeout(2000),
-      }).catch(() => null);
-      return response !== null;
-    } catch {
-      return false;
-    }
+    const net = await import("net");
+    return new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host, port }, () => {
+        socket.end();
+        resolve(true);
+      });
+      socket.setTimeout(3000);
+      socket.on("timeout", () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.on("error", () => {
+        socket.destroy();
+        resolve(false);
+      });
+    });
   }
 
   private async waitForConnection(

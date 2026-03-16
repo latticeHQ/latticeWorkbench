@@ -313,15 +313,22 @@ export class ServiceContainer {
         return result.text;
       },
       async checkAvailability() {
-        // Try to create any model — tests if at least one provider has credentials
+        // Try to create any model — tests if at least one provider has credentials.
+        // Includes claude-code (Pro/Max via CLI) and lattice-inference (local MLX).
         const candidates = [
           "anthropic:claude-sonnet-4-6",
           "google:gemini-2.5-flash",
           "openai:gpt-4o-mini",
+          "claude-code:claude-sonnet-4-6",
+          "lattice-inference:llama-3.1-70b",
         ];
         for (const model of candidates) {
-          const result = await aiServiceRef.createModel(model);
-          if (result.success) return true;
+          try {
+            const result = await aiServiceRef.createModel(model);
+            if (result.success) return true;
+          } catch {
+            // Some providers may throw — skip
+          }
         }
         return false;
       },

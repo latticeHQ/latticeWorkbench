@@ -5335,6 +5335,172 @@ export const router = (authToken?: string) => {
             return Err(err instanceof Error ? err.message : String(err));
           }
         }),
+      getAvailableModels: t
+        .input(schemas.simulation.getAvailableModels.input)
+        .output(schemas.simulation.getAvailableModels.output)
+        .handler(async ({ context }) => {
+          const { PROVIDER_DEFINITIONS } = await import("@/common/constants/providers");
+          const { KNOWN_MODELS } = await import("@/common/constants/knownModels");
+          const providerConfig = context.providerService.getConfig();
+
+          const models: Array<{
+            id: string;
+            provider: string;
+            providerDisplayName: string;
+            modelId: string;
+          }> = [];
+
+          // Add all known models from configured/available providers
+          for (const model of Object.values(KNOWN_MODELS)) {
+            const provider = model.provider;
+            const providerDef = PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS];
+            if (!providerDef) continue;
+
+            // Check if provider is configured
+            const info = providerConfig[provider];
+            const isAvailable = !info || (info.isEnabled && (info.isConfigured || !providerDef.requiresApiKey));
+
+            if (isAvailable) {
+              models.push({
+                id: `${provider}:${model.providerModelId}`,
+                provider,
+                providerDisplayName: providerDef.displayName,
+                modelId: model.providerModelId,
+              });
+            }
+          }
+
+          // Add claude-code if available (no API key needed)
+          models.push({
+            id: "claude-code:claude-sonnet-4-6",
+            provider: "claude-code",
+            providerDisplayName: "Claude Code",
+            modelId: "claude-sonnet-4-6",
+          });
+          models.push({
+            id: "claude-code:claude-opus-4-6",
+            provider: "claude-code",
+            providerDisplayName: "Claude Code",
+            modelId: "claude-opus-4-6",
+          });
+
+          // Always offer lattice-inference models — they're available if the binary is installed
+          models.push({
+            id: "lattice-inference:llama-3.1-70b",
+            provider: "lattice-inference",
+            providerDisplayName: "Lattice Inference",
+            modelId: "llama-3.1-70b",
+          });
+          models.push({
+            id: "lattice-inference:llama-3.1-8b",
+            provider: "lattice-inference",
+            providerDisplayName: "Lattice Inference",
+            modelId: "llama-3.1-8b",
+          });
+
+          // Add custom models from provider config
+          for (const [provider, info] of Object.entries(providerConfig)) {
+            if (!info.isEnabled || !info.models) continue;
+            const providerDef = PROVIDER_DEFINITIONS[provider as keyof typeof PROVIDER_DEFINITIONS];
+            for (const modelEntry of info.models) {
+              const modelId = typeof modelEntry === "string" ? modelEntry : modelEntry.id;
+              if (!modelId) continue;
+              const fullId = `${provider}:${modelId}`;
+              if (models.some((m) => m.id === fullId)) continue;
+              models.push({
+                id: fullId,
+                provider,
+                providerDisplayName: providerDef?.displayName ?? provider,
+                modelId,
+              });
+            }
+          }
+
+          // Get current routing from simulation service
+          const settings = (context.simulationService as any).settings;
+          const currentRouting = settings?.modelRouting?.routes ?? {};
+
+          return { models, currentRouting };
+        }),
+      updateModelRouting: t
+        .input(schemas.simulation.updateModelRouting.input)
+        .output(schemas.simulation.updateModelRouting.output)
+        .handler(async ({ context, input }) => {
+          try {
+            const settings = (context.simulationService as any).settings;
+            if (!settings?.modelRouting?.routes) {
+              return Err("Simulation settings not initialized");
+            }
+            settings.modelRouting.routes[input.routeKey] = {
+              provider: input.provider,
+              model: input.model,
+            };
+            // Persist to config
+            await context.config.editConfig((cfg) => ({
+              ...cfg,
+              simulation: {
+                ...cfg.simulation,
+                modelRouting: {
+                  ...(cfg.simulation as any)?.modelRouting,
+                  routes: {
+                    ...(cfg.simulation as any)?.modelRouting?.routes,
+                    [input.routeKey]: { provider: input.provider, model: input.model },
+                  },
+                },
+              },
+            }));
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
+      getEnvVars: t
+        .input(schemas.simulation.getEnvVars.input)
+        .output(schemas.simulation.getEnvVars.output)
+        .handler(async () => {
+          // Return known provider env vars and their set status
+          const envVars = [
+            { key: "ANTHROPIC_API_KEY", provider: "anthropic" },
+            { key: "OPENAI_API_KEY", provider: "openai" },
+            { key: "GOOGLE_GENERATIVE_AI_API_KEY", provider: "google" },
+            { key: "XAI_API_KEY", provider: "xai" },
+            { key: "DEEPSEEK_API_KEY", provider: "deepseek" },
+            { key: "OPENROUTER_API_KEY", provider: "openrouter" },
+          ];
+          return envVars.map((v) => ({
+            key: v.key,
+            isSet: !!process.env[v.key],
+            provider: v.provider,
+          }));
+        }),
+      setEnvVar: t
+        .input(schemas.simulation.setEnvVar.input)
+        .output(schemas.simulation.setEnvVar.output)
+        .handler(async ({ context, input }) => {
+          try {
+            // Set in current process
+            process.env[input.key] = input.value;
+            // Persist to project secrets so it survives restart
+            const projectPath = context.config.loadConfigOrDefault().defaultProjectDir;
+            if (projectPath) {
+              const existing = context.projectService.getSecrets(projectPath);
+              const updated = existing.filter((s) => s.key !== input.key);
+              updated.push({ key: input.key, value: input.value });
+              await context.projectService.updateSecrets(projectPath, updated);
+            }
+            return Ok(undefined);
+          } catch (err) {
+            return Err(err instanceof Error ? err.message : String(err));
+          }
+        }),
+
+      checkClaudeCode: t
+        .input(schemas.simulation.checkClaudeCode.input)
+        .output(schemas.simulation.checkClaudeCode.output)
+        .handler(async () => {
+          const { isClaudeCodeAuthenticated } = await import("@/node/services/claudeCodeSubprocess");
+          return isClaudeCodeAuthenticated();
+        }),
     },
   });
 };
