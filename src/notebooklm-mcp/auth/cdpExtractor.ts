@@ -147,14 +147,27 @@ async function getDebuggerUrl(host: string, port: number): Promise<string> {
 // ─── Cookie Extraction ──────────────────────────────────────────────────────
 
 /**
- * Extract all cookies from a running Chrome instance via CDP.
+ * Extract Google cookies from a running Chrome instance via CDP,
+ * scoped to a specific service domain.
  *
- * Tries multiple CDP methods for compatibility:
- * 1. Storage.getCookies (works on most targets including page targets)
- * 2. Network.getAllCookies (older method, requires Network domain, fails on Electron)
+ * Domain-specific cookies like OSID differ per Google service (Gmail vs
+ * NotebookLM vs Drive etc). This function ensures that when the same
+ * cookie name exists on multiple domains, the one matching the target
+ * service wins — so extracting for "notebooklm.google.com" gets
+ * NotebookLM's OSID, not Gmail's.
+ *
+ * Priority order for same-named cookies:
+ *   1. Exact match on serviceDomain (e.g. notebooklm.google.com)
+ *   2. Shared root domain (.google.com / google.com)
+ *   3. Other *.google.com subdomains (lowest — only used if no better match)
+ *
+ * @param target - CDP connection target (host/port or wsUrl)
+ * @param serviceDomain - The Google service domain to prioritize
+ *                        (default: "notebooklm.google.com")
  */
 export async function extractCookiesFromCdp(
   target: CdpTarget,
+  serviceDomain = "notebooklm.google.com",
 ): Promise<Record<string, string>> {
   const wsUrl = target.wsUrl ?? (await getDebuggerUrl(target.host, target.port));
 
@@ -183,19 +196,15 @@ export async function extractCookiesFromCdp(
     }
   }
 
-  // Filter to Google auth cookies.
-  // Domain-specific cookies like OSID differ per service (Gmail vs NotebookLM).
-  // We must prefer notebooklm.google.com cookies over other Google domains
-  // to avoid saving e.g. Gmail's OSID instead of NotebookLM's.
+  // Score cookies by domain relevance to the target service.
   const googleCookies: Record<string, string> = {};
   const cookieDomainPriority: Record<string, number> = {};
 
-  // Score: higher = preferred. notebooklm domain wins over generic .google.com
   const domainScore = (domain: string): number => {
-    if (domain.includes("notebooklm.google.com")) return 3;
-    if (domain === ".google.com" || domain === "google.com") return 2;
-    if (domain.includes(".google.com")) return 1;
-    return 0;
+    if (domain.includes(serviceDomain)) return 3;  // exact service match
+    if (domain === ".google.com" || domain === "google.com") return 2;  // shared root
+    if (domain.includes(".google.com")) return 1;  // other Google service
+    return 0;  // not Google
   };
 
   for (const cookie of cookies) {
