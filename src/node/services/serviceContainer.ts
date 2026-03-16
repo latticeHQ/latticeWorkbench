@@ -312,6 +312,19 @@ export class ServiceContainer {
         });
         return result.text;
       },
+      async checkAvailability() {
+        // Try to create any model — tests if at least one provider has credentials
+        const candidates = [
+          "anthropic:claude-sonnet-4-6",
+          "google:gemini-2.5-flash",
+          "openai:gpt-4o-mini",
+        ];
+        for (const model of candidates) {
+          const result = await aiServiceRef.createModel(model);
+          if (result.success) return true;
+        }
+        return false;
+      },
     });
     this.aiService.setBrowserService(this.browserService);
     // Scheduler service — late-binds minion service to send agent messages

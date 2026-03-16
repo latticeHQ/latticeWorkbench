@@ -21,6 +21,7 @@ import {
   Archive,
   Network,
   BarChart3,
+  TrendingUp,
 } from "lucide-react";
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { useOnboardingPause } from "@/browser/components/splashScreens/SplashScreenProvider";
@@ -47,6 +48,7 @@ import { InboxesSettingsSection } from "./sections/InboxesSettingsSection";
 import { ArchivedSection } from "./sections/ArchivedSection";
 import { LatticeInferenceSection } from "./sections/LatticeInferenceSection";
 import { AnalyticsSection } from "./sections/AnalyticsSection";
+import { ResearchProvidersSection } from "./sections/ResearchProvidersSection";
 import type { SettingsSection } from "./types";
 
 const BASE_SECTIONS: SettingsSection[] = [
@@ -91,6 +93,12 @@ const BASE_SECTIONS: SettingsSection[] = [
     label: "Secrets",
     icon: <Lock className="h-4 w-4" />,
     component: SecretsSection,
+  },
+  {
+    id: "research-providers",
+    label: "Integrations",
+    icon: <TrendingUp className="h-4 w-4" />,
+    component: ResearchProvidersSection,
   },
   {
     id: "server-access",

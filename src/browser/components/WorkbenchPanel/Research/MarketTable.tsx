@@ -1,6 +1,11 @@
 /**
  * Market data table — Bloomberg-style watchlist for tracked equities and ETFs.
  * Uses NormalizedQuote for consistent data across all providers.
+ *
+ * Price source transparency:
+ * - "realtime": shown normally (from quote endpoint)
+ * - "close": shown with "C" badge + tooltip (last close from historical data)
+ * - "none": shown as "--" with tooltip explaining no data available
  */
 
 import React from "react";
@@ -54,6 +59,7 @@ export const MarketTable: React.FC<MarketTableProps> = ({
     yearHigh: 0,
     yearLow: 0,
     open: 0,
+    priceSource: "none" as const,
   }));
 
   return (
@@ -79,6 +85,7 @@ export const MarketTable: React.FC<MarketTableProps> = ({
           {rows.map((row) => {
             const isActive = row.symbol === activeSymbol;
             const isPositive = row.changePercent >= 0;
+            const src = row.priceSource ?? (row.price > 0 ? "realtime" : "none");
             return (
               <tr
                 key={row.symbol}
@@ -97,10 +104,23 @@ export const MarketTable: React.FC<MarketTableProps> = ({
                 <td className="px-2 py-1.5 text-right font-mono text-white">
                   {loading ? (
                     <span className="text-muted animate-pulse">---</span>
-                  ) : row.price > 0 ? (
+                  ) : src === "realtime" && row.price > 0 ? (
                     formatPrice(row.price)
+                  ) : src === "close" && row.price > 0 ? (
+                    <span
+                      className="cursor-help"
+                      title={`Last close: ${formatPrice(row.price)}\nPrev close: ${formatPrice(row.prevClose)}\n\nReal-time quote unavailable for this symbol.\nShowing last exchange closing price.`}
+                    >
+                      <span className="text-neutral-300">{formatPrice(row.price)}</span>
+                      <span className="ml-1 rounded bg-yellow-900/40 px-0.5 text-[8px] font-bold text-yellow-500">C</span>
+                    </span>
                   ) : (
-                    <span className="text-muted">--</span>
+                    <span
+                      className="cursor-help text-muted"
+                      title="Real-time price unavailable for this symbol.\nyfinance does not provide live quotes for some ETFs/futures."
+                    >
+                      --
+                    </span>
                   )}
                 </td>
                 <td
@@ -108,13 +128,22 @@ export const MarketTable: React.FC<MarketTableProps> = ({
                     "px-2 py-1.5 text-right font-mono font-medium",
                     loading
                       ? "text-muted"
-                      : isPositive
-                        ? "text-[#00ACFF]"
-                        : "text-[#e4003a]"
+                      : src === "none"
+                        ? "text-muted"
+                        : isPositive
+                          ? "text-[#00ACFF]"
+                          : "text-[#e4003a]"
                   )}
                 >
                   {loading ? (
                     <span className="animate-pulse">---</span>
+                  ) : src === "close" && row.changePercent !== 0 ? (
+                    <span
+                      className="cursor-help"
+                      title={`Change from previous close.\nBased on last exchange closing price.`}
+                    >
+                      {formatPercent(row.changePercent)}
+                    </span>
                   ) : row.changePercent !== 0 ? (
                     formatPercent(row.changePercent)
                   ) : (
