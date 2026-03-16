@@ -721,12 +721,13 @@ function DarkCard({ title, value, accent }: { title: string; value: string; acce
 
 function DarkMemoryBar({ percent }: { percent: number }) {
   return (
-    <div className="h-2 w-full overflow-hidden rounded-sm bg-neutral-800">
+    <div className="h-2 w-full overflow-hidden rounded-sm bg-neutral-800" dir="ltr">
       <div
-        className="h-full rounded-sm transition-all duration-500"
+        className="h-full rounded-sm"
         style={{
           width: `${Math.min(100, percent)}%`,
           background: percent > 90 ? "#ef4444" : percent > 70 ? "#eab308" : "#00ACFF",
+          transition: percent > 1 ? "width 300ms ease-out" : "none",
         }}
       />
     </div>
@@ -2137,12 +2138,13 @@ function ModelRow({ model }: { model: ExoModel }) {
 
 function MemoryBar({ percent }: { percent: number }) {
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]" dir="ltr">
       <div
-        className="h-full rounded-full transition-all duration-300"
+        className="h-full rounded-full"
         style={{
           width: `${Math.min(100, percent)}%`,
           background: percent > 90 ? "var(--color-destructive)" : "var(--color-accent)",
+          transition: percent > 1 ? "width 300ms ease-out" : "none",
         }}
       />
     </div>
