@@ -1196,7 +1196,22 @@ function DarkConfigView() {
   const handleSave = async (newDir?: string, newInterval?: number) => {
     if (!api) return;
     // Update local state immediately (optimistic)
-    if (newDir) setModelDir(newDir);
+    if (newDir) {
+      setModelDir(newDir);
+      // Add to storage paths list if not already present
+      if (!storagePaths.some(sp => sp.path === newDir)) {
+        const label = newDir.startsWith("/Volumes/")
+          ? newDir.split("/")[2] || "External"
+          : newDir.replace(/^\/Users\/[^/]+\//, "~/");
+        setStoragePaths(prev => [{
+          path: newDir,
+          label,
+          type: newDir.startsWith("/Volumes/") ? "external" as const : "local" as const,
+          available: true,
+          freeSpaceBytes: 0,
+        }, ...prev]);
+      }
+    }
     if (newInterval) setPollInterval(newInterval);
     setSaving(true);
     setSaveStatus("idle");
