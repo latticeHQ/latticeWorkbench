@@ -434,13 +434,15 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     try {
       await api.browser.back({ minionId });
       await fetchSessionInfo();
-      if (viewMode !== "live") takeScreenshot().catch(() => {});
+      // Always take a screenshot to ensure visual feedback after navigation,
+      // even in live mode (stream frame may lag behind the navigation).
+      takeScreenshot().catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Back navigation failed");
     } finally {
       setIsLoading(false);
     }
-  }, [api, minionId, fetchSessionInfo, takeScreenshot, viewMode]);
+  }, [api, minionId, fetchSessionInfo, takeScreenshot]);
 
   const handleForward = useCallback(async () => {
     if (!api) return;
@@ -448,13 +450,15 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
     try {
       await api.browser.forward({ minionId });
       await fetchSessionInfo();
-      if (viewMode !== "live") takeScreenshot().catch(() => {});
+      // Always take a screenshot to ensure visual feedback after navigation,
+      // even in live mode (stream frame may lag behind the navigation).
+      takeScreenshot().catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "Forward navigation failed");
     } finally {
       setIsLoading(false);
     }
-  }, [api, minionId, fetchSessionInfo, takeScreenshot, viewMode]);
+  }, [api, minionId, fetchSessionInfo, takeScreenshot]);
 
   // ── Manual screenshot (user-initiated) ─────────────────────────────────
   const handleScreenshot = useCallback(async () => {

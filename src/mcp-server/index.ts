@@ -137,10 +137,15 @@ async function main(): Promise<void> {
   // Create oRPC client
   const client = createOrpcClient(connection.baseUrl, connection.authToken);
 
-  // Create MCP server
+  // Create MCP server with tool-list-changed capability so clients
+  // (e.g. Claude Code) can be notified when tools are added/removed.
   const mcpServer = new McpServer({
     name: "lattice",
     version: "1.0.0",
+  }, {
+    capabilities: {
+      tools: { listChanged: true },
+    },
   });
 
   // Register all tool modules and build the tool catalog for progressive disclosure.
