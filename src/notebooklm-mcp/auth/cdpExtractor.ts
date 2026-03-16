@@ -60,9 +60,12 @@ function getChromePath(): string | null {
   }
 }
 
-/** Find an available port for CDP. */
-function findAvailablePort(start = 9222, end = 9231): number {
-  // Simple approach: try ports sequentially
+/**
+ * Find an available port for CDP.
+ * Starts at 9223 to avoid 9222 which is commonly used by Electron's
+ * --remote-debugging-port in development mode.
+ */
+function findAvailablePort(start = 9223, end = 9240): number {
   for (let port = start; port <= end; port++) {
     try {
       execSync(`lsof -i :${port}`, { encoding: "utf-8" });
@@ -145,19 +148,44 @@ async function getDebuggerUrl(host: string, port: number): Promise<string> {
 
 /**
  * Extract all cookies from a running Chrome instance via CDP.
+ *
+ * Tries multiple CDP methods for compatibility:
+ * 1. Storage.getCookies (works on most targets including page targets)
+ * 2. Network.getAllCookies (older method, requires Network domain, fails on Electron)
  */
 export async function extractCookiesFromCdp(
   target: CdpTarget,
 ): Promise<Record<string, string>> {
   const wsUrl = target.wsUrl ?? (await getDebuggerUrl(target.host, target.port));
 
-  const result = (await executeCdpCommand(wsUrl, "Network.getAllCookies")) as {
-    cookies: Array<{ name: string; value: string; domain: string }>;
-  };
+  let cookies: Array<{ name: string; value: string; domain: string }>;
+
+  // Try Storage.getCookies first (more widely supported, works on page targets)
+  try {
+    const result = (await executeCdpCommand(wsUrl, "Storage.getCookies")) as {
+      cookies: Array<{ name: string; value: string; domain: string }>;
+    };
+    cookies = result.cookies;
+  } catch {
+    // Fallback to Network.getAllCookies (requires enabling Network domain first)
+    try {
+      await executeCdpCommand(wsUrl, "Network.enable");
+      const result = (await executeCdpCommand(wsUrl, "Network.getAllCookies")) as {
+        cookies: Array<{ name: string; value: string; domain: string }>;
+      };
+      cookies = result.cookies;
+    } catch (err) {
+      throw new Error(
+        `Failed to extract cookies via CDP. Neither Storage.getCookies nor Network.getAllCookies worked. ` +
+        `Ensure you're connecting to a Chrome page target, not an Electron app. ` +
+        `Error: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
 
   // Filter to Google auth cookies
   const googleCookies: Record<string, string> = {};
-  for (const cookie of result.cookies) {
+  for (const cookie of cookies) {
     if (
       cookie.domain.includes(".google.com") ||
       cookie.domain.includes("notebooklm.google.com")
