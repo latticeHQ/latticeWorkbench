@@ -30,11 +30,53 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { RPCLink as HTTPRPCLink } from "@orpc/client/fetch";
 import { createORPCClient } from "@orpc/client";
-import type { AppRouter } from "@/node/orpc/router";
-import type { RouterClient } from "@orpc/server";
 import { z } from "zod";
+import * as fs from "fs/promises";
+import * as path from "path";
+import { homedir } from "os";
 
-import { discoverServer } from "../mcp-server/utils";
+// ── Server Discovery (self-contained, no cross-module imports) ────────────
+
+interface ServerConnection {
+  baseUrl: string;
+  authToken?: string;
+}
+
+function getLatticeHome(): string {
+  if (process.env.LATTICE_ROOT) return process.env.LATTICE_ROOT;
+  const suffix = process.env.NODE_ENV === "development" ? "-dev" : "";
+  return path.join(homedir(), `.lattice${suffix}`);
+}
+
+async function discoverServer(): Promise<ServerConnection> {
+  // 1. Explicit env vars (highest priority)
+  const envUrl = process.env.LATTICE_SERVER_URL;
+  const envToken = process.env.LATTICE_SERVER_AUTH_TOKEN;
+  if (envUrl) {
+    return { baseUrl: envUrl, authToken: envToken };
+  }
+
+  // 2. Lockfile discovery (~/.lattice/server.lock)
+  try {
+    const lockPath = path.join(getLatticeHome(), "server.lock");
+    const content = await fs.readFile(lockPath, "utf-8");
+    const data = JSON.parse(content);
+    if (data?.baseUrl && data?.token) {
+      // Validate PID is still alive
+      try {
+        process.kill(data.pid, 0);
+        return { baseUrl: data.baseUrl, authToken: data.token };
+      } catch {
+        // Stale lockfile — fall through
+      }
+    }
+  } catch {
+    // No lockfile — fall through
+  }
+
+  // 3. Fallback
+  return { baseUrl: "http://127.0.0.1:3000" };
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -58,13 +100,13 @@ function withErrorHandling(
   });
 }
 
+/** oRPC client type (kept generic to avoid cross-module @/ imports) */
+type Client = any;
+
 /**
- * Create a typed oRPC HTTP client for the Lattice backend.
+ * Create an oRPC HTTP client for the Lattice backend.
  */
-function createOrpcClient(
-  baseUrl: string,
-  authToken?: string,
-): RouterClient<AppRouter> {
+function createOrpcClient(baseUrl: string, authToken?: string): Client {
   const link = new HTTPRPCLink({
     url: `${baseUrl}/orpc`,
     headers: authToken != null ? { Authorization: `Bearer ${authToken}` } : undefined,
@@ -75,7 +117,7 @@ function createOrpcClient(
 /**
  * Resolve the running data server base URL from the backend status.
  */
-async function getBaseUrl(client: RouterClient<AppRouter>): Promise<string> {
+async function getBaseUrl(client: Client): Promise<string> {
   const status = await (client as any).openbb.getStatus();
   if (status?.status === "running") {
     return `${status.baseUrl}/api/v1`;
@@ -144,7 +186,7 @@ async function fetchData<T>(
 
 // ── Tool Registration ─────────────────────────────────────────────────────
 
-function registerTools(server: McpServer, client: RouterClient<AppRouter>): void {
+function registerTools(server: McpServer, client: Client): void {
   // ═══════════════════════════════════════════════════════════════════════════
   // LIFECYCLE TOOLS
   // ═══════════════════════════════════════════════════════════════════════════
