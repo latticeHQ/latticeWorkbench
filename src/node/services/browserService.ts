@@ -227,11 +227,16 @@ export class BrowserService {
     const session = this.sessions.get(minionId);
     if (!session) return null;
 
-    // Refresh currentUrl from agent-browser (non-blocking best-effort)
+    // Refresh currentUrl from the actual page via JS eval (best-effort).
+    // Using eval "window.location.href" is more reliable than "get url"
+    // because it reads straight from the browser context.
     try {
-      const result = await this.execBrowserCommand(session, "get", ["url"]);
-      if (result.success && result.output.trim()) {
-        session.currentUrl = result.output.trim();
+      const result = await this.execBrowserCommand(session, "eval", ["window.location.href"]);
+      if (result.success) {
+        const url = result.output.trim();
+        if (url && url.startsWith("http")) {
+          session.currentUrl = url;
+        }
       }
     } catch {
       // Keep cached URL on error

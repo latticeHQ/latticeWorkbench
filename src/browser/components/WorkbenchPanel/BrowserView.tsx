@@ -103,7 +103,11 @@ export const BrowserView: React.FC<BrowserViewProps> = ({ minionId, visible }) =
         return info;
       });
       if (info?.url) {
-        setUrlInput((prev) => (prev === info.url ? prev : info.url!));
+        // Don't overwrite the URL bar while the user is typing
+        const inputFocused = document.activeElement === urlInputRef.current;
+        if (!inputFocused) {
+          setUrlInput((prev) => (prev === info.url ? prev : info.url!));
+        }
       }
     } catch {
       setSessionInfo((prev) => (prev === null ? prev : null));
