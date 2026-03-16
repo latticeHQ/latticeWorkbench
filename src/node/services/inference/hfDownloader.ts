@@ -3,9 +3,14 @@
  *
  * Downloads models from HuggingFace Hub with resume support.
  * Emits 'progress' events for UI integration.
+ *
+ * Prefers `huggingface-cli download` with HF_HUB_ENABLE_HF_TRANSFER=1
+ * for massively faster downloads (multi-connection, Rust-based transfer).
+ * Falls back to plain fetch() if the CLI is unavailable.
  */
 
 import { EventEmitter } from "events";
+import { spawn } from "child_process";
 import * as fsp from "fs/promises";
 import * as path from "path";
 import { normalizeModelID } from "./modelRegistry";
@@ -45,6 +50,8 @@ export class HfDownloader extends EventEmitter {
 
   /**
    * Download a model from HuggingFace Hub.
+   * Tries `huggingface-cli download` with hf_transfer for max speed,
+   * falls back to plain fetch() if CLI is unavailable.
    *
    * @param modelID - HuggingFace model ID, e.g. "mlx-community/Llama-3.2-3B-Instruct-4bit"
    * @param signal - Optional AbortSignal for cancellation
@@ -62,15 +69,17 @@ export class HfDownloader extends EventEmitter {
 
     await fsp.mkdir(modelDir, { recursive: true });
 
-    // List files from HuggingFace API
-    const files = await this.listHFFiles(org, model, signal);
+    // Try fast path: huggingface-cli with hf_transfer
+    const usedCli = await this.pullWithCli(modelID, modelDir, signal);
 
-    log.info(`[inference/download] downloading ${modelID}: ${files.length} files -> ${modelDir}`);
-
-    // Download each file
-    for (const file of files) {
-      if (signal?.aborted) throw new Error("Download cancelled");
-      await this.downloadFile(org, model, file, modelDir, signal);
+    if (!usedCli) {
+      // Fallback: plain fetch download
+      const files = await this.listHFFiles(org, model, signal);
+      log.info(`[inference/download] downloading ${modelID}: ${files.length} files -> ${modelDir}`);
+      for (const file of files) {
+        if (signal?.aborted) throw new Error("Download cancelled");
+        await this.downloadFile(org, model, file, modelDir, signal);
+      }
     }
 
     // Write manifest
@@ -88,6 +97,101 @@ export class HfDownloader extends EventEmitter {
 
     log.info(`[inference/download] completed ${modelID}`);
     return modelDir;
+  }
+
+  /**
+   * Download using `huggingface-cli download` with hf_transfer enabled.
+   * Returns true if successful, false if CLI is unavailable.
+   */
+  private async pullWithCli(
+    modelID: string,
+    destDir: string,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    // Check if huggingface-cli is available
+    const cliPath = await this.findHfCli();
+    if (!cliPath) return false;
+
+    log.info(`[inference/download] using huggingface-cli with hf_transfer for ${modelID}`);
+
+    return new Promise<boolean>((resolve, reject) => {
+      const args = [
+        "download",
+        modelID,
+        "--local-dir", destDir,
+        "--exclude", "*.md", "*.txt",
+      ];
+
+      const env = {
+        ...process.env,
+        HF_HUB_ENABLE_HF_TRANSFER: "1",
+      };
+
+      const proc = spawn(cliPath, args, {
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      // Parse progress from stderr (huggingface-cli outputs progress there)
+      let lastProgressTime = 0;
+      const parseProgress = (data: Buffer) => {
+        const text = data.toString();
+        // Parse lines like: "Downloading model-00001-of-00091.safetensors: 45%|████ | 1.89G/4.19G [00:12<00:14, 158MB/s]"
+        const match = text.match(
+          /Downloading\s+(\S+):\s+\d+%.*?\|\s*([\d.]+[KMGT]?B?)\/([\d.]+[KMGT]?B)/,
+        );
+        if (match) {
+          const now = Date.now();
+          // Throttle progress events to ~4/sec
+          if (now - lastProgressTime < 250) return;
+          lastProgressTime = now;
+          this.emit("progress", {
+            fileName: match[1],
+            downloadedBytes: parseHumanBytes(match[2]),
+            totalBytes: parseHumanBytes(match[3]),
+          } satisfies DownloadProgress);
+        }
+      };
+
+      proc.stderr?.on("data", parseProgress);
+      proc.stdout?.on("data", parseProgress);
+
+      if (signal) {
+        const onAbort = () => {
+          proc.kill("SIGTERM");
+          reject(new Error("Download cancelled"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+        proc.on("close", () => signal.removeEventListener("abort", onAbort));
+      }
+
+      proc.on("error", () => {
+        // CLI not executable / not found
+        resolve(false);
+      });
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          resolve(true);
+        } else {
+          log.warn(`[inference/download] huggingface-cli exited with code ${code}, falling back to fetch`);
+          resolve(false);
+        }
+      });
+    });
+  }
+
+  /**
+   * Find huggingface-cli binary path.
+   */
+  private async findHfCli(): Promise<string | null> {
+    const { execSync } = await import("child_process");
+    try {
+      const result = execSync("which huggingface-cli", { encoding: "utf-8", timeout: 5000 }).trim();
+      return result || null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -208,4 +312,23 @@ export class HfDownloader extends EventEmitter {
       await fileHandle.close();
     }
   }
+}
+
+/**
+ * Parse human-readable byte strings from huggingface-cli progress output.
+ * e.g. "1.89G" → 1890000000, "158MB" → 158000000, "4.19GB" → 4190000000
+ */
+function parseHumanBytes(s: string): number {
+  const match = s.match(/^([\d.]+)\s*([KMGT])?i?B?$/i);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = (match[2] || "").toUpperCase();
+  const multipliers: Record<string, number> = {
+    "": 1,
+    K: 1e3,
+    M: 1e6,
+    G: 1e9,
+    T: 1e12,
+  };
+  return Math.round(num * (multipliers[unit] ?? 1));
 }
