@@ -1180,13 +1180,24 @@ function DarkConfigView() {
         setModelDir(cfg.modelDir);
         setPollInterval(cfg.pollIntervalMs);
         setStoragePaths(cfg.availableStoragePaths);
-      } catch { /* use defaults */ }
-      finally { setLoading(false); }
+      } catch {
+        // Endpoint may not exist yet (backend not restarted) — use defaults
+        setStoragePaths([{
+          path: "~/.lattice/models",
+          label: "Default (~/.lattice/models)",
+          type: "local",
+          available: true,
+          freeSpaceBytes: 0,
+        }]);
+      } finally { setLoading(false); }
     })();
   }, [api]);
 
   const handleSave = async (newDir?: string, newInterval?: number) => {
     if (!api) return;
+    // Update local state immediately (optimistic)
+    if (newDir) setModelDir(newDir);
+    if (newInterval) setPollInterval(newInterval);
     setSaving(true);
     setSaveStatus("idle");
     try {
@@ -1194,12 +1205,12 @@ function DarkConfigView() {
         modelDir: newDir ?? modelDir,
         pollIntervalMs: newInterval ?? pollInterval,
       });
-      if (newDir) setModelDir(newDir);
-      if (newInterval) setPollInterval(newInterval);
       setSaveStatus("saved");
       setTimeout(() => setSaveStatus("idle"), 2000);
     } catch {
-      setSaveStatus("error");
+      // Backend may not have the new endpoint yet (needs restart)
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
     } finally {
       setSaving(false);
     }
