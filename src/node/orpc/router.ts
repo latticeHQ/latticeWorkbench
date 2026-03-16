@@ -4714,6 +4714,12 @@ export const router = (authToken?: string) => {
         .input(schemas.latticeInference.pullModel.input)
         .output(schemas.latticeInference.pullModel.output)
         .handler(async ({ context, input }) => {
+          // Sync configured model directory before downloading
+          const config = context.config.loadConfigOrDefault();
+          const configModelDir = config.inference?.modelDir;
+          if (configModelDir) {
+            context.inferenceService.setModelDir(configModelDir);
+          }
           const modelDir = await context.inferenceService.pullModel(input.modelId);
           return { modelDir };
         }),
@@ -4721,12 +4727,24 @@ export const router = (authToken?: string) => {
         .input(schemas.latticeInference.deleteModel.input)
         .output(schemas.latticeInference.deleteModel.output)
         .handler(async ({ context, input }) => {
+          // Sync configured model directory before deleting
+          const config = context.config.loadConfigOrDefault();
+          const configModelDir = config.inference?.modelDir;
+          if (configModelDir) {
+            context.inferenceService.setModelDir(configModelDir);
+          }
           await context.inferenceService.deleteModel(input.modelId);
         }),
       loadModel: t
         .input(schemas.latticeInference.loadModel.input)
         .output(schemas.latticeInference.loadModel.output)
         .handler(async ({ context, input }) => {
+          // Sync configured model directory before loading
+          const config = context.config.loadConfigOrDefault();
+          const configModelDir = config.inference?.modelDir;
+          if (configModelDir) {
+            context.inferenceService.setModelDir(configModelDir);
+          }
           await context.inferenceService.loadModel(input.modelId, input.backend);
 
           // Auto-register the loaded model in the provider config so it

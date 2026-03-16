@@ -48,12 +48,30 @@ export class InferenceService extends EventEmitter {
   private _loadedModelId: string | null = null;
   private appResourcesPath?: string;
 
+  private _modelDir: string;
+
   constructor(_rootDir: string, appResourcesPath?: string) {
     super();
     this.setMaxListeners(500);
     this.appResourcesPath = appResourcesPath;
-    const cacheDir = path.join(os.homedir(), ".lattice", "models");
-    this.downloader = new HfDownloader(cacheDir);
+    this._modelDir = path.join(os.homedir(), ".lattice", "models");
+    this.downloader = new HfDownloader(this._modelDir);
+  }
+
+  /**
+   * Get the current model storage directory.
+   */
+  get modelDir(): string {
+    return this._modelDir;
+  }
+
+  /**
+   * Update the model storage directory at runtime.
+   * Takes effect for subsequent downloads; Go binary needs restart for its cache.
+   */
+  setModelDir(dir: string): void {
+    this._modelDir = dir;
+    this.downloader = new HfDownloader(dir);
   }
 
   /**
@@ -66,7 +84,7 @@ export class InferenceService extends EventEmitter {
 
       this.processManager = new InferredProcessManager(binaryPath, {
         pythonPath,
-        modelDir: path.join(os.homedir(), ".lattice", "models"),
+        modelDir: this._modelDir,
       });
 
       // Auto-restart on crash
@@ -119,20 +137,31 @@ export class InferenceService extends EventEmitter {
    * Note: Go binary unloads it from pool automatically if loaded.
    */
   async deleteModel(id: string): Promise<void> {
-    await this.ensureRunning();
-    // Unload from pool if loaded
-    const status = await this.httpClient!.getStatus();
-    const isLoaded = status.loaded_models.some((m) => m.model_id === id);
-    if (isLoaded) {
-      await this.httpClient!.unloadModel(id);
+    // Unload from pool if the Go binary is running
+    if (this.isAvailable) {
+      try {
+        const status = await this.httpClient!.getStatus();
+        const isLoaded = status.loaded_models.some((m) => m.model_id === id);
+        if (isLoaded) {
+          await this.httpClient!.unloadModel(id);
+        }
+      } catch {
+        // Go binary may not be available
+      }
     }
-    // Delete from disk — delegate to Go binary or do it locally
+
+    // Delete from disk using ModelRegistry
+    const { ModelRegistry } = await import("./modelRegistry");
+    const registry = new ModelRegistry(this._modelDir);
+    await registry.deleteModel(id);
+
     this.languageModels.delete(id);
 
     if (this._loadedModelId === id) {
       this._loadedModelId = null;
       this.emit("model-unloaded");
     }
+    log.info(`[inference] deleted model: ${id} from ${this._modelDir}`);
   }
 
   // ─── Model Download ─────────────────────────────────────────────────
