@@ -183,14 +183,29 @@ export async function extractCookiesFromCdp(
     }
   }
 
-  // Filter to Google auth cookies
+  // Filter to Google auth cookies.
+  // Domain-specific cookies like OSID differ per service (Gmail vs NotebookLM).
+  // We must prefer notebooklm.google.com cookies over other Google domains
+  // to avoid saving e.g. Gmail's OSID instead of NotebookLM's.
   const googleCookies: Record<string, string> = {};
+  const cookieDomainPriority: Record<string, number> = {};
+
+  // Score: higher = preferred. notebooklm domain wins over generic .google.com
+  const domainScore = (domain: string): number => {
+    if (domain.includes("notebooklm.google.com")) return 3;
+    if (domain === ".google.com" || domain === "google.com") return 2;
+    if (domain.includes(".google.com")) return 1;
+    return 0;
+  };
+
   for (const cookie of cookies) {
-    if (
-      cookie.domain.includes(".google.com") ||
-      cookie.domain.includes("notebooklm.google.com")
-    ) {
+    const score = domainScore(cookie.domain);
+    if (score === 0) continue;
+
+    const existing = cookieDomainPriority[cookie.name] ?? -1;
+    if (score >= existing) {
       googleCookies[cookie.name] = cookie.value;
+      cookieDomainPriority[cookie.name] = score;
     }
   }
 
