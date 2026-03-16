@@ -1129,6 +1129,8 @@ export const MCPSettingsSection: React.FC = () => {
           <code className="text-accent">~/.lattice/mcp.jsonc</code>, with optional repo overrides in{" "}
           <code className="text-accent">./.lattice/mcp.jsonc</code> and minion overrides in{" "}
           <code className="text-accent">.lattice/mcp.local.jsonc</code>.
+          {" "}Changes are automatically synced to{" "}
+          <code className="text-accent">.mcp.json</code> for Claude Code and other external tools.
         </p>
       </div>
 
@@ -1256,7 +1258,29 @@ export const MCPSettingsSection: React.FC = () => {
                         </Tooltip>
                         <div className={cn("min-w-0", !isEnabled && "opacity-50")}>
                           <div className="flex items-center gap-2">
+                            <span className={cn(
+                              "h-2 w-2 shrink-0 rounded-full",
+                              cached?.result.success
+                                ? "bg-green-500"
+                                : cached && !cached.result.success
+                                  ? "bg-red-500"
+                                  : "bg-zinc-500"
+                            )} title={
+                              cached?.result.success
+                                ? `Healthy — tested ${formatRelativeTime(cached.testedAt)}`
+                                : cached && !cached.result.success
+                                  ? "Connection failed"
+                                  : "Not tested"
+                            } />
                             <span className="text-foreground text-sm font-medium">{name}</span>
+                            <span className={cn(
+                              "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                              entry.transport === "stdio"
+                                ? "bg-blue-500/10 text-blue-400"
+                                : "bg-purple-500/10 text-purple-400"
+                            )}>
+                              {entry.transport}
+                            </span>
                             {cached?.result.success && !isEditing && isEnabled && (
                               <Tooltip>
                                 <TooltipTrigger asChild>
@@ -1270,6 +1294,11 @@ export const MCPSettingsSection: React.FC = () => {
                               </Tooltip>
                             )}
                             {!isEnabled && <span className="text-muted text-xs">disabled</span>}
+                            {cached && !cached.result.success && !isEditing && (
+                              <span className="text-muted/60 text-xs">
+                                tested {formatRelativeTime(cached.testedAt)}
+                              </span>
+                            )}
                           </div>
                           {isEditing ? (
                             <div className="mt-2 space-y-2">
