@@ -46,8 +46,9 @@ const usage = await getSessionUsage(c, ws.minionId);
 | `kanban` | 3 | Kanban board: list cards, move between columns, get archived buffer |
 | `scheduler` | 6 | Task scheduler: create/manage cron or interval automated tasks |
 | `sync` | 9 | Git sync: push/pull state, manage repos, check GitHub auth, configure categories |
+| `openbb` | 20 | Financial data: equity quotes/history/fundamentals, crypto, FX, indices, technicals, FRED, treasury rates, options, futures, news |
 
-**Total: 202 typed functions** covering the full Lattice oRPC API surface.
+**Total: 222 typed functions** covering the full Lattice oRPC API surface.
 
 ## Module Details
 
