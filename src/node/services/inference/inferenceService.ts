@@ -325,6 +325,8 @@ export class InferenceService extends EventEmitter {
       localPath: m.localPath ?? "",
       backend: m.backend,
       pulledAt: m.pulledAt,
+      storageLocation: m.storageLocation,
+      storageLabel: m.storageLabel,
     };
   }
 

@@ -70,6 +70,8 @@ export interface ModelInfo {
   localPath: string;
   backend?: string;
   pulledAt?: string; // ISO date
+  storageLocation?: "local" | "nas" | "external";
+  storageLabel?: string;
 }
 
 /** Manifest written to .lattice-model.json after a successful pull. */

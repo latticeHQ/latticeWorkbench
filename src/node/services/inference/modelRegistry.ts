@@ -127,6 +127,11 @@ export class ModelRegistry {
     info.format = await detectFormat(modelPath);
     info.sizeBytes = await calcDirSize(modelPath);
 
+    // Detect storage location from path
+    const sl = detectStorageLocation(modelPath);
+    info.storageLocation = sl.location;
+    info.storageLabel = sl.label;
+
     return info;
   }
 
@@ -174,6 +179,46 @@ export function normalizeModelID(id: string): string {
  */
 export function denormalizeModelID(name: string): string {
   return name.replace("--", "/");
+}
+
+/**
+ * Detect whether a model path is on local storage, NAS, or external drive.
+ */
+function detectStorageLocation(modelPath: string): {
+  location: "local" | "nas" | "external";
+  label: string;
+} {
+  const home = os.homedir();
+
+  // NAS: mounted network volumes (macOS /Volumes/..., Linux /mnt/..., SMB/NFS mounts)
+  if (
+    modelPath.startsWith("/Volumes/") &&
+    !modelPath.startsWith("/Volumes/Macintosh HD")
+  ) {
+    const volumeName = modelPath.split("/")[2] || "NAS";
+    return { location: "nas", label: volumeName };
+  }
+  if (modelPath.startsWith("/mnt/") || modelPath.startsWith("/media/")) {
+    const mountName = modelPath.split("/")[2] || "NAS";
+    return { location: "nas", label: mountName };
+  }
+  // SMB/NFS paths
+  if (modelPath.startsWith("//") || modelPath.startsWith("smb://") || modelPath.startsWith("nfs://")) {
+    return { location: "nas", label: "Network Share" };
+  }
+
+  // Local: under home directory default cache
+  if (modelPath.startsWith(path.join(home, ".lattice"))) {
+    return { location: "local", label: "Local" };
+  }
+
+  // External: anything else on /Volumes (macOS external drive)
+  if (modelPath.startsWith("/Volumes/")) {
+    const volumeName = modelPath.split("/")[2] || "External";
+    return { location: "external", label: volumeName };
+  }
+
+  return { location: "local", label: "Local" };
 }
 
 /**

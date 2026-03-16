@@ -602,12 +602,12 @@ function SetupSection({ onSetupComplete }: { onSetupComplete: () => void }) {
                 <StatusRow
                   label="Platform"
                   ok={setupStatus.platform === "apple-silicon"}
-                  text={setupStatus.platform}
+                  text={setupStatus.platform === "apple-silicon" ? "Apple Silicon" : setupStatus.platform}
                 />
                 <StatusRow
                   label="Backend"
                   ok={!!setupStatus.detectedBackend}
-                  text={setupStatus.detectedBackend ?? "none"}
+                  text={setupStatus.detectedBackend ? setupStatus.detectedBackend.toUpperCase() : "Not detected"}
                 />
               </div>
 
@@ -666,7 +666,7 @@ function StatusRow({ label, ok, text }: { label: string; ok: boolean; text?: str
         <XCircle className="h-3 w-3 shrink-0 text-red-400" />
       )}
       <span className="text-muted">{label}</span>
-      {text && <span className="text-foreground ml-auto">{text}</span>}
+      {text && <span className="text-muted">{text}</span>}
     </div>
   );
 }

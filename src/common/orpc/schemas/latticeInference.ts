@@ -13,6 +13,10 @@ export const LatticeModelInfoSchema = z.object({
   localPath: z.string(),
   backend: z.string().optional(),
   pulledAt: z.string().optional(),
+  /** Where the model is stored: "local" (default cache), "nas" (network-attached storage), or "external" */
+  storageLocation: z.enum(["local", "nas", "external"]).optional(),
+  /** Human-readable storage label (e.g. "DS1525", "NAS", volume name) */
+  storageLabel: z.string().optional(),
 });
 
 export const LoadedModelInfoSchema = z.object({
