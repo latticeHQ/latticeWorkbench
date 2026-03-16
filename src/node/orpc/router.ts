@@ -4071,6 +4071,154 @@ export const router = (authToken?: string) => {
         .handler(async ({ context, input }) => {
           return context.browserService.selectOption(input.minionId, input.ref, input.value);
         }),
+
+      // ── Phase 4: Full-strength agent-browser ──
+
+      saveState: t
+        .input(schemas.browser.saveState.input)
+        .output(schemas.browser.saveState.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.saveState(input.minionId, input.path, input.encrypt);
+        }),
+      restoreState: t
+        .input(schemas.browser.restoreState.input)
+        .output(schemas.browser.restoreState.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.restoreState(input.minionId, input.path);
+        }),
+      storage: t
+        .input(schemas.browser.storage.input)
+        .output(schemas.browser.storage.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.storage(
+            input.minionId,
+            input.storageType,
+            input.action,
+            input.key,
+            input.value,
+          );
+        }),
+      snapshotDiff: t
+        .input(schemas.browser.snapshotDiff.input)
+        .output(schemas.browser.snapshotDiff.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.snapshotDiff(input.minionId);
+        }),
+      screenshotDiff: t
+        .input(schemas.browser.screenshotDiff.input)
+        .output(schemas.browser.screenshotDiff.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.screenshotDiff(input.minionId);
+        }),
+      screenshotElement: t
+        .input(schemas.browser.screenshotElement.input)
+        .output(schemas.browser.screenshotElement.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.screenshotElement(input.minionId, input.ref);
+        }),
+      pdf: t
+        .input(schemas.browser.pdf.input)
+        .output(schemas.browser.pdf.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.pdf(input.minionId, {
+            landscape: input.landscape,
+            format: input.format,
+          });
+        }),
+      consoleLogs: t
+        .input(schemas.browser.consoleLogs.input)
+        .output(schemas.browser.consoleLogs.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.consoleLogs(input.minionId, input.level, input.clear);
+        }),
+      setGeolocation: t
+        .input(schemas.browser.setGeolocation.input)
+        .output(schemas.browser.setGeolocation.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.setGeolocation(
+            input.minionId,
+            input.latitude,
+            input.longitude,
+            input.accuracy,
+          );
+        }),
+      setPermissions: t
+        .input(schemas.browser.setPermissions.input)
+        .output(schemas.browser.setPermissions.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.setPermissions(input.minionId, input.permission, input.state);
+        }),
+      setOffline: t
+        .input(schemas.browser.setOffline.input)
+        .output(schemas.browser.setOffline.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.setOffline(input.minionId, input.offline);
+        }),
+      setHeaders: t
+        .input(schemas.browser.setHeaders.input)
+        .output(schemas.browser.setHeaders.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.setHeaders(input.minionId, input.headers as Record<string, string>);
+        }),
+      interceptNetwork: t
+        .input(schemas.browser.interceptNetwork.input)
+        .output(schemas.browser.interceptNetwork.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.interceptNetwork(
+            input.minionId,
+            input.pattern,
+            input.action,
+            input.modifyResponse,
+          );
+        }),
+      startRecording: t
+        .input(schemas.browser.startRecording.input)
+        .output(schemas.browser.startRecording.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.startRecording(input.minionId, input.outputPath);
+        }),
+      stopRecording: t
+        .input(schemas.browser.stopRecording.input)
+        .output(schemas.browser.stopRecording.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.stopRecording(input.minionId);
+        }),
+      connectProvider: t
+        .input(schemas.browser.connectProvider.input)
+        .output(schemas.browser.connectProvider.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.connectProvider(input.minionId, input.provider);
+        }),
+      listSessions: t
+        .input(schemas.browser.listSessions.input)
+        .output(schemas.browser.listSessions.output)
+        .handler(({ context }) => {
+          return context.browserService.listSessions();
+        }),
+      configureSession: t
+        .input(schemas.browser.configureSession.input)
+        .output(schemas.browser.configureSession.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.configureSession(input.minionId, input.config);
+        }),
+      deleteCookies: t
+        .input(schemas.browser.deleteCookies.input)
+        .output(schemas.browser.deleteCookies.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.deleteCookies(input.minionId, input.name, input.domain);
+        }),
+      scrollToElement: t
+        .input(schemas.browser.scrollToElement.input)
+        .output(schemas.browser.scrollToElement.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.scrollToElement(input.minionId, input.ref);
+        }),
+      scrollByPixels: t
+        .input(schemas.browser.scrollByPixels.input)
+        .output(schemas.browser.scrollByPixels.output)
+        .handler(async ({ context, input }) => {
+          return context.browserService.scrollByPixels(input.minionId, input.direction, input.pixels);
+        }),
     },
 
     // Terminal Profiles — CLI tool detection, install recipes, user config
@@ -4617,6 +4765,88 @@ export const router = (authToken?: string) => {
             queue.end();
             context.inferenceService.off("download-progress", handler);
           }
+        }),
+      getInferenceConfig: t
+        .input(schemas.latticeInference.getInferenceConfig.input)
+        .output(schemas.latticeInference.getInferenceConfig.output)
+        .handler(async ({ context }) => {
+          const os = await import("os");
+          const path = await import("path");
+          const fsp = await import("fs/promises");
+          const config = context.config.loadConfigOrDefault();
+          const defaultDir = path.join(os.homedir(), ".lattice", "models");
+          const modelDir = config.inference?.modelDir || defaultDir;
+          const pollIntervalMs = config.inference?.pollIntervalMs || 5000;
+
+          // Discover available storage locations
+          const storagePaths: Array<{
+            path: string;
+            label: string;
+            type: "local" | "nas" | "external";
+            available: boolean;
+            freeSpaceBytes: number;
+          }> = [];
+
+          // Always include default local path
+          storagePaths.push({
+            path: defaultDir,
+            label: "Default (~/.lattice/models)",
+            type: "local",
+            available: true,
+            freeSpaceBytes: 0,
+          });
+
+          // Scan /Volumes for NAS and external drives (macOS)
+          if (process.platform === "darwin") {
+            try {
+              const volumes = await fsp.readdir("/Volumes", { withFileTypes: true });
+              for (const vol of volumes) {
+                if (!vol.isDirectory() && !vol.isSymbolicLink()) continue;
+                if (vol.name === "Macintosh HD") continue;
+                const volPath = path.join("/Volumes", vol.name, "models");
+                const volBasePath = path.join("/Volumes", vol.name);
+                let available = false;
+                let freeSpace = 0;
+                try {
+                  const stat = await fsp.statfs(volBasePath);
+                  freeSpace = stat.bfree * stat.bsize;
+                  available = true;
+                } catch {
+                  // Volume not accessible
+                }
+                storagePaths.push({
+                  path: volPath,
+                  label: vol.name,
+                  type: available && vol.name.match(/nas|synology|ds\d+/i) ? "nas" : "external",
+                  available,
+                  freeSpaceBytes: freeSpace,
+                });
+              }
+            } catch {
+              // No /Volumes access
+            }
+          }
+
+          // Try to get free space for the current model dir
+          try {
+            const stat = await fsp.statfs(path.dirname(modelDir));
+            storagePaths[0].freeSpaceBytes = stat.bfree * stat.bsize;
+          } catch {
+            // ignore
+          }
+
+          return { modelDir, pollIntervalMs, availableStoragePaths: storagePaths };
+        }),
+      setInferenceConfig: t
+        .input(schemas.latticeInference.setInferenceConfig.input)
+        .output(schemas.latticeInference.setInferenceConfig.output)
+        .handler(async ({ context, input }) => {
+          await context.config.editConfig((cfg) => {
+            if (!cfg.inference) cfg.inference = {};
+            if (input.modelDir !== undefined) cfg.inference.modelDir = input.modelDir;
+            if (input.pollIntervalMs !== undefined) cfg.inference.pollIntervalMs = input.pollIntervalMs;
+            return cfg;
+          });
         }),
     },
 

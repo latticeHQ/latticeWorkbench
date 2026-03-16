@@ -22,6 +22,12 @@ import {
   X,
   Wifi,
   MonitorSmartphone,
+  Gauge,
+  FolderOpen,
+  Clock,
+  History,
+  AlertTriangle,
+  CheckCircle2,
 } from "lucide-react";
 import { useAPI } from "@/browser/contexts/API";
 import type { z } from "zod";
@@ -440,25 +446,53 @@ function LatticeRunningDashboard({
   const { api } = useAPI();
   const [status, setStatus] = useState<LatticeInferenceStatus>(initialStatus);
   const [refreshing, setRefreshing] = useState(false);
+  const [pollIntervalMs, setPollIntervalMs] = useState(5_000);
+  const [lastBenchmark, setLastBenchmark] = useState<BenchmarkResult | null>(null);
+  const [modelHistory, setModelHistory] = useState<Array<{ modelId: string; action: "loaded" | "unloaded"; timestamp: string }>>([]);
+
+  // Load polling interval from server config
+  useEffect(() => {
+    if (!api) return;
+    (async () => {
+      try {
+        const cfg = await (api as any).latticeInference.getInferenceConfig();
+        if (cfg?.pollIntervalMs) setPollIntervalMs(cfg.pollIntervalMs);
+      } catch { /* use default */ }
+    })();
+  }, [api]);
 
   const refreshAll = useCallback(async () => {
     if (!api) return;
     setRefreshing(true);
     try {
+      const prevLoaded = new Set(status.loadedModels.map(m => m.model_id));
       const statusRes = await (api as any).latticeInference.getStatus() as LatticeInferenceStatus;
+      // Track model load/unload events
+      const newLoaded = new Set(statusRes.loadedModels.map(m => m.model_id));
+      const now = new Date().toISOString();
+      for (const id of newLoaded) {
+        if (!prevLoaded.has(id)) {
+          setModelHistory(prev => [{ modelId: id, action: "loaded" as const, timestamp: now }, ...prev].slice(0, 50));
+        }
+      }
+      for (const id of prevLoaded) {
+        if (!newLoaded.has(id)) {
+          setModelHistory(prev => [{ modelId: id, action: "unloaded" as const, timestamp: now }, ...prev].slice(0, 50));
+        }
+      }
       setStatus(statusRes);
     } catch { /* keep existing */ }
     setRefreshing(false);
-  }, [api]);
+  }, [api, status.loadedModels]);
 
-  // Auto-refresh status bar every 5 seconds for live data
+  // Auto-refresh with configurable interval
   useEffect(() => {
     if (!api) return;
     const interval = setInterval(() => {
       void refreshAll();
-    }, 5_000);
+    }, pollIntervalMs);
     return () => clearInterval(interval);
-  }, [api, refreshAll]);
+  }, [api, refreshAll, pollIntervalMs]);
 
   return (
     <div className="flex h-full bg-[#0a0a0a] text-neutral-200">
@@ -489,12 +523,12 @@ function LatticeRunningDashboard({
 
         {/* View content */}
         <div className="flex-1 overflow-y-auto">
-          {activeView === "dashboard" && <DashboardOverview status={status} />}
+          {activeView === "dashboard" && <DashboardOverview status={status} lastBenchmark={lastBenchmark} modelHistory={modelHistory} />}
           {activeView === "models" && <DarkModelsView initialStatus={status} />}
           {activeView === "pool" && <DarkPoolView status={status} />}
           {activeView === "machines" && <DarkMachinesView />}
           {activeView === "network" && <DarkNetworkView />}
-          {activeView === "benchmark" && <DarkBenchmarkView />}
+          {activeView === "benchmark" && <DarkBenchmarkView onResult={setLastBenchmark} />}
           {activeView === "metrics" && <DarkMetricsView />}
           {activeView === "setup" && <DarkSetupView />}
           {activeView === "config" && <DarkConfigView />}
@@ -516,9 +550,43 @@ function DarkStat({ icon, label, value }: { icon: React.ReactNode; label: string
 }
 
 /** Dashboard overview — summary of all sections */
-function DashboardOverview({ status }: { status: LatticeInferenceStatus }) {
+function DashboardOverview({
+  status,
+  lastBenchmark,
+  modelHistory,
+}: {
+  status: LatticeInferenceStatus;
+  lastBenchmark: BenchmarkResult | null;
+  modelHistory: Array<{ modelId: string; action: "loaded" | "unloaded"; timestamp: string }>;
+}) {
+  const { api } = useAPI();
+  const [clusterNodes, setClusterNodes] = useState<LatticeInferenceClusterNode[]>([]);
   const vramPct = status.memoryBudgetBytes > 0
     ? (status.estimatedVramBytes / status.memoryBudgetBytes) * 100 : 0;
+
+  // Fetch cluster nodes for memory pressure data
+  useEffect(() => {
+    if (!api) return;
+    let cancelled = false;
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const stream = await (api as any).latticeInferenceCluster.subscribe(undefined, { signal: ac.signal });
+        for await (const snapshot of stream as AsyncIterable<LatticeInferenceClusterStatus>) {
+          if (cancelled) break;
+          if (snapshot.status === "running") {
+            setClusterNodes(snapshot.clusterState.nodes);
+          }
+        }
+      } catch { /* ended */ }
+    })();
+    return () => { cancelled = true; ac.abort(); };
+  }, [api]);
+
+  const localNode = clusterNodes.find(n => n.isLocal);
+  const memPressure = localNode?.memoryPressure ?? null;
+  const cpuUtil = localNode?.cpuUtilization ?? null;
+  const gpuUtil = localNode?.gpuUtilization ?? null;
 
   return (
     <div className="p-4">
@@ -532,6 +600,47 @@ function DashboardOverview({ status }: { status: LatticeInferenceStatus }) {
         <DarkCard title="Memory Budget" value={formatBytes(status.memoryBudgetBytes)} />
       </div>
 
+      {/* System metrics row — CPU, GPU, Memory Pressure */}
+      {localNode && (
+        <div className="mb-4 grid grid-cols-3 gap-3">
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-3">
+            <div className="flex items-center gap-1.5">
+              <Cpu className="h-3 w-3 text-neutral-600" />
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-neutral-600">CPU</span>
+            </div>
+            <div className="mt-1 text-lg font-bold tabular-nums text-neutral-200">{cpuUtil ?? 0}%</div>
+            <DarkMemoryBar percent={cpuUtil ?? 0} />
+          </div>
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-3">
+            <div className="flex items-center gap-1.5">
+              <Gauge className="h-3 w-3 text-neutral-600" />
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-neutral-600">GPU</span>
+            </div>
+            <div className="mt-1 text-lg font-bold tabular-nums text-neutral-200">{gpuUtil ?? 0}%</div>
+            <DarkMemoryBar percent={gpuUtil ?? 0} />
+          </div>
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900/50 p-3">
+            <div className="flex items-center gap-1.5">
+              <Activity className="h-3 w-3 text-neutral-600" />
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-neutral-600">Mem Pressure</span>
+            </div>
+            <div className={`mt-1 text-lg font-bold tabular-nums ${
+              memPressure != null && memPressure > 80 ? "text-red-500"
+                : memPressure != null && memPressure > 50 ? "text-yellow-500"
+                : "text-green-500"
+            }`}>
+              {memPressure != null ? `${memPressure}%` : "—"}
+            </div>
+            {memPressure != null && <DarkMemoryBar percent={memPressure} />}
+            {memPressure != null && (
+              <div className="mt-1 text-[9px] text-neutral-500">
+                {memPressure <= 30 ? "Nominal" : memPressure <= 60 ? "Moderate" : memPressure <= 80 ? "Warning" : "Critical"}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* VRAM bar */}
       <div className="mb-4">
         <div className="mb-1 flex justify-between text-[10px]">
@@ -543,9 +652,24 @@ function DashboardOverview({ status }: { status: LatticeInferenceStatus }) {
         <DarkMemoryBar percent={vramPct} />
       </div>
 
+      {/* Last Benchmark Result (inline widget) */}
+      {lastBenchmark && (
+        <div className="mb-4 rounded-lg border border-neutral-800 bg-neutral-900/50 p-3">
+          <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+            <Zap className="h-3 w-3" />
+            Last Benchmark
+          </h3>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div><span className="text-neutral-600">Model</span><div className="font-medium text-neutral-200">{lastBenchmark.model}</div></div>
+            <div><span className="text-neutral-600">Speed</span><div className="font-bold text-[#00ACFF] tabular-nums">{lastBenchmark.tokens_per_second.toFixed(1)} tok/s</div></div>
+            <div><span className="text-neutral-600">TTFT</span><div className="font-medium text-neutral-200 tabular-nums">{lastBenchmark.time_to_first_token_ms.toFixed(0)}ms</div></div>
+          </div>
+        </div>
+      )}
+
       {/* Loaded models quick list */}
       {status.loadedModels.length > 0 && (
-        <div>
+        <div className="mb-4">
           <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">Active Models</h3>
           <div className="space-y-1">
             {status.loadedModels.map((lm) => (
@@ -555,6 +679,26 @@ function DashboardOverview({ status }: { status: LatticeInferenceStatus }) {
                 <span className="text-neutral-600">·</span>
                 <span className="text-neutral-500">{lm.backend}</span>
                 <span className="ml-auto text-neutral-600 tabular-nums">{formatBytes(lm.estimated_bytes)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Model Load/Unload History */}
+      {modelHistory.length > 0 && (
+        <div>
+          <h3 className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+            <History className="h-3 w-3" />
+            Recent Activity
+          </h3>
+          <div className="max-h-32 space-y-0.5 overflow-y-auto">
+            {modelHistory.slice(0, 10).map((entry, i) => (
+              <div key={i} className="flex items-center gap-2 text-[10px]">
+                <span className={`h-1.5 w-1.5 rounded-full ${entry.action === "loaded" ? "bg-green-500" : "bg-yellow-500"}`} />
+                <span className="text-neutral-400">{entry.action === "loaded" ? "Loaded" : "Unloaded"}</span>
+                <span className="font-medium text-neutral-300">{entry.modelId}</span>
+                <span className="ml-auto text-neutral-600">{formatRelativeTime(entry.timestamp)}</span>
               </div>
             ))}
           </div>
@@ -715,6 +859,9 @@ function DarkModelsView({ initialStatus }: { initialStatus: LatticeInferenceStat
                       <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${storageBadgeColor}`}>
                         {storageType === "nas" ? <Network className="h-2.5 w-2.5" /> : <HardDrive className="h-2.5 w-2.5" />}
                         {storageLabel}
+                        {storageType === "nas" && (
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-500" title="NAS Connected" />
+                        )}
                       </span>
                     </td>
                     <td className="py-1.5 pr-2"><span className="rounded bg-neutral-800 px-1 py-0.5 text-neutral-400">{model.format}</span></td>
@@ -740,10 +887,7 @@ function DarkModelsView({ initialStatus }: { initialStatus: LatticeInferenceStat
           </table>
         </div>
       )}
-      <p className="mt-3 text-[10px] text-neutral-600">
-        <HardDrive className="mr-0.5 inline h-3 w-3" />
-        Model storage: <code className="rounded bg-neutral-800 px-1 text-neutral-400">~/.lattice/models</code>
-      </p>
+      <ModelStorageFooter />
     </div>
   );
 }
@@ -913,7 +1057,7 @@ function DarkNetworkView() {
 }
 
 /** Dark benchmark view */
-function DarkBenchmarkView() {
+function DarkBenchmarkView({ onResult }: { onResult?: (result: BenchmarkResult) => void }) {
   const { api } = useAPI();
   const [modelId, setModelId] = useState("");
   const [running, setRunning] = useState(false);
@@ -926,6 +1070,7 @@ function DarkBenchmarkView() {
     try {
       const res = await (api as any).latticeInference.runBenchmark({ modelId: modelId.trim() || undefined });
       setResult(res);
+      onResult?.(res);
     } catch (err) { setError(String(err)); }
     finally { setRunning(false); }
   };
@@ -1013,23 +1158,216 @@ function DarkSetupView() {
   );
 }
 
-/** Dark config view placeholder */
+/** Dark config view — storage location, polling interval, and system info */
 function DarkConfigView() {
+  const { api } = useAPI();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [modelDir, setModelDir] = useState("~/.lattice/models");
+  const [pollInterval, setPollInterval] = useState(5000);
+  const [storagePaths, setStoragePaths] = useState<Array<{
+    path: string; label: string; type: "local" | "nas" | "external"; available: boolean; freeSpaceBytes: number;
+  }>>([]);
+  const [customPath, setCustomPath] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "error">("idle");
+
+  useEffect(() => {
+    if (!api) return;
+    (async () => {
+      try {
+        const cfg = await (api as any).latticeInference.getInferenceConfig();
+        setModelDir(cfg.modelDir);
+        setPollInterval(cfg.pollIntervalMs);
+        setStoragePaths(cfg.availableStoragePaths);
+      } catch { /* use defaults */ }
+      finally { setLoading(false); }
+    })();
+  }, [api]);
+
+  const handleSave = async (newDir?: string, newInterval?: number) => {
+    if (!api) return;
+    setSaving(true);
+    setSaveStatus("idle");
+    try {
+      await (api as any).latticeInference.setInferenceConfig({
+        modelDir: newDir ?? modelDir,
+        pollIntervalMs: newInterval ?? pollInterval,
+      });
+      if (newDir) setModelDir(newDir);
+      if (newInterval) setPollInterval(newInterval);
+      setSaveStatus("saved");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    } catch {
+      setSaveStatus("error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCustomPathSubmit = () => {
+    if (!customPath.trim()) return;
+    void handleSave(customPath.trim());
+    setShowCustom(false);
+    setCustomPath("");
+  };
+
+  if (loading) {
+    return <div className="flex h-full items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-neutral-600" /></div>;
+  }
+
   return (
     <div className="p-4">
-      <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-neutral-400">Configuration</h2>
-      <div className="space-y-2 text-xs text-neutral-400">
-        <div className="flex justify-between rounded bg-neutral-900 px-3 py-2">
-          <span className="text-neutral-500">Model storage</span>
-          <code className="text-neutral-300">~/.lattice/models</code>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-neutral-400">Configuration</h2>
+        {saveStatus === "saved" && (
+          <span className="flex items-center gap-1 text-[10px] text-green-500">
+            <CheckCircle2 className="h-3 w-3" /> Saved
+          </span>
+        )}
+        {saveStatus === "error" && (
+          <span className="flex items-center gap-1 text-[10px] text-red-500">
+            <AlertTriangle className="h-3 w-3" /> Failed to save
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        {/* Model Storage Location */}
+        <div>
+          <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+            <FolderOpen className="h-3 w-3" />
+            Model Storage Location
+          </label>
+          <div className="space-y-1.5">
+            {storagePaths.map((sp) => (
+              <button
+                key={sp.path}
+                type="button"
+                onClick={() => void handleSave(sp.path)}
+                disabled={saving || !sp.available}
+                className={`flex w-full items-center justify-between rounded-md border px-3 py-2 text-left text-xs transition-colors ${
+                  modelDir === sp.path
+                    ? "border-[#00ACFF] bg-[#00ACFF]/10 text-neutral-200"
+                    : sp.available
+                      ? "border-neutral-800 bg-neutral-900 text-neutral-400 hover:border-neutral-700"
+                      : "border-neutral-800/50 bg-neutral-900/30 text-neutral-600 opacity-50"
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  {sp.type === "nas" ? <Network className="h-3.5 w-3.5 text-purple-400" /> :
+                   sp.type === "external" ? <HardDrive className="h-3.5 w-3.5 text-orange-400" /> :
+                   <FolderOpen className="h-3.5 w-3.5 text-neutral-500" />}
+                  <div>
+                    <div className="font-medium">{sp.label}</div>
+                    <div className="text-[10px] text-neutral-600">{sp.path}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {sp.available && sp.freeSpaceBytes > 0 && (
+                    <span className="text-[10px] text-neutral-500">{formatBytes(sp.freeSpaceBytes)} free</span>
+                  )}
+                  {!sp.available && (
+                    <span className="flex items-center gap-0.5 text-[10px] text-red-400">
+                      <AlertTriangle className="h-2.5 w-2.5" /> Offline
+                    </span>
+                  )}
+                  {modelDir === sp.path && <Check className="h-3.5 w-3.5 text-[#00ACFF]" />}
+                </div>
+              </button>
+            ))}
+
+            {/* Custom path */}
+            {showCustom ? (
+              <div className="flex gap-1">
+                <input
+                  type="text"
+                  value={customPath}
+                  onChange={(e) => setCustomPath(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleCustomPathSubmit()}
+                  placeholder="/path/to/models"
+                  className="flex-1 rounded border border-neutral-700 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-200 outline-none placeholder:text-neutral-600 focus:border-[#00ACFF]"
+                  autoFocus
+                />
+                <button type="button" onClick={handleCustomPathSubmit} disabled={!customPath.trim()}
+                  className="rounded bg-[#00ACFF] px-2 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                  Set
+                </button>
+                <button type="button" onClick={() => { setShowCustom(false); setCustomPath(""); }}
+                  className="rounded border border-neutral-700 px-2 py-1.5 text-xs text-neutral-400">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowCustom(true)}
+                className="flex w-full items-center gap-2 rounded-md border border-dashed border-neutral-700 px-3 py-2 text-xs text-neutral-500 hover:border-neutral-600 hover:text-neutral-400"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                Custom path...
+              </button>
+            )}
+          </div>
+          <p className="mt-1 text-[10px] text-neutral-600">
+            Select where downloaded models are stored. Requires restart to take effect.
+          </p>
         </div>
-        <div className="flex justify-between rounded bg-neutral-900 px-3 py-2">
-          <span className="text-neutral-500">API endpoint</span>
-          <code className="text-neutral-300">http://localhost:8392</code>
+
+        {/* Polling Interval */}
+        <div>
+          <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+            <Clock className="h-3 w-3" />
+            Metrics Refresh Interval
+          </label>
+          <div className="flex gap-1">
+            {[
+              { label: "1s", value: 1000 },
+              { label: "3s", value: 3000 },
+              { label: "5s", value: 5000 },
+              { label: "10s", value: 10000 },
+              { label: "30s", value: 30000 },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => void handleSave(undefined, opt.value)}
+                disabled={saving}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  pollInterval === opt.value
+                    ? "bg-[#00ACFF] text-white"
+                    : "border border-neutral-700 bg-neutral-900 text-neutral-400 hover:text-neutral-200"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1 text-[10px] text-neutral-600">
+            How often CPU, GPU, and memory metrics are refreshed in the dashboard.
+          </p>
         </div>
-        <div className="flex justify-between rounded bg-neutral-900 px-3 py-2">
-          <span className="text-neutral-500">Binary</span>
-          <code className="text-neutral-300">~/.lattice/bin/latticeinference</code>
+
+        {/* Static info */}
+        <div>
+          <label className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">
+            <Settings className="h-3 w-3" />
+            System
+          </label>
+          <div className="space-y-1 text-xs">
+            <div className="flex justify-between rounded bg-neutral-900 px-3 py-2">
+              <span className="text-neutral-500">Model storage</span>
+              <code className="text-neutral-300">{modelDir}</code>
+            </div>
+            <div className="flex justify-between rounded bg-neutral-900 px-3 py-2">
+              <span className="text-neutral-500">API endpoint</span>
+              <code className="text-neutral-300">http://localhost:8392</code>
+            </div>
+            <div className="flex justify-between rounded bg-neutral-900 px-3 py-2">
+              <span className="text-neutral-500">Binary</span>
+              <code className="text-neutral-300">~/.lattice/bin/latticeinference</code>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1206,8 +1544,21 @@ function MachineCard({ node }: { node: LatticeInferenceClusterNode }) {
               </span>
             </div>
           )}
+          {/* Memory Pressure */}
+          {(node as any).memoryPressure != null && (
+            <div className="flex flex-col">
+              <span className="text-[8px] font-medium uppercase tracking-wider text-neutral-600">MEM.P</span>
+              <span className={`text-[11px] font-bold tabular-nums ${
+                (node as any).memoryPressure > 80 ? "text-red-500"
+                  : (node as any).memoryPressure > 50 ? "text-yellow-500"
+                  : "text-green-500"
+              }`}>
+                {Math.round((node as any).memoryPressure)}%
+              </span>
+            </div>
+          )}
           {/* Fallback: show tok/s if no thermal data */}
-          {temp == null && power == null && node.tokensPerSecond > 0 && (
+          {temp == null && power == null && (node as any).memoryPressure == null && node.tokensPerSecond > 0 && (
             <div className="flex flex-col">
               <span className="text-[8px] font-medium uppercase tracking-wider text-neutral-600">SPEED</span>
               <span className="text-[11px] font-bold tabular-nums text-[#00ACFF]">
@@ -1352,6 +1703,61 @@ function BenchmarkStat({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-muted">{label}</div>
       <div className="font-medium text-[var(--color-fg)]">{value}</div>
+    </div>
+  );
+}
+
+/** Shows current model storage path with NAS connectivity indicator */
+function ModelStorageFooter() {
+  const { api } = useAPI();
+  const [storageInfo, setStorageInfo] = useState<{
+    modelDir: string;
+    type: "local" | "nas" | "external";
+    available: boolean;
+    freeSpaceBytes: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!api) return;
+    (async () => {
+      try {
+        const cfg = await (api as any).latticeInference.getInferenceConfig();
+        const currentPath = cfg.modelDir;
+        const match = cfg.availableStoragePaths.find((p: any) => p.path === currentPath);
+        setStorageInfo({
+          modelDir: currentPath,
+          type: match?.type ?? "local",
+          available: match?.available ?? true,
+          freeSpaceBytes: match?.freeSpaceBytes ?? 0,
+        });
+      } catch { /* ignore */ }
+    })();
+  }, [api]);
+
+  if (!storageInfo) return null;
+
+  return (
+    <div className="mt-3 flex items-center gap-2 text-[10px] text-neutral-600">
+      {storageInfo.type === "nas" ? (
+        <>
+          <Network className="h-3 w-3" />
+          <span>NAS storage:</span>
+          <code className="rounded bg-neutral-800 px-1 text-neutral-400">{storageInfo.modelDir}</code>
+          <span className={`flex items-center gap-0.5 ${storageInfo.available ? "text-green-500" : "text-red-400"}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${storageInfo.available ? "bg-green-500" : "bg-red-500"}`} />
+            {storageInfo.available ? "Connected" : "Disconnected"}
+          </span>
+        </>
+      ) : (
+        <>
+          <HardDrive className="h-3 w-3" />
+          <span>Model storage:</span>
+          <code className="rounded bg-neutral-800 px-1 text-neutral-400">{storageInfo.modelDir}</code>
+        </>
+      )}
+      {storageInfo.freeSpaceBytes > 0 && (
+        <span className="text-neutral-500">({formatBytes(storageInfo.freeSpaceBytes)} free)</span>
+      )}
     </div>
   );
 }

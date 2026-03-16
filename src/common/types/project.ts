@@ -216,4 +216,17 @@ export interface ProjectsConfig {
     autoStartGraphDb?: boolean;
     accuracyTrackingEnabled?: boolean;
   };
+
+  /**
+   * Local inference engine settings.
+   *
+   * Persisted so model storage directory and polling preferences
+   * survive app restarts. Partial — missing keys fall back to defaults.
+   */
+  inference?: {
+    /** Custom model storage directory (default: ~/.lattice/models) */
+    modelDir?: string;
+    /** Metrics polling interval in milliseconds (default: 5000) */
+    pollIntervalMs?: number;
+  };
 }

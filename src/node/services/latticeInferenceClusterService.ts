@@ -26,6 +26,7 @@ export interface LatticeInferenceClusterNode {
   temperature: number | null;
   powerWatts: number | null;
   cpuUtilization: number | null;
+  memoryPressure: number | null;
   connectionType: string;
   bandwidthBytesPerSec: number | null;
   tokensPerSecond: number;
@@ -303,6 +304,7 @@ export class LatticeInferenceClusterService {
             temperature: (ext.temperature as number) ?? (isLocal ? localMetrics.temperature : null),
             powerWatts: (ext.power_watts as number) ?? (isLocal ? localMetrics.powerWatts : null),
             cpuUtilization: (ext.cpu_utilization as number) ?? (isLocal ? localMetrics.cpuUtilization : null),
+            memoryPressure: (ext.memory_pressure as number) ?? (isLocal ? localMetrics.memoryPressure : null),
             connectionType: (ext.connection_type as string) ?? "local",
             bandwidthBytesPerSec: (ext.bandwidth_bytes_per_sec as number) ?? null,
             tokensPerSecond: n.tokens_per_second_avg ?? 0,
@@ -335,6 +337,7 @@ export class LatticeInferenceClusterService {
             temperature: localMetrics.temperature,
             powerWatts: localMetrics.powerWatts,
             cpuUtilization: localMetrics.cpuUtilization,
+            memoryPressure: localMetrics.memoryPressure,
             connectionType: "local",
             bandwidthBytesPerSec: null,
             tokensPerSecond: 0,

@@ -1848,7 +1848,7 @@ export const browser = {
   setHeaders: {
     input: z.object({
       minionId: z.string(),
-      headers: z.record(z.string()).describe("Header name-value pairs"),
+      headers: z.record(z.string(), z.string()).describe("Header name-value pairs"),
     }),
     output: BrowserActionResultSchema,
   },
@@ -2185,6 +2185,29 @@ export const latticeInference = {
   onDownloadProgress: {
     input: z.void(),
     output: eventIterator(DownloadProgressSchema),
+  },
+  /** Get inference engine config (model dir, polling interval) */
+  getInferenceConfig: {
+    input: z.void(),
+    output: z.object({
+      modelDir: z.string(),
+      pollIntervalMs: z.number(),
+      availableStoragePaths: z.array(z.object({
+        path: z.string(),
+        label: z.string(),
+        type: z.enum(["local", "nas", "external"]),
+        available: z.boolean(),
+        freeSpaceBytes: z.number(),
+      })),
+    }),
+  },
+  /** Update inference engine config */
+  setInferenceConfig: {
+    input: z.object({
+      modelDir: z.string().optional(),
+      pollIntervalMs: z.number().optional(),
+    }),
+    output: z.void(),
   },
 };
 
