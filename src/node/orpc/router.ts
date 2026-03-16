@@ -4617,13 +4617,34 @@ export const router = (authToken?: string) => {
           }
           let models = await svc.listModels();
 
-          // Merge in models from the configured dir that the Go binary doesn't know about
-          if (configModelDir) {
+          // Enrich models with data from the registry (size, format, etc.)
+          // and merge in any models the Go binary doesn't know about
+          {
+            const registryDir = configModelDir ?? svc.modelDir;
             try {
-              const registry = new ModelRegistry(configModelDir);
-              const extraModels = await registry.listModels();
+              const registry = new ModelRegistry(registryDir);
+              const registryModels = await registry.listModels();
+              const registryMap = new Map(registryModels.map(m => [m.id, m]));
+
+              // Enrich Go binary models that have missing data (e.g. sizeBytes=0)
+              models = models.map(m => {
+                const reg = registryMap.get(m.id);
+                if (!reg) return m;
+                return {
+                  ...m,
+                  sizeBytes: m.sizeBytes || reg.sizeBytes,
+                  format: m.format === "unknown" ? reg.format : m.format,
+                  quantization: m.quantization || reg.quantization,
+                  parameterCount: m.parameterCount || reg.parameterCount,
+                  pulledAt: m.pulledAt || reg.pulledAt,
+                  storageLocation: m.storageLocation || reg.storageLocation,
+                  storageLabel: m.storageLabel || reg.storageLabel,
+                };
+              });
+
+              // Add models only in registry (not known to Go binary)
               const knownIds = new Set(models.map(m => m.id));
-              for (const m of extraModels) {
+              for (const m of registryModels) {
                 if (!knownIds.has(m.id)) {
                   models.push(m);
                 }
@@ -4692,22 +4713,34 @@ export const router = (authToken?: string) => {
         .output(schemas.latticeInference.listModels.output)
         .handler(async ({ context }) => {
           const { ModelRegistry } = await import("@/node/services/inference/modelRegistry");
-          const models = await context.inferenceService.listModels();
-          // Also scan the configured storage dir for models the Go binary doesn't know about
+          let models = await context.inferenceService.listModels();
           const config = context.config.loadConfigOrDefault();
-          const configModelDir = config.inference?.modelDir;
-          if (configModelDir) {
-            try {
-              const registry = new ModelRegistry(configModelDir);
-              const extraModels = await registry.listModels();
-              const knownIds = new Set(models.map(m => m.id));
-              for (const m of extraModels) {
-                if (!knownIds.has(m.id)) {
-                  models.push(m);
-                }
-              }
-            } catch { /* dir may not exist */ }
-          }
+          const registryDir = config.inference?.modelDir ?? context.inferenceService.modelDir;
+          try {
+            const registry = new ModelRegistry(registryDir);
+            const registryModels = await registry.listModels();
+            const registryMap = new Map(registryModels.map(m => [m.id, m]));
+            // Enrich models with missing data from registry
+            models = models.map(m => {
+              const reg = registryMap.get(m.id);
+              if (!reg) return m;
+              return {
+                ...m,
+                sizeBytes: m.sizeBytes || reg.sizeBytes,
+                format: m.format === "unknown" ? reg.format : m.format,
+                quantization: m.quantization || reg.quantization,
+                parameterCount: m.parameterCount || reg.parameterCount,
+                pulledAt: m.pulledAt || reg.pulledAt,
+                storageLocation: m.storageLocation || reg.storageLocation,
+                storageLabel: m.storageLabel || reg.storageLabel,
+              };
+            });
+            // Add models only in registry
+            const knownIds = new Set(models.map(m => m.id));
+            for (const m of registryModels) {
+              if (!knownIds.has(m.id)) models.push(m);
+            }
+          } catch { /* dir may not exist */ }
           return models;
         }),
       pullModel: t
