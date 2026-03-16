@@ -109,13 +109,14 @@ export class HfDownloader extends EventEmitter {
     signal?: AbortSignal,
   ): Promise<boolean> {
     // Check if huggingface-cli is available
-    const cliPath = await this.findHfCli();
-    if (!cliPath) return false;
+    const cli = await this.findHfCli();
+    if (!cli) return false;
 
-    log.info(`[inference/download] using huggingface-cli with hf_transfer for ${modelID}`);
+    log.info(`[inference/download] using ${cli.cmd} with hf_transfer for ${modelID}`);
 
     return new Promise<boolean>((resolve, reject) => {
       const args = [
+        ...cli.baseArgs,
         "download",
         modelID,
         "--local-dir", destDir,
@@ -127,7 +128,7 @@ export class HfDownloader extends EventEmitter {
         HF_HUB_ENABLE_HF_TRANSFER: "1",
       };
 
-      const proc = spawn(cliPath, args, {
+      const proc = spawn(cli.cmd, args, {
         env,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -182,16 +183,25 @@ export class HfDownloader extends EventEmitter {
   }
 
   /**
-   * Find huggingface-cli binary path.
+   * Find huggingface-cli — tries the binary first, then python module.
+   * Returns { cmd, args } for spawn, or null if unavailable.
    */
-  private async findHfCli(): Promise<string | null> {
+  private async findHfCli(): Promise<{ cmd: string; baseArgs: string[] } | null> {
     const { execSync } = await import("child_process");
+
+    // Try huggingface-cli binary
     try {
       const result = execSync("which huggingface-cli", { encoding: "utf-8", timeout: 5000 }).trim();
-      return result || null;
-    } catch {
-      return null;
-    }
+      if (result) return { cmd: result, baseArgs: [] };
+    } catch { /* not found */ }
+
+    // Try python3 -m huggingface_hub.cli.cli
+    try {
+      execSync("python3 -c \"from huggingface_hub.cli.cli import main\"", { timeout: 5000 });
+      return { cmd: "python3", baseArgs: ["-m", "huggingface_hub.cli.cli"] };
+    } catch { /* module not available */ }
+
+    return null;
   }
 
   /**
