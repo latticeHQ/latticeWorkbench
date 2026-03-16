@@ -205,6 +205,14 @@ export interface ProjectsConfig {
   };
 
   /**
+   * Research Terminal built-in server toggle.
+   * Default ON (undefined = enabled).
+   */
+  researchTerminal?: {
+    enabled?: boolean;
+  };
+
+  /**
    * Simulation engine settings.
    *
    * Persisted so FalkorDB connection, model routing, and social dynamics

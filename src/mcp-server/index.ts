@@ -9,12 +9,13 @@
  * messages to agents, managing projects, running terminals, etc.
  *
  * Features:
- * - 220+ tools across 19 modules (minion, project, terminal, research-terminal, inbox, kanban, scheduler, sync, etc.)
+ * - 210+ tools across 20 modules (minion, project, terminal, browser, code-execution, inbox, kanban, scheduler, sync, etc.)
+ * - 6 code execution tools (execute_code, read_sdk_module, save_skill, list_skills, run_skill, delete_skill)
  * - 2 discovery tools for progressive disclosure (search_tools, list_tool_categories)
- * - 13 MCP resources for efficient data access (orientation, projects, config, chat history, inbox, sync, etc.)
+ * - 16 MCP resources for efficient data access (orientation, sdk, sdk/{module}, code-execution-guide, projects, config, etc.)
  * - 5 MCP prompts for common workflows (orientation, create-and-run-task, cost-report, etc.)
- * - Typed SDK for code execution pattern (sdk/ directory)
- * - Research Terminal: 24 financial data tools (equity, crypto, FX, indices, technicals, economy, derivatives, news)
+ * - Typed SDK for code execution pattern (sdk/ directory — 222+ functions across 20 modules)
+ * - Note: Research Terminal is a separate built-in MCP server (research-terminal-mcp/)
  *
  * Server discovery order:
  * 1. LATTICE_SERVER_URL + LATTICE_SERVER_AUTH_TOKEN env vars
@@ -57,7 +58,7 @@ import { registerKanbanTools } from "./tools/kanban";
 import { registerSchedulerTools } from "./tools/scheduler";
 import { registerSyncTools } from "./tools/sync";
 import { registerBrowserTools } from "./tools/browser";
-import { registerResearchTerminalTools } from "./tools/research-terminal";
+import { registerCodeExecutionTools } from "./tools/code-execution";
 
 // Discovery, resources, prompts
 import { registerDiscoveryTools, toolCatalog } from "./tools/discovery";
@@ -162,7 +163,7 @@ async function main(): Promise<void> {
   registerAndCatalog(mcpServer, "scheduler", () => registerSchedulerTools(mcpServer, client));
   registerAndCatalog(mcpServer, "sync", () => registerSyncTools(mcpServer, client));
   registerAndCatalog(mcpServer, "browser", () => registerBrowserTools(mcpServer, client));
-  registerAndCatalog(mcpServer, "research-terminal", () => registerResearchTerminalTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "code-execution", () => registerCodeExecutionTools(mcpServer, client));
 
   // Register discovery tools (search_tools + list_tool_categories)
   // These tools use the populated toolCatalog to enable progressive disclosure.
@@ -176,7 +177,7 @@ async function main(): Promise<void> {
 
   process.stderr.write(
     `[lattice-mcp] Registered ${toolCatalog.length} tools in catalog, ` +
-      `13 resources, 5 prompts\n`
+      `16 resources, 6 prompts\n`
   );
 
   // Connect via stdio transport (stdin/stdout)

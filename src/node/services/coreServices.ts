@@ -74,6 +74,7 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
   let latticeMcpServerPath: string;
   let notebooklmMcpServerPath: string;
   let gwsMcpServerPath: string;
+  let researchTerminalMcpServerPath: string;
 
   if (isPackaged) {
     // Packaged Electron: use bundled JS from app.asar.unpacked/dist/
@@ -82,6 +83,7 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
     latticeMcpServerPath = path.join(asarUnpackedRoot, "dist", "mcp-server", "index.js");
     notebooklmMcpServerPath = path.join(asarUnpackedRoot, "dist", "notebooklm-mcp", "index.js");
     gwsMcpServerPath = path.join(asarUnpackedRoot, "dist", "gws-mcp", "index.js");
+    researchTerminalMcpServerPath = path.join(asarUnpackedRoot, "dist", "research-terminal-mcp", "index.js");
   } else {
     // Development: point to .ts source files (Bun runs them natively).
     const inDist = __dirname.includes(`${path.sep}dist${path.sep}`) || __dirname.endsWith(`${path.sep}dist`);
@@ -94,6 +96,9 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
     gwsMcpServerPath = inDist
       ? path.resolve(__dirname, "../../../src/gws-mcp/index.ts")
       : path.resolve(__dirname, "../../gws-mcp/index.ts");
+    researchTerminalMcpServerPath = inDist
+      ? path.resolve(__dirname, "../../../src/research-terminal-mcp/index.ts")
+      : path.resolve(__dirname, "../../research-terminal-mcp/index.ts");
   }
 
   // In packaged mode, use "bun run" for the bundled .js file.
@@ -113,6 +118,12 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
   const gwsEnabled = config?.loadConfigOrDefault().gws?.enabled ?? true;
   if (gwsEnabled) {
     servers.gws = `bun run ${gwsMcpServerPath}`;
+  }
+
+  // Research Terminal: financial data via OpenBB sidecar (equity, crypto, FX, macro, etc.)
+  const rtEnabled = config?.loadConfigOrDefault().researchTerminal?.enabled ?? true;
+  if (rtEnabled) {
+    servers["research-terminal"] = `bun run ${researchTerminalMcpServerPath}`;
   }
 
   return servers;

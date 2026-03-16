@@ -1,15 +1,10 @@
+#!/usr/bin/env bun
+
 /**
- * Research Terminal MCP Tools
+ * Research Terminal MCP Server — built-in MCP server for financial data.
  *
- * Exposes the full financial data platform as MCP tools, enabling
- * agents to programmatically access market data, economic indicators,
- * technical analysis, and more.
- *
- * Architecture:
- * - Tools first resolve the data server base URL via the oRPC backend
- * - Then fetch data directly from the financial data HTTP API
- * - Follows the code execution + MCP pattern from Anthropic's blog:
- *   progressive disclosure, context-efficient results, composable tools
+ * Exposes 24+ tools for market data, economic indicators, technical analysis,
+ * derivatives, and news via the OpenBB-powered data server sidecar.
  *
  * Tool categories:
  * - Lifecycle: status, start, stop
@@ -21,21 +16,64 @@
  * - Economy: calendar, CPI, GDP, FRED series, treasury rates
  * - Derivatives: options chains, futures curve
  * - News: company news
+ * - Composite: market snapshot, stock analysis
+ *
+ * Architecture:
+ * - Connects to the Lattice backend via oRPC to resolve the data server URL
+ * - Then fetches data directly from the financial data HTTP API
+ *
+ * Usage:
+ *   bun run src/research-terminal-mcp/index.ts
  */
 
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { RouterClient } from "@orpc/server";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { RPCLink as HTTPRPCLink } from "@orpc/client/fetch";
+import { createORPCClient } from "@orpc/client";
 import type { AppRouter } from "@/node/orpc/router";
+import type { RouterClient } from "@orpc/server";
 import { z } from "zod";
-import { jsonContent, withErrorHandling } from "../utils";
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+import { discoverServer } from "../mcp-server/utils";
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+
+function jsonContent(data: unknown): { type: "text"; text: string } {
+  return { type: "text" as const, text: JSON.stringify(data, null, 2) };
+}
+
+function errorResponse(message: string) {
+  return {
+    content: [{ type: "text" as const, text: `Error: ${message}` }],
+    isError: true as const,
+  };
+}
+
+function withErrorHandling(
+  fn: () => Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }>,
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+  return fn().catch((err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    return errorResponse(message);
+  });
+}
+
+/**
+ * Create a typed oRPC HTTP client for the Lattice backend.
+ */
+function createOrpcClient(
+  baseUrl: string,
+  authToken?: string,
+): RouterClient<AppRouter> {
+  const link = new HTTPRPCLink({
+    url: `${baseUrl}/orpc`,
+    headers: authToken != null ? { Authorization: `Bearer ${authToken}` } : undefined,
+  });
+  return createORPCClient(link);
+}
 
 /**
  * Resolve the running data server base URL from the backend status.
- * Throws if the server is not running.
  */
 async function getBaseUrl(client: RouterClient<AppRouter>): Promise<string> {
   const status = await (client as any).openbb.getStatus();
@@ -57,7 +95,6 @@ async function fetchData<T>(
   params?: Record<string, string>,
 ): Promise<T> {
   const url = new URL(`${baseUrl}${path}`);
-  // Default to yfinance provider
   if (!params?.provider) {
     url.searchParams.set("provider", "yfinance");
   }
@@ -105,14 +142,9 @@ async function fetchData<T>(
   return ((json as Record<string, unknown>)?.results ?? json) as T;
 }
 
-// ---------------------------------------------------------------------------
-// Registration
-// ---------------------------------------------------------------------------
+// ── Tool Registration ─────────────────────────────────────────────────────
 
-export function registerResearchTerminalTools(
-  server: McpServer,
-  client: RouterClient<AppRouter>,
-): void {
+function registerTools(server: McpServer, client: RouterClient<AppRouter>): void {
   // ═══════════════════════════════════════════════════════════════════════════
   // LIFECYCLE TOOLS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -185,18 +217,9 @@ export function registerResearchTerminalTools(
     "Get OHLCV price history for a stock. Returns date, open, high, low, close, volume for each period.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      start_date: z
-        .string()
-        .optional()
-        .describe("Start date in YYYY-MM-DD format"),
-      end_date: z
-        .string()
-        .optional()
-        .describe("End date in YYYY-MM-DD format"),
-      interval: z
-        .string()
-        .optional()
-        .describe("Candle interval: 1d, 1h, 5m, 1w, 1mo (default: 1d)"),
+      start_date: z.string().optional().describe("Start date in YYYY-MM-DD format"),
+      end_date: z.string().optional().describe("End date in YYYY-MM-DD format"),
+      interval: z.string().optional().describe("Candle interval: 1d, 1h, 5m, 1w, 1mo (default: 1d)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
     (params) =>
@@ -253,17 +276,9 @@ export function registerResearchTerminalTools(
     "Get financial statements: income statement, balance sheet, or cash flow. Returns structured financial data with line items.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      statement: z
-        .enum(["income", "balance", "cash"])
-        .describe("Financial statement type: income, balance, or cash"),
-      period: z
-        .enum(["annual", "quarter"])
-        .optional()
-        .describe("Reporting period (default: annual)"),
-      limit: z
-        .number()
-        .optional()
-        .describe("Number of periods to return (default: 5)"),
+      statement: z.enum(["income", "balance", "cash"]).describe("Financial statement type: income, balance, or cash"),
+      period: z.enum(["annual", "quarter"]).optional().describe("Reporting period (default: annual)"),
+      limit: z.number().optional().describe("Number of periods to return (default: 5)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
     (params) =>
@@ -288,15 +303,9 @@ export function registerResearchTerminalTools(
     "Get SEC filings for a company: 10-K, 10-Q, 8-K, and more. Returns filing date, type, URL, and description.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      form_type: z
-        .string()
-        .optional()
-        .describe("SEC form type filter (e.g. 10-K, 10-Q, 8-K)"),
+      form_type: z.string().optional().describe("SEC form type filter (e.g. 10-K, 10-Q, 8-K)"),
       limit: z.number().optional().describe("Number of filings to return (default: 20)"),
-      provider: z
-        .string()
-        .optional()
-        .describe("Data provider (default: sec)"),
+      provider: z.string().optional().describe("Data provider (default: sec)"),
     },
     (params) =>
       withErrorHandling(async () => {
@@ -320,14 +329,9 @@ export function registerResearchTerminalTools(
     "research_terminal_crypto_historical",
     "Get historical OHLCV price data for a cryptocurrency. Use BTC-USD, ETH-USD format for symbols.",
     {
-      symbol: z
-        .string()
-        .describe("Crypto symbol (e.g. BTC-USD, ETH-USD, SOL-USD)"),
+      symbol: z.string().describe("Crypto symbol (e.g. BTC-USD, ETH-USD, SOL-USD)"),
       start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-      interval: z
-        .string()
-        .optional()
-        .describe("Candle interval: 1d, 1h (default: 1d)"),
+      interval: z.string().optional().describe("Candle interval: 1d, 1h (default: 1d)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
     (params) =>
@@ -366,9 +370,7 @@ export function registerResearchTerminalTools(
     "research_terminal_currency_historical",
     "Get historical exchange rate data for a currency pair. Use EURUSD=X or GBPUSD=X format.",
     {
-      symbol: z
-        .string()
-        .describe("FX pair symbol (e.g. EURUSD=X, GBPJPY=X, USDJPY=X)"),
+      symbol: z.string().describe("FX pair symbol (e.g. EURUSD=X, GBPJPY=X, USDJPY=X)"),
       start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
@@ -407,9 +409,7 @@ export function registerResearchTerminalTools(
     "research_terminal_index_historical",
     "Get historical OHLCV data for a market index (S&P 500, Nasdaq, Dow, etc.).",
     {
-      symbol: z
-        .string()
-        .describe("Index symbol (e.g. ^GSPC for S&P 500, ^DJI for Dow, ^IXIC for Nasdaq)"),
+      symbol: z.string().describe("Index symbol (e.g. ^GSPC for S&P 500, ^DJI for Dow, ^IXIC for Nasdaq)"),
       start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
@@ -453,13 +453,8 @@ export function registerResearchTerminalTools(
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
       indicator: z
         .enum(["rsi", "macd", "bbands", "sma", "ema"])
-        .describe(
-          "Indicator type: rsi (Relative Strength Index), macd (Moving Average Convergence Divergence), bbands (Bollinger Bands), sma (Simple Moving Average), ema (Exponential Moving Average)",
-        ),
-      period: z
-        .number()
-        .optional()
-        .describe("Lookback period (default: 14 for RSI, 20 for Bollinger/SMA/EMA)"),
+        .describe("Indicator type: rsi, macd, bbands, sma, ema"),
+      period: z.number().optional().describe("Lookback period (default: 14 for RSI, 20 for Bollinger/SMA/EMA)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
     (params) =>
@@ -468,11 +463,7 @@ export function registerResearchTerminalTools(
         const p: Record<string, string> = { symbol: params.symbol };
         if (params.period) p.period = String(params.period);
         if (params.provider) p.provider = params.provider;
-        const data = await fetchData(
-          baseUrl,
-          `/technical/${params.indicator}`,
-          p,
-        );
+        const data = await fetchData(baseUrl, `/technical/${params.indicator}`, p);
         return { content: [jsonContent(data)] };
       }),
   );
@@ -483,14 +474,11 @@ export function registerResearchTerminalTools(
 
   server.tool(
     "research_terminal_economy_calendar",
-    "Get the economic events calendar. Returns upcoming and recent economic releases (CPI, jobs, Fed decisions, etc.) with actual vs. consensus values.",
+    "Get the economic events calendar. Returns upcoming and recent economic releases (CPI, jobs, Fed decisions, etc.).",
     {
       start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
       end_date: z.string().optional().describe("End date (YYYY-MM-DD)"),
-      provider: z
-        .string()
-        .optional()
-        .describe("Data provider (default: fmp)"),
+      provider: z.string().optional().describe("Data provider (default: fmp)"),
     },
     (params) =>
       withErrorHandling(async () => {
@@ -509,10 +497,7 @@ export function registerResearchTerminalTools(
     "research_terminal_economy_cpi",
     "Get Consumer Price Index (CPI) inflation data for a country.",
     {
-      country: z
-        .string()
-        .optional()
-        .describe("Country name (e.g. 'united_states', 'united_kingdom')"),
+      country: z.string().optional().describe("Country name (e.g. 'united_states', 'united_kingdom')"),
       provider: z.string().optional().describe("Data provider"),
     },
     (params) =>
@@ -530,10 +515,7 @@ export function registerResearchTerminalTools(
     "research_terminal_economy_gdp",
     "Get nominal GDP data for a country.",
     {
-      country: z
-        .string()
-        .optional()
-        .describe("Country name (e.g. 'united_states')"),
+      country: z.string().optional().describe("Country name (e.g. 'united_states')"),
       provider: z.string().optional().describe("Data provider"),
     },
     (params) =>
@@ -549,18 +531,11 @@ export function registerResearchTerminalTools(
 
   server.tool(
     "research_terminal_fred_series",
-    "Get FRED (Federal Reserve) economic data series. Access thousands of economic indicators: interest rates, unemployment, inflation, GDP, and more.",
+    "Get FRED (Federal Reserve) economic data series. Access thousands of economic indicators.",
     {
-      symbol: z
-        .string()
-        .describe(
-          "FRED series ID. Common ones: DGS10 (10-Year Treasury), DGS2 (2-Year Treasury), FEDFUNDS (Fed Funds Rate), UNRATE (Unemployment Rate), CPIAUCSL (CPI), GDP, T10Y2Y (10Y-2Y Spread)",
-        ),
+      symbol: z.string().describe("FRED series ID (e.g. DGS10, FEDFUNDS, UNRATE, CPIAUCSL, GDP, T10Y2Y)"),
       start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
-      provider: z
-        .string()
-        .optional()
-        .describe("Data provider (default: fred). Requires FRED_API_KEY."),
+      provider: z.string().optional().describe("Data provider (default: fred). Requires FRED_API_KEY."),
     },
     (params) =>
       withErrorHandling(async () => {
@@ -586,11 +561,7 @@ export function registerResearchTerminalTools(
         const baseUrl = await getBaseUrl(client);
         const p: Record<string, string> = {};
         if (params.provider) p.provider = params.provider;
-        const data = await fetchData(
-          baseUrl,
-          "/fixedincome/government/treasury_rates",
-          p,
-        );
+        const data = await fetchData(baseUrl, "/fixedincome/government/treasury_rates", p);
         return { content: [jsonContent(data)] };
       }),
   );
@@ -621,9 +592,7 @@ export function registerResearchTerminalTools(
     "research_terminal_futures_curve",
     "Get the futures term structure / forward curve for a commodity or financial futures contract.",
     {
-      symbol: z
-        .string()
-        .describe("Futures symbol (e.g. GC=F for gold, CL=F for crude oil, ES=F for S&P 500)"),
+      symbol: z.string().describe("Futures symbol (e.g. GC=F for gold, CL=F for crude oil, ES=F for S&P 500)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
     (params) =>
@@ -645,13 +614,8 @@ export function registerResearchTerminalTools(
     "research_terminal_news",
     "Get financial news articles for one or more symbols. Returns headlines, URLs, dates, and sources.",
     {
-      symbol: z
-        .string()
-        .describe("Ticker symbol(s), comma-separated (e.g. AAPL, AAPL,MSFT,NVDA)"),
-      limit: z
-        .number()
-        .optional()
-        .describe("Maximum articles to return (default: 20)"),
+      symbol: z.string().describe("Ticker symbol(s), comma-separated (e.g. AAPL, AAPL,MSFT,NVDA)"),
+      limit: z.number().optional().describe("Maximum articles to return (default: 20)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
     (params) =>
@@ -673,11 +637,7 @@ export function registerResearchTerminalTools(
     "research_terminal_market_snapshot",
     "Get a comprehensive market snapshot: quotes for multiple symbols in a single call. Ideal for dashboards and watchlists.",
     {
-      symbols: z
-        .string()
-        .describe(
-          "Comma-separated ticker symbols (e.g. AAPL,MSFT,GOOGL,AMZN,SPY,QQQ)",
-        ),
+      symbols: z.string().describe("Comma-separated ticker symbols (e.g. AAPL,MSFT,GOOGL,AMZN,SPY,QQQ)"),
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
     },
     (params) =>
@@ -717,13 +677,10 @@ export function registerResearchTerminalTools(
 
   server.tool(
     "research_terminal_stock_analysis",
-    "Get a comprehensive analysis of a stock: quote, profile, and recent price history in a single call. Saves context by combining multiple data points.",
+    "Get a comprehensive analysis of a stock: quote, profile, and recent price history in a single call.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
-      days: z
-        .number()
-        .optional()
-        .describe("Days of price history to include (default: 30)"),
+      days: z.number().optional().describe("Days of price history to include (default: 30)"),
     },
     (params) =>
       withErrorHandling(async () => {
@@ -735,14 +692,9 @@ export function registerResearchTerminalTools(
         startDate.setDate(startDate.getDate() - days);
         const startStr = startDate.toISOString().slice(0, 10);
 
-        // Fetch quote, profile, and history in parallel
         const [quote, profile, history] = await Promise.all([
-          fetchData(baseUrl, "/equity/price/quote", { symbol }).catch(
-            () => null,
-          ),
-          fetchData(baseUrl, "/equity/profile", { symbol }).catch(
-            () => null,
-          ),
+          fetchData(baseUrl, "/equity/price/quote", { symbol }).catch(() => null),
+          fetchData(baseUrl, "/equity/profile", { symbol }).catch(() => null),
           fetchData(baseUrl, "/equity/price/historical", {
             symbol,
             start_date: startStr,
@@ -755,10 +707,7 @@ export function registerResearchTerminalTools(
             jsonContent({
               symbol,
               quote: Array.isArray(quote) && quote.length > 0 ? quote[0] : quote,
-              profile:
-                Array.isArray(profile) && profile.length > 0
-                  ? profile[0]
-                  : profile,
+              profile: Array.isArray(profile) && profile.length > 0 ? profile[0] : profile,
               history: {
                 days,
                 data_points: Array.isArray(history) ? history.length : 0,
@@ -770,3 +719,38 @@ export function registerResearchTerminalTools(
       }),
   );
 }
+
+// ── Main ──────────────────────────────────────────────────────────────────
+
+async function main(): Promise<void> {
+  const connection = await discoverServer();
+
+  process.stderr.write(
+    `[research-terminal-mcp] Connecting to Lattice backend at ${connection.baseUrl}\n`,
+  );
+
+  const client = createOrpcClient(connection.baseUrl, connection.authToken);
+
+  const mcpServer = new McpServer({
+    name: "research-terminal",
+    version: "1.0.0",
+  });
+
+  registerTools(mcpServer, client);
+
+  process.stderr.write(
+    `[research-terminal-mcp] Registered 26 financial data tools\n`,
+  );
+
+  const transport = new StdioServerTransport();
+  await mcpServer.connect(transport);
+
+  process.stderr.write("[research-terminal-mcp] MCP server running on stdio\n");
+}
+
+main().catch((err: unknown) => {
+  process.stderr.write(
+    `[research-terminal-mcp] Fatal error: ${err instanceof Error ? err.message : String(err)}\n`,
+  );
+  process.exit(1);
+});

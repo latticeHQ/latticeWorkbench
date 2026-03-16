@@ -302,6 +302,7 @@ export class Config {
           telemetryEnabled?: unknown;
           notebooklm?: unknown;
           gws?: unknown;
+          researchTerminal?: unknown;
         };
 
         // Config is stored as array of [path, config] pairs
@@ -408,6 +409,9 @@ export class Config {
             gws: parsed.gws && typeof (parsed.gws as Record<string, unknown>).enabled === "boolean"
               ? { enabled: (parsed.gws as Record<string, unknown>).enabled as boolean }
               : undefined,
+            researchTerminal: parsed.researchTerminal && typeof (parsed.researchTerminal as Record<string, unknown>).enabled === "boolean"
+              ? { enabled: (parsed.researchTerminal as Record<string, unknown>).enabled as boolean }
+              : undefined,
           };
         }
       }
@@ -464,6 +468,7 @@ export class Config {
         telemetryEnabled?: boolean;
         notebooklm?: ProjectsConfig["notebooklm"];
         gws?: ProjectsConfig["gws"];
+        researchTerminal?: ProjectsConfig["researchTerminal"];
       } = {
         projects: Array.from(config.projects.entries()).map(
           ([projectPath, projectConfig]) =>
@@ -628,6 +633,11 @@ export class Config {
       // Google Workspace CLI: default ON, persist only when explicitly disabled.
       if (config.gws?.enabled === false) {
         data.gws = { enabled: false };
+      }
+
+      // Research Terminal: default ON, persist only when explicitly disabled.
+      if (config.researchTerminal?.enabled === false) {
+        data.researchTerminal = { enabled: false };
       }
 
       await writeFileAtomic(this.configFile, JSON.stringify(data, null, 2), "utf-8");
