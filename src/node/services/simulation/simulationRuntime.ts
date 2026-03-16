@@ -227,47 +227,66 @@ export class SimulationRuntime {
         feeds.set(agent.id, platform.getFeed(agent, round));
       }
 
-      // 4. All LLM agents decide simultaneously (PARALLEL)
+      // 4. LLM agents decide in small batches (avoid spawning too many subprocesses)
       const llmAgents = activeAgents.filter((a) => a.tier !== 4);
-      const decisions = await Promise.allSettled(
-        llmAgents.map((agent) =>
-          this.decideAction(agent, platform, feeds.get(agent.id)!, round),
-        ),
-      );
+      log.info(`[simulation:runtime] Round ${round}: ${llmAgents.length} LLM agents, ${activeAgents.length - llmAgents.length} stat agents`);
 
-      // 5. Process decisions and apply actions
-      for (let i = 0; i < llmAgents.length; i++) {
-        const decision = decisions[i];
-        const agent = llmAgents[i];
+      const BATCH_SIZE = 3; // Process 3 agents at a time to avoid overwhelming the system
+      const AGENT_TIMEOUT_MS = 120_000; // 2 minutes per agent decision
 
-        if (decision.status === "rejected") {
-          const reason = decision.reason instanceof Error ? decision.reason.stack ?? decision.reason.message : String(decision.reason);
-          log.warn(`[simulation:runtime] Agent ${agent.name} decision FAILED:\n${reason}`);
-          continue;
+      for (let batchStart = 0; batchStart < llmAgents.length; batchStart += BATCH_SIZE) {
+        if (this.aborted) break;
+        const batch = llmAgents.slice(batchStart, batchStart + BATCH_SIZE);
+        log.info(`[simulation:runtime] Round ${round}: processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1} (${batch.map(a => a.name).join(", ")})`);
+
+        const decisions = await Promise.allSettled(
+          batch.map((agent) => {
+            // Wrap each agent decision in a timeout
+            return Promise.race([
+              this.decideAction(agent, platform, feeds.get(agent.id)!, round),
+              new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Timeout after ${AGENT_TIMEOUT_MS}ms`)), AGENT_TIMEOUT_MS),
+              ),
+            ]);
+          }),
+        );
+
+        // 5. Process decisions and apply actions
+        for (let i = 0; i < batch.length; i++) {
+          const decision = decisions[i];
+          const agent = batch[i];
+
+          if (decision.status === "rejected") {
+            const reason = decision.reason instanceof Error ? decision.reason.stack ?? decision.reason.message : String(decision.reason);
+            log.warn(`[simulation:runtime] Agent ${agent.name} decision FAILED:\n${reason}`);
+            continue;
+          }
+
+          log.info(`[simulation:runtime] Agent ${agent.name} decided: ${decision.value.action}${decision.value.content ? ` — "${decision.value.content.slice(0, 60)}..."` : ""}`);
+
+          const action: AgentAction = {
+            round,
+            timestamp: new Date().toISOString(),
+            platform: platformType,
+            agentId: agent.id,
+            agentName: agent.name,
+            actionType: decision.value.action,
+            target: decision.value.target,
+            content: decision.value.content,
+            thinking: decision.value.thinking,
+            success: true,
+          };
+
+          const result = platform.applyAction(action);
+          action.success = result.success;
+          action.result = result.message;
+          allActions.push(action);
+
+          // 6. Store memory in graph
+          await this.storeAgentMemory(agent, action, round).catch((err) => {
+            log.warn(`[simulation:runtime] Memory storage failed for ${agent.name}: ${err}`);
+          });
         }
-
-        const action: AgentAction = {
-          round,
-          timestamp: new Date().toISOString(),
-          platform: platformType,
-          agentId: agent.id,
-          agentName: agent.name,
-          actionType: decision.value.action,
-          target: decision.value.target,
-          content: decision.value.content,
-          thinking: decision.value.thinking,
-          success: true,
-        };
-
-        const result = platform.applyAction(action);
-        action.success = result.success;
-        action.result = result.message;
-        allActions.push(action);
-
-        // 6. Store memory in graph
-        await this.storeAgentMemory(agent, action, round).catch((err) => {
-          log.warn(`[simulation:runtime] Memory storage failed for ${agent.name}: ${err}`);
-        });
       }
 
       // 7. Update beliefs based on what agents saw
@@ -354,16 +373,31 @@ export class SimulationRuntime {
 
     log.info(`[simulation:runtime] Agent ${agent.name} (tier ${agent.tier}) → ${modelRoute.provider}:${modelRoute.model}`);
 
-    const response = await this.llm.chat({
-      provider: modelRoute.provider,
-      model: modelRoute.model,
-      systemPrompt,
-      userPrompt,
-      responseFormat: "json",
-      temperature: 0.7,
-    });
+    const startTime = Date.now();
+    let response: string;
+    try {
+      response = await this.llm.chat({
+        provider: modelRoute.provider,
+        model: modelRoute.model,
+        systemPrompt,
+        userPrompt,
+        responseFormat: "json",
+        temperature: 0.7,
+      });
+    } catch (err) {
+      const elapsed = Date.now() - startTime;
+      log.error(`[simulation:runtime] LLM call FAILED for ${agent.name} after ${elapsed}ms: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+      throw err;
+    }
 
-    log.info(`[simulation:runtime] Agent ${agent.name} response: ${response.slice(0, 100)}`);
+    const elapsed = Date.now() - startTime;
+    log.info(`[simulation:runtime] Agent ${agent.name} responded in ${elapsed}ms (${response.length} chars): ${response.slice(0, 200)}`);
+
+    if (!response || response.trim().length === 0) {
+      log.warn(`[simulation:runtime] Agent ${agent.name} returned EMPTY response`);
+      return { agentId: agent.id, thinking: "Empty LLM response", action: "DO_NOTHING" as ActionType };
+    }
+
     return this.parseDecision(agent.id, response);
   }
 

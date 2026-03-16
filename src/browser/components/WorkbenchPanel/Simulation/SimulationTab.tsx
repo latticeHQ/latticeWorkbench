@@ -46,7 +46,6 @@ import {
   Globe,
   Hash,
   Loader2,
-  MessageSquare,
   Play,
   Plus,
   RefreshCw,
@@ -55,6 +54,7 @@ import {
   Square,
   TrendingUp,
   Users,
+  Download,
   X,
   Zap,
 } from "lucide-react";
@@ -82,13 +82,18 @@ const ROUTE_LABELS: Record<string, { label: string; description: string }> = {
   classification: { label: "Classification", description: "Content classification" },
 };
 
-// Platform icons/colors
-const PLATFORM_CONFIG: Record<string, { icon: typeof Globe; color: string; bg: string }> = {
-  forum: { icon: Globe, color: "text-blue-400", bg: "bg-blue-500/10" },
-  chat: { icon: MessageSquare, color: "text-green-400", bg: "bg-green-500/10" },
-  meeting: { icon: Users, color: "text-purple-400", bg: "bg-purple-500/10" },
-  market: { icon: BarChart3, color: "text-amber-400", bg: "bg-amber-500/10" },
-};
+// (PLATFORM_CONFIG removed — platform display now inline)
+
+// ---------------------------------------------------------------------------
+// Utility: Deterministic avatar color from name
+// ---------------------------------------------------------------------------
+
+function agentAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  const colors = ["#7c3aed", "#2563eb", "#059669", "#d97706", "#db2777", "#0891b2", "#ea580c", "#65a30d", "#c026d3", "#0284c7"];
+  return colors[Math.abs(hash) % colors.length];
+}
 
 // ---------------------------------------------------------------------------
 // Utility: Build graph data from simulation rounds
@@ -310,59 +315,7 @@ const ErrorView: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
-// ---------------------------------------------------------------------------
-// Platform Progress Card
-// ---------------------------------------------------------------------------
-
-const PlatformCard: React.FC<{
-  name: string;
-  type: string;
-  round: number;
-  totalRounds: number;
-  actionsCount: number;
-  completed: boolean;
-  elapsedHours: number;
-}> = ({ name, type, round, totalRounds, actionsCount, completed, elapsedHours }) => {
-  const config = PLATFORM_CONFIG[type] ?? PLATFORM_CONFIG.forum;
-  const Icon = config.icon;
-  const progress = totalRounds > 0 ? (round / totalRounds) * 100 : 0;
-
-  return (
-    <div className={`relative border border-border rounded-lg p-3 ${config.bg} overflow-hidden`}>
-      {/* Completion check */}
-      {completed && (
-        <div className="absolute top-2 right-2">
-          <Check className="h-4 w-4 text-green-400" />
-        </div>
-      )}
-
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className={`h-4 w-4 ${config.color}`} />
-        <span className="text-xs font-semibold text-foreground uppercase tracking-wide">{name}</span>
-      </div>
-
-      {/* Stats row */}
-      <div className="flex items-center gap-4 text-[10px] text-muted-foreground mb-2">
-        <span>
-          <span className="text-foreground font-bold text-sm">{round}</span>
-          <span className="text-muted-foreground/60">/{totalRounds}</span>
-        </span>
-        <span className="text-muted-foreground/40">|</span>
-        <span>ELAPSED TIME <span className="text-foreground">{elapsedHours}h 0m</span></span>
-        <span className="text-muted-foreground/40">|</span>
-        <span>ACTS <span className="text-foreground font-medium">{actionsCount}</span></span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="h-1 bg-background/40 rounded-full overflow-hidden">
-        <div
-          className={`h-full transition-all duration-500 rounded-full ${completed ? "bg-green-400" : "bg-primary"}`}
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-    </div>
-  );
-};
+// (PlatformCard removed — now inline in right sidebar)
 
 // ---------------------------------------------------------------------------
 // Sentiment Distribution
@@ -393,24 +346,7 @@ const SentimentBar: React.FC<{
   );
 };
 
-// ---------------------------------------------------------------------------
-// Metrics Cards Row
-// ---------------------------------------------------------------------------
-
-const MetricCard: React.FC<{
-  label: string;
-  value: string | number;
-  icon: typeof Activity;
-  color?: string;
-}> = ({ label, value, icon: Icon, color = "text-primary" }) => (
-  <div className="bg-card border border-border rounded-lg px-3 py-2">
-    <div className="flex items-center gap-1.5 mb-0.5">
-      <Icon className={`h-3 w-3 ${color}`} />
-      <span className="text-[10px] text-muted-foreground uppercase tracking-wider">{label}</span>
-    </div>
-    <div className="text-lg font-bold text-foreground">{value}</div>
-  </div>
-);
+// (MetricCard removed — now inline in compact metric strip)
 
 // ---------------------------------------------------------------------------
 // Trending Topics
@@ -429,6 +365,154 @@ const TrendingTopics: React.FC<{ topics: string[] }> = ({ topics }) => {
             <Hash className="h-2.5 w-2.5 text-muted-foreground" />
             {topic}
           </span>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Engagement Sparkline — mini SVG chart of actions per round
+// ---------------------------------------------------------------------------
+
+const EngagementSparkline: React.FC<{ rounds: SimulationRoundResult[] }> = ({ rounds }) => {
+  if (rounds.length < 2) return null;
+  const data = rounds.map((r) => r.actions.filter((a) => a.actionType !== "DO_NOTHING").length);
+  const max = Math.max(...data, 1);
+  const width = 200;
+  const height = 40;
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - (v / max) * (height - 4) - 2;
+    return `${x},${y}`;
+  }).join(" ");
+  const fillPoints = `0,${height} ${points} ${width},${height}`;
+
+  return (
+    <div className="space-y-1">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">
+        Engagement / Round
+      </div>
+      <svg width={width} height={height} className="w-full" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+        <polygon points={fillPoints} fill="url(#sparkGrad)" opacity={0.3} />
+        <polyline points={points} fill="none" stroke="currentColor" strokeWidth={1.5} className="text-primary" />
+        <defs>
+          <linearGradient id="sparkGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="currentColor" className="text-primary" />
+            <stop offset="100%" stopColor="transparent" />
+          </linearGradient>
+        </defs>
+      </svg>
+      <div className="flex items-center justify-between text-[9px] text-muted-foreground/50">
+        <span>R1</span>
+        <span>R{data.length}</span>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Agent Leaderboard — top agents by action count
+// ---------------------------------------------------------------------------
+
+const AgentLeaderboard: React.FC<{
+  rounds: SimulationRoundResult[];
+  onAgentClick?: (agentId: string) => void;
+}> = ({ rounds, onAgentClick }) => {
+  const leaders = useMemo(() => {
+    // Aggregate by display name (role) to avoid showing duplicates of same archetype
+    const byRole: Record<string, { ids: string[]; name: string; count: number; types: Record<string, number> }> = {};
+    for (const r of rounds) {
+      for (const a of r.actions) {
+        if (a.actionType === "DO_NOTHING") continue;
+        // Normalize: strip trailing ID suffix for stat agents to group by role
+        const roleKey = a.agentName.replace(/_[a-z0-9]{4,}$/, "");
+        if (!byRole[roleKey]) byRole[roleKey] = { ids: [], name: a.agentName, count: 0, types: {} };
+        if (!byRole[roleKey].ids.includes(a.agentId)) byRole[roleKey].ids.push(a.agentId);
+        byRole[roleKey].count++;
+        byRole[roleKey].types[a.actionType] = (byRole[roleKey].types[a.actionType] ?? 0) + 1;
+      }
+    }
+    return Object.entries(byRole)
+      .sort(([, a], [, b]) => b.count - a.count)
+      .slice(0, 8)
+      .map(([, data]) => ({ id: data.ids[0], agentCount: data.ids.length, ...data }));
+  }, [rounds]);
+
+  if (leaders.length === 0) return null;
+  const maxCount = leaders[0]?.count ?? 1;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium flex items-center gap-1.5">
+        <BarChart3 className="h-3 w-3" /> Top Agents
+      </div>
+      <div className="space-y-1">
+        {leaders.map((agent, i) => {
+          const displayName = agent.name.startsWith("stat_")
+            ? agent.name.replace(/^stat_/, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+            : agent.name;
+          return (
+            <button
+              key={agent.id}
+              onClick={() => onAgentClick?.(agent.id)}
+              className="w-full flex items-center gap-1.5 text-left hover:bg-white/[0.03] rounded px-1 py-0.5 transition-colors"
+            >
+              <span className="text-[10px] text-muted-foreground/40 w-3 text-right">{i + 1}</span>
+              <div
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
+                style={{ backgroundColor: agentAvatarColor(agent.name) }}
+              >
+                {agent.name.replace(/^stat_/, "").slice(0, 2).toUpperCase()}
+              </div>
+              <span className="text-[11px] text-foreground/80 truncate flex-1">
+                {displayName}
+                {agent.agentCount > 1 && <span className="text-muted-foreground/40 text-[9px] ml-1">×{agent.agentCount}</span>}
+              </span>
+              <div className="w-16 h-1.5 bg-muted/30 rounded-full overflow-hidden shrink-0">
+                <div className="h-full bg-primary/60 rounded-full" style={{ width: `${(agent.count / maxCount) * 100}%` }} />
+              </div>
+              <span className="text-[10px] text-muted-foreground/60 w-5 text-right">{agent.count}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Viral Posts Panel
+// ---------------------------------------------------------------------------
+
+const ViralPostsPanel: React.FC<{ rounds: SimulationRoundResult[] }> = ({ rounds }) => {
+  const viralPosts = useMemo(() => {
+    const posts: Array<{ content: string; round: number; engagement?: number }> = [];
+    for (const r of rounds) {
+      for (const vp of r.viralPosts) {
+        posts.push({
+          content: typeof vp === "string" ? vp : vp.content ?? JSON.stringify(vp),
+          round: r.round,
+          engagement: typeof vp === "object" ? vp.votes ?? 0 : 0,
+        });
+      }
+    }
+    return posts.slice(-6);
+  }, [rounds]);
+
+  if (viralPosts.length === 0) return null;
+
+  return (
+    <div className="space-y-1.5">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium flex items-center gap-1.5">
+        <Flame className="h-3 w-3 text-amber-400" /> Viral Content
+      </div>
+      <div className="space-y-1">
+        {viralPosts.map((vp, i) => (
+          <div key={i} className="text-[10px] bg-amber-500/5 border border-amber-500/10 rounded px-2 py-1.5">
+            <div className="text-foreground/70 leading-relaxed">{typeof vp.content === "string" ? vp.content.slice(0, 100) : ""}{typeof vp.content === "string" && vp.content.length > 100 ? "..." : ""}</div>
+            <div className="text-muted-foreground/40 mt-0.5">R{vp.round}{vp.engagement ? ` · ${vp.engagement} engagements` : ""}</div>
+          </div>
         ))}
       </div>
     </div>
@@ -624,6 +708,23 @@ const ScenarioItem: React.FC<{
       <p className="text-[10px] text-muted-foreground truncate mt-0.5 pl-4">
         {scenario.description}
       </p>
+      <div className="flex items-center gap-2 mt-1 pl-4">
+        {scenario.agentCount != null && (
+          <span className="text-[9px] text-muted-foreground/50 flex items-center gap-0.5">
+            <Users className="h-2.5 w-2.5" /> {scenario.agentCount}
+          </span>
+        )}
+        {scenario.totalRounds != null && (
+          <span className="text-[9px] text-muted-foreground/50">
+            {scenario.totalRounds} rounds
+          </span>
+        )}
+        {scenario.platforms && scenario.platforms.length > 0 && (
+          <span className="text-[9px] text-muted-foreground/50">
+            {scenario.platforms.join(", ")}
+          </span>
+        )}
+      </div>
     </button>
   );
 };
@@ -645,7 +746,7 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
   const [showBuilder, setShowBuilder] = useState(false);
   const [monitorExpanded, setMonitorExpanded] = useState(true);
   const [showReport, setShowReport] = useState(false);
-  const [_selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const showEdgeLabels = false;
 
   const selectedScenario = scenarios.find((s) => s.id === selectedScenarioId);
@@ -692,6 +793,34 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
 
   const handleRun = useCallback((scenarioId: string) => void run(scenarioId), [run]);
   const handleStop = useCallback((scenarioId: string) => void stop(scenarioId), [stop]);
+
+  // Compute selected agent details from round data
+  const selectedAgentDetail = useMemo(() => {
+    if (!selectedAgentId || rounds.length === 0) return null;
+    const actions: Array<{ round: number; actionType: string; content?: string; target?: string; platform?: string; thinking?: string; timestamp?: string }> = [];
+    let name = selectedAgentId;
+    for (const r of rounds) {
+      for (const a of r.actions) {
+        if (a.agentId === selectedAgentId) {
+          name = a.agentName;
+          actions.push({
+            round: r.round,
+            actionType: a.actionType,
+            content: a.content,
+            target: a.target ?? a.targetId,
+            platform: a.platform,
+            thinking: a.thinking,
+            timestamp: a.timestamp,
+          });
+        }
+      }
+    }
+    const actionCounts: Record<string, number> = {};
+    for (const a of actions) {
+      actionCounts[a.actionType] = (actionCounts[a.actionType] ?? 0) + 1;
+    }
+    return { id: selectedAgentId, name, actions, actionCounts, totalActions: actions.length };
+  }, [selectedAgentId, rounds]);
 
   // Loading/null state
   if (!status) return <InitializingView />;
@@ -769,6 +898,26 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
             )
           )}
 
+          {/* Export data */}
+          {!running && rounds.length > 0 && (
+            <button
+              onClick={() => {
+                const data = JSON.stringify({ scenario: selectedScenario, rounds }, null, 2);
+                const blob = new Blob([data], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `simulation-${selectedScenario?.name ?? "export"}-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-muted-foreground border border-border rounded-lg hover:bg-muted/50 transition-colors"
+              title="Export simulation data as JSON"
+            >
+              <Download className="h-3 w-3" /> Export
+            </button>
+          )}
+
           {/* New scenario */}
           <button onClick={() => setShowBuilder(true)}
             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-muted text-foreground rounded-lg hover:bg-muted/80 transition-colors">
@@ -810,103 +959,209 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
           </div>
         </div>
 
-        {/* Main content: Graph + Metrics + Feed */}
+        {/* Main content: 3-column dashboard */}
         {selectedScenarioId ? (
           <div className="flex-1 flex flex-col overflow-hidden">
-            {/* ── Top Section: Metrics + Platform Cards ── */}
+
+            {/* ── Compact Metric Strip ── */}
             {latestRound && (
-              <div className="px-4 py-3 border-b border-border bg-card/20 space-y-3">
-                {/* Metrics row */}
-                <div className="grid grid-cols-4 gap-2">
-                  <MetricCard label="Total Actions" value={totalActions} icon={Activity} color="text-blue-400" />
-                  <MetricCard label="Active Agents" value={graphData.nodes.length} icon={Users} color="text-green-400" />
-                  <MetricCard label="Viral Posts" value={totalViralPosts} icon={Flame} color="text-amber-400" />
-                  <MetricCard label="Round" value={`${latestRound.round}/${selectedScenario?.totalRounds ?? "?"}`} icon={Hash} color="text-purple-400" />
+              <div className="flex items-center gap-4 px-4 py-1.5 border-b border-border bg-card/20 text-[11px]">
+                <div className="flex items-center gap-1.5">
+                  <Activity className="h-3 w-3 text-blue-400" />
+                  <span className="text-muted-foreground">Actions</span>
+                  <span className="font-bold text-foreground">{totalActions}</span>
+                </div>
+                <div className="w-px h-3 bg-border" />
+                <div className="flex items-center gap-1.5">
+                  <Users className="h-3 w-3 text-green-400" />
+                  <span className="text-muted-foreground">Agents</span>
+                  <span className="font-bold text-foreground">{graphData.nodes.length}</span>
+                </div>
+                <div className="w-px h-3 bg-border" />
+                <div className="flex items-center gap-1.5">
+                  <Flame className="h-3 w-3 text-amber-400" />
+                  <span className="text-muted-foreground">Viral</span>
+                  <span className="font-bold text-foreground">{totalViralPosts}</span>
+                </div>
+                <div className="w-px h-3 bg-border" />
+                <div className="flex items-center gap-1.5">
+                  <Hash className="h-3 w-3 text-purple-400" />
+                  <span className="text-muted-foreground">Round</span>
+                  <span className="font-bold text-foreground">{latestRound.round}/{selectedScenario?.totalRounds ?? "?"}</span>
                 </div>
 
-                {/* Platform progress cards */}
-                {selectedScenario && (() => {
-                  // Infer platforms from actions
-                  const platformTypes = Array.from(
-                    new Set(rounds.flatMap((r) => r.actions.map((a) => a.platform).filter(Boolean) as string[])),
-                  );
-                  if (platformTypes.length === 0) return null;
-                  return (
-                    <div className="grid grid-cols-2 gap-2">
-                      {platformTypes.map((type) => (
-                        <PlatformCard
-                          key={type}
-                          name={type.charAt(0).toUpperCase() + type.slice(1)}
-                          type={type}
-                          round={latestRound.round}
-                          totalRounds={selectedScenario.totalRounds ?? 10}
-                          actionsCount={rounds.reduce((sum, r) => sum + r.actions.filter((a) => a.platform === type && a.actionType !== "DO_NOTHING").length, 0)}
-                          completed={!running && latestRound.round >= (selectedScenario.totalRounds ?? 10)}
-                          elapsedHours={latestRound.simulatedHour}
-                        />
-                      ))}
-                    </div>
-                  );
+                {/* Inline sentiment mini-bar */}
+                <div className="ml-auto flex items-center gap-2">
+                  <span className="text-muted-foreground/60">Sentiment</span>
+                  <div className="flex h-2 w-24 rounded-full overflow-hidden bg-muted/30">
+                    <div className="bg-green-500/80" style={{ width: `${latestRound.sentimentDistribution.positive * 100}%` }} />
+                    <div className="bg-slate-400/50" style={{ width: `${latestRound.sentimentDistribution.neutral * 100}%` }} />
+                    <div className="bg-red-500/70" style={{ width: `${latestRound.sentimentDistribution.negative * 100}%` }} />
+                  </div>
+                </div>
+
+                {/* Platform badges */}
+                {(() => {
+                  const platformTypes = Array.from(new Set(rounds.flatMap((r) => r.actions.map((a) => a.platform).filter(Boolean) as string[])));
+                  return platformTypes.map((type) => (
+                    <span key={type} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/40 text-muted-foreground/70 uppercase font-medium">
+                      {type}
+                    </span>
+                  ));
                 })()}
-
-                {/* Sentiment + Trending row */}
-                <div className="grid grid-cols-2 gap-4">
-                  <SentimentBar
-                    positive={latestRound.sentimentDistribution.positive}
-                    neutral={latestRound.sentimentDistribution.neutral}
-                    negative={latestRound.sentimentDistribution.negative}
-                  />
-                  <TrendingTopics topics={allTrending} />
-                </div>
               </div>
             )}
 
-            {/* ── Bottom Section: Graph + Feed ── */}
+            {/* ── Main 3-Column Area ── */}
             <div className="flex-1 flex overflow-hidden">
-              {/* Network Graph */}
-              <div className="flex-1 border-r border-border relative">
-                {graphData.nodes.length > 0 ? (
-                  <>
-                    <div className="absolute top-2 left-2 z-10 text-[10px] font-medium text-muted-foreground bg-background/80 backdrop-blur-sm rounded px-2 py-1">
-                      Agent Interaction Network
-                      <span className="text-muted-foreground/50 ml-2">
-                        {graphData.nodes.length} nodes · {graphData.edges.length} edges
-                      </span>
+
+              {/* ─── Left: Network Graph (primary visual) ─── */}
+              <div className="flex-1 flex flex-col min-w-0">
+                <div className="flex-1 relative">
+                  {graphData.nodes.length > 0 ? (
+                    <>
+                      <div className="absolute top-2 left-2 z-10 text-[10px] font-medium text-muted-foreground bg-background/80 backdrop-blur-sm rounded px-2 py-1">
+                        Network
+                        <span className="text-muted-foreground/50 ml-1.5">
+                          {graphData.nodes.length} nodes · {graphData.edges.length} edges
+                        </span>
+                      </div>
+                      <NetworkGraph
+                        nodes={graphData.nodes}
+                        edges={graphData.edges}
+                        onNodeClick={setSelectedAgentId}
+                        showEdgeLabels={showEdgeLabels}
+                      />
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                      <div className="w-14 h-14 rounded-2xl bg-muted/20 flex items-center justify-center mb-3">
+                        <Play className="h-7 w-7 text-muted-foreground/15" />
+                      </div>
+                      <p className="text-xs text-muted-foreground">Click <strong>Run</strong> to start</p>
+                      <p className="text-[10px] text-muted-foreground/40 mt-0.5">Agent interactions will appear here</p>
                     </div>
-                    <NetworkGraph
-                      nodes={graphData.nodes}
-                      edges={graphData.edges}
-                      onNodeClick={setSelectedAgentId}
-                      showEdgeLabels={showEdgeLabels}
-                    />
-                  </>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-muted/30 flex items-center justify-center mb-4">
-                      <Play className="h-8 w-8 text-muted-foreground/20" />
+                  )}
+                </div>
+              </div>
+
+              {/* ─── Center: Activity Feed ─── */}
+              <div className="w-[340px] shrink-0 border-l border-border flex flex-col">
+                {selectedAgentDetail ? (
+                  /* Agent Detail View (replaces feed when agent selected) */
+                  <div className="flex flex-col h-full">
+                    <div className="px-3 py-2 border-b border-border flex items-center justify-between bg-card/50">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div
+                          className="w-7 h-7 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                          style={{ backgroundColor: agentAvatarColor(selectedAgentDetail.name) }}
+                        >
+                          {selectedAgentDetail.name.replace(/^stat_/, "").slice(0, 2).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-semibold truncate">{selectedAgentDetail.name.replace(/^stat_/, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</div>
+                          <div className="text-[9px] text-muted-foreground/50">{selectedAgentDetail.totalActions} actions</div>
+                        </div>
+                      </div>
+                      <button onClick={() => setSelectedAgentId(null)}
+                        className="p-1 rounded hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors">
+                        <X className="h-3 w-3" />
+                      </button>
                     </div>
-                    <p className="text-sm text-muted-foreground">Click <strong>Run</strong> to start</p>
-                    <p className="text-xs text-muted-foreground/50 mt-1">
-                      Agent interactions will appear as a network graph
-                    </p>
+                    <div className="px-3 py-1.5 border-b border-border/40 flex flex-wrap gap-1">
+                      {Object.entries(selectedAgentDetail.actionCounts).map(([type, count]) => (
+                        <span key={type} className="text-[9px] px-1.5 py-0.5 rounded bg-muted/50 text-foreground/70">
+                          {type} <span className="font-semibold">{count}</span>
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex-1 overflow-y-auto px-3 py-2 space-y-1.5">
+                      {selectedAgentDetail.actions.slice(-40).reverse().map((a, i) => (
+                        <div key={i} className="text-[10px] border-l-2 border-border/30 pl-2 py-0.5">
+                          <div className="flex items-center gap-1">
+                            <span className="font-medium text-foreground/80">{a.actionType}</span>
+                            <span className="text-muted-foreground/30">R{a.round}</span>
+                            {a.platform && <span className="text-[8px] px-1 py-0.5 rounded bg-muted/20 text-muted-foreground/40">{a.platform}</span>}
+                          </div>
+                          {a.target && <div className="text-[9px] text-muted-foreground/40">→ @{a.target}</div>}
+                          {a.content && <div className="text-[9px] text-foreground/50 mt-0.5 leading-relaxed">{a.content.slice(0, 120)}{a.content.length > 120 ? "..." : ""}</div>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
+                ) : (
+                  <ActivityFeed
+                    rounds={rounds}
+                    maxItems={150}
+                    onAgentClick={setSelectedAgentId}
+                  />
                 )}
               </div>
 
-              {/* Activity Feed */}
-              <div className="w-[380px] shrink-0 flex flex-col">
-                <ActivityFeed
-                  rounds={rounds}
-                  maxItems={150}
-                  onAgentClick={setSelectedAgentId}
-                />
+              {/* ─── Right Sidebar: Analytics ─── */}
+              <div className="w-[220px] shrink-0 border-l border-border bg-card/20 overflow-y-auto">
+                <div className="p-3 space-y-4">
+
+                  {/* Engagement sparkline */}
+                  <EngagementSparkline rounds={rounds} />
+
+                  {/* Top Agents leaderboard */}
+                  <AgentLeaderboard rounds={rounds} onAgentClick={setSelectedAgentId} />
+
+                  {/* Sentiment breakdown */}
+                  {latestRound && (
+                    <SentimentBar
+                      positive={latestRound.sentimentDistribution.positive}
+                      neutral={latestRound.sentimentDistribution.neutral}
+                      negative={latestRound.sentimentDistribution.negative}
+                    />
+                  )}
+
+                  {/* Trending topics */}
+                  <TrendingTopics topics={allTrending} />
+
+                  {/* Viral posts */}
+                  <ViralPostsPanel rounds={rounds} />
+
+                  {/* Platform progress */}
+                  {selectedScenario && latestRound && (() => {
+                    const platformTypes = Array.from(
+                      new Set(rounds.flatMap((r) => r.actions.map((a) => a.platform).filter(Boolean) as string[])),
+                    );
+                    if (platformTypes.length === 0) return null;
+                    return (
+                      <div className="space-y-1.5">
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium flex items-center gap-1.5">
+                          <Globe className="h-3 w-3" /> Platforms
+                        </div>
+                        <div className="space-y-1.5">
+                          {platformTypes.map((type) => {
+                            const acts = rounds.reduce((sum, r) => sum + r.actions.filter((a) => a.platform === type && a.actionType !== "DO_NOTHING").length, 0);
+                            const progress = (selectedScenario.totalRounds ?? 10) > 0 ? (latestRound.round / (selectedScenario.totalRounds ?? 10)) * 100 : 0;
+                            return (
+                              <div key={type} className="space-y-0.5">
+                                <div className="flex items-center justify-between text-[10px]">
+                                  <span className="text-foreground/70 capitalize font-medium">{type}</span>
+                                  <span className="text-muted-foreground/50">{acts} acts</span>
+                                </div>
+                                <div className="h-1 bg-muted/30 rounded-full overflow-hidden">
+                                  <div className="h-full bg-primary/60 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
 
             {/* Run error */}
             {runError && (
-              <div className="px-4 py-2 bg-destructive/10 border-t border-destructive/20 text-xs text-destructive flex items-center gap-2">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <div className="px-4 py-1.5 bg-destructive/10 border-t border-destructive/20 text-xs text-destructive flex items-center gap-2">
+                <AlertCircle className="h-3 w-3 shrink-0" />
                 {runError}
               </div>
             )}
