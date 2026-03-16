@@ -69,51 +69,51 @@ interface SystemMetrics {
   uptime: number;
 }
 
-/** Snapshot of per-CPU idle ticks for delta computation */
-let prevCpuTimes: Array<{ idle: number; total: number }> | null = null;
-/** Timestamp of last CPU snapshot (ms) */
-let prevCpuTimestamp = 0;
-/** Cached last valid CPU utilization (returned while waiting for first delta) */
-let lastCpuUtil = 0;
+/** Cached CPU/GPU readings — updated by the async collector, read synchronously */
+let cachedCpuPercent = 0;
+let cachedGpuPercent = 0;
+let cachedTemperature: number | null = null;
+let cachedPowerWatts: number | null = null;
 
 /**
- * Compute CPU utilization from os.cpus() deltas (0–100).
- * Requires at least 1 second between snapshots for accurate readings.
- * Returns cached value if called too soon after previous snapshot.
+ * Get CPU utilization via macOS `top` — same source as Activity Monitor.
+ * Parses "CPU usage: X% user, Y% sys, Z% idle" and returns 100 - idle.
+ * This is the most accurate method on macOS; os.cpus() tick deltas are unreliable
+ * when polled at short intervals or from multiple callers.
  */
-function computeCpuUtilization(): number {
+async function getCpuFromTop(): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync("top", ["-l", "1", "-n", "0"], { timeout: 5000 });
+    const match = stdout.match(/CPU usage:\s*([\d.]+)%\s*user,\s*([\d.]+)%\s*sys,\s*([\d.]+)%\s*idle/);
+    if (match) {
+      const idle = parseFloat(match[3]);
+      return Math.round(100 - idle);
+    }
+  } catch {
+    // top failed — fall back to os.cpus() snapshot
+  }
+  // Fallback: rough estimate from os.cpus() load average
   const os = require("os") as typeof import("os");
-  const now = Date.now();
+  const load = os.loadavg()[0]; // 1-minute load average
+  const cores = os.cpus().length;
+  return Math.min(100, Math.round((load / cores) * 100));
+}
 
-  // Guard: if called within 1s of last snapshot, return cached value
-  // This prevents inflated readings from rapid successive getState() calls
-  if (prevCpuTimes && now - prevCpuTimestamp < 1000) {
-    return lastCpuUtil;
-  }
-
-  const cpus = os.cpus();
-  const current = cpus.map((c) => {
-    const total = c.times.user + c.times.nice + c.times.sys + c.times.irq + c.times.idle;
-    return { idle: c.times.idle, total };
-  });
-
-  if (!prevCpuTimes || prevCpuTimes.length !== current.length) {
-    // First call — just store the snapshot, return 0 until we have a real delta
-    prevCpuTimes = current;
-    prevCpuTimestamp = now;
-    return lastCpuUtil;
-  }
-
-  let idleDelta = 0;
-  let totalDelta = 0;
-  for (let i = 0; i < current.length; i++) {
-    idleDelta += current[i].idle - prevCpuTimes[i].idle;
-    totalDelta += current[i].total - prevCpuTimes[i].total;
-  }
-  prevCpuTimes = current;
-  prevCpuTimestamp = now;
-  lastCpuUtil = totalDelta > 0 ? Math.round((1 - idleDelta / totalDelta) * 100) : 0;
-  return lastCpuUtil;
+/**
+ * Get GPU utilization via ioreg AGXAccelerator — reads "Device Utilization %"
+ * from the GPU driver's PerformanceStatistics dict. No sudo required.
+ */
+async function getGpuUtilization(): Promise<number> {
+  try {
+    const { stdout } = await execFileAsync("ioreg", ["-r", "-c", "AGXAccelerator"], { timeout: 3000 });
+    // Try "Device Utilization %" first (most common on Apple Silicon)
+    const utilMatch = stdout.match(/"Device Utilization %"\s*=\s*(\d+)/);
+    if (utilMatch) return parseInt(utilMatch[1], 10);
+    // Fallback: "Renderer Utilization %"
+    const rendererMatch = stdout.match(/"Renderer Utilization %"\s*=\s*(\d+)/);
+    if (rendererMatch) return parseInt(rendererMatch[1], 10);
+  } catch { /* ioreg failed */ }
+  return 0;
 }
 
 /**
@@ -158,71 +158,19 @@ async function getAppleSiliconChipInfo(): Promise<{
 }
 
 /**
- * Get thermal, power, and GPU metrics via macOS system tools.
- * No sudo required — uses ioreg and sysctl.
+ * Get thermal data via macOS ioreg. Temperature sensors require
+ * specific entitlements on newer macOS — returns null if unavailable.
  */
-async function getThermalMetrics(): Promise<{
-  temperature: number | null;
-  powerWatts: number | null;
-  gpuUtilization: number;
-}> {
-  let temperature: number | null = null;
-  let powerWatts: number | null = null;
-  let gpuUtilization = 0;
-
-  // Collect GPU + thermal data in parallel
-  const [gpuResult, thermalResult] = await Promise.allSettled([
-    // GPU utilization via ioreg AGXAccelerator
-    (async () => {
-      try {
-        const { stdout } = await execFileAsync("ioreg", ["-r", "-c", "AGXAccelerator"], { timeout: 3000 });
-        // "gpu-busy-percent" or "Device Utilization %" in AGX stats
-        const busyMatch = stdout.match(/"gpu-busy-percent"\s*=\s*(\d+)/i);
-        if (busyMatch) return parseInt(busyMatch[1], 10);
-        // Fallback: "Device Utilization %"
-        const utilMatch = stdout.match(/"Device Utilization %"\s*=\s*(\d+)/i);
-        if (utilMatch) return parseInt(utilMatch[1], 10);
-        // Fallback: "gpu-active-residency" as a percentage
-        const residMatch = stdout.match(/"gpu-active-residency"\s*=\s*(\d+)/i);
-        if (residMatch) return Math.min(100, parseInt(residMatch[1], 10));
-      } catch { /* no GPU data */ }
-      return 0;
-    })(),
-    // Temperature + power via ioreg and sysctl
-    (async () => {
-      let temp: number | null = null;
-      let power: number | null = null;
-
-      // Try ioreg thermal sensors
-      try {
-        const { stdout } = await execFileAsync("ioreg", ["-r", "-n", "AppleARMIODevice", "-l"], { timeout: 3000 });
-        const tempMatch = stdout.match(/"Temperature"\s*=\s*(\d+)/);
-        if (tempMatch) {
-          const raw = parseInt(tempMatch[1], 10);
-          temp = raw > 1000 ? raw / 100 : raw;
-        }
-      } catch { /* */ }
-
-      // Try sysctl thermal level as fallback
-      if (temp == null) {
-        try {
-          const { stdout } = await execFileAsync("sysctl", ["-n", "machdep.xcpm.cpu_thermal_level"], { timeout: 2000 });
-          const level = parseInt(stdout.trim(), 10);
-          if (!isNaN(level)) temp = 35 + (level * 0.5);
-        } catch { /* */ }
-      }
-
-      return { temp, power };
-    })(),
-  ]);
-
-  if (gpuResult.status === "fulfilled") gpuUtilization = gpuResult.value;
-  if (thermalResult.status === "fulfilled") {
-    temperature = thermalResult.value.temp;
-    powerWatts = thermalResult.value.power;
-  }
-
-  return { temperature, powerWatts, gpuUtilization };
+async function getTemperature(): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync("ioreg", ["-r", "-n", "AppleARMIODevice", "-l"], { timeout: 3000 });
+    const tempMatch = stdout.match(/"Temperature"\s*=\s*(\d+)/);
+    if (tempMatch) {
+      const raw = parseInt(tempMatch[1], 10);
+      return raw > 1000 ? raw / 100 : raw;
+    }
+  } catch { /* */ }
+  return null;
 }
 
 /**
@@ -248,31 +196,44 @@ let cachedChipInfo: { chipName: string; chipFamily: string; gpuCores: number | n
 
 /**
  * Collect all real-time system metrics for the local machine.
+ * Uses macOS `top` for CPU (same as Activity Monitor) and `ioreg` for GPU.
+ * All shell calls run in parallel to minimize latency.
  */
 async function collectLocalMetrics(): Promise<SystemMetrics> {
   const os = require("os") as typeof import("os");
-  const isDarwinArm = process.platform === "darwin" && process.arch === "arm64";
+  const isDarwin = process.platform === "darwin";
 
   // Get chip info (cached after first call)
   if (!cachedChipInfo) {
-    cachedChipInfo = isDarwinArm
+    cachedChipInfo = isDarwin && process.arch === "arm64"
       ? await getAppleSiliconChipInfo()
       : { chipName: process.arch, chipFamily: process.arch, gpuCores: null };
   }
 
-  // Collect metrics in parallel
-  const cpuUtilization = computeCpuUtilization();
-
-  const [thermalMetrics, memPressure] = await Promise.all([
-    isDarwinArm ? getThermalMetrics() : Promise.resolve({ temperature: null, powerWatts: null, gpuUtilization: 0 }),
-    isDarwinArm ? getMemoryPressure() : Promise.resolve(0),
+  // Collect all metrics in parallel — each can fail independently
+  const [cpuResult, gpuResult, tempResult, memPressureResult] = await Promise.allSettled([
+    isDarwin ? getCpuFromTop() : Promise.resolve(0),
+    isDarwin ? getGpuUtilization() : Promise.resolve(0),
+    isDarwin ? getTemperature() : Promise.resolve(null as number | null),
+    isDarwin ? getMemoryPressure() : Promise.resolve(0),
   ]);
 
+  // Extract values — use cached fallback on failure
+  const cpuUtil = cpuResult.status === "fulfilled" ? cpuResult.value : cachedCpuPercent;
+  const gpuUtil = gpuResult.status === "fulfilled" ? gpuResult.value : cachedGpuPercent;
+  const temperature = tempResult.status === "fulfilled" ? tempResult.value : cachedTemperature;
+  const memPressure = memPressureResult.status === "fulfilled" ? memPressureResult.value : 0;
+
+  // Update cache for next call
+  cachedCpuPercent = cpuUtil;
+  cachedGpuPercent = gpuUtil;
+  cachedTemperature = temperature;
+
   return {
-    cpuUtilization,
-    gpuUtilization: thermalMetrics.gpuUtilization,
-    temperature: thermalMetrics.temperature,
-    powerWatts: thermalMetrics.powerWatts,
+    cpuUtilization: cpuUtil,
+    gpuUtilization: gpuUtil,
+    temperature,
+    powerWatts: cachedPowerWatts,
     memoryTotal: os.totalmem(),
     memoryFree: os.freemem(),
     memoryPressure: memPressure,
@@ -488,9 +449,10 @@ export class LatticeInferenceClusterService {
       this.pollInterval = null;
     }
     this.changeEmitter.removeAllListeners();
-    prevCpuTimes = null;
-    prevCpuTimestamp = 0;
-    lastCpuUtil = 0;
+    cachedCpuPercent = 0;
+    cachedGpuPercent = 0;
+    cachedTemperature = null;
+    cachedPowerWatts = null;
     cachedChipInfo = null;
   }
 }
