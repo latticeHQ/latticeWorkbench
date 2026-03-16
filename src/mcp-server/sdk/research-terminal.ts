@@ -1,15 +1,15 @@
 /**
- * OpenBB Financial Data SDK — Typed functions for code execution with MCP.
+ * Research Terminal SDK — Typed functions for code execution with MCP.
  *
- * Enables agents to write code that calls OpenBB tools programmatically:
+ * Enables agents to write code that calls Research Terminal tools programmatically:
  *
  *   import { getClient } from './client';
- *   import * as openbb from './openbb';
+ *   import * as research from './research-terminal';
  *
  *   const c = await getClient();
- *   const quote = await openbb.equityQuote(c, 'AAPL');
- *   const history = await openbb.equityHistorical(c, 'AAPL', { start_date: '2025-01-01' });
- *   const news = await openbb.news(c, 'AAPL,MSFT', { limit: 10 });
+ *   const quote = await research.equityQuote(c, 'AAPL');
+ *   const history = await research.equityHistorical(c, 'AAPL', { start_date: '2025-01-01' });
+ *   const news = await research.news(c, 'AAPL,MSFT', { limit: 10 });
  *
  * Following Anthropic's "Code Execution with MCP" pattern for context efficiency:
  * - Agents load only the tools they need

@@ -9,11 +9,12 @@
  * messages to agents, managing projects, running terminals, etc.
  *
  * Features:
- * - 200+ tools across 18 modules (minion, project, terminal, inbox, kanban, scheduler, sync, etc.)
+ * - 220+ tools across 19 modules (minion, project, terminal, research-terminal, inbox, kanban, scheduler, sync, etc.)
  * - 2 discovery tools for progressive disclosure (search_tools, list_tool_categories)
  * - 13 MCP resources for efficient data access (orientation, projects, config, chat history, inbox, sync, etc.)
  * - 5 MCP prompts for common workflows (orientation, create-and-run-task, cost-report, etc.)
  * - Typed SDK for code execution pattern (sdk/ directory)
+ * - Research Terminal: 24 financial data tools (equity, crypto, FX, indices, technicals, economy, derivatives, news)
  *
  * Server discovery order:
  * 1. LATTICE_SERVER_URL + LATTICE_SERVER_AUTH_TOKEN env vars
@@ -56,7 +57,7 @@ import { registerKanbanTools } from "./tools/kanban";
 import { registerSchedulerTools } from "./tools/scheduler";
 import { registerSyncTools } from "./tools/sync";
 import { registerBrowserTools } from "./tools/browser";
-import { registerOpenBBTools } from "./tools/openbb";
+import { registerResearchTerminalTools } from "./tools/research-terminal";
 
 // Discovery, resources, prompts
 import { registerDiscoveryTools, toolCatalog } from "./tools/discovery";
@@ -161,7 +162,7 @@ async function main(): Promise<void> {
   registerAndCatalog(mcpServer, "scheduler", () => registerSchedulerTools(mcpServer, client));
   registerAndCatalog(mcpServer, "sync", () => registerSyncTools(mcpServer, client));
   registerAndCatalog(mcpServer, "browser", () => registerBrowserTools(mcpServer, client));
-  registerAndCatalog(mcpServer, "openbb", () => registerOpenBBTools(mcpServer, client));
+  registerAndCatalog(mcpServer, "research-terminal", () => registerResearchTerminalTools(mcpServer, client));
 
   // Register discovery tools (search_tools + list_tool_categories)
   // These tools use the populated toolCatalog to enable progressive disclosure.

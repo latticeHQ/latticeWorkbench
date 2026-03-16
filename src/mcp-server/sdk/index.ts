@@ -46,5 +46,5 @@ export * as sync from "./sync";
 // Authentication
 export * as oauth from "./oauth";
 
-// Financial data (OpenBB)
-export * as openbb from "./openbb";
+// Financial data (Research Terminal)
+export * as researchTerminal from "./research-terminal";

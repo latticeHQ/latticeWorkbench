@@ -1,13 +1,13 @@
 /**
- * OpenBB Financial Data MCP Tools
+ * Research Terminal MCP Tools
  *
- * Exposes the full OpenBB financial data platform as MCP tools, enabling
+ * Exposes the full financial data platform as MCP tools, enabling
  * agents to programmatically access market data, economic indicators,
  * technical analysis, and more.
  *
  * Architecture:
- * - Tools first resolve the OpenBB base URL via the oRPC backend (getStatus)
- * - Then fetch data directly from the OpenBB HTTP API
+ * - Tools first resolve the data server base URL via the oRPC backend
+ * - Then fetch data directly from the financial data HTTP API
  * - Follows the code execution + MCP pattern from Anthropic's blog:
  *   progressive disclosure, context-efficient results, composable tools
  *
@@ -34,7 +34,7 @@ import { jsonContent, withErrorHandling } from "../utils";
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the running OpenBB API base URL from the backend status.
+ * Resolve the running data server base URL from the backend status.
  * Throws if the server is not running.
  */
 async function getBaseUrl(client: RouterClient<AppRouter>): Promise<string> {
@@ -43,15 +43,15 @@ async function getBaseUrl(client: RouterClient<AppRouter>): Promise<string> {
     return `${status.baseUrl}/api/v1`;
   }
   throw new Error(
-    `OpenBB data server is not running (status: ${status?.status ?? "unknown"}). ` +
-      `Use openbb_start to start it first.`,
+    `Research terminal data server is not running (status: ${status?.status ?? "unknown"}). ` +
+      `Use research_terminal_start to start it first.`,
   );
 }
 
 /**
- * Fetch data from the OpenBB HTTP API with standard error handling.
+ * Fetch data from the financial data HTTP API with standard error handling.
  */
-async function fetchOpenBB<T>(
+async function fetchData<T>(
   baseUrl: string,
   path: string,
   params?: Record<string, string>,
@@ -77,7 +77,7 @@ async function fetchOpenBB<T>(
     const sym = params?.symbol ?? "";
     if (res.status === 404) {
       throw new Error(
-        `Endpoint not available: ${path}. The required OpenBB extension may not be installed.`,
+        `Endpoint not available: ${path}. The required data extension may not be installed.`,
       );
     }
     if (res.status === 422) {
@@ -87,7 +87,7 @@ async function fetchOpenBB<T>(
           : `Invalid parameters for ${path}.`,
       );
     }
-    throw new Error(`OpenBB API ${res.status} ${res.statusText} — ${path}`);
+    throw new Error(`Data API ${res.status} ${res.statusText} — ${path}`);
   }
 
   const text = await res.text();
@@ -109,7 +109,7 @@ async function fetchOpenBB<T>(
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerOpenBBTools(
+export function registerResearchTerminalTools(
   server: McpServer,
   client: RouterClient<AppRouter>,
 ): void {
@@ -118,8 +118,8 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_status",
-    "Get the current status of the OpenBB financial data server. Returns running state, port, base URL, and endpoint count.",
+    "research_terminal_status",
+    "Get the current status of the Research Terminal data server. Returns running state, port, base URL, and endpoint count.",
     {},
     () =>
       withErrorHandling(async () => {
@@ -129,8 +129,8 @@ export function registerOpenBBTools(
   );
 
   server.tool(
-    "openbb_start",
-    "Start the OpenBB financial data server. Bootstraps the Python environment if needed. Returns the running status once healthy.",
+    "research_terminal_start",
+    "Start the Research Terminal data server. Bootstraps the Python environment if needed. Returns the running status once healthy.",
     {},
     () =>
       withErrorHandling(async () => {
@@ -141,14 +141,14 @@ export function registerOpenBBTools(
   );
 
   server.tool(
-    "openbb_stop",
-    "Stop the OpenBB financial data server.",
+    "research_terminal_stop",
+    "Stop the Research Terminal data server.",
     {},
     () =>
       withErrorHandling(async () => {
         await (client as any).openbb.stop();
         return {
-          content: [jsonContent({ message: "OpenBB server stopped" })],
+          content: [jsonContent({ message: "Research terminal data server stopped" })],
         };
       }),
   );
@@ -158,7 +158,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_equity_quote",
+    "research_terminal_equity_quote",
     "Get real-time stock quote for one or more symbols. Returns price, change, volume, market cap, high, low, prev close, and more.",
     {
       symbol: z
@@ -172,7 +172,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/equity/price/quote", {
+        const data = await fetchData(baseUrl, "/equity/price/quote", {
           symbol: params.symbol,
           ...(params.provider && { provider: params.provider }),
         });
@@ -181,7 +181,7 @@ export function registerOpenBBTools(
   );
 
   server.tool(
-    "openbb_equity_historical",
+    "research_terminal_equity_historical",
     "Get OHLCV price history for a stock. Returns date, open, high, low, close, volume for each period.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
@@ -207,13 +207,13 @@ export function registerOpenBBTools(
         if (params.end_date) p.end_date = params.end_date;
         if (params.interval) p.interval = params.interval;
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, "/equity/price/historical", p);
+        const data = await fetchData(baseUrl, "/equity/price/historical", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_equity_profile",
+    "research_terminal_equity_profile",
     "Get company profile: sector, industry, description, website, employees, market cap, and more.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
@@ -222,7 +222,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/equity/profile", {
+        const data = await fetchData(baseUrl, "/equity/profile", {
           symbol: params.symbol,
           ...(params.provider && { provider: params.provider }),
         });
@@ -231,7 +231,7 @@ export function registerOpenBBTools(
   );
 
   server.tool(
-    "openbb_equity_search",
+    "research_terminal_equity_search",
     "Search for stocks by name or ticker. Returns matching symbols, names, and exchanges.",
     {
       query: z.string().describe("Search query (e.g. 'apple', 'rare earth', 'lithium')"),
@@ -240,7 +240,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/equity/search", {
+        const data = await fetchData(baseUrl, "/equity/search", {
           query: params.query,
           ...(params.provider && { provider: params.provider }),
         });
@@ -249,7 +249,7 @@ export function registerOpenBBTools(
   );
 
   server.tool(
-    "openbb_equity_fundamentals",
+    "research_terminal_equity_fundamentals",
     "Get financial statements: income statement, balance sheet, or cash flow. Returns structured financial data with line items.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
@@ -278,13 +278,13 @@ export function registerOpenBBTools(
         if (params.period) p.period = params.period;
         if (params.limit) p.limit = String(params.limit);
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, pathMap[params.statement], p);
+        const data = await fetchData(baseUrl, pathMap[params.statement], p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_equity_filings",
+    "research_terminal_equity_filings",
     "Get SEC filings for a company: 10-K, 10-Q, 8-K, and more. Returns filing date, type, URL, and description.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
@@ -307,7 +307,7 @@ export function registerOpenBBTools(
         };
         if (params.form_type) p.form_type = params.form_type;
         if (params.limit) p.limit = String(params.limit);
-        const data = await fetchOpenBB(baseUrl, "/equity/fundamental/filings", p);
+        const data = await fetchData(baseUrl, "/equity/fundamental/filings", p);
         return { content: [jsonContent(data)] };
       }),
   );
@@ -317,7 +317,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_crypto_historical",
+    "research_terminal_crypto_historical",
     "Get historical OHLCV price data for a cryptocurrency. Use BTC-USD, ETH-USD format for symbols.",
     {
       symbol: z
@@ -337,13 +337,13 @@ export function registerOpenBBTools(
         if (params.start_date) p.start_date = params.start_date;
         if (params.interval) p.interval = params.interval;
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, "/crypto/price/historical", p);
+        const data = await fetchData(baseUrl, "/crypto/price/historical", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_crypto_search",
+    "research_terminal_crypto_search",
     "Search for cryptocurrencies by name or symbol.",
     {
       query: z.string().describe("Search query (e.g. 'bitcoin', 'ethereum')"),
@@ -351,7 +351,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/crypto/search", {
+        const data = await fetchData(baseUrl, "/crypto/search", {
           query: params.query,
         });
         return { content: [jsonContent(data)] };
@@ -363,7 +363,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_currency_historical",
+    "research_terminal_currency_historical",
     "Get historical exchange rate data for a currency pair. Use EURUSD=X or GBPUSD=X format.",
     {
       symbol: z
@@ -378,13 +378,13 @@ export function registerOpenBBTools(
         const p: Record<string, string> = { symbol: params.symbol };
         if (params.start_date) p.start_date = params.start_date;
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, "/currency/price/historical", p);
+        const data = await fetchData(baseUrl, "/currency/price/historical", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_currency_snapshots",
+    "research_terminal_currency_snapshots",
     "Get current exchange rate snapshots for major currency pairs. Returns latest bid/ask/mid rates.",
     {
       provider: z.string().optional().describe("Data provider (default: yfinance)"),
@@ -392,7 +392,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/currency/snapshots", {
+        const data = await fetchData(baseUrl, "/currency/snapshots", {
           ...(params.provider && { provider: params.provider }),
         });
         return { content: [jsonContent(data)] };
@@ -404,7 +404,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_index_historical",
+    "research_terminal_index_historical",
     "Get historical OHLCV data for a market index (S&P 500, Nasdaq, Dow, etc.).",
     {
       symbol: z
@@ -419,13 +419,13 @@ export function registerOpenBBTools(
         const p: Record<string, string> = { symbol: params.symbol };
         if (params.start_date) p.start_date = params.start_date;
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, "/index/price/historical", p);
+        const data = await fetchData(baseUrl, "/index/price/historical", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_index_constituents",
+    "research_terminal_index_constituents",
     "Get the constituent stocks of a market index (e.g. S&P 500 components).",
     {
       symbol: z.string().describe("Index symbol (e.g. ^GSPC, ^DJI)"),
@@ -434,7 +434,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/index/constituents", {
+        const data = await fetchData(baseUrl, "/index/constituents", {
           symbol: params.symbol,
           ...(params.provider && { provider: params.provider }),
         });
@@ -447,7 +447,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_technical_indicators",
+    "research_terminal_technical_indicators",
     "Calculate technical indicators for a stock: RSI, MACD, Bollinger Bands, SMA, or EMA. Returns time series of indicator values.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
@@ -468,7 +468,7 @@ export function registerOpenBBTools(
         const p: Record<string, string> = { symbol: params.symbol };
         if (params.period) p.period = String(params.period);
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(
+        const data = await fetchData(
           baseUrl,
           `/technical/${params.indicator}`,
           p,
@@ -482,7 +482,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_economy_calendar",
+    "research_terminal_economy_calendar",
     "Get the economic events calendar. Returns upcoming and recent economic releases (CPI, jobs, Fed decisions, etc.) with actual vs. consensus values.",
     {
       start_date: z.string().optional().describe("Start date (YYYY-MM-DD)"),
@@ -500,13 +500,13 @@ export function registerOpenBBTools(
         };
         if (params.start_date) p.start_date = params.start_date;
         if (params.end_date) p.end_date = params.end_date;
-        const data = await fetchOpenBB(baseUrl, "/economy/calendar", p);
+        const data = await fetchData(baseUrl, "/economy/calendar", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_economy_cpi",
+    "research_terminal_economy_cpi",
     "Get Consumer Price Index (CPI) inflation data for a country.",
     {
       country: z
@@ -521,13 +521,13 @@ export function registerOpenBBTools(
         const p: Record<string, string> = {};
         if (params.country) p.country = params.country;
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, "/economy/cpi", p);
+        const data = await fetchData(baseUrl, "/economy/cpi", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_economy_gdp",
+    "research_terminal_economy_gdp",
     "Get nominal GDP data for a country.",
     {
       country: z
@@ -542,13 +542,13 @@ export function registerOpenBBTools(
         const p: Record<string, string> = {};
         if (params.country) p.country = params.country;
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, "/economy/gdp/nominal", p);
+        const data = await fetchData(baseUrl, "/economy/gdp/nominal", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_fred_series",
+    "research_terminal_fred_series",
     "Get FRED (Federal Reserve) economic data series. Access thousands of economic indicators: interest rates, unemployment, inflation, GDP, and more.",
     {
       symbol: z
@@ -570,13 +570,13 @@ export function registerOpenBBTools(
           provider: params.provider ?? "fred",
         };
         if (params.start_date) p.start_date = params.start_date;
-        const data = await fetchOpenBB(baseUrl, "/economy/fred_series", p);
+        const data = await fetchData(baseUrl, "/economy/fred_series", p);
         return { content: [jsonContent(data)] };
       }),
   );
 
   server.tool(
-    "openbb_treasury_rates",
+    "research_terminal_treasury_rates",
     "Get current US Treasury yield curve rates across all maturities (1mo, 3mo, 6mo, 1y, 2y, 5y, 10y, 30y).",
     {
       provider: z.string().optional().describe("Data provider"),
@@ -586,7 +586,7 @@ export function registerOpenBBTools(
         const baseUrl = await getBaseUrl(client);
         const p: Record<string, string> = {};
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(
+        const data = await fetchData(
           baseUrl,
           "/fixedincome/government/treasury_rates",
           p,
@@ -600,7 +600,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_options_chains",
+    "research_terminal_options_chains",
     "Get options chain data for a stock: strikes, expirations, bids, asks, implied volatility, open interest, and greeks.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL, SPY)"),
@@ -609,7 +609,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/derivatives/options/chains", {
+        const data = await fetchData(baseUrl, "/derivatives/options/chains", {
           symbol: params.symbol,
           ...(params.provider && { provider: params.provider }),
         });
@@ -618,7 +618,7 @@ export function registerOpenBBTools(
   );
 
   server.tool(
-    "openbb_futures_curve",
+    "research_terminal_futures_curve",
     "Get the futures term structure / forward curve for a commodity or financial futures contract.",
     {
       symbol: z
@@ -629,7 +629,7 @@ export function registerOpenBBTools(
     (params) =>
       withErrorHandling(async () => {
         const baseUrl = await getBaseUrl(client);
-        const data = await fetchOpenBB(baseUrl, "/derivatives/futures/curve", {
+        const data = await fetchData(baseUrl, "/derivatives/futures/curve", {
           symbol: params.symbol,
           ...(params.provider && { provider: params.provider }),
         });
@@ -642,7 +642,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_news",
+    "research_terminal_news",
     "Get financial news articles for one or more symbols. Returns headlines, URLs, dates, and sources.",
     {
       symbol: z
@@ -660,7 +660,7 @@ export function registerOpenBBTools(
         const p: Record<string, string> = { symbol: params.symbol };
         if (params.limit) p.limit = String(params.limit);
         if (params.provider) p.provider = params.provider;
-        const data = await fetchOpenBB(baseUrl, "/news/company", p);
+        const data = await fetchData(baseUrl, "/news/company", p);
         return { content: [jsonContent(data)] };
       }),
   );
@@ -670,7 +670,7 @@ export function registerOpenBBTools(
   // ═══════════════════════════════════════════════════════════════════════════
 
   server.tool(
-    "openbb_market_snapshot",
+    "research_terminal_market_snapshot",
     "Get a comprehensive market snapshot: quotes for multiple symbols in a single call. Ideal for dashboards and watchlists.",
     {
       symbols: z
@@ -688,7 +688,7 @@ export function registerOpenBBTools(
 
         for (const symbol of symbolList) {
           try {
-            const quote = await fetchOpenBB<Record<string, unknown>[]>(
+            const quote = await fetchData<Record<string, unknown>[]>(
               baseUrl,
               "/equity/price/quote",
               {
@@ -716,7 +716,7 @@ export function registerOpenBBTools(
   );
 
   server.tool(
-    "openbb_stock_analysis",
+    "research_terminal_stock_analysis",
     "Get a comprehensive analysis of a stock: quote, profile, and recent price history in a single call. Saves context by combining multiple data points.",
     {
       symbol: z.string().describe("Ticker symbol (e.g. AAPL)"),
@@ -737,13 +737,13 @@ export function registerOpenBBTools(
 
         // Fetch quote, profile, and history in parallel
         const [quote, profile, history] = await Promise.all([
-          fetchOpenBB(baseUrl, "/equity/price/quote", { symbol }).catch(
+          fetchData(baseUrl, "/equity/price/quote", { symbol }).catch(
             () => null,
           ),
-          fetchOpenBB(baseUrl, "/equity/profile", { symbol }).catch(
+          fetchData(baseUrl, "/equity/profile", { symbol }).catch(
             () => null,
           ),
-          fetchOpenBB(baseUrl, "/equity/price/historical", {
+          fetchData(baseUrl, "/equity/price/historical", {
             symbol,
             start_date: startStr,
             interval: "1d",

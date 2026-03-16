@@ -162,6 +162,49 @@ export function registerPrompts(server: McpServer): void {
     })
   );
 
+  // ── Research Terminal ─────────────────────────────────────────────────
+  server.prompt(
+    "research-terminal",
+    "Use the Research Terminal to fetch financial data — stock quotes, price history, FRED economic data, technicals, and more.",
+    {
+      symbol: z.string().optional().describe("Ticker symbol to research (e.g. AAPL, BTC-USD)"),
+    },
+    async ({ symbol }) => ({
+      messages: [
+        {
+          role: "user" as const,
+          content: {
+            type: "text" as const,
+            text: [
+              `Use the Research Terminal built-in MCP tools to fetch financial data${symbol ? ` for ${symbol}` : ""}.`,
+              ``,
+              `**Available tool categories** (all prefixed with \`research_terminal_\`):`,
+              ``,
+              `| Category | Tools | Description |`,
+              `|----------|-------|-------------|`,
+              `| Lifecycle | \`_status\`, \`_start\`, \`_stop\` | Manage the data server |`,
+              `| Equity | \`_equity_quote\`, \`_equity_historical\`, \`_equity_profile\`, \`_equity_search\`, \`_equity_fundamentals\`, \`_equity_filings\` | Stock data, financials, SEC filings |`,
+              `| Crypto | \`_crypto_historical\`, \`_crypto_search\` | Cryptocurrency prices |`,
+              `| Currency | \`_currency_historical\`, \`_currency_snapshots\` | FX rates |`,
+              `| Index | \`_index_historical\`, \`_index_constituents\` | Market indices |`,
+              `| Technical | \`_technical_indicators\` | RSI, MACD, Bollinger, SMA, EMA |`,
+              `| Economy | \`_economy_calendar\`, \`_economy_cpi\`, \`_economy_gdp\`, \`_fred_series\`, \`_treasury_rates\` | Macro/FRED data |`,
+              `| Derivatives | \`_options_chains\`, \`_futures_curve\` | Options & futures |`,
+              `| News | \`_news\` | Financial headlines |`,
+              `| Composite | \`_market_snapshot\`, \`_stock_analysis\` | Multi-data in one call |`,
+              ``,
+              `**Steps:**`,
+              `1. First call \`research_terminal_status\` — if not running, call \`research_terminal_start\``,
+              `2. Then use the data tools above to fetch what you need`,
+              `3. For a quick stock overview, use \`research_terminal_stock_analysis\` (combines quote + profile + history)`,
+              `4. For a watchlist, use \`research_terminal_market_snapshot\` with comma-separated symbols`,
+            ].join("\n"),
+          },
+        },
+      ],
+    })
+  );
+
   // ── Cleanup merged branches ────────────────────────────────────────────
   server.prompt(
     "cleanup-merged",

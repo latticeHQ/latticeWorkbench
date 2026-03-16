@@ -46,7 +46,7 @@ const usage = await getSessionUsage(c, ws.minionId);
 | `kanban` | 3 | Kanban board: list cards, move between columns, get archived buffer |
 | `scheduler` | 6 | Task scheduler: create/manage cron or interval automated tasks |
 | `sync` | 9 | Git sync: push/pull state, manage repos, check GitHub auth, configure categories |
-| `openbb` | 20 | Financial data: equity quotes/history/fundamentals, crypto, FX, indices, technicals, FRED, treasury rates, options, futures, news |
+| `researchTerminal` | 20 | Research Terminal: equity quotes/history/fundamentals, crypto, FX, indices, technicals, FRED, treasury rates, options, futures, news |
 
 **Total: 222 typed functions** covering the full Lattice oRPC API surface.
 
@@ -105,3 +105,9 @@ const usage = await getSessionUsage(c, ws.minionId);
 
 ### sync (9 functions)
 `getStatus`, `getConfig`, `saveConfig`, `checkGhAuth`, `listRepos`, `createRepo`, `push`, `pull`, `disconnect`
+
+### researchTerminal (20 functions)
+`status`, `start`, `stop`, `equityQuote`, `equityHistorical`, `equityProfile`, `equitySearch`, `equityFundamentals`, `equityFilings`, `cryptoHistorical`, `currencyHistorical`, `indexHistorical`, `technicalIndicator`, `fredSeries`, `treasuryRates`, `economyCalendar`, `optionsChains`, `futuresCurve`, `news`
+
+#### MCP Tool Names (24 tools, category: research-terminal)
+`research_terminal_status`, `research_terminal_start`, `research_terminal_stop`, `research_terminal_equity_quote`, `research_terminal_equity_historical`, `research_terminal_equity_profile`, `research_terminal_equity_search`, `research_terminal_equity_fundamentals`, `research_terminal_equity_filings`, `research_terminal_crypto_historical`, `research_terminal_crypto_search`, `research_terminal_currency_historical`, `research_terminal_currency_snapshots`, `research_terminal_index_historical`, `research_terminal_index_constituents`, `research_terminal_technical_indicators`, `research_terminal_economy_calendar`, `research_terminal_economy_cpi`, `research_terminal_economy_gdp`, `research_terminal_fred_series`, `research_terminal_treasury_rates`, `research_terminal_options_chains`, `research_terminal_futures_curve`, `research_terminal_news`, `research_terminal_market_snapshot`, `research_terminal_stock_analysis`
