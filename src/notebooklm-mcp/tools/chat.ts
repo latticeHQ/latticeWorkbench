@@ -55,7 +55,7 @@ export function registerChatTools(
       withErrorHandling(async () => {
         await client.notebooks.configureChat(params.notebookId, {
           goal: params.goal,
-          customGoal: params.customGoal,
+          customPrompt: params.customGoal,
           responseLength: params.responseLength,
         });
         return {
@@ -77,7 +77,7 @@ export function registerChatTools(
     },
     (params) =>
       withErrorHandling(async () => {
-        client.chat.clearConversation(params.notebookId);
+        client.chat.clearConversation();
         return {
           content: [
             jsonContent({

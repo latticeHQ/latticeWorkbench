@@ -104,7 +104,6 @@ export function registerSourceTools(
     (params) =>
       withErrorHandling(async () => {
         const description = await client.sources.describe(
-          params.notebookId,
           params.sourceId,
         );
         return { content: [jsonContent(description)] };
@@ -121,7 +120,6 @@ export function registerSourceTools(
     (params) =>
       withErrorHandling(async () => {
         const content = await client.sources.getContent(
-          params.notebookId,
           params.sourceId,
         );
         return { content: [jsonContent(content)] };
@@ -177,7 +175,7 @@ export function registerSourceTools(
             ],
           };
         }
-        await client.sources.delete(params.notebookId, params.sourceIds);
+        await client.sources.delete(params.sourceIds);
         return {
           content: [
             jsonContent({

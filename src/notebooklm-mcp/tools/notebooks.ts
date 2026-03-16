@@ -22,7 +22,7 @@ export function registerNotebookTools(
     },
     (params) =>
       withErrorHandling(async () => {
-        const notebooks = await client.notebooks.list(params.ownership);
+        const notebooks = await client.notebooks.list();
         return { content: [jsonContent(notebooks)] };
       }),
   );

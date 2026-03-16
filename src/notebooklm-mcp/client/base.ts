@@ -459,7 +459,7 @@ export class BaseClient {
 
     return {
       answer,
-      citedSourceIds: [...citedSourceIds],
+      citedSourceIds: Array.from(citedSourceIds),
     };
   }
 

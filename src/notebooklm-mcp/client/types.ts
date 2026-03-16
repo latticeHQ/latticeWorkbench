@@ -12,7 +12,7 @@ export const NotebookSchema = z.object({
   id: z.string(),
   title: z.string(),
   sourceCount: z.number(),
-  sources: z.array(z.record(z.unknown())),
+  sources: z.array(z.record(z.string(), z.unknown())),
   isOwned: z.boolean().default(true),
   isShared: z.boolean().default(false),
   createdAt: z.string().nullable().default(null),
@@ -74,7 +74,7 @@ export const StudioArtifactSchema = z.object({
   title: z.string().default(""),
   url: z.string().nullable().default(null),
   content: z.string().nullable().default(null),
-  metadata: z.record(z.unknown()).default({}),
+  metadata: z.record(z.string(), z.unknown()).default({}),
 });
 export type StudioArtifact = z.infer<typeof StudioArtifactSchema>;
 
@@ -109,7 +109,7 @@ export type ResearchStatus = z.infer<typeof ResearchStatusSchema>;
 // ─── Auth Types ─────────────────────────────────────────────────────────────
 
 export const AuthTokensSchema = z.object({
-  cookies: z.record(z.string()),
+  cookies: z.record(z.string(), z.string()),
   csrfToken: z.string(),
   sessionId: z.string().default(""),
   buildLabel: z.string().default(""),

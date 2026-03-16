@@ -54,7 +54,10 @@ export function registerAuthTools(
     },
     (params) =>
       withErrorHandling(async () => {
-        const cookies = await extractCookiesFromCdp(params.port ?? 9222);
+        const cookies = await extractCookiesFromCdp({
+          host: "127.0.0.1",
+          port: params.port ?? 9222,
+        });
 
         // Re-initialize the client with new cookies
         await client.init();

@@ -37,7 +37,7 @@ async function main(): Promise<void> {
 
   // Create and initialize the NotebookLM client
   const client = new NotebookLmClient({
-    profile: process.env.LATTICE_NLM_PROFILE,
+    profileName: process.env.LATTICE_NLM_PROFILE,
   });
 
   try {

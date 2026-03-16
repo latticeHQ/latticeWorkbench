@@ -64,7 +64,7 @@ export function registerSharingTools(
         await client.sharing.inviteCollaborator(
           params.notebookId,
           params.email,
-          params.role,
+          { role: params.role },
         );
         return {
           content: [

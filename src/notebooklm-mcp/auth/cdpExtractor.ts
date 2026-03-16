@@ -89,7 +89,9 @@ async function executeCdpCommand(
   params: Record<string, unknown> = {},
 ): Promise<unknown> {
   // Dynamic import for ws (WebSocket client)
-  const { default: WebSocket } = await import("ws");
+  // Dynamic import for ws (WebSocket client) - handle both ESM and CJS
+  const wsModule = await import("ws");
+  const WebSocket = ("default" in wsModule ? (wsModule as any).default : wsModule) as typeof import("ws").WebSocket;
 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl);
