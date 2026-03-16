@@ -235,16 +235,41 @@ export async function launchAndExtract(
     "https://notebooklm.google.com",
   ];
 
+  // Launch Chrome and capture any spawn errors
   const chrome: ChildProcess = spawn(chromePath, args, {
     stdio: "ignore",
     detached: true,
   });
+
+  // Track spawn failures (e.g. Chrome already running with this profile)
+  let spawnError: Error | null = null;
+  chrome.on("error", (err) => {
+    spawnError = err;
+  });
+
   chrome.unref();
 
   // Wait for Chrome to start
   await new Promise((r) => setTimeout(r, 3000));
 
+  if (spawnError) {
+    throw new Error(
+      `Failed to launch Chrome: ${(spawnError as Error).message}. ` +
+      `If Chrome is already running, close it first or use nlm_auth_extract_cookies instead.`
+    );
+  }
+
+  // Also check if the process exited immediately (e.g. profile lock)
+  if (chrome.exitCode !== null) {
+    throw new Error(
+      `Chrome exited immediately with code ${chrome.exitCode}. ` +
+      `The Chrome profile may be locked by another instance. ` +
+      `Close other Chrome windows or use a different profile name.`
+    );
+  }
+
   const deadline = Date.now() + timeout;
+  let lastError = "";
 
   try {
     while (Date.now() < deadline) {
@@ -257,12 +282,19 @@ export async function launchAndExtract(
         if (validation.valid) {
           return { cookies };
         }
-      } catch {
-        // Chrome not ready yet or user hasn't logged in
+        lastError = validation.missing
+          ? `Missing required cookies: ${validation.missing.join(", ")}`
+          : "Cookies found but validation failed";
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
       }
       await new Promise((r) => setTimeout(r, 2000));
     }
-    throw new Error("Timed out waiting for Google login");
+    throw new Error(
+      `Timed out waiting for Google login (${timeout / 1000}s). ` +
+      `Last status: ${lastError}. ` +
+      `Make sure you signed into Google in the Chrome window that opened.`
+    );
   } finally {
     // Clean up Chrome process
     try {
