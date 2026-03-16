@@ -65,6 +65,7 @@ import { PolicyService } from "@/node/services/policyService";
 import { ServerAuthService } from "@/node/services/serverAuthService";
 import { KanbanService } from "@/node/services/kanbanService";
 import { ExoService } from "@/node/services/exoService";
+import { LatticeInferenceClusterService } from "@/node/services/latticeInferenceClusterService";
 import { InferenceService } from "@/node/services/inference/inferenceService";
 import { InferenceSetupService } from "@/node/services/inference/inferenceSetupService";
 import { SchedulerService } from "@/node/services/schedulerService";
@@ -72,6 +73,9 @@ import { SyncService } from "@/node/services/syncService";
 import { InboxService } from "@/node/services/inboxService";
 import { TelegramAdapter } from "@/node/services/inbox/telegramAdapter";
 import { BrowserService } from "@/node/services/browserService";
+import { OpenBBService } from "@/node/services/openbbService";
+import { SimulationService } from "@/node/services/simulation";
+import { DEFAULT_SIMULATION_SETTINGS } from "@/node/services/simulation/types";
 import type { ORPCContext } from "@/node/orpc/context";
 
 const LATTICE_HELP_CHAT_WELCOME_MESSAGE_ID = "lattice-chat-welcome";
@@ -136,12 +140,15 @@ export class ServiceContainer {
   public readonly serverAuthService: ServerAuthService;
   public readonly kanbanService: KanbanService;
   public readonly exoService: ExoService;
+  public readonly latticeInferenceClusterService: LatticeInferenceClusterService;
   public readonly inferenceService: InferenceService;
   public readonly inferenceSetupService: InferenceSetupService;
   public readonly schedulerService: SchedulerService;
   public readonly syncService: SyncService;
   public readonly inboxService: InboxService;
   public readonly browserService: BrowserService;
+  public readonly openbbService: OpenBBService;
+  public readonly simulationService: SimulationService;
   public readonly sshPromptService = new SshPromptService();
   private readonly ptyService: PTYService;
   public readonly idleCompactionService: IdleCompactionService;
@@ -188,6 +195,13 @@ export class ServiceContainer {
 
     this.projectService = new ProjectService(config, this.sshPromptService);
 
+    // Register known project paths so MCPConfigService can sync .mcp.json
+    // for external tools (Claude Code, terminal profiles, etc.)
+    const projectsConfig = config.loadConfigOrDefault();
+    this.mcpConfigService.registerProjectPaths(
+      Array.from(projectsConfig.projects.keys())
+    );
+
     // Idle compaction service - auto-compacts minions after configured idle period
     this.idleCompactionService = new IdleCompactionService(
       config,
@@ -229,6 +243,8 @@ export class ServiceContainer {
     // Lattice Inference — local on-device LLM inference engine
     this.inferenceService = new InferenceService(config.rootDir);
     this.inferenceSetupService = new InferenceSetupService(this.inferenceService);
+    // Lattice Inference Cluster — alternate clustering provider wrapping InferenceService
+    this.latticeInferenceClusterService = new LatticeInferenceClusterService(this.inferenceService);
     // Wire inference service into the model factory so `lattice-inference:*` model strings work
     this.aiService.setInferenceService(this.inferenceService);
     // Inbox service — manages channel adapters (Telegram, Slack, etc.)
@@ -245,6 +261,10 @@ export class ServiceContainer {
     // Browser service — per-minion headless browser sessions via agent-browser
     this.browserService = new BrowserService(config);
     this.minionService.setBrowserService(this.browserService);
+    // OpenBB — embedded financial data platform (lazy-started on first use)
+    this.openbbService = new OpenBBService(config.rootDir);
+    // Simulation engine — multi-agent prediction system
+    this.simulationService = new SimulationService(DEFAULT_SIMULATION_SETTINGS);
     this.aiService.setBrowserService(this.browserService);
     // Scheduler service — late-binds minion service to send agent messages
     this.schedulerService = new SchedulerService(config);
@@ -372,6 +392,15 @@ export class ServiceContainer {
     } catch (error) {
       log.warn("[ServiceContainer] Failed to initialize inference service", { error });
     }
+
+    // Simulation engine — startup-safe init (graph DB may not be running)
+    try {
+      await this.simulationService.initialize();
+    } catch (error) {
+      log.warn("[ServiceContainer] Failed to initialize simulation service", { error });
+    }
+
+    // OpenBB — user-triggered via Research tab (no auto-start).
 
     // Refresh Lattice SSH config in background (handles binary path changes on restart)
     // Skip getLatticeInfo() to avoid caching "unavailable" if lattice isn't installed yet
@@ -619,12 +648,15 @@ export class ServiceContainer {
       analyticsService: this.analyticsService,
       kanbanService: this.kanbanService,
       exoService: this.exoService,
+      latticeInferenceClusterService: this.latticeInferenceClusterService,
       inferenceService: this.inferenceService,
       inferenceSetupService: this.inferenceSetupService,
       schedulerService: this.schedulerService,
       syncService: this.syncService,
       inboxService: this.inboxService,
       browserService: this.browserService,
+      openbbService: this.openbbService,
+      simulationService: this.simulationService,
     };
   }
 
@@ -661,7 +693,11 @@ export class ServiceContainer {
 
     await this.analyticsService.dispose();
     this.exoService.dispose();
+    this.latticeInferenceClusterService.dispose();
     await this.inferenceService.dispose();
+    await this.openbbService.stop();
+    this.openbbService.dispose();
+    await this.simulationService.dispose();
     this.policyService.dispose();
     this.mcpServerManager.dispose();
     await this.mcpOauthService.dispose();

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Server, Loader2 } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Server, Loader2, Globe, FolderOpen, ChevronRight } from "lucide-react";
 import { Button } from "@/browser/components/ui/button";
 import { Switch } from "@/browser/components/ui/switch";
 import { useSettings } from "@/browser/contexts/SettingsContext";
@@ -9,6 +9,8 @@ import type { MCPServerInfo, MinionMCPOverrides } from "@/common/types/mcp";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/browser/components/ui/dialog";
 import { useMCPTestCache } from "@/browser/hooks/useMCPTestCache";
 import { ToolSelector } from "@/browser/components/ToolSelector";
+
+type ServerSource = "global" | "project" | "built-in";
 
 interface MinionMCPModalProps {
   minionId: string;
@@ -28,8 +30,10 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
 
   // State for project servers and minion overrides
   const [servers, setServers] = useState<Record<string, MCPServerInfo>>({});
+  const [globalServerNames, setGlobalServerNames] = useState<Set<string>>(new Set());
   const [overrides, setOverrides] = useState<MinionMCPOverrides>({});
   const [loadingTools, setLoadingTools] = useState<Record<string, boolean>>({});
+  const [expandedTools, setExpandedTools] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,8 +42,6 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
   const { getTools, setResult, reload: reloadCache } = useMCPTestCache(projectPath);
 
   // Ref so the effect can call reloadCache without depending on its identity.
-  // We only want to re-fire the effect when the modal opens (open/api/ids change),
-  // not when the cache hook recreates the reload callback.
   const reloadCacheRef = useRef(reloadCache);
   reloadCacheRef.current = reloadCache;
 
@@ -54,11 +56,13 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
       setLoading(true);
       setError(null);
       try {
-        const [projectServers, minionOverrides] = await Promise.all([
+        const [mergedServers, globalServers, minionOverrides] = await Promise.all([
           api.mcp.list({ projectPath }),
+          api.mcp.list({}),
           api.minion.mcp.get({ minionId }),
         ]);
-        setServers(projectServers ?? {});
+        setServers(mergedServers ?? {});
+        setGlobalServerNames(new Set(Object.keys(globalServers ?? {})));
         setOverrides(minionOverrides ?? {});
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load MCP configuration");
@@ -69,6 +73,34 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
 
     void loadData();
   }, [open, api, projectPath, minionId]);
+
+  /** Determine source/scope of a server */
+  const getServerSource = useCallback(
+    (name: string, info: MCPServerInfo): ServerSource => {
+      if (info.builtin) return "built-in";
+      if (!globalServerNames.has(name)) return "project";
+      return "global";
+    },
+    [globalServerNames]
+  );
+
+  /** Group servers by source for organized display */
+  const groupedServers = useMemo(() => {
+    const groups: Record<ServerSource, [string, MCPServerInfo][]> = {
+      "built-in": [],
+      global: [],
+      project: [],
+    };
+    for (const [name, info] of Object.entries(servers)) {
+      const source = getServerSource(name, info);
+      groups[source].push([name, info]);
+    }
+    // Sort alphabetically within each group
+    for (const group of Object.values(groups)) {
+      group.sort((a, b) => a[0].localeCompare(b[0]));
+    }
+    return groups;
+  }, [servers, getServerSource]);
 
   // Fetch/refresh tools for a server
   const fetchTools = useCallback(
@@ -92,10 +124,6 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
 
   /**
    * Determine if a server is effectively enabled for this minion.
-   * Logic:
-   * - If in enabledServers: enabled (overrides project disabled)
-   * - If in disabledServers: disabled (overrides project enabled)
-   * - Otherwise: use project-level state (info.disabled)
    */
   const isServerEnabled = useCallback(
     (serverName: string, projectDisabled: boolean): boolean => {
@@ -117,23 +145,17 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
         let newDisabled: string[];
 
         if (enabled) {
-          // Enabling the server
           newDisabled = currentDisabled.filter((s) => s !== serverName);
           if (projectDisabled) {
-            // Need explicit enable to override project disabled
             newEnabled = [...currentEnabled, serverName];
           } else {
-            // Project already enabled, just remove from disabled list
             newEnabled = currentEnabled.filter((s) => s !== serverName);
           }
         } else {
-          // Disabling the server
           newEnabled = currentEnabled.filter((s) => s !== serverName);
           if (projectDisabled) {
-            // Project already disabled, just remove from enabled list
             newDisabled = currentDisabled.filter((s) => s !== serverName);
           } else {
-            // Need explicit disable to override project enabled
             newDisabled = [...currentDisabled, serverName];
           }
         }
@@ -166,25 +188,18 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
 
         let newServerAllowlist: string[];
         if (allowed) {
-          // Adding tool to allowlist
           if (!serverAllowlist) {
-            // No allowlist yet - create one with all tools except this one removed
-            // Actually, if we're adding and there's no allowlist, all are already allowed
-            // So we don't need to do anything
             return prev;
           }
           newServerAllowlist = [...serverAllowlist, toolName];
         } else {
-          // Removing tool from allowlist
           if (!serverAllowlist) {
-            // No allowlist yet - create one with all tools except this one
             newServerAllowlist = allTools.filter((t) => t !== toolName);
           } else {
             newServerAllowlist = serverAllowlist.filter((t) => t !== toolName);
           }
         }
 
-        // If allowlist contains all tools, remove it (same as no restriction)
         const newAllowlist = { ...currentAllowlist };
         if (newServerAllowlist.length === allTools.length) {
           delete newAllowlist[serverName];
@@ -201,7 +216,6 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
     [getTools]
   );
 
-  // Set "all tools allowed" for a server (remove from allowlist)
   const setAllToolsAllowed = useCallback((serverName: string) => {
     setOverrides((prev) => {
       const newAllowlist = { ...prev.toolAllowlist };
@@ -213,7 +227,6 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
     });
   }, []);
 
-  // Set "no tools allowed" for a server (empty allowlist)
   const setNoToolsAllowed = useCallback((serverName: string) => {
     setOverrides((prev) => {
       return {
@@ -245,13 +258,178 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
     }
   }, [api, minionId, overrides, onOpenChange]);
 
-  const serverEntries = Object.entries(servers);
-
   const handleOpenProjectSettings = useCallback(() => {
     onOpenChange(false);
     settings.open("mcp");
   }, [onOpenChange, settings]);
-  const hasServers = serverEntries.length > 0;
+
+  const hasServers = Object.keys(servers).length > 0;
+
+  const sourceConfig: Record<
+    ServerSource,
+    { label: string; icon: React.ReactNode; badgeClass: string }
+  > = {
+    "built-in": {
+      label: "Built-in",
+      icon: <Server className="h-3 w-3" />,
+      badgeClass: "bg-blue-500/10 text-blue-400",
+    },
+    global: {
+      label: "Global",
+      icon: <Globe className="h-3 w-3" />,
+      badgeClass: "bg-emerald-500/10 text-emerald-400",
+    },
+    project: {
+      label: "Project",
+      icon: <FolderOpen className="h-3 w-3" />,
+      badgeClass: "bg-amber-500/10 text-amber-400",
+    },
+  };
+
+  /** Render a single server row */
+  const renderServerRow = (name: string, info: MCPServerInfo) => {
+    const projectDisabled = info.disabled;
+    const effectivelyEnabled = isServerEnabled(name, projectDisabled);
+    const tools = getTools(name);
+    const isLoadingTools = loadingTools[name];
+    const allowedTools = overrides.toolAllowlist?.[name] ?? tools ?? [];
+    const source = getServerSource(name, info);
+    const { badgeClass } = sourceConfig[source];
+
+    return (
+      <div
+        key={name}
+        className={cn(
+          "border-border rounded-lg border p-4",
+          !effectivelyEnabled && "opacity-50"
+        )}
+      >
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Switch
+              checked={effectivelyEnabled}
+              onCheckedChange={(checked) =>
+                toggleServerEnabled(name, checked, projectDisabled)
+              }
+              aria-label={`Toggle ${name} MCP server`}
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{name}</span>
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide",
+                    info.transport === "stdio"
+                      ? "bg-blue-500/10 text-blue-400"
+                      : "bg-purple-500/10 text-purple-400"
+                  )}
+                >
+                  {info.transport}
+                </span>
+                <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-medium", badgeClass)}>
+                  {source}
+                </span>
+                {tools && effectivelyEnabled && !expandedTools[name] && (
+                  <span className="text-muted text-xs">
+                    {allowedTools.length}/{tools.length} tools
+                  </span>
+                )}
+              </div>
+              {projectDisabled && (
+                <div className="text-muted text-xs">(disabled at project level)</div>
+              )}
+              <div className="text-muted mt-0.5 font-mono text-[11px] break-all">
+                {info.transport === "stdio" ? info.command : info.url}
+              </div>
+            </div>
+          </div>
+          {effectivelyEnabled && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void fetchTools(name)}
+              disabled={isLoadingTools}
+            >
+              {isLoadingTools ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : tools ? (
+                "Refresh Tools"
+              ) : (
+                "Fetch Tools"
+              )}
+            </Button>
+          )}
+        </div>
+
+        {/* Collapsible tool allowlist section */}
+        {effectivelyEnabled && tools && tools.length > 0 && (
+          <div className="mt-3 border-t pt-3">
+            <button
+              type="button"
+              className="flex w-full items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() =>
+                setExpandedTools((prev) => ({ ...prev, [name]: !prev[name] }))
+              }
+            >
+              <ChevronRight
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  expandedTools[name] && "rotate-90"
+                )}
+              />
+              <span className="font-medium">
+                Tools ({allowedTools.length}/{tools.length})
+              </span>
+              {!hasNoAllowlist(name) && (
+                <span className="text-amber-400 ml-1">
+                  filtered
+                </span>
+              )}
+            </button>
+            {expandedTools[name] && (
+              <div className="mt-2 pl-5">
+                <ToolSelector
+                  availableTools={tools}
+                  allowedTools={allowedTools}
+                  onToggle={(tool, allowed) => toggleToolAllowed(name, tool, allowed)}
+                  onSelectAll={() => setAllToolsAllowed(name)}
+                  onSelectNone={() => setNoToolsAllowed(name)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        {effectivelyEnabled && tools?.length === 0 && (
+          <div className="text-muted mt-2 text-sm">No tools available</div>
+        )}
+      </div>
+    );
+  };
+
+  /** Render a group of servers with a section header */
+  const renderGroup = (
+    source: ServerSource,
+    entries: [string, MCPServerInfo][]
+  ) => {
+    if (entries.length === 0) return null;
+    const { label, icon, badgeClass } = sourceConfig[source];
+
+    return (
+      <div key={source}>
+        <div className="mb-2 flex items-center gap-2">
+          <span className={cn("flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium", badgeClass)}>
+            {icon}
+            {label}
+          </span>
+          <span className="text-muted text-xs">{entries.length} server{entries.length !== 1 ? "s" : ""}</span>
+        </div>
+        <div className="space-y-2">
+          {entries.map(([name, info]) => renderServerRow(name, info))}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -307,80 +485,32 @@ export const MinionMCPModal: React.FC<MinionMCPModalProps> = ({
               </div>
             )}
 
-            <div className="space-y-4">
-              {serverEntries.map(([name, info]) => {
-                const projectDisabled = info.disabled;
-                const effectivelyEnabled = isServerEnabled(name, projectDisabled);
-                const tools = getTools(name);
-                const isLoadingTools = loadingTools[name];
-                const allowedTools = overrides.toolAllowlist?.[name] ?? tools ?? [];
+            {/* Summary bar */}
+            <div className="border-border bg-background-secondary flex items-center gap-4 rounded-md border px-3 py-2 text-xs">
+              <span className="text-muted">
+                {Object.keys(servers).length} servers total
+              </span>
+              {groupedServers["built-in"].length > 0 && (
+                <span className="text-blue-400">
+                  {groupedServers["built-in"].length} built-in
+                </span>
+              )}
+              {groupedServers.global.length > 0 && (
+                <span className="text-emerald-400">
+                  {groupedServers.global.length} global
+                </span>
+              )}
+              {groupedServers.project.length > 0 && (
+                <span className="text-amber-400">
+                  {groupedServers.project.length} project
+                </span>
+              )}
+            </div>
 
-                return (
-                  <div
-                    key={name}
-                    className={cn(
-                      "border-border rounded-lg border p-4",
-                      !effectivelyEnabled && "opacity-50"
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Switch
-                          checked={effectivelyEnabled}
-                          onCheckedChange={(checked) =>
-                            toggleServerEnabled(name, checked, projectDisabled)
-                          }
-                          aria-label={`Toggle ${name} MCP server`}
-                        />
-                        <div>
-                          <div className="font-medium">{name}</div>
-                          {projectDisabled && (
-                            <div className="text-muted text-xs">(disabled at project level)</div>
-                          )}
-                        </div>
-                      </div>
-                      {effectivelyEnabled && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => void fetchTools(name)}
-                          disabled={isLoadingTools}
-                        >
-                          {isLoadingTools ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                          ) : tools ? (
-                            "Refresh Tools"
-                          ) : (
-                            "Fetch Tools"
-                          )}
-                        </Button>
-                      )}
-                    </div>
-
-                    {/* Tool allowlist stage */}
-                    {effectivelyEnabled && tools && tools.length > 0 && (
-                      <div className="mt-4 border-t pt-4">
-                        <ToolSelector
-                          availableTools={tools}
-                          allowedTools={allowedTools}
-                          onToggle={(tool, allowed) => toggleToolAllowed(name, tool, allowed)}
-                          onSelectAll={() => setAllToolsAllowed(name)}
-                          onSelectNone={() => setNoToolsAllowed(name)}
-                        />
-                        {!hasNoAllowlist(name) && (
-                          <div className="text-muted mt-2 text-xs">
-                            {allowedTools.length} of {tools.length} tools enabled
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {effectivelyEnabled && tools?.length === 0 && (
-                      <div className="text-muted mt-2 text-sm">No tools available</div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="space-y-6">
+              {renderGroup("built-in", groupedServers["built-in"])}
+              {renderGroup("global", groupedServers.global)}
+              {renderGroup("project", groupedServers.project)}
             </div>
           </div>
         )}

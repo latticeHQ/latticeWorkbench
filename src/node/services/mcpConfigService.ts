@@ -17,6 +17,11 @@ import { getErrorMessage } from "@/common/utils/errors";
 
 export class MCPConfigService {
   private readonly config: Config;
+  /**
+   * Project paths to sync `.mcp.json` (Claude Code format) into.
+   * Set via `registerProjectPaths()` so external tools auto-discover servers.
+   */
+  private projectPaths: Set<string> = new Set();
 
   constructor(config: Config) {
     assert(
@@ -25,6 +30,14 @@ export class MCPConfigService {
     );
 
     this.config = config;
+  }
+
+  /**
+   * Register project directories so that `.mcp.json` is kept in sync
+   * whenever the global or project-level MCP config changes.
+   */
+  registerProjectPaths(paths: string[]): void {
+    for (const p of paths) this.projectPaths.add(p);
   }
 
   private getGlobalConfigPath(): string {
@@ -211,6 +224,72 @@ export class MCPConfigService {
       encoding: "utf-8",
       mode: 0o600,
     });
+
+    // Fire-and-forget sync to external formats (.mcp.json for Claude Code, etc.)
+    this.syncExternalConfigs().catch((err) =>
+      log.warn("Failed to sync external MCP configs", { error: err })
+    );
+  }
+
+  /**
+   * Convert a Lattice stdio command string (e.g. "bun run src/foo.ts")
+   * into { command, args } for Claude Code's .mcp.json format.
+   */
+  private parseStdioCommand(cmd: string): { command: string; args: string[] } {
+    const parts = cmd.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [cmd];
+    const cleaned = parts.map((p) => p.replace(/^["']|["']$/g, ""));
+    return { command: cleaned[0] ?? cmd, args: cleaned.slice(1) };
+  }
+
+  /**
+   * Sync the merged MCP config into `.mcp.json` (Claude Code / generic MCP format)
+   * for every registered project path. This lets external tools (Claude Code,
+   * terminal profiles, other providers) auto-discover servers configured in the
+   * Lattice UI without manual duplication.
+   */
+  private async syncExternalConfigs(): Promise<void> {
+    for (const projectPath of this.projectPaths) {
+      try {
+        const servers = await this.listServers(projectPath);
+        const mcpServers: Record<string, unknown> = {};
+
+        for (const [name, entry] of Object.entries(servers)) {
+          if (entry.disabled) continue;
+
+          if (entry.transport === "stdio") {
+            const { command, args } = this.parseStdioCommand(entry.command);
+            mcpServers[name] = { command, args };
+          } else {
+            // http/sse/auto — use url-based format
+            const obj: Record<string, unknown> = {
+              type: entry.transport === "sse" ? "sse" : "http",
+              url: entry.url,
+            };
+            if (entry.headers) {
+              // Flatten secret refs to empty strings (secrets shouldn't leak into .mcp.json)
+              const flat: Record<string, string> = {};
+              for (const [k, v] of Object.entries(entry.headers)) {
+                flat[k] = typeof v === "string" ? v : "";
+              }
+              obj.headers = flat;
+            }
+            mcpServers[name] = obj;
+          }
+        }
+
+        const mcpJsonPath = path.join(projectPath, ".mcp.json");
+        await writeFileAtomic(
+          mcpJsonPath,
+          JSON.stringify({ mcpServers }, null, 2) + "\n",
+          { encoding: "utf-8" }
+        );
+      } catch (err) {
+        log.warn("Failed to sync .mcp.json for project", {
+          projectPath,
+          error: err,
+        });
+      }
+    }
   }
 
   /**
