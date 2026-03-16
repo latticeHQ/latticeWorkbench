@@ -427,7 +427,7 @@ export class GraphLayer extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private ensureConnected(): void {
-    if (!this.client || this._status.status !== "connected") {
+    if (!this.client) {
       throw new Error("Graph layer not connected. Call initialize() first.");
     }
   }
