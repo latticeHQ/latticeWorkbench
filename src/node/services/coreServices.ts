@@ -73,6 +73,7 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
 
   let latticeMcpServerPath: string;
   let notebooklmMcpServerPath: string;
+  let gwsMcpServerPath: string;
 
   if (isPackaged) {
     // Packaged Electron: use bundled JS from app.asar.unpacked/dist/
@@ -80,6 +81,7 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
     const asarUnpackedRoot = __dirname.split("app.asar")[0] + "app.asar.unpacked";
     latticeMcpServerPath = path.join(asarUnpackedRoot, "dist", "mcp-server", "index.js");
     notebooklmMcpServerPath = path.join(asarUnpackedRoot, "dist", "notebooklm-mcp", "index.js");
+    gwsMcpServerPath = path.join(asarUnpackedRoot, "dist", "gws-mcp", "index.js");
   } else {
     // Development: point to .ts source files (Bun runs them natively).
     const inDist = __dirname.includes(`${path.sep}dist${path.sep}`) || __dirname.endsWith(`${path.sep}dist`);
@@ -89,6 +91,9 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
     notebooklmMcpServerPath = inDist
       ? path.resolve(__dirname, "../../../src/notebooklm-mcp/index.ts")
       : path.resolve(__dirname, "../../notebooklm-mcp/index.ts");
+    gwsMcpServerPath = inDist
+      ? path.resolve(__dirname, "../../../src/gws-mcp/index.ts")
+      : path.resolve(__dirname, "../../gws-mcp/index.ts");
   }
 
   // In packaged mode, use "bun run" for the bundled .js file.
@@ -101,6 +106,13 @@ function getBuiltinInlineServers(config?: Config): Record<string, string> {
   const nlmEnabled = config?.loadConfigOrDefault().notebooklm?.enabled ?? true;
   if (nlmEnabled) {
     servers.notebooklm = `bun run ${notebooklmMcpServerPath}`;
+  }
+
+  // Google Workspace CLI (gws): wraps Drive, Gmail, Sheets, Calendar, etc.
+  // Install: brew install googleworkspace-cli && gws auth login
+  const gwsEnabled = config?.loadConfigOrDefault().gws?.enabled ?? true;
+  if (gwsEnabled) {
+    servers.gws = `bun run ${gwsMcpServerPath}`;
   }
 
   return servers;

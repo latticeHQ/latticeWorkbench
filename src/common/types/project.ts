@@ -195,4 +195,25 @@ export interface ProjectsConfig {
   notebooklm?: {
     enabled?: boolean;
   };
+
+  /**
+   * Google Workspace CLI (gws) built-in server toggle.
+   * Default ON (undefined = enabled).
+   */
+  gws?: {
+    enabled?: boolean;
+  };
+
+  /**
+   * Simulation engine settings.
+   *
+   * Persisted so FalkorDB connection, model routing, and social dynamics
+   * survive app restarts. Partial — missing keys fall back to defaults.
+   */
+  simulation?: {
+    graphDb?: { host?: string; port?: number; protocol?: string };
+    modelRouting?: Record<string, unknown>;
+    autoStartGraphDb?: boolean;
+    accuracyTrackingEnabled?: boolean;
+  };
 }

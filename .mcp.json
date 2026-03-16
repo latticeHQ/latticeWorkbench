@@ -3,6 +3,14 @@
     "lattice": {
       "command": "bun",
       "args": ["run", "src/mcp-server/index.ts"]
+    },
+    "notebooklm": {
+      "command": "bun",
+      "args": ["run", "src/notebooklm-mcp/index.ts"]
+    },
+    "gws": {
+      "command": "bun",
+      "args": ["run", "src/gws-mcp/index.ts"]
     }
   }
 }
