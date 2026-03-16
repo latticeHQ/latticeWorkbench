@@ -27,6 +27,8 @@ export interface TokenRefreshResult {
   csrfToken: string;
   sessionId: string;
   buildLabel: string;
+  /** Cookies rotated by Google during the page fetch (from Set-Cookie headers). */
+  rotatedCookies?: Record<string, string>;
 }
 
 /** CDP connection target. */

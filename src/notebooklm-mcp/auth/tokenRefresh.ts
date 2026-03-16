@@ -9,6 +9,23 @@ import { BASE_URL, PAGE_FETCH_HEADERS } from "../client/constants";
 import { cookiesToHeader } from "./cookieManager";
 import type { TokenRefreshResult } from "./types";
 
+/** Parse Set-Cookie headers into a cookie dict (name → value). */
+function parseSetCookieHeaders(response: Response): Record<string, string> {
+  const updated: Record<string, string> = {};
+  // getSetCookie() returns an array of Set-Cookie header values
+  const setCookies = (response.headers as any).getSetCookie?.() ?? [];
+  for (const header of setCookies) {
+    // Each header: "NAME=VALUE; Path=/; ..."
+    const firstPart = header.split(";")[0];
+    if (!firstPart) continue;
+    const eq = firstPart.indexOf("=");
+    if (eq > 0) {
+      updated[firstPart.slice(0, eq).trim()] = firstPart.slice(eq + 1).trim();
+    }
+  }
+  return updated;
+}
+
 // ─── Regex patterns for token extraction ────────────────────────────────────
 
 /** CSRF token (SNlM0e) — required for all batchexecute calls */
@@ -52,6 +69,11 @@ export async function refreshTokens(
     );
   }
 
+  // Capture rotated cookies from Set-Cookie response headers.
+  // Google may rotate SID/OSID during the page fetch — if we don't capture
+  // these, subsequent API calls will use stale pre-rotation cookies.
+  const rotatedCookies = parseSetCookieHeaders(response);
+
   const html = await response.text();
 
   const csrfMatch = html.match(CSRF_REGEX);
@@ -68,6 +90,7 @@ export async function refreshTokens(
     csrfToken: csrfMatch[1]!,
     sessionId: sessionMatch?.[1] ?? "",
     buildLabel: buildMatch?.[1] ?? "",
+    rotatedCookies: Object.keys(rotatedCookies).length > 0 ? rotatedCookies : undefined,
   };
 }
 

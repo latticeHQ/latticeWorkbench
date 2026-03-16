@@ -24,6 +24,7 @@ import {
   isAuthError,
   isRetryableStatus,
   getRpcName,
+  generateSapisidHash,
 } from "./rpc";
 import { cookiesToHeader, loadDefaultProfile, loadProfile, saveProfile } from "../auth/cookieManager";
 import { refreshTokens } from "../auth/tokenRefresh";
@@ -89,23 +90,22 @@ export class BaseClient {
   }
 
   /**
-   * Initialize the client — load auth from disk if no cookies provided,
-   * then refresh tokens if needed.
+   * Initialize the client — load auth from disk (always reloads to pick up
+   * externally-updated cookies), then refresh tokens if needed.
    */
   async init(): Promise<void> {
-    // If no cookies, try loading from disk
-    if (Object.keys(this.cookies).length === 0) {
-      const profile = this.profileName
-        ? loadProfile(this.profileName) ?? loadDefaultProfile()
-        : loadDefaultProfile();
+    // Always try loading from disk — even if cookies exist in memory, disk may
+    // have newer cookies (e.g., from nlm_auth_extract_cookies or headless refresh).
+    const profile = this.profileName
+      ? loadProfile(this.profileName) ?? loadDefaultProfile()
+      : loadDefaultProfile();
 
-      if (profile) {
-        this.cookies = profile.cookies;
-        this.csrfToken = profile.csrfToken;
-        this.sessionId = profile.sessionId;
-        this.buildLabel = profile.buildLabel;
-        this.profileName = profile.name;
-      }
+    if (profile) {
+      this.cookies = profile.cookies;
+      this.csrfToken = profile.csrfToken;
+      this.sessionId = profile.sessionId;
+      this.buildLabel = profile.buildLabel;
+      this.profileName = profile.name;
     }
 
     // If still no cookies, check env vars
@@ -135,6 +135,7 @@ export class BaseClient {
 
   /**
    * Layer 1: Refresh CSRF/session tokens by fetching the NotebookLM page.
+   * Also merges any rotated cookies from Set-Cookie response headers.
    */
   private async refreshAuth(): Promise<void> {
     const tokens = await refreshTokens(this.cookies);
@@ -142,7 +143,12 @@ export class BaseClient {
     this.sessionId = tokens.sessionId;
     this.buildLabel = tokens.buildLabel;
 
-    // Persist refreshed tokens
+    // Merge rotated cookies (Google may rotate SID/OSID during page fetch)
+    if (tokens.rotatedCookies) {
+      this.cookies = { ...this.cookies, ...tokens.rotatedCookies };
+    }
+
+    // Persist refreshed tokens + updated cookies
     saveProfile({
       name: this.profileName,
       cookies: this.cookies,
@@ -379,15 +385,23 @@ export class BaseClient {
     const timer = setTimeout(() => controller.abort(), timeout);
 
     try {
+      const streamHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        Cookie: cookieHeader,
+        Origin: "https://notebooklm.google.com",
+        Referer: "https://notebooklm.google.com/",
+        "X-Same-Domain": "1",
+      };
+
+      // Add SAPISIDHASH Authorization header for POST requests
+      const sapisid = this.cookies["SAPISID"];
+      if (sapisid) {
+        streamHeaders["Authorization"] = generateSapisidHash(sapisid);
+      }
+
       const response = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: cookieHeader,
-          Origin: "https://notebooklm.google.com",
-          Referer: "https://notebooklm.google.com/",
-          "X-Same-Domain": "1",
-        },
+        headers: streamHeaders,
         body,
         signal: controller.signal,
       });

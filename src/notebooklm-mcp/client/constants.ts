@@ -108,7 +108,7 @@ export const UPLOAD_URL = `${BASE_URL}/upload/_/`;
 export const QUERY_ENDPOINT =
   "/_/LabsTailwindUi/data/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GenerateFreeFormStreamed";
 
-export const BL_FALLBACK = "boq_labs-tailwind-frontend_20260108.06_p0";
+export const BL_FALLBACK = "boq_labs-tailwind-frontend_20260315.00_p0";
 
 // ─── Code Mapper ────────────────────────────────────────────────────────────
 

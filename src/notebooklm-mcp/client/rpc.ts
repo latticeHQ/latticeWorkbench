@@ -8,7 +8,32 @@
  * Ported from notebooklm-mcp-cli (MIT License, jacob-bd).
  */
 
-import { BATCHEXECUTE_URL, BL_FALLBACK, RPC_NAMES } from "./constants";
+import { createHash } from "crypto";
+import { BATCHEXECUTE_URL, BL_FALLBACK, BASE_URL, RPC_NAMES } from "./constants";
+
+// ─── SAPISIDHASH Auth ───────────────────────────────────────────────────────
+
+/**
+ * Generate the SAPISIDHASH Authorization header required for POST requests
+ * to Google's batchexecute endpoint.
+ *
+ * Algorithm: SHA1(timestamp + " " + SAPISID + " " + origin)
+ * Header:   SAPISIDHASH <timestamp>_<hash>
+ */
+export function generateSapisidHash(sapisid: string, origin: string = BASE_URL): string {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const input = `${timestamp} ${sapisid} ${origin}`;
+  const hash = createHash("sha1").update(input).digest("hex");
+  return `SAPISIDHASH ${timestamp}_${hash}`;
+}
+
+/**
+ * Extract the SAPISID cookie value from a cookie header string.
+ */
+function extractSapisid(cookieHeader: string): string | null {
+  const match = cookieHeader.match(/(?:^|;\s*)SAPISID=([^;]+)/);
+  return match?.[1] ?? null;
+}
 
 // ─── Request Building ───────────────────────────────────────────────────────
 
@@ -44,7 +69,7 @@ export function buildRpcUrl(opts: {
     "rpcids": opts.rpcId,
     "source-path": "/",
     "f.sid": opts.sessionId ?? "",
-    "bl": opts.buildLabel ?? BL_FALLBACK,
+    "bl": opts.buildLabel || BL_FALLBACK,
     "hl": opts.language ?? "en",
     "soc-app": "1",
     "soc-platform": "1",
@@ -59,15 +84,23 @@ export function buildRpcUrl(opts: {
  * Build request headers for a batchexecute call.
  */
 export function buildRpcHeaders(cookieHeader: string): Record<string, string> {
-  return {
+  const headers: Record<string, string> = {
     "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
     "Cookie": cookieHeader,
-    "Origin": "https://notebooklm.google.com",
-    "Referer": "https://notebooklm.google.com/",
+    "Origin": BASE_URL,
+    "Referer": `${BASE_URL}/`,
     "User-Agent":
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
     "X-Same-Domain": "1",
   };
+
+  // Add SAPISIDHASH Authorization header (required for POST to batchexecute)
+  const sapisid = extractSapisid(cookieHeader);
+  if (sapisid) {
+    headers["Authorization"] = generateSapisidHash(sapisid);
+  }
+
+  return headers;
 }
 
 // ─── Response Parsing ───────────────────────────────────────────────────────
