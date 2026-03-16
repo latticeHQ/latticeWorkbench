@@ -4589,12 +4589,25 @@ export const router = (authToken?: string) => {
         .input(schemas.latticeInference.getStatus.input)
         .output(schemas.latticeInference.getStatus.output)
         .handler(async ({ context }) => {
+          const { ModelRegistry } = await import("@/node/services/inference/modelRegistry");
           const svc = context.inferenceService;
+
+          // Discover models from the configured storage directory
+          const config = context.config.loadConfigOrDefault();
+          const configModelDir = config.inference?.modelDir;
+
           if (!svc.isAvailable) {
+            // Even when the Go binary isn't running, scan the configured dir
+            // so users see models already on disk
+            let discoveredModels: Awaited<ReturnType<typeof svc.listModels>> = [];
+            try {
+              const registry = new ModelRegistry(configModelDir);
+              discoveredModels = await registry.listModels();
+            } catch { /* dir may not exist */ }
             return {
               available: false,
               loadedModelId: null,
-              cachedModels: [],
+              cachedModels: discoveredModels,
               loadedModels: [],
               modelsLoaded: 0,
               maxLoadedModels: 0,
@@ -4602,7 +4615,21 @@ export const router = (authToken?: string) => {
               estimatedVramBytes: 0,
             };
           }
-          const models = await svc.listModels();
+          let models = await svc.listModels();
+
+          // Merge in models from the configured dir that the Go binary doesn't know about
+          if (configModelDir) {
+            try {
+              const registry = new ModelRegistry(configModelDir);
+              const extraModels = await registry.listModels();
+              const knownIds = new Set(models.map(m => m.id));
+              for (const m of extraModels) {
+                if (!knownIds.has(m.id)) {
+                  models.push(m);
+                }
+              }
+            } catch { /* dir may not exist */ }
+          }
           const pool = await svc.getPoolStatus();
 
           // Auto-sync any loaded models into the provider config so they
@@ -4664,7 +4691,24 @@ export const router = (authToken?: string) => {
         .input(schemas.latticeInference.listModels.input)
         .output(schemas.latticeInference.listModels.output)
         .handler(async ({ context }) => {
-          return context.inferenceService.listModels();
+          const { ModelRegistry } = await import("@/node/services/inference/modelRegistry");
+          const models = await context.inferenceService.listModels();
+          // Also scan the configured storage dir for models the Go binary doesn't know about
+          const config = context.config.loadConfigOrDefault();
+          const configModelDir = config.inference?.modelDir;
+          if (configModelDir) {
+            try {
+              const registry = new ModelRegistry(configModelDir);
+              const extraModels = await registry.listModels();
+              const knownIds = new Set(models.map(m => m.id));
+              for (const m of extraModels) {
+                if (!knownIds.has(m.id)) {
+                  models.push(m);
+                }
+              }
+            } catch { /* dir may not exist */ }
+          }
+          return models;
         }),
       pullModel: t
         .input(schemas.latticeInference.pullModel.input)
@@ -4796,35 +4840,32 @@ export const router = (authToken?: string) => {
             freeSpaceBytes: 0,
           });
 
-          // Scan /Volumes for NAS and external drives (macOS)
-          if (process.platform === "darwin") {
+          // If a custom model dir is configured (not the default), include it
+          if (modelDir !== defaultDir) {
+            const volBasePath = modelDir.startsWith("/Volumes/")
+              ? path.join("/Volumes", modelDir.split("/")[2])
+              : path.dirname(modelDir);
+            let available = false;
+            let freeSpace = 0;
             try {
-              const volumes = await fsp.readdir("/Volumes", { withFileTypes: true });
-              for (const vol of volumes) {
-                if (!vol.isDirectory() && !vol.isSymbolicLink()) continue;
-                if (vol.name === "Macintosh HD") continue;
-                const volPath = path.join("/Volumes", vol.name, "models");
-                const volBasePath = path.join("/Volumes", vol.name);
-                let available = false;
-                let freeSpace = 0;
-                try {
-                  const stat = await fsp.statfs(volBasePath);
-                  freeSpace = stat.bfree * stat.bsize;
-                  available = true;
-                } catch {
-                  // Volume not accessible
-                }
-                storagePaths.push({
-                  path: volPath,
-                  label: vol.name,
-                  type: available && vol.name.match(/nas|synology|ds\d+/i) ? "nas" : "external",
-                  available,
-                  freeSpaceBytes: freeSpace,
-                });
-              }
+              const stat = await fsp.statfs(volBasePath);
+              freeSpace = stat.bfree * stat.bsize;
+              available = true;
             } catch {
-              // No /Volumes access
+              // Path not accessible
             }
+            const label = modelDir.startsWith("/Volumes/")
+              ? modelDir.split("/")[2]
+              : path.basename(modelDir);
+            storagePaths.push({
+              path: modelDir,
+              label,
+              type: modelDir.startsWith("/Volumes/")
+                ? (label.match(/nas|synology|ds\d+/i) ? "nas" : "external")
+                : "local",
+              available,
+              freeSpaceBytes: freeSpace,
+            });
           }
 
           // Try to get free space for the current model dir
