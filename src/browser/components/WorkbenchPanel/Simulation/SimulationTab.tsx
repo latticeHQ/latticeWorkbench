@@ -17,7 +17,7 @@
  * └────────────────────────────────────────────────────────┘
  */
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
 import {
   useSimulationStatus,
   useSimulationScenarios,
@@ -26,6 +26,7 @@ import {
   useSimulationSetup,
   useSimulationModels,
   useSimulationReport,
+  useAgentChat,
   type SimulationRoundResult,
   type SimulationScenario,
   type SimulationModelInfo,
@@ -33,6 +34,7 @@ import {
 import { useSettings } from "@/browser/contexts/SettingsContext";
 import { NetworkGraph, type GraphNode, type GraphEdge } from "./NetworkGraph";
 import { ActivityFeed } from "./ActivityFeed";
+import { AgentChatPanel } from "./AgentChatPanel";
 import { SimulationMonitor, type MonitorEntry } from "./SimulationMonitor";
 import {
   Activity,
@@ -87,6 +89,13 @@ const ROUTE_LABELS: Record<string, { label: string; description: string }> = {
 // ---------------------------------------------------------------------------
 // Utility: Deterministic avatar color from name
 // ---------------------------------------------------------------------------
+
+/** Format large numbers: 1000 → "1K", 1000000 → "1M", 52000 → "52K" */
+function formatPopulation(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n % 1_000_000 === 0 ? 0 : 1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(n % 1_000 === 0 ? 0 : 1)}K`;
+  return n.toLocaleString();
+}
 
 function agentAvatarColor(name: string): string {
   let hash = 0;
@@ -457,21 +466,28 @@ const AgentLeaderboard: React.FC<{
 }> = ({ rounds, onAgentClick }) => {
   const leaders = useMemo(() => {
     // Aggregate by display name (role) to avoid showing duplicates of same archetype
-    const byRole: Record<string, { ids: string[]; name: string; count: number; types: Record<string, number> }> = {};
+    const byRole: Record<string, { ids: string[]; name: string; count: number; isLLM: boolean; types: Record<string, number> }> = {};
     for (const r of rounds) {
       for (const a of r.actions) {
         if (a.actionType === "DO_NOTHING") continue;
         // Normalize: strip trailing ID suffix for stat agents to group by role
         const roleKey = a.agentName.replace(/_[a-z0-9]{4,}$/, "");
-        if (!byRole[roleKey]) byRole[roleKey] = { ids: [], name: a.agentName, count: 0, types: {} };
+        const isLLM = !a.agentName.startsWith("stat_");
+        if (!byRole[roleKey]) byRole[roleKey] = { ids: [], name: a.agentName, count: 0, isLLM, types: {} };
         if (!byRole[roleKey].ids.includes(a.agentId)) byRole[roleKey].ids.push(a.agentId);
         byRole[roleKey].count++;
         byRole[roleKey].types[a.actionType] = (byRole[roleKey].types[a.actionType] ?? 0) + 1;
       }
     }
+    // Sort: LLM agents first, then by action count
     return Object.entries(byRole)
-      .sort(([, a], [, b]) => b.count - a.count)
-      .slice(0, 8)
+      .sort(([, a], [, b]) => {
+        // LLM agents always rank above statistical agents
+        if (a.isLLM && !b.isLLM) return -1;
+        if (!a.isLLM && b.isLLM) return 1;
+        return b.count - a.count;
+      })
+      .slice(0, 10)
       .map(([, data]) => ({ id: data.ids[0], agentCount: data.ids.length, ...data }));
   }, [rounds]);
 
@@ -488,25 +504,30 @@ const AgentLeaderboard: React.FC<{
           const displayName = agent.name.startsWith("stat_")
             ? agent.name.replace(/^stat_/, "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())
             : agent.name;
+          const isLLM = agent.isLLM;
           return (
             <button
               key={agent.id}
               onClick={() => onAgentClick?.(agent.id)}
-              className="w-full flex items-center gap-1.5 text-left hover:bg-white/[0.03] rounded px-1 py-0.5 transition-colors"
+              className={`w-full flex items-center gap-1.5 text-left hover:bg-white/[0.03] rounded px-1 py-0.5 transition-colors ${!isLLM ? "opacity-50" : ""}`}
             >
               <span className="text-[10px] text-muted-foreground/40 w-3 text-right">{i + 1}</span>
               <div
-                className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0"
+                className={`w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0 ${isLLM ? "ring-1 ring-primary/40" : ""}`}
                 style={{ backgroundColor: agentAvatarColor(agent.name) }}
               >
                 {agent.name.replace(/^stat_/, "").slice(0, 2).toUpperCase()}
               </div>
-              <span className="text-[11px] text-foreground/80 truncate flex-1">
+              <span className={`text-[11px] truncate flex-1 ${isLLM ? "text-foreground font-medium" : "text-foreground/50"}`}>
                 {displayName}
+                {!isLLM && <span className="text-[8px] text-muted-foreground/30 ml-1">stat</span>}
                 {agent.agentCount > 1 && <span className="text-muted-foreground/40 text-[9px] ml-1">×{agent.agentCount}</span>}
               </span>
               <div className="w-16 h-1.5 bg-muted/30 rounded-full overflow-hidden shrink-0">
-                <div className="h-full bg-primary/60 rounded-full" style={{ width: `${(agent.count / maxCount) * 100}%` }} />
+                <div
+                  className={`h-full rounded-full ${isLLM ? "bg-primary/80" : "bg-muted-foreground/30"}`}
+                  style={{ width: `${(agent.count / maxCount) * 100}%` }}
+                />
               </div>
               <span className="text-[10px] text-muted-foreground/60 w-5 text-right">{agent.count}</span>
             </button>
@@ -638,6 +659,16 @@ const ScenarioBuilder: React.FC<{
   const [description, setDescription] = useState("");
   const [department, setDepartment] = useState("marketing");
   const [rounds, setRounds] = useState(10);
+  const [populationScale, setPopulationScale] = useState(0);
+
+  const POPULATION_PRESETS = [
+    { label: "Raw (no amplification)", value: 0 },
+    { label: "1K population", value: 1_000 },
+    { label: "10K population", value: 10_000 },
+    { label: "100K population", value: 100_000 },
+    { label: "1M population", value: 1_000_000 },
+    { label: "Custom", value: -1 },
+  ];
 
   const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
@@ -647,13 +678,14 @@ const ScenarioBuilder: React.FC<{
       seedDocuments: [],
       department,
       rounds,
+      populationScale: populationScale > 0 ? populationScale : undefined,
     });
     if (scenario) {
       onCreated(scenario);
       setName("");
       setDescription("");
     }
-  }, [name, description, department, rounds, createScenario, onCreated]);
+  }, [name, description, department, rounds, populationScale, createScenario, onCreated]);
 
   return (
     <div className="bg-card border border-border rounded-xl p-6 max-w-lg mx-auto shadow-lg">
@@ -695,6 +727,38 @@ const ScenarioBuilder: React.FC<{
             <input type="number" value={rounds} onChange={(e) => setRounds(Number(e.target.value))} min={1} max={100}
               className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring" />
           </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">
+            Population Scale
+            <span className="text-[10px] text-muted-foreground/60 ml-1">(each agent represents a cohort)</span>
+          </label>
+          <div className="flex gap-1.5 flex-wrap mb-1.5">
+            {POPULATION_PRESETS.filter(p => p.value >= 0).map((preset) => (
+              <button
+                key={preset.value}
+                type="button"
+                onClick={() => setPopulationScale(preset.value)}
+                className={`px-2 py-1 text-[10px] rounded-md border transition-colors ${
+                  populationScale === preset.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/30 text-muted-foreground border-border hover:bg-muted/50"
+                }`}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          {populationScale > 0 && (
+            <input
+              type="number"
+              value={populationScale}
+              onChange={(e) => setPopulationScale(Math.max(0, Number(e.target.value)))}
+              min={0}
+              className="w-full px-3 py-1.5 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-ring"
+              placeholder="Custom population size..."
+            />
+          )}
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
         <div className="flex items-center gap-2 pt-2">
@@ -783,7 +847,13 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
   const [monitorExpanded, setMonitorExpanded] = useState(true);
   const [showReport, setShowReport] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const { messages: chatMessages, sending: chatSending, send: chatSend, clear: chatClear } = useAgentChat();
   const showEdgeLabels = false;
+
+  // Clear chat when agent changes
+  useEffect(() => {
+    chatClear();
+  }, [selectedAgentId, chatClear]);
 
   const selectedScenario = scenarios.find((s) => s.id === selectedScenarioId);
 
@@ -1012,6 +1082,11 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
                   <Users className="h-3 w-3 text-green-400" />
                   <span className="text-muted-foreground">Agents</span>
                   <span className="font-bold text-foreground">{graphData.nodes.length}</span>
+                  {latestRound.populationMetrics && (
+                    <span className="text-[9px] text-green-400/70 font-medium">
+                      → {formatPopulation(latestRound.populationMetrics.totalPopulation)} pop
+                    </span>
+                  )}
                 </div>
                 <div className="w-px h-3 bg-border" />
                 <div className="flex items-center gap-1.5">
@@ -1061,6 +1136,11 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
                         <span className="text-muted-foreground/50 ml-1.5">
                           {graphData.nodes.length} nodes · {graphData.edges.length} edges
                         </span>
+                        {latestRound?.populationMetrics && (
+                          <span className="text-cyan-400/70 ml-1.5 font-medium">
+                            · {formatPopulation(latestRound.populationMetrics.totalPopulation)} population
+                          </span>
+                        )}
                       </div>
                       <NetworkGraph
                         nodes={graphData.nodes}
@@ -1134,9 +1214,70 @@ const SimulationTabComponent: React.FC<SimulationTabProps> = ({ minionId: _minio
                 )}
               </div>
 
+              {/* ─── Agent Chat Panel (MiroFish-style) ─── */}
+              {selectedAgentDetail && selectedScenarioId && (
+                <AgentChatPanel
+                  agent={selectedAgentDetail}
+                  scenarioId={selectedScenarioId}
+                  messages={chatMessages}
+                  sending={chatSending}
+                  onSend={chatSend}
+                  onClose={() => setSelectedAgentId(null)}
+                />
+              )}
+
               {/* ─── Right Sidebar: Analytics ─── */}
               <div className="w-[220px] shrink-0 border-l border-border bg-card/20 overflow-y-auto">
                 <div className="p-3 space-y-4">
+
+                  {/* Population Scale Metrics */}
+                  {latestRound?.populationMetrics && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium flex items-center gap-1.5">
+                        <Users className="h-3 w-3 text-cyan-400" /> Population Scale
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <div className="bg-muted/20 rounded px-2 py-1.5 text-center">
+                          <div className="text-[14px] font-bold text-foreground">
+                            {formatPopulation(latestRound.populationMetrics.totalPopulation)}
+                          </div>
+                          <div className="text-[8px] text-muted-foreground/50 uppercase">Total Pop</div>
+                        </div>
+                        <div className="bg-muted/20 rounded px-2 py-1.5 text-center">
+                          <div className="text-[14px] font-bold text-foreground">
+                            {formatPopulation(latestRound.populationMetrics.amplifiedActions)}
+                          </div>
+                          <div className="text-[8px] text-muted-foreground/50 uppercase">Actions (amp)</div>
+                        </div>
+                        <div className="bg-muted/20 rounded px-2 py-1.5 text-center">
+                          <div className="text-[14px] font-bold text-foreground">
+                            {formatPopulation(latestRound.populationMetrics.amplifiedEngagement)}
+                          </div>
+                          <div className="text-[8px] text-muted-foreground/50 uppercase">Engagement</div>
+                        </div>
+                        <div className="bg-muted/20 rounded px-2 py-1.5 text-center">
+                          <div className="text-[14px] font-bold text-foreground">
+                            {latestRound.populationMetrics.realAgentCount}
+                          </div>
+                          <div className="text-[8px] text-muted-foreground/50 uppercase">LLM Agents</div>
+                        </div>
+                      </div>
+                      {/* Tier breakdown */}
+                      <div className="space-y-0.5">
+                        {latestRound.populationMetrics.tierBreakdown.map((t) => (
+                          <div key={t.tier} className="flex items-center gap-1.5 text-[9px]">
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              t.tier === 1 ? "bg-purple-400" : t.tier === 2 ? "bg-blue-400" : t.tier === 3 ? "bg-green-400" : "bg-slate-400"
+                            }`} />
+                            <span className="text-muted-foreground">T{t.tier}</span>
+                            <span className="text-foreground/70">{t.agentCount} agents</span>
+                            <span className="text-muted-foreground/40">→</span>
+                            <span className="text-foreground/70 font-medium">{formatPopulation(t.populationRepresented)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   {/* Engagement sparkline */}
                   <EngagementSparkline rounds={rounds} />

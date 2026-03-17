@@ -259,17 +259,19 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
   className = "",
   onAgentClick,
 }) => {
+  // Default to "content" tab to prioritize LLM agent activity
   const [filter, setFilter] = useState<FeedFilter>("all");
 
-  // Flatten all actions from all rounds, most recent first
-  // IMPORTANT: Enrich with round number from parent since oRPC may strip it
+  // Flatten all actions from all rounds
+  // LLM agents first, then statistical — most recent round first
   const allActions = useMemo(() => {
-    const actions: FeedAction[] = [];
+    const llmActions: FeedAction[] = [];
+    const statActions: FeedAction[] = [];
     for (let i = rounds.length - 1; i >= 0; i--) {
       const round = rounds[i];
       for (const action of round.actions) {
         if (action.actionType === "DO_NOTHING") continue;
-        actions.push({
+        const feedAction: FeedAction = {
           round: (action as any).round ?? round.round,
           agentId: action.agentId,
           agentName: action.agentName,
@@ -280,12 +282,16 @@ export const ActivityFeed: React.FC<ActivityFeedProps> = ({
           thinking: action.thinking,
           success: action.success,
           timestamp: action.timestamp,
-        });
-        if (actions.length >= maxItems) break;
+        };
+        if (action.agentName.startsWith("stat_")) {
+          statActions.push(feedAction);
+        } else {
+          llmActions.push(feedAction);
+        }
       }
-      if (actions.length >= maxItems) break;
     }
-    return actions;
+    // LLM agents first, then stat agents — gives prominence to real AI activity
+    return [...llmActions, ...statActions].slice(0, maxItems);
   }, [rounds, maxItems]);
 
   // Apply filter

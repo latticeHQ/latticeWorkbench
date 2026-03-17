@@ -22,6 +22,7 @@ import {
   Settings,
   Sliders,
   Terminal,
+  Users,
   X,
   Zap,
 } from "lucide-react";
@@ -77,9 +78,27 @@ export const SimulationSettingsSection: React.FC = () => {
   // -- Model routing state (built client-side from KNOWN_MODELS + provider config) --
   const [currentRouting, setCurrentRouting] = useState<Record<string, { provider: string; model: string }>>({});
   const [routingExpanded, setRoutingExpanded] = useState(true);
+  const [paramsExpanded, setParamsExpanded] = useState(false);
+  const [dynamicsExpanded, setDynamicsExpanded] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveResult, setSaveResult] = useState<"success" | "error" | null>(null);
+
+  // -- Simulation parameters state --
+  const [defaultPopulationScale, setDefaultPopulationScale] = useState(0);
+  const [agentBatchSize, setAgentBatchSize] = useState(3);
+  const [agentTimeoutMs, setAgentTimeoutMs] = useState(120_000);
+
+  // -- Social dynamics state --
+  const [recencyWeight, setRecencyWeight] = useState(0.4);
+  const [popularityWeight, setPopularityWeight] = useState(0.3);
+  const [relevanceWeight, setRelevanceWeight] = useState(0.3);
+  const [echoChamberStrength, setEchoChamberStrength] = useState(0.5);
+  const [viralThreshold, setViralThreshold] = useState(10);
+  const [viralBoostMultiplier, setViralBoostMultiplier] = useState(3.0);
+  const [viralDecayRate, setViralDecayRate] = useState(0.1);
+  const [peakMultiplier, setPeakMultiplier] = useState(1.5);
+  const [workMultiplier, setWorkMultiplier] = useState(0.7);
 
   // Build available models client-side — same data source as chat model selector
   const models = useMemo(() => {
@@ -205,6 +224,34 @@ export const SimulationSettingsSection: React.FC = () => {
           model: route.model,
         });
       }
+
+      // Persist simulation parameters + social dynamics
+      await (api as any).simulation.updateSettings({
+        defaultPopulationScale,
+        agentBatchSize,
+        agentTimeoutMs,
+        socialDynamics: {
+          recommendation: {
+            recencyWeight,
+            popularityWeight,
+            relevanceWeight,
+            echoChamberStrength,
+          },
+          viral: {
+            viralThreshold,
+            viralBoostMultiplier,
+            viralDecayRate,
+          },
+          activitySchedule: {
+            peakMultiplier,
+            workMultiplier,
+            morningMultiplier: 0.4,
+            nightMultiplier: 0.5,
+            deadMultiplier: 0.05,
+          },
+        },
+      });
+
       setDirty(false);
       setSaveResult("success");
       setTimeout(() => setSaveResult(null), 3000);
@@ -213,7 +260,9 @@ export const SimulationSettingsSection: React.FC = () => {
     } finally {
       setSaving(false);
     }
-  }, [api, currentRouting]);
+  }, [api, currentRouting, defaultPopulationScale, agentBatchSize, agentTimeoutMs,
+    recencyWeight, popularityWeight, relevanceWeight, echoChamberStrength,
+    viralThreshold, viralBoostMultiplier, viralDecayRate, peakMultiplier, workMultiplier]);
 
   // Group models by provider
   const modelsByProvider = models.reduce<Record<string, typeof models>>(
@@ -519,6 +568,234 @@ export const SimulationSettingsSection: React.FC = () => {
               {dirty && !saving && (
                 <span className="text-xs text-amber-400">Unsaved changes</span>
               )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Simulation Parameters */}
+      <div>
+        <button
+          onClick={() => setParamsExpanded(!paramsExpanded)}
+          className="text-foreground mb-2 flex w-full items-center gap-2 text-sm font-medium"
+        >
+          <Users className="h-4 w-4" />
+          Runtime Parameters
+          <ChevronRight
+            className={`h-3.5 w-3.5 transition-transform ${paramsExpanded ? "rotate-90" : ""}`}
+          />
+        </button>
+
+        {paramsExpanded && (
+          <div className="space-y-3 pl-1">
+            <p className="text-muted text-xs">
+              Configure agent processing, population scale, and timeouts.
+              These apply to all new simulations.
+            </p>
+
+            {/* Default Population Scale */}
+            <div className="space-y-1">
+              <label className="text-foreground text-xs font-medium">Default Population Scale</label>
+              <p className="text-muted text-[10px]">
+                Each LLM agent represents a cohort. Set target population size (0 = raw agent counts).
+              </p>
+              <div className="flex gap-1.5 flex-wrap">
+                {[
+                  { label: "Off", value: 0 },
+                  { label: "1K", value: 1_000 },
+                  { label: "10K", value: 10_000 },
+                  { label: "100K", value: 100_000 },
+                  { label: "1M", value: 1_000_000 },
+                ].map((preset) => (
+                  <button
+                    key={preset.value}
+                    onClick={() => { setDefaultPopulationScale(preset.value); setDirty(true); }}
+                    className={`px-2 py-1 text-[10px] rounded-md border transition-colors ${
+                      defaultPopulationScale === preset.value
+                        ? "bg-accent text-accent-foreground border-accent"
+                        : "bg-background text-foreground/70 border-border hover:bg-muted"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              {defaultPopulationScale > 0 && (
+                <input
+                  type="number"
+                  value={defaultPopulationScale}
+                  onChange={(e) => { setDefaultPopulationScale(Math.max(0, Number(e.target.value))); setDirty(true); }}
+                  className="bg-background border-border text-foreground w-full rounded-md border px-2 py-1 text-xs"
+                />
+              )}
+            </div>
+
+            {/* Agent Batch Size */}
+            <div className="space-y-1">
+              <label className="text-foreground text-xs font-medium">Agent Batch Size</label>
+              <p className="text-muted text-[10px]">
+                How many LLM agents process in parallel per round. Higher = faster but more resource usage.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min={1} max={10} step={1}
+                  value={agentBatchSize}
+                  onChange={(e) => { setAgentBatchSize(Number(e.target.value)); setDirty(true); }}
+                  className="flex-1"
+                />
+                <span className="text-foreground text-xs font-mono w-6 text-right">{agentBatchSize}</span>
+              </div>
+            </div>
+
+            {/* Agent Timeout */}
+            <div className="space-y-1">
+              <label className="text-foreground text-xs font-medium">Agent Timeout</label>
+              <p className="text-muted text-[10px]">
+                Maximum time per agent LLM decision before timeout.
+              </p>
+              <div className="flex items-center gap-2">
+                {[
+                  { label: "30s", value: 30_000 },
+                  { label: "1m", value: 60_000 },
+                  { label: "2m", value: 120_000 },
+                  { label: "5m", value: 300_000 },
+                ].map((preset) => (
+                  <button
+                    key={preset.value}
+                    onClick={() => { setAgentTimeoutMs(preset.value); setDirty(true); }}
+                    className={`px-2 py-1 text-[10px] rounded-md border transition-colors ${
+                      agentTimeoutMs === preset.value
+                        ? "bg-accent text-accent-foreground border-accent"
+                        : "bg-background text-foreground/70 border-border hover:bg-muted"
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Social Dynamics */}
+      <div>
+        <button
+          onClick={() => setDynamicsExpanded(!dynamicsExpanded)}
+          className="text-foreground mb-2 flex w-full items-center gap-2 text-sm font-medium"
+        >
+          <Zap className="h-4 w-4" />
+          Social Dynamics
+          <ChevronRight
+            className={`h-3.5 w-3.5 transition-transform ${dynamicsExpanded ? "rotate-90" : ""}`}
+          />
+        </button>
+
+        {dynamicsExpanded && (
+          <div className="space-y-4 pl-1">
+            <p className="text-muted text-xs">
+              Configure recommendation algorithms, virality mechanics, and activity timing.
+              These control how agents discover and interact with content.
+            </p>
+
+            {/* Recommendation Weights */}
+            <div className="space-y-2">
+              <h4 className="text-foreground text-xs font-medium">Feed Algorithm Weights</h4>
+              {[
+                { label: "Recency", value: recencyWeight, set: setRecencyWeight, desc: "How much newer content is prioritized" },
+                { label: "Popularity", value: popularityWeight, set: setPopularityWeight, desc: "How much high-vote content surfaces" },
+                { label: "Relevance", value: relevanceWeight, set: setRelevanceWeight, desc: "How much topic-matching matters" },
+              ].map(({ label, value, set, desc }) => (
+                <div key={label} className="space-y-0.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-foreground/80 text-[11px]">{label}</span>
+                    <span className="text-foreground font-mono text-[10px]">{value.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range" min={0} max={1} step={0.05} value={value}
+                    onChange={(e) => { set(Number(e.target.value)); setDirty(true); }}
+                    className="w-full"
+                  />
+                  <p className="text-muted text-[9px]">{desc}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Echo Chamber */}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-foreground text-xs font-medium">Echo Chamber Strength</span>
+                <span className="text-foreground font-mono text-[10px]">{echoChamberStrength.toFixed(2)}</span>
+              </div>
+              <input
+                type="range" min={0} max={1} step={0.05} value={echoChamberStrength}
+                onChange={(e) => { setEchoChamberStrength(Number(e.target.value)); setDirty(true); }}
+                className="w-full"
+              />
+              <p className="text-muted text-[9px]">
+                0 = no filter bubble, 1.0 = agents only see content matching their beliefs
+              </p>
+            </div>
+
+            {/* Virality Mechanics */}
+            <div className="space-y-2">
+              <h4 className="text-foreground text-xs font-medium">Virality Mechanics</h4>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="space-y-0.5">
+                  <label className="text-foreground/80 text-[10px]">Threshold</label>
+                  <input
+                    type="number" value={viralThreshold} min={1} max={100}
+                    onChange={(e) => { setViralThreshold(Number(e.target.value)); setDirty(true); }}
+                    className="bg-background border-border text-foreground w-full rounded border px-2 py-1 text-[10px]"
+                  />
+                  <p className="text-muted text-[8px]">Votes to go viral</p>
+                </div>
+                <div className="space-y-0.5">
+                  <label className="text-foreground/80 text-[10px]">Boost</label>
+                  <input
+                    type="number" value={viralBoostMultiplier} min={1} max={10} step={0.5}
+                    onChange={(e) => { setViralBoostMultiplier(Number(e.target.value)); setDirty(true); }}
+                    className="bg-background border-border text-foreground w-full rounded border px-2 py-1 text-[10px]"
+                  />
+                  <p className="text-muted text-[8px]">Feed visibility ×</p>
+                </div>
+                <div className="space-y-0.5">
+                  <label className="text-foreground/80 text-[10px]">Decay</label>
+                  <input
+                    type="number" value={viralDecayRate} min={0} max={1} step={0.05}
+                    onChange={(e) => { setViralDecayRate(Number(e.target.value)); setDirty(true); }}
+                    className="bg-background border-border text-foreground w-full rounded border px-2 py-1 text-[10px]"
+                  />
+                  <p className="text-muted text-[8px]">Virality decay/round</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Activity Schedule */}
+            <div className="space-y-2">
+              <h4 className="text-foreground text-xs font-medium">Activity Schedule</h4>
+              <p className="text-muted text-[9px]">
+                Multipliers for agent activity probability during different time periods.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: "Peak Hours (7-10pm)", value: peakMultiplier, set: setPeakMultiplier },
+                  { label: "Work Hours (9am-6pm)", value: workMultiplier, set: setWorkMultiplier },
+                ].map(({ label, value, set }) => (
+                  <div key={label} className="space-y-0.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-foreground/80 text-[10px]">{label}</span>
+                      <span className="text-foreground font-mono text-[10px]">{value.toFixed(1)}×</span>
+                    </div>
+                    <input
+                      type="range" min={0.1} max={3.0} step={0.1} value={value}
+                      onChange={(e) => { set(Number(e.target.value)); setDirty(true); }}
+                      className="w-full"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}

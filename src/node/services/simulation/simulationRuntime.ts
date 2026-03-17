@@ -18,6 +18,7 @@ import type {
   AgentDecision,
   AgentProfile,
   PlatformType,
+  PopulationMetrics,
   RoundResult,
   SimulationEvent,
   SimulationRunState,
@@ -88,6 +89,14 @@ export interface RuntimeCallbacks {
   onModelLoadRequired?: (provider: string, model: string, status: "loading" | "loaded" | "failed") => void;
 }
 
+/** Configurable runtime parameters — all settable via Settings UI */
+export interface RuntimeOptions {
+  /** How many LLM agents to process in parallel per round (default: 3) */
+  agentBatchSize: number;
+  /** Timeout per agent LLM decision in ms (default: 120000) */
+  agentTimeoutMs: number;
+}
+
 // ---------------------------------------------------------------------------
 // Simulation Runtime
 // ---------------------------------------------------------------------------
@@ -98,6 +107,7 @@ export class SimulationRuntime {
   private readonly graphLayer: GraphLayer;
   private readonly modelRouting: ModelRoutingConfig;
   private readonly callbacks: RuntimeCallbacks;
+  private readonly options: RuntimeOptions;
 
   private platforms: Map<PlatformType, PlatformState> = new Map();
   private agentProfiles: Map<string, AgentProfile>;
@@ -110,12 +120,17 @@ export class SimulationRuntime {
     graphLayer: GraphLayer,
     modelRouting: ModelRoutingConfig,
     callbacks: RuntimeCallbacks = {},
+    options: Partial<RuntimeOptions> = {},
   ) {
     this.scenario = scenario;
     this.llm = llm;
     this.graphLayer = graphLayer;
     this.modelRouting = modelRouting;
     this.callbacks = callbacks;
+    this.options = {
+      agentBatchSize: options.agentBatchSize ?? 3,
+      agentTimeoutMs: options.agentTimeoutMs ?? 120_000,
+    };
     this.agentProfiles = new Map(scenario.agents.map((a) => [a.id, a]));
 
     this.state = {
@@ -246,13 +261,13 @@ export class SimulationRuntime {
       const llmAgents = activeAgents.filter((a) => a.tier !== 4);
       log.info(`[simulation:runtime] Round ${round}: ${llmAgents.length} LLM agents, ${activeAgents.length - llmAgents.length} stat agents`);
 
-      const BATCH_SIZE = 3; // Process 3 agents at a time to avoid overwhelming the system
-      const AGENT_TIMEOUT_MS = 120_000; // 2 minutes per agent decision
+      // Configurable via Settings UI — no hardcoded values
+      const { agentBatchSize, agentTimeoutMs } = this.options;
 
-      for (let batchStart = 0; batchStart < llmAgents.length; batchStart += BATCH_SIZE) {
+      for (let batchStart = 0; batchStart < llmAgents.length; batchStart += agentBatchSize) {
         if (this.aborted) break;
-        const batch = llmAgents.slice(batchStart, batchStart + BATCH_SIZE);
-        log.info(`[simulation:runtime] Round ${round}: processing batch ${Math.floor(batchStart / BATCH_SIZE) + 1} (${batch.map(a => a.name).join(", ")})`);
+        const batch = llmAgents.slice(batchStart, batchStart + agentBatchSize);
+        log.info(`[simulation:runtime] Round ${round}: processing batch ${Math.floor(batchStart / agentBatchSize) + 1} (${batch.map(a => a.name).join(", ")})`);
 
         const decisions = await Promise.allSettled(
           batch.map((agent) => {
@@ -260,7 +275,7 @@ export class SimulationRuntime {
             return Promise.race([
               this.decideAction(agent, platform, feeds.get(agent.id)!, round),
               new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Timeout after ${AGENT_TIMEOUT_MS}ms`)), AGENT_TIMEOUT_MS),
+                setTimeout(() => reject(new Error(`Timeout after ${agentTimeoutMs}ms`)), agentTimeoutMs),
               ),
             ]);
           }),
@@ -312,21 +327,23 @@ export class SimulationRuntime {
         }
       }
 
-      // 8. Statistical agents (tier 4) — no LLM calls
-      // Pass allActions so stat agents can meaningfully target content creators
-      const recentSentiment = computeSentimentDistribution(allActions, this.agentProfiles);
-      const statActions = generateStatisticalActions(
-        this.scenario.statisticalAgents,
-        new Set(activeAgents.map((a) => a.id)),
-        round,
-        simulatedHour,
-        this.scenario.config.socialDynamics.activitySchedule,
-        recentSentiment,
-        allActions,
-      );
-      for (const action of statActions) {
-        platform.applyAction(action);
-        allActions.push(action);
+      // 8. Statistical agents (tier 4) — legacy rule-based agents (disabled by default)
+      // Only runs if scenario has statistical agents configured
+      if (this.scenario.statisticalAgents.length > 0) {
+        const recentSentiment = computeSentimentDistribution(allActions, this.agentProfiles);
+        const statActions = generateStatisticalActions(
+          this.scenario.statisticalAgents,
+          new Set(activeAgents.map((a) => a.id)),
+          round,
+          simulatedHour,
+          this.scenario.config.socialDynamics.activitySchedule,
+          recentSentiment,
+          allActions,
+        );
+        for (const action of statActions) {
+          platform.applyAction(action);
+          allActions.push(action);
+        }
       }
 
       // 9. End-of-round platform maintenance
@@ -344,6 +361,9 @@ export class SimulationRuntime {
     const primaryPlatform = this.platforms.values().next().value!;
     const sentiment = computeSentimentDistribution(allActions, this.agentProfiles);
 
+    // Compute population-scale metrics if populationScale is configured
+    const populationMetrics = this.computePopulationMetrics(allActions, sentiment);
+
     return {
       round,
       simulatedHour,
@@ -353,7 +373,187 @@ export class SimulationRuntime {
       viralPosts: primaryPlatform.getViralPosts(),
       sentimentDistribution: sentiment,
       platformSnapshot: primaryPlatform.snapshot(),
+      populationMetrics,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Population Scale Amplification
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Compute population-scale metrics by amplifying each agent's actions
+   * by their followerMultiplier. This turns 20-50 LLM agents into a
+   * simulation representing 1M+ people without additional LLM calls.
+   *
+   * The amplification is configurable via SimulationConfig.populationScale.
+   * If populationScale is 0 or not set, returns undefined (raw metrics only).
+   */
+  private computePopulationMetrics(
+    actions: AgentAction[],
+    _rawSentiment: { positive: number; neutral: number; negative: number },
+  ): PopulationMetrics | undefined {
+    const targetPopulation = this.scenario.config.populationScale;
+    if (!targetPopulation || targetPopulation <= 0) return undefined;
+
+    // Build multiplier map from agent profiles
+    // If agents don't have followerMultiplier set yet, auto-compute from populationScale
+    const multiplierMap = this.getOrComputeFollowerMultipliers(targetPopulation);
+
+    let amplifiedActions = 0;
+    let amplifiedEngagement = 0;
+    let totalPopulation = 0;
+    let weightedPositive = 0;
+    let weightedNeutral = 0;
+    let weightedNegative = 0;
+
+    // Per-tier accumulation
+    const tierData = new Map<number, { agentCount: number; population: number; actions: number }>();
+
+    // Calculate total population from multipliers
+    for (const [agentId, multiplier] of multiplierMap) {
+      totalPopulation += multiplier;
+      const agent = this.agentProfiles.get(agentId);
+      const tier = agent?.tier ?? 2;
+      const existing = tierData.get(tier) ?? { agentCount: 0, population: 0, actions: 0 };
+      existing.agentCount++;
+      existing.population += multiplier;
+      tierData.set(tier, existing);
+    }
+
+    // Amplify each action by the agent's follower multiplier
+    for (const action of actions) {
+      if (action.actionType === "DO_NOTHING") continue;
+
+      const multiplier = multiplierMap.get(action.agentId) ?? 1;
+      amplifiedActions += multiplier;
+
+      // Engagement actions get higher amplification
+      const engagementWeight = this.getEngagementWeight(action.actionType);
+      amplifiedEngagement += multiplier * engagementWeight;
+
+      // Weighted sentiment
+      const sentimentValue = this.getActionSentimentWeight(action.actionType);
+      if (sentimentValue > 0) weightedPositive += multiplier * sentimentValue;
+      else if (sentimentValue < 0) weightedNegative += multiplier * Math.abs(sentimentValue);
+      else weightedNeutral += multiplier;
+
+      // Per-tier action count
+      const agent = this.agentProfiles.get(action.agentId);
+      const tier = agent?.tier ?? 2;
+      const existing = tierData.get(tier);
+      if (existing) existing.actions += multiplier;
+    }
+
+    // Normalize population sentiment
+    const sentimentTotal = weightedPositive + weightedNeutral + weightedNegative || 1;
+
+    return {
+      totalPopulation,
+      realAgentCount: this.agentProfiles.size,
+      amplifiedActions,
+      amplifiedEngagement: Math.round(amplifiedEngagement),
+      populationSentiment: {
+        positive: weightedPositive / sentimentTotal,
+        neutral: weightedNeutral / sentimentTotal,
+        negative: weightedNegative / sentimentTotal,
+      },
+      tierBreakdown: Array.from(tierData.entries())
+        .sort(([a], [b]) => a - b)
+        .map(([tier, data]) => ({
+          tier,
+          agentCount: data.agentCount,
+          populationRepresented: data.population,
+          amplifiedActions: data.actions,
+        })),
+    };
+  }
+
+  /**
+   * Get or auto-compute followerMultiplier for each agent based on tier and populationScale.
+   *
+   * Distribution heuristic (configurable):
+   * - Tier 1 (key decision-makers): ~5% of population, high individual influence
+   * - Tier 2 (active participants): ~20% of population, moderate cohort size
+   * - Tier 3 (crowd/background): ~75% of population, large cohort each
+   *
+   * These percentages mean each Tier 3 agent represents more people than a Tier 1 agent.
+   */
+  private getOrComputeFollowerMultipliers(targetPopulation: number): Map<string, number> {
+    const map = new Map<string, number>();
+    const agentsByTier = new Map<number, AgentProfile[]>();
+
+    for (const [, agent] of this.agentProfiles) {
+      const tier = agent.tier ?? 2;
+      const list = agentsByTier.get(tier) ?? [];
+      list.push(agent);
+      agentsByTier.set(tier, list);
+    }
+
+    // Check if agents already have followerMultiplier set
+    let anySet = false;
+    for (const [, agent] of this.agentProfiles) {
+      if (agent.followerMultiplier && agent.followerMultiplier > 1) {
+        anySet = true;
+        break;
+      }
+    }
+
+    if (anySet) {
+      // Use existing multipliers, scale to match target population
+      let currentTotal = 0;
+      for (const [, agent] of this.agentProfiles) {
+        currentTotal += agent.followerMultiplier ?? 1;
+      }
+      const scaleFactor = targetPopulation / (currentTotal || 1);
+      for (const [, agent] of this.agentProfiles) {
+        map.set(agent.id, Math.round((agent.followerMultiplier ?? 1) * scaleFactor));
+      }
+    } else {
+      // Auto-compute from tier distribution
+      const tierWeights: Record<number, number> = {
+        1: 0.05,   // 5% of population — key leaders
+        2: 0.20,   // 20% of population — active participants
+        3: 0.70,   // 70% of population — background crowd
+        4: 0.05,   // 5% of population — statistical (if any remain)
+      };
+
+      for (const [tier, agents] of agentsByTier) {
+        const weight = tierWeights[tier] ?? 0.1;
+        const tierPopulation = targetPopulation * weight;
+        const perAgent = Math.max(1, Math.round(tierPopulation / (agents.length || 1)));
+
+        for (const agent of agents) {
+          map.set(agent.id, perAgent);
+          // Also persist back to the agent profile for downstream use
+          agent.followerMultiplier = perAgent;
+        }
+      }
+    }
+
+    return map;
+  }
+
+  /** Weight engagement actions differently for amplified metrics */
+  private getEngagementWeight(actionType: ActionType): number {
+    switch (actionType) {
+      case "CREATE_POST": case "PUBLISH_ANALYSIS": return 3.0;
+      case "COMMENT": case "REPLY_THREAD": case "SEND_MESSAGE": return 2.0;
+      case "MAKE_STATEMENT": case "REBUT": case "ASK_QUESTION": return 2.0;
+      case "UPVOTE": case "DOWNVOTE": case "REACT": case "VOTE_FOR": case "VOTE_AGAINST": return 1.0;
+      case "BUY": case "SELL": return 5.0;
+      case "FOLLOW": case "MUTE": return 0.5;
+      default: return 1.0;
+    }
+  }
+
+  /** Sentiment weight for amplification — positive/negative/neutral */
+  private getActionSentimentWeight(actionType: ActionType): number {
+    switch (actionType) {
+      case "UPVOTE": case "VOTE_FOR": case "BUY": case "FOLLOW": return 1.0;
+      case "DOWNVOTE": case "VOTE_AGAINST": case "SELL": case "MUTE": return -1.0;
+      default: return 0;
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -411,3 +411,57 @@ export function useSimulationReport() {
 
   return { report, generating, error, generate, clear };
 }
+
+// ---------------------------------------------------------------------------
+// Agent chat (MiroFish-style post-simulation dialogue)
+// ---------------------------------------------------------------------------
+
+export interface AgentChatMessage {
+  role: "user" | "agent";
+  content: string;
+  timestamp: number;
+}
+
+export function useAgentChat() {
+  const { api } = useAPI();
+  const [messages, setMessages] = useState<AgentChatMessage[]>([]);
+  const [sending, setSending] = useState(false);
+
+  const send = useCallback(
+    async (scenarioId: string, agentId: string, message: string) => {
+      if (!api || !message.trim()) return;
+      const userMsg: AgentChatMessage = { role: "user", content: message, timestamp: Date.now() };
+      setMessages((prev) => [...prev, userMsg]);
+      setSending(true);
+      try {
+        const result = await (api as any).simulation.chatWithAgent({
+          scenarioId,
+          agentId,
+          message,
+        });
+        const agentMsg: AgentChatMessage = {
+          role: "agent",
+          content: (result as any).response,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, agentMsg]);
+      } catch (err) {
+        const agentMsg: AgentChatMessage = {
+          role: "agent",
+          content: `Error: ${err instanceof Error ? err.message : String(err)}`,
+          timestamp: Date.now(),
+        };
+        setMessages((prev) => [...prev, agentMsg]);
+      } finally {
+        setSending(false);
+      }
+    },
+    [api],
+  );
+
+  const clear = useCallback(() => {
+    setMessages([]);
+  }, []);
+
+  return { messages, sending, send, clear };
+}

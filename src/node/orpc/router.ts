@@ -5697,6 +5697,10 @@ export const router = (authToken?: string) => {
             if ((input as any).graphDb) partial.graphDb = (input as any).graphDb;
             if ((input as any).autoStartGraphDb !== undefined) partial.autoStartGraphDb = (input as any).autoStartGraphDb;
             if ((input as any).accuracyTrackingEnabled !== undefined) partial.accuracyTrackingEnabled = (input as any).accuracyTrackingEnabled;
+            if ((input as any).defaultPopulationScale !== undefined) partial.defaultPopulationScale = (input as any).defaultPopulationScale;
+            if ((input as any).agentBatchSize !== undefined) partial.agentBatchSize = (input as any).agentBatchSize;
+            if ((input as any).agentTimeoutMs !== undefined) partial.agentTimeoutMs = (input as any).agentTimeoutMs;
+            if ((input as any).socialDynamics !== undefined) partial.socialDynamics = (input as any).socialDynamics;
             if (Object.keys(partial).length > 0) {
               await context.config.editConfig((cfg) => ({
                 ...cfg,
@@ -5944,6 +5948,103 @@ export const router = (authToken?: string) => {
             return {
               status: "failed" as const,
               error: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }),
+      chatWithAgent: t
+        .input(schemas.simulation.chatWithAgent.input)
+        .output(schemas.simulation.chatWithAgent.output)
+        .handler(async ({ context, input }) => {
+          const scenario = context.simulationService.getScenario(input.scenarioId);
+          if (!scenario) {
+            return { response: "Scenario not found.", agentName: "Unknown", agentType: "unknown" };
+          }
+          // Find the agent profile
+          const agent = (scenario as any).agents?.find((a: any) => a.id === input.agentId);
+          if (!agent) {
+            return { response: "Agent not found in this scenario.", agentName: "Unknown", agentType: "unknown" };
+          }
+          // Gather the agent's action history
+          const results = context.simulationService.getResults(input.scenarioId);
+          const agentActions = results
+            .flatMap((r: any) => (r.actions ?? []))
+            .filter((a: any) => a.agentId === input.agentId);
+          const actionSummary = agentActions.length > 0
+            ? agentActions.slice(-20).map((a: any) =>
+              `Round ${a.round}: ${a.actionType}${a.content ? ` — "${a.content.slice(0, 200)}"` : ""}${a.target ? ` (target: ${a.target})` : ""}`
+            ).join("\n")
+            : "No actions recorded during the simulation.";
+
+          // Build belief stances summary
+          const stances = agent.beliefSystem?.stances
+            ? Object.entries(agent.beliefSystem.stances)
+                .map(([topic, val]) => `${topic}: ${(val as number) > 0 ? "+" : ""}${((val as number) * 100).toFixed(0)}%`)
+                .join(", ")
+            : "None specified";
+
+          const systemPrompt = [
+            `You are ${agent.name}, a simulated agent in a multi-agent prediction simulation.`,
+            `Stay fully in character. Never break character or mention that you are an AI.`,
+            ``,
+            `## Your Profile`,
+            `- Name: ${agent.name}`,
+            `- Username: ${agent.username}`,
+            `- Bio: ${agent.bio}`,
+            `- Persona: ${agent.persona}`,
+            `- Profession: ${agent.profession ?? "unspecified"}`,
+            `- Communication style: ${agent.communicationStyle}`,
+            `- Current mood: ${agent.currentMood}`,
+            `- Stance: ${agent.stance}`,
+            `- MBTI: ${agent.mbti ?? "unknown"}`,
+            ``,
+            `## Your Beliefs`,
+            `- Core values: ${agent.beliefSystem?.coreValues?.join(", ") ?? "none"}`,
+            `- Fears: ${agent.beliefSystem?.fears?.join(", ") ?? "none"}`,
+            `- Goals: ${agent.beliefSystem?.goals?.join(", ") ?? "none"}`,
+            `- Stances: ${stances}`,
+            ``,
+            `## What You Did During the Simulation`,
+            actionSummary,
+            ``,
+            `## Instructions`,
+            `Respond to the user's question in character as ${agent.name}.`,
+            `Draw on your personality, beliefs, and what you did during the simulation.`,
+            `Be conversational and authentic to your persona. Keep responses concise (2-4 paragraphs max).`,
+          ].join("\n");
+
+          // Get the LLM provider
+          const llmProvider = (context.simulationService as any).llmProvider;
+          if (!llmProvider) {
+            return {
+              response: "LLM provider not configured. Cannot generate agent response.",
+              agentName: agent.name,
+              agentType: agent.stance ?? "neutral",
+            };
+          }
+
+          try {
+            const modelRouting = (context.simulationService as any).settings?.modelRouting;
+            const { resolveModelRoute } = await import("@/node/services/simulation/types");
+            const route = resolveModelRoute("tier2_agents", modelRouting);
+
+            const response = await llmProvider.chat({
+              provider: route.provider,
+              model: route.model,
+              systemPrompt,
+              userPrompt: input.message,
+              temperature: 0.7,
+            });
+
+            return {
+              response,
+              agentName: agent.name,
+              agentType: agent.stance ?? "neutral",
+            };
+          } catch (err) {
+            return {
+              response: `I'm having trouble responding right now. (${err instanceof Error ? err.message : String(err)})`,
+              agentName: agent.name,
+              agentType: agent.stance ?? "neutral",
             };
           }
         }),

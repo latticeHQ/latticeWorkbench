@@ -86,6 +86,193 @@ OUTPUT FORMAT: Valid JSON matching this schema:
 }`;
 
 // ---------------------------------------------------------------------------
+// Document Entity Extraction
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt for extracting simulation-relevant entities from documents.
+ * Focuses on entities that make good simulation agents — people with opinions,
+ * organizations with positions, stakeholder groups with interests.
+ */
+const DOCUMENT_EXTRACTION_SYSTEM_PROMPT = `You are an expert at extracting entities from documents for multi-agent simulations.
+
+Given one or more documents, extract all entities that would make compelling simulation agents:
+
+1. **Key Individuals** — Named people with roles, stances, and influence levels.
+   Include executives, experts, public figures, analysts, journalists, activists.
+
+2. **Organizations** — Companies, agencies, NGOs, institutions with clear positions.
+   Include competitors, regulators, partners, advocacy groups.
+
+3. **Stakeholder Groups** — Unnamed but identifiable groups with shared interests.
+   Include investors, community members, consumers, workers, regulators.
+
+For each entity, assess:
+- **relevance_score** (0.0-1.0): How central is this entity to the scenario?
+- **stance**: Their likely position on the main topic (-1.0 to 1.0, negative=opposing, positive=supportive)
+- **influence_level**: Their real-world influence (0.1-5.0)
+
+Also extract **relationships** between entities (e.g., "works_for", "opposes", "regulates", "competes_with").
+
+OUTPUT FORMAT: Valid JSON matching this schema:
+{
+  "entities": [
+    {
+      "name": "string — entity name",
+      "type": "string — one of: person, executive, expert, analyst, journalist, activist, researcher, investor, regulator, engineer, organization, company, agency, ngo, government, institution, community, stakeholder_group",
+      "description": "string — 1-2 sentences about this entity and their relevance",
+      "relevance_score": number (0.0-1.0),
+      "stance": number (-1.0 to 1.0),
+      "influence_level": number (0.1-5.0),
+      "attributes": {
+        "role": "string — specific role or title",
+        "affiliation": "string — org they belong to (if applicable)",
+        "key_interests": ["string", ...]
+      }
+    }
+  ],
+  "relationships": [
+    {
+      "source": "string — entity name",
+      "target": "string — entity name",
+      "type": "string — relationship type (works_for, opposes, regulates, competes_with, partners_with, invests_in, represents, advises, employs)"
+    }
+  ]
+}`;
+
+/** Max characters per document to avoid context window overflow */
+const MAX_DOC_CHARS = 8000;
+
+interface ExtractedRelationship {
+  source: string;
+  target: string;
+  type: string;
+}
+
+/**
+ * Extract entities from seed documents using LLM analysis.
+ *
+ * Takes raw document texts, sends them through the ontology model route,
+ * and returns structured GraphEntity[] ready for forgeAgentProfiles().
+ *
+ * @param documents - Array of document text strings
+ * @param llm - LLM provider for chat completions
+ * @param modelRouting - Model routing config (uses "ontology" route)
+ * @returns Extracted entities and their relationships
+ */
+export async function extractEntitiesFromDocuments(
+  documents: string[],
+  llm: LLMProvider,
+  modelRouting?: ModelRoutingConfig,
+): Promise<{ entities: GraphEntity[]; relationships: ExtractedRelationship[] }> {
+  const route = resolveModelRoute("ontology", modelRouting);
+
+  log.info(
+    `[simulation:forge] Extracting entities from ${documents.length} documents ` +
+    `via ${route.provider}/${route.model}`,
+  );
+
+  // Truncate and combine documents
+  const combinedText = documents
+    .map((doc, i) => {
+      const truncated = doc.length > MAX_DOC_CHARS
+        ? doc.slice(0, MAX_DOC_CHARS) + "\n... [truncated]"
+        : doc;
+      return `=== DOCUMENT ${i + 1} ===\n${truncated}`;
+    })
+    .join("\n\n");
+
+  const userPrompt = `Extract all simulation-relevant entities from the following documents.
+Focus on entities that have opinions, positions, or interests that would create interesting dynamics in a multi-agent simulation.
+
+${combinedText}
+
+Generate the JSON extraction now.`;
+
+  const response = await llm.chat({
+    provider: route.provider,
+    model: route.model,
+    systemPrompt: DOCUMENT_EXTRACTION_SYSTEM_PROMPT,
+    userPrompt,
+    responseFormat: "json",
+    temperature: 0.2,
+  });
+
+  return parseExtractionResponse(response);
+}
+
+/**
+ * Parse the LLM extraction response into GraphEntity[] format.
+ */
+function parseExtractionResponse(
+  response: string,
+): { entities: GraphEntity[]; relationships: ExtractedRelationship[] } {
+  let parsed: Record<string, unknown>;
+
+  try {
+    parsed = JSON.parse(response);
+  } catch {
+    // Try extracting JSON from code blocks
+    const match = response.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (match) {
+      parsed = JSON.parse(match[1]);
+    } else {
+      const braceStart = response.indexOf("{");
+      const braceEnd = response.lastIndexOf("}");
+      if (braceStart !== -1 && braceEnd > braceStart) {
+        parsed = JSON.parse(response.slice(braceStart, braceEnd + 1));
+      } else {
+        log.warn("[simulation:forge] Could not parse entity extraction JSON, returning empty");
+        return { entities: [], relationships: [] };
+      }
+    }
+  }
+
+  const rawEntities = (parsed.entities as Array<Record<string, unknown>>) ?? [];
+  const rawRelationships = (parsed.relationships as Array<Record<string, unknown>>) ?? [];
+
+  const entities: GraphEntity[] = rawEntities.map((raw) => {
+    const uuid = generateEntityUUID();
+    const attributes: Record<string, unknown> = {
+      ...((raw.attributes as Record<string, unknown>) ?? {}),
+      relevance_score: raw.relevance_score ?? 0.5,
+      stance: raw.stance ?? 0,
+      influence_level: raw.influence_level ?? 1.0,
+      description: raw.description ?? "",
+    };
+
+    return {
+      uuid,
+      type: (raw.type as string) ?? "person",
+      name: (raw.name as string) ?? "Unknown Entity",
+      attributes,
+      createdAt: new Date().toISOString(),
+    };
+  });
+
+  const relationships: ExtractedRelationship[] = rawRelationships.map((raw) => ({
+    source: (raw.source as string) ?? "",
+    target: (raw.target as string) ?? "",
+    type: (raw.type as string) ?? "related_to",
+  }));
+
+  log.info(
+    `[simulation:forge] Extracted ${entities.length} entities and ` +
+    `${relationships.length} relationships from documents`,
+  );
+
+  return { entities, relationships };
+}
+
+function generateEntityUUID(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Main Forge
 // ---------------------------------------------------------------------------
 
@@ -412,6 +599,8 @@ function parseProfileResponse(
     stance: inferStance(parsed.sentiment_bias as number ?? 0),
     influenceWeight: clamp((parsed.influence_weight as number) ?? 1.0, 0.1, 5.0),
     karma: Math.floor(Math.random() * 5000) + 100,
+    // Follower multiplier — will be auto-scaled by runtime to match populationScale
+    followerMultiplier: tier === 1 ? 100 : tier === 2 ? 500 : 2000,
     sourceEntityUuid: entity.uuid,
     sourceEntityType: entity.type,
     createdAt: new Date().toISOString(),
@@ -464,6 +653,7 @@ function generateRuleBasedProfile(
     sentimentBias: 0,
     stance: "neutral",
     influenceWeight: isIndividual ? 1.0 : 2.0,
+    followerMultiplier: tier === 1 ? 100 : tier === 2 ? 500 : 2000,
     karma: 1000,
     sourceEntityUuid: entity.uuid,
     sourceEntityType: entity.type,
@@ -494,7 +684,7 @@ export function generateTemplateAgents(
     target_customer: ["Alex Rivera", "Jordan Chen", "Sam Patel", "Morgan Kim", "Taylor Brooks"],
     community_influencer: ["Chris Martinez", "Avery Thompson", "Casey Williams", "Riley Johnson"],
     industry_skeptic: ["Blake Anderson", "Drew Campbell", "Quinn Sullivan", "Harper Davis"],
-    brand_advocate: ["Jamie Wilson", "Dakota Lee", "Reese Cooper", "Finley Scott"],
+    brand_advocate: ["Jamie Wilson", "Dakota Lee", "Reese Cooper", "Finley Scott", "LoyalFan_2020", "BestProduct_Ever", "DefendingQuality", "TrustedUser_99"],
     senior_engineer: ["Dr. Sarah Chen", "Marcus Wei", "Elena Kowalski"],
     architect: ["James Nakamura"],
     junior_dev: ["Aisha Patel", "Tom Rodriguez", "Yuki Tanaka", "Ben Foster"],
@@ -517,7 +707,11 @@ export function generateTemplateAgents(
     new_user: ["FirstTimer_2024", "JustStarted_Here"],
     churned_user: ["ExFan_Mike", "WasGreat_Now_Meh"],
     support_engineer: ["HelpDesk_Anna", "TechSupport_Leo"],
-    competitor_user: ["switched_from_X", "comparing_tools"],
+    competitor_user: ["switched_from_X", "comparing_tools", "tried_both_22"],
+    casual_commenter: ["RealTalkRaj", "JustMyOpinion_K", "CuriousCat_M", "TechFolk_S", "NormalUser_42", "DailyReader_L"],
+    market_observer: ["RetailTrader_007", "WatchingMarkets", "SidelineAnalyst", "CuriousInvestor"],
+    downstream_buyer: ["ManufacturerMike", "SupplyChainSara", "ProcurementPro"],
+    community_member: ["ForumRegular_A", "HelpfulHelper", "ShareExperience", "TipsMaster"],
   };
 
   for (const archetype of template.agentArchetypes) {
@@ -570,6 +764,10 @@ export function generateTemplateAgents(
         sentimentBias: stanceVal,
         stance: inferStance(stanceVal),
         influenceWeight: influence,
+        // Follower multiplier: use archetype default or tier-based heuristic
+        // Runtime will scale these to match the configured populationScale
+        followerMultiplier: archetype.defaultFollowerMultiplier ??
+          (archetype.tier === 1 ? 100 : archetype.tier === 2 ? 500 : 2000),
         karma: 500 + Math.floor(Math.random() * 4500),
         sourceEntityUuid: "",
         sourceEntityType: archetype.name,

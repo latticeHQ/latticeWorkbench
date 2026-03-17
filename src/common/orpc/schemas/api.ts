@@ -2838,6 +2838,24 @@ export const SimulationRoundResultSchema = z.object({
       votes: z.number(),
     })),
   }).optional(),
+  /** Population-scale metrics (only when populationScale > 0) */
+  populationMetrics: z.object({
+    totalPopulation: z.number(),
+    realAgentCount: z.number(),
+    amplifiedActions: z.number(),
+    amplifiedEngagement: z.number(),
+    populationSentiment: z.object({
+      positive: z.number(),
+      neutral: z.number(),
+      negative: z.number(),
+    }),
+    tierBreakdown: z.array(z.object({
+      tier: z.number(),
+      agentCount: z.number(),
+      populationRepresented: z.number(),
+      amplifiedActions: z.number(),
+    })),
+  }).optional(),
 });
 
 export const CreateScenarioInputSchema = z.object({
@@ -2854,11 +2872,34 @@ export const CreateScenarioInputSchema = z.object({
     provider: z.string(),
     model: z.string(),
   })).optional(),
+  /** Population scale — configurable target population (e.g., 1_000_000 for 1M simulation) */
+  populationScale: z.number().optional(),
+  /** When true and seedDocuments have content, extract entities from docs instead of using templates */
+  useDocumentDrivenGeneration: z.boolean().optional(),
 });
 
 export const SimulationSettingsSchema = z.object({
   modelRouting: z.any(),
-  socialDynamics: z.any(),
+  socialDynamics: z.object({
+    recommendation: z.object({
+      recencyWeight: z.number(),
+      popularityWeight: z.number(),
+      relevanceWeight: z.number(),
+      echoChamberStrength: z.number(),
+    }).optional(),
+    viral: z.object({
+      viralThreshold: z.number(),
+      viralBoostMultiplier: z.number(),
+      viralDecayRate: z.number(),
+    }).optional(),
+    activitySchedule: z.object({
+      peakMultiplier: z.number(),
+      workMultiplier: z.number(),
+      morningMultiplier: z.number(),
+      nightMultiplier: z.number(),
+      deadMultiplier: z.number(),
+    }).optional(),
+  }).optional(),
   graphDb: z.object({
     host: z.string(),
     port: z.number(),
@@ -2869,6 +2910,14 @@ export const SimulationSettingsSchema = z.object({
     personalityVariance: z.number(),
     initialConditionVariance: z.number(),
   }).optional(),
+  /** Default population scale for new scenarios (0 = disabled) */
+  defaultPopulationScale: z.number().optional(),
+  /** Agent processing batch size (how many LLM calls in parallel per round) */
+  agentBatchSize: z.number().optional(),
+  /** Timeout per agent decision in milliseconds */
+  agentTimeoutMs: z.number().optional(),
+  /** Auto-start FalkorDB on simulation init */
+  autoStartGraphDb: z.boolean().optional(),
   accuracyTrackingEnabled: z.boolean().optional(),
 });
 
@@ -2991,6 +3040,19 @@ export const simulation = {
       status: z.enum(["pending", "planning", "generating", "completed", "failed"]),
       markdownContent: z.string().optional(),
       error: z.string().optional(),
+    }),
+  },
+  /** Chat with a simulated agent post-simulation (MiroFish-style dialogue) */
+  chatWithAgent: {
+    input: z.object({
+      scenarioId: z.string(),
+      agentId: z.string(),
+      message: z.string(),
+    }),
+    output: z.object({
+      response: z.string(),
+      agentName: z.string(),
+      agentType: z.string(),
     }),
   },
 };

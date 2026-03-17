@@ -198,6 +198,11 @@ export interface AgentProfile {
   stance: "supportive" | "opposing" | "neutral" | "observer";
   influenceWeight: number;     // 1.0 = normal, 3.0 = high influence
 
+  // Follower amplification — each LLM agent represents a cohort of followers
+  // who amplify their behavior. A followerMultiplier of 1000 means this agent's
+  // actions represent 1000 similar people in the population.
+  followerMultiplier?: number;
+
   // Platform-specific
   karma?: number;
   friendCount?: number;
@@ -422,6 +427,19 @@ export interface SimulationConfig {
 
   // Department template
   department?: Department;
+
+  // Population scale — configurable target population size.
+  // Each LLM agent acts as a "representative" for a cohort of followers.
+  // The runtime multiplies each agent's actions by their followerMultiplier
+  // to produce population-scale metrics without running 1M LLM calls.
+  //
+  // Example: populationScale=1_000_000 with 20 agents →
+  //   tier1 agents represent ~5,000 people each
+  //   tier2 agents represent ~20,000 people each
+  //   tier3 agents represent ~50,000+ people each
+  //
+  // Set to 0 or omit to disable amplification (raw agent counts only).
+  populationScale?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +483,31 @@ export type ScenarioStatus =
 // Simulation Runtime State
 // ---------------------------------------------------------------------------
 
+/**
+ * Population-scale metrics — amplified numbers representing the full
+ * simulated population, not just the LLM agents.
+ * Only populated when `populationScale` is set in SimulationConfig.
+ */
+export interface PopulationMetrics {
+  /** Total simulated population size (sum of all followerMultipliers) */
+  totalPopulation: number;
+  /** Number of real LLM agents producing the actions */
+  realAgentCount: number;
+  /** Amplified action counts (each action × agent's followerMultiplier) */
+  amplifiedActions: number;
+  /** Amplified engagement (votes, reactions weighted by multiplier) */
+  amplifiedEngagement: number;
+  /** Population-scale sentiment (weighted by followerMultiplier) */
+  populationSentiment: { positive: number; neutral: number; negative: number };
+  /** Per-tier breakdown */
+  tierBreakdown: Array<{
+    tier: number;
+    agentCount: number;
+    populationRepresented: number;
+    amplifiedActions: number;
+  }>;
+}
+
 export interface RoundResult {
   round: number;
   simulatedHour: number;
@@ -474,6 +517,8 @@ export interface RoundResult {
   viralPosts: PlatformPost[];
   sentimentDistribution: { positive: number; neutral: number; negative: number };
   platformSnapshot: PlatformSnapshot;
+  /** Population-scale metrics (only when populationScale > 0) */
+  populationMetrics?: PopulationMetrics;
 }
 
 export interface PlatformSnapshot {
@@ -670,6 +715,8 @@ export interface DepartmentTemplate {
     defaultCount: number;
     stanceRange: [number, number];
     influenceRange: [number, number];
+    /** Default follower multiplier for this archetype (used when populationScale is set) */
+    defaultFollowerMultiplier?: number;
   }>;
   metrics: string[];
   enrichmentSources: string[];
@@ -677,6 +724,8 @@ export interface DepartmentTemplate {
   defaultRounds: number;
   defaultAgentCount: number;
   statisticalAgentCount: number;
+  /** Default population scale for this department (0 = disabled) */
+  defaultPopulationScale?: number;
 }
 
 /**
@@ -696,14 +745,16 @@ export const DEFAULT_DEPARTMENT_TEMPLATES: Record<Department, DepartmentTemplate
       { name: "skeptic", description: "Critical community member, demands evidence", tier: AgentTier.Tier2, defaultCount: 5, stanceRange: [-0.9, -0.3], influenceRange: [0.8, 1.5] },
       { name: "early_adopter", description: "Enthusiastic about new products and ideas", tier: AgentTier.Tier2, defaultCount: 5, stanceRange: [0.3, 0.9], influenceRange: [0.5, 1.2] },
       { name: "journalist", description: "Tech/industry journalist covering the space", tier: AgentTier.Tier2, defaultCount: 2, stanceRange: [-0.2, 0.2], influenceRange: [2.5, 4.0] },
-      { name: "lurker", description: "Passive community member, occasionally votes", tier: AgentTier.Tier3, defaultCount: 30, stanceRange: [-0.5, 0.5], influenceRange: [0.1, 0.5] },
+      { name: "lurker", description: "Passive community member who occasionally comments or votes, representative of the silent majority", tier: AgentTier.Tier3, defaultCount: 8, stanceRange: [-0.5, 0.5], influenceRange: [0.1, 0.5] },
+      { name: "casual_commenter", description: "Regular community participant who shares opinions but isn't deeply invested", tier: AgentTier.Tier3, defaultCount: 6, stanceRange: [-0.4, 0.4], influenceRange: [0.3, 0.8] },
+      { name: "brand_advocate", description: "Existing loyal customer who defends the brand organically", tier: AgentTier.Tier3, defaultCount: 4, stanceRange: [0.5, 0.9], influenceRange: [0.5, 1.2] },
     ],
     metrics: ["engagement", "sentiment", "virality", "brand_mention", "share_of_voice"],
     enrichmentSources: ["arctic_reddit", "openbb_news"],
     inferTriggers: ["react", "engagement", "viral", "community", "reddit", "twitter", "post", "content", "audience", "marketing", "brand"],
     defaultRounds: 15,
     defaultAgentCount: 50,
-    statisticalAgentCount: 5000,
+    statisticalAgentCount: 0,
   },
   engineering: {
     department: "engineering",
@@ -751,13 +802,15 @@ export const DEFAULT_DEPARTMENT_TEMPLATES: Record<Department, DepartmentTemplate
       { name: "supply_chain_partner", description: "Key supplier or distribution partner", tier: AgentTier.Tier2, defaultCount: 3, stanceRange: [-0.2, 0.5], influenceRange: [1.5, 3.0] },
       { name: "industry_analyst", description: "Research analyst covering the sector", tier: AgentTier.Tier2, defaultCount: 2, stanceRange: [-0.3, 0.3], influenceRange: [2.0, 3.5] },
       { name: "activist", description: "Advocacy group or activist organization", tier: AgentTier.Tier2, defaultCount: 2, stanceRange: [-1.0, 1.0], influenceRange: [1.5, 3.0] },
+      { name: "market_observer", description: "Retail investor or market watcher tracking developments", tier: AgentTier.Tier3, defaultCount: 4, stanceRange: [-0.3, 0.3], influenceRange: [0.3, 0.8] },
+      { name: "downstream_buyer", description: "Manufacturer or company dependent on supply chain outcomes", tier: AgentTier.Tier3, defaultCount: 3, stanceRange: [-0.5, 0.5], influenceRange: [0.5, 1.5] },
     ],
     metrics: ["market_share_shift", "regulatory_risk", "partner_alignment", "competitive_response", "investor_sentiment"],
     enrichmentSources: ["openbb_market", "news_feeds", "sec_filings"],
     inferTriggers: ["strategy", "market", "competitor", "regulation", "invest", "acquisition", "partnership", "geopolitical", "supply chain"],
     defaultRounds: 12,
-    defaultAgentCount: 12,
-    statisticalAgentCount: 2000,
+    defaultAgentCount: 19,
+    statisticalAgentCount: 0,
   },
   product: {
     department: "product",
@@ -769,13 +822,15 @@ export const DEFAULT_DEPARTMENT_TEMPLATES: Record<Department, DepartmentTemplate
       { name: "enterprise_admin", description: "IT admin managing the product for their org", tier: AgentTier.Tier2, defaultCount: 2, stanceRange: [-0.5, 0.3], influenceRange: [1.5, 2.5] },
       { name: "accessibility_advocate", description: "User focused on accessibility and inclusion", tier: AgentTier.Tier2, defaultCount: 1, stanceRange: [-0.5, 0.5], influenceRange: [1.5, 2.5] },
       { name: "developer_integrator", description: "Developer building on top of the product's API", tier: AgentTier.Tier2, defaultCount: 3, stanceRange: [-0.3, 0.5], influenceRange: [1.0, 2.0] },
+      { name: "competitor_user", description: "User of competing product evaluating alternatives", tier: AgentTier.Tier3, defaultCount: 3, stanceRange: [-0.6, 0.1], influenceRange: [0.3, 1.0] },
+      { name: "community_member", description: "Active forum participant sharing experiences and tips", tier: AgentTier.Tier3, defaultCount: 4, stanceRange: [-0.3, 0.5], influenceRange: [0.3, 0.8] },
     ],
     metrics: ["feature_demand", "usability_score", "adoption_barrier", "satisfaction_delta", "competitive_gap"],
     enrichmentSources: ["support_tickets", "app_reviews", "user_interviews"],
     inferTriggers: ["feature", "user", "ux", "usability", "feedback", "adoption", "onboarding", "retention", "product", "roadmap"],
     defaultRounds: 10,
-    defaultAgentCount: 16,
-    statisticalAgentCount: 1000,
+    defaultAgentCount: 23,
+    statisticalAgentCount: 0,
   },
 };
 
@@ -818,6 +873,15 @@ export interface SimulationSettings {
 
   /** Auto-start FalkorDB container if not running */
   autoStartGraphDb: boolean;
+
+  /** Default population scale for new scenarios (0 = disabled, 1000000 = 1M) */
+  defaultPopulationScale: number;
+
+  /** Agent processing batch size — how many LLM agents call in parallel per round */
+  agentBatchSize: number;
+
+  /** Timeout per agent LLM decision in milliseconds */
+  agentTimeoutMs: number;
 }
 
 export const DEFAULT_SIMULATION_SETTINGS: SimulationSettings = {
@@ -837,6 +901,9 @@ export const DEFAULT_SIMULATION_SETTINGS: SimulationSettings = {
   },
   accuracyTrackingEnabled: true,
   autoStartGraphDb: true,
+  defaultPopulationScale: 0,
+  agentBatchSize: 3,
+  agentTimeoutMs: 120_000,
 };
 
 // ---------------------------------------------------------------------------
@@ -871,10 +938,12 @@ export interface CreateScenarioInput {
   seedDocuments: Array<{ filename: string; content: string }>;
   department?: Department;
   platforms?: PlatformType[];
-  agentCount?: number;
   rounds?: number;
-  ensembleRuns?: number;
   modelRouting?: Partial<Record<string, ModelRoute>>;
+  /** Population scale — configurable target population (e.g., 1_000_000 for 1M simulation) */
+  populationScale?: number;
+  /** When true and seedDocuments have content, extract entities from docs instead of using templates */
+  useDocumentDrivenGeneration?: boolean;
 }
 
 export interface SimulationProgress {

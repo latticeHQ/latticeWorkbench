@@ -265,14 +265,98 @@ export class SimulationService extends EventEmitter {
       initialEvents: [],
       scheduledEvents: [],
       department: department as any,
+      populationScale: input.populationScale ?? template.defaultPopulationScale ?? 0,
     };
 
-    // Generate agents from template archetypes (rule-based, no LLM needed)
-    const { generateTemplateAgents } = await import("./agentForge");
-    const { agents, statisticalAgents } = generateTemplateAgents(
-      template,
-      input.description,
-    );
+    // Determine whether to use document-driven entity extraction
+    const hasDocumentContent = input.seedDocuments.some((d) => d.content.trim().length > 0);
+    const useDocDriven = input.useDocumentDrivenGeneration && hasDocumentContent;
+
+    let agents: import("./types").AgentProfile[];
+    let statisticalAgents: import("./types").StatisticalAgentProfile[];
+
+    if (useDocDriven && this.llmProvider) {
+      // -----------------------------------------------------------------
+      // Document-driven generation: extract entities from seed docs, then
+      // forge rich LLM personas from them.
+      // -----------------------------------------------------------------
+      log.info(`[simulation] Using document-driven generation for scenario ${id}`);
+
+      const { extractEntitiesFromDocuments, forgeAgentProfiles } = await import("./agentForge");
+
+      const documentTexts = input.seedDocuments
+        .map((d) => d.content)
+        .filter((c) => c.trim().length > 0);
+
+      // 1. Extract entities from documents
+      const { entities: extractedEntities, relationships } =
+        await extractEntitiesFromDocuments(
+          documentTexts,
+          this.llmProvider,
+          this.settings.modelRouting,
+        );
+
+      // 2. Store extracted entities in the graph layer (best-effort)
+      try {
+        const storedEntities = await this.graphLayer.addEntities(
+          extractedEntities.map((e) => ({
+            type: e.type,
+            name: e.name,
+            attributes: e.attributes,
+          })),
+        );
+
+        // Build a name→uuid lookup for relationship edges
+        const nameToUuid = new Map<string, string>();
+        for (const stored of storedEntities) {
+          nameToUuid.set(stored.name, stored.uuid);
+        }
+
+        // Store relationship edges
+        for (const rel of relationships) {
+          const sourceUuid = nameToUuid.get(rel.source);
+          const targetUuid = nameToUuid.get(rel.target);
+          if (sourceUuid && targetUuid) {
+            await this.graphLayer.addEdge({
+              sourceUuid,
+              targetUuid,
+              type: rel.type,
+              attributes: {},
+            });
+          }
+        }
+      } catch (err) {
+        log.warn(`[simulation] Graph storage failed (non-critical): ${err}`);
+      }
+
+      // 3. Forge agent profiles from extracted entities
+      const forgeResult = await forgeAgentProfiles(
+        extractedEntities,
+        template,
+        input.description,
+        {
+          llm: this.llmProvider,
+          modelRouting: this.settings.modelRouting,
+          graphLayer: this.graphLayer,
+        },
+      );
+
+      agents = forgeResult.agents;
+      statisticalAgents = forgeResult.statisticalAgents;
+
+      log.info(
+        `[simulation] Document-driven: extracted ${extractedEntities.length} entities → ` +
+        `${agents.length} agents + ${statisticalAgents.length} statistical`,
+      );
+    } else {
+      // -----------------------------------------------------------------
+      // Template-driven generation: rule-based, no LLM needed
+      // -----------------------------------------------------------------
+      const { generateTemplateAgents } = await import("./agentForge");
+      const result = generateTemplateAgents(template, input.description);
+      agents = result.agents;
+      statisticalAgents = result.statisticalAgents;
+    }
 
     const scenario: SimulationScenario = {
       id,
@@ -339,6 +423,10 @@ export class SimulationService extends EventEmitter {
           this.emit("model-load", { provider, model, status });
           callbacks?.onModelLoadRequired?.(provider, model, status);
         },
+      },
+      {
+        agentBatchSize: this.settings.agentBatchSize,
+        agentTimeoutMs: this.settings.agentTimeoutMs,
       },
     );
 
