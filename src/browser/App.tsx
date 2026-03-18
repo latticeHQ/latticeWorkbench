@@ -1,4 +1,3 @@
-import { Menu } from "lucide-react";
 import { useEffect, useCallback, useRef } from "react";
 import { useRouter } from "./contexts/RouterContext";
 import { useNavigate } from "react-router-dom";
@@ -59,7 +58,6 @@ import {
   markPendingMinionAiSettings,
 } from "@/browser/utils/minionAiSettingsSync";
 import { AuthTokenModal } from "@/browser/components/AuthTokenModal";
-import { Button } from "./components/ui/button";
 import { ProjectPage } from "@/browser/components/ProjectPage";
 
 import { SettingsProvider, useSettings } from "./contexts/SettingsContext";
@@ -80,10 +78,10 @@ import { ProviderOptionsProvider } from "./contexts/ProviderOptionsContext";
 import { getMinionSidebarKey } from "./utils/minion";
 import { WindowsToolchainBanner } from "./components/WindowsToolchainBanner";
 import { RosettaBanner } from "./components/RosettaBanner";
-import { isDesktopMode } from "./hooks/useDesktopTitlebar";
-import { cn } from "@/common/lib/utils";
 import { getErrorMessage } from "@/common/utils/errors";
 import { MINION_DEFAULTS } from "@/constants/minionDefaults";
+import { LatticeRuntimeProvider } from "./contexts/LatticeRuntimeContext";
+import { RuntimeDashboard } from "./components/RuntimeDashboard";
 
 function AppInner() {
   // Get minion state from context
@@ -1057,48 +1055,16 @@ function AppInner() {
                 );
               })()
             ) : (
-              <div className="bg-dark flex flex-1 flex-col overflow-hidden">
-                <div
-                  className={cn(
-                    "bg-sidebar border-border-light flex shrink-0 items-center border-b px-[15px] [@media(max-width:768px)]:h-auto [@media(max-width:768px)]:py-2",
-                    isDesktopMode() ? "h-10 titlebar-drag" : "h-8"
-                  )}
-                >
-                  {sidebarCollapsed && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={handleToggleSidebar}
-                      title="Open sidebar"
-                      aria-label="Open sidebar menu"
-                      className={cn(
-                        "mobile-menu-btn text-muted hover:text-foreground hidden h-6 w-6 shrink-0",
-                        isDesktopMode() && "titlebar-no-drag"
-                      )}
-                    >
-                      <Menu className="h-4 w-4" />
-                    </Button>
-                  )}
-                </div>
-                <div
-                  className="[&_p]:text-muted [&_h2]:text-foreground mx-auto w-full max-w-3xl flex-1 text-center [&_h2]:mb-4 [&_h2]:font-bold [&_h2]:tracking-tight [&_p]:leading-[1.6]"
-                  style={{
-                    padding: "clamp(40px, 10vh, 100px) 20px",
-                    fontSize: "clamp(14px, 2vw, 16px)",
-                  }}
-                >
-                  <h2 style={{ fontSize: "clamp(24px, 5vw, 36px)", letterSpacing: "-1px" }}>
-                    {currentMinionId ? "Summoning minion…" : "Welcome to Lattice"}
-                  </h2>
-                  <p>
-                    {currentMinionId
-                      ? loading
-                        ? "Loading minion metadata…"
-                        : "Minion not found."
-                      : "Add a project from the sidebar to get started."}
-                  </p>
-                </div>
-              </div>
+              <RuntimeDashboard
+                leftSidebarCollapsed={sidebarCollapsed}
+                onToggleLeftSidebarCollapsed={handleToggleSidebar}
+                minionMetadata={minionMetadata}
+                onSelectMinion={setSelectedMinion}
+                onStartMinionCreation={startMinionCreation}
+                onOpenProjectCreateModal={openProjectCreateModal}
+                currentMinionId={currentMinionId}
+                loading={loading}
+              />
             )}
           </div>
         </div>
@@ -1139,7 +1105,9 @@ function App() {
                       <CommandRegistryProvider>
                         <PowerModeProvider>
                           <ConfirmDialogProvider>
-                            <AppInner />
+                            <LatticeRuntimeProvider>
+                              <AppInner />
+                            </LatticeRuntimeProvider>
                           </ConfirmDialogProvider>
                         </PowerModeProvider>
                       </CommandRegistryProvider>

@@ -8,6 +8,7 @@ import { AlertTriangle, Download, Loader2, RefreshCw, ShieldCheck } from "lucide
 import { useAPI } from "@/browser/contexts/API";
 import { useAboutDialog } from "@/browser/contexts/AboutDialogContext";
 import { usePolicy } from "@/browser/contexts/PolicyContext";
+import { LatticeConnectionHub } from "@/browser/components/LatticeConnectionHub";
 import {
   isDesktopMode,
   getTitlebarLeftInset,
@@ -165,6 +166,7 @@ export function TitleBar() {
         </Tooltip>
       </div>
       <div className={cn("flex shrink-0 items-center gap-1.5", isDesktop && "titlebar-no-drag")}>
+        <LatticeConnectionHub />
         {policyEnforced && (
           <Tooltip>
             <TooltipTrigger asChild>

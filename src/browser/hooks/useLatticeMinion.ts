@@ -1,12 +1,16 @@
 /**
  * Hook for managing Lattice minion async data in the creation flow.
- * Fetches Lattice CLI info, templates, presets, and existing minions.
+ *
+ * Consumes shared Lattice connection state from LatticeRuntimeContext
+ * for CLI info, auth, templates, and minion listing. Only manages
+ * preset-fetching locally (depends on the selected template).
  *
  * The `latticeConfig` state is owned by the parent (via selectedRuntime.lattice) and passed in.
  * This hook only manages async-fetched data and derived state.
  */
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAPI } from "@/browser/contexts/API";
+import { useLatticeRuntime } from "@/browser/contexts/LatticeRuntimeContext";
 import type {
   LatticeInfo,
   LatticeWhoami,
@@ -85,11 +89,8 @@ interface UseLatticeMinionReturn {
 /**
  * Manages Lattice minion async data for the creation flow.
  *
- * Fetches data lazily:
- * - Lattice info is fetched on mount
- * - Templates are fetched when Lattice is enabled
- * - Presets are fetched when a template is selected
- * - Minions are fetched when Lattice is enabled
+ * Shared data (info, whoami, templates, minions) comes from LatticeRuntimeContext.
+ * Preset-fetching remains local since it depends on the selected template.
  *
  * State ownership: latticeConfig is owned by parent (selectedRuntime.lattice).
  * This hook derives `enabled` from latticeConfig and manages only async data.
@@ -100,9 +101,10 @@ export function useLatticeMinion({
 }: UseLatticeMinionOptions): UseLatticeMinionReturn {
   const { api } = useAPI();
 
-  // Async-fetched data (owned by this hook)
-  const [latticeInfo, setLatticeInfo] = useState<LatticeInfo | null>(null);
-  const [latticeWhoami, setLatticeWhoami] = useState<LatticeWhoami | null>(null);
+  // Pull shared state from the context (fetched once at app level)
+  const runtimeCtx = useLatticeRuntime();
+  const latticeInfo = runtimeCtx.info;
+  const latticeWhoami = runtimeCtx.whoami;
 
   // Derived state: enabled when latticeConfig is present AND CLI is confirmed available
   // AND user is authenticated. Loading (null) and outdated/unavailable all result in enabled=false.
@@ -116,185 +118,42 @@ export function useLatticeMinion({
   const onLatticeConfigChangeRef = useRef(onLatticeConfigChange);
   latticeConfigRef.current = latticeConfig;
   onLatticeConfigChangeRef.current = onLatticeConfigChange;
-  const [templates, setTemplates] = useState<LatticeTemplate[]>([]);
-  const [templatesError, setTemplatesError] = useState<string | null>(null);
+
+  // Presets (local — depends on selected template)
   const [presets, setPresets] = useState<LatticePreset[]>([]);
   const [presetsError, setPresetsError] = useState<string | null>(null);
-  const [existingMinions, setExistingMinions] = useState<LatticeMinion[]>([]);
-  const [minionsError, setMinionsError] = useState<string | null>(null);
-
-  // Loading states
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [loadingPresets, setLoadingPresets] = useState(false);
-  const [loadingMinions, setLoadingMinions] = useState(false);
 
-  // Fetch Lattice info on mount
+  // Clear Lattice config when CLI becomes unavailable or user logs out
   useEffect(() => {
-    if (!api) return;
-
-    let mounted = true;
-
-    api.lattice
-      .getInfo()
-      .then((info) => {
-        if (mounted) {
-          setLatticeInfo(info);
-          // Clear Lattice config when CLI is not available (outdated or unavailable)
-          if (info.state !== "available" && latticeConfigRef.current != null) {
-            onLatticeConfigChangeRef.current(null);
-          }
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setLatticeInfo({
-            state: "unavailable",
-            reason: { kind: "error", message: "Failed to fetch" },
-          });
-          // Clear Lattice config on fetch failure
-          if (latticeConfigRef.current != null) {
-            onLatticeConfigChangeRef.current(null);
-          }
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [api]);
-
-  // Fetch whoami when CLI is available
-  useEffect(() => {
-    if (!api || latticeInfo?.state !== "available") {
-      return;
+    if (latticeInfo && latticeInfo.state !== "available" && latticeConfigRef.current != null) {
+      onLatticeConfigChangeRef.current(null);
     }
+  }, [latticeInfo]);
 
-    let mounted = true;
-
-    api.lattice
-      .whoami()
-      .then((whoami) => {
-        if (mounted) {
-          setLatticeWhoami(whoami);
-          // Clear Lattice config when not authenticated
-          if (whoami.state !== "authenticated" && latticeConfigRef.current != null) {
-            onLatticeConfigChangeRef.current(null);
-          }
-        }
-      })
-      .catch(() => {
-        if (mounted) {
-          setLatticeWhoami({ state: "unauthenticated", reason: "Failed to check authentication" });
-          if (latticeConfigRef.current != null) {
-            onLatticeConfigChangeRef.current(null);
-          }
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [api, latticeInfo?.state]);
-
-  // Fetch templates when Lattice is enabled
   useEffect(() => {
-    if (!api || !enabled || latticeInfo?.state !== "available") {
-      setTemplates([]);
-      setTemplatesError(null);
-      setLoadingTemplates(false);
-      return;
+    if (
+      latticeWhoami &&
+      latticeWhoami.state !== "authenticated" &&
+      latticeConfigRef.current != null
+    ) {
+      onLatticeConfigChangeRef.current(null);
     }
+  }, [latticeWhoami]);
 
-    let mounted = true;
-    setLoadingTemplates(true);
-    setTemplatesError(null);
-
-    api.lattice
-      .listTemplates()
-      .then((result) => {
-        if (!mounted) return;
-        if (result.ok) {
-          setTemplates(result.templates);
-          setTemplatesError(null);
-          // Auto-select first template if none selected
-          const autoConfig = buildAutoSelectedTemplateConfig(
-            latticeConfigRef.current,
-            result.templates
-          );
-          if (autoConfig) {
-            onLatticeConfigChange(autoConfig);
-          }
-        } else {
-          setTemplates([]);
-          setTemplatesError(result.error);
-        }
-      })
-      .catch((error) => {
-        if (!mounted) return;
-        const message =
-          error instanceof Error
-            ? error.message.split("\n")[0].slice(0, 200).trim()
-            : "Unknown error";
-        setTemplates([]);
-        setTemplatesError(message || "Unknown error");
-      })
-      .finally(() => {
-        if (mounted) {
-          setLoadingTemplates(false);
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally only re-fetch on enable/state changes, not on latticeConfig changes
-  }, [api, enabled, latticeInfo?.state]);
-
-  // Fetch existing minions when Lattice is enabled
+  // Auto-select first template when templates load and none is selected
   useEffect(() => {
-    if (!api || !enabled || latticeInfo?.state !== "available") {
-      setExistingMinions([]);
-      setMinionsError(null);
-      setLoadingMinions(false);
-      return;
+    if (enabled && runtimeCtx.templates.length > 0) {
+      const autoConfig = buildAutoSelectedTemplateConfig(
+        latticeConfigRef.current,
+        runtimeCtx.templates
+      );
+      if (autoConfig) {
+        onLatticeConfigChange(autoConfig);
+      }
     }
-
-    let mounted = true;
-    setLoadingMinions(true);
-    setMinionsError(null);
-
-    api.lattice
-      .listMinions()
-      .then((result) => {
-        if (!mounted) return;
-        if (result.ok) {
-          setExistingMinions(result.minions);
-          setMinionsError(null);
-        } else {
-          // Users reported "No minions found" even when the CLI failed; surface the error.
-          setExistingMinions([]);
-          setMinionsError(result.error);
-        }
-      })
-      .catch((error) => {
-        if (!mounted) return;
-        const message =
-          error instanceof Error
-            ? error.message.split("\n")[0].slice(0, 200).trim()
-            : "Unknown error";
-        setExistingMinions([]);
-        setMinionsError(message || "Unknown error");
-      })
-      .finally(() => {
-        if (mounted) {
-          setLoadingMinions(false);
-        }
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [api, enabled, latticeInfo?.state]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Intentionally only on templates/enabled changes
+  }, [enabled, runtimeCtx.templates]);
 
   // Fetch presets when template changes (only for "new" mode)
   useEffect(() => {
@@ -401,40 +260,12 @@ export function useLatticeMinion({
     latticeConfig?.existingMinion,
   ]);
 
-  // Re-fetch Lattice CLI info and auth state (e.g. after login completes)
-  const refreshLatticeInfo = useCallback(() => {
-    if (!api) return;
-    api.lattice
-      .getInfo()
-      .then((info) => {
-        setLatticeInfo(info);
-        if (info.state !== "available" && latticeConfigRef.current != null) {
-          onLatticeConfigChangeRef.current(null);
-        }
-      })
-      .catch(() => {
-        // Best-effort — leave current info intact on failure.
-      });
-    // Also refresh whoami (force cache clear)
-    api.lattice
-      .whoami({ refresh: true })
-      .then((whoami) => {
-        setLatticeWhoami(whoami);
-        if (whoami.state !== "authenticated" && latticeConfigRef.current != null) {
-          onLatticeConfigChangeRef.current(null);
-        }
-      })
-      .catch(() => {
-        // Best-effort — leave current whoami intact on failure.
-      });
-  }, [api]);
-
   // Handle enabled toggle
   const handleSetEnabled = useCallback(
     (newEnabled: boolean) => {
       if (newEnabled) {
         // Initialize config for new minion mode (minionName omitted; backend derives)
-        const firstTemplate = templates[0];
+        const firstTemplate = runtimeCtx.templates[0];
         onLatticeConfigChange({
           existingMinion: false,
           template: firstTemplate?.name,
@@ -444,7 +275,7 @@ export function useLatticeMinion({
         onLatticeConfigChange(null);
       }
     },
-    [templates, onLatticeConfigChange]
+    [runtimeCtx.templates, onLatticeConfigChange]
   );
 
   return {
@@ -454,15 +285,15 @@ export function useLatticeMinion({
     latticeWhoami,
     latticeConfig,
     setLatticeConfig: onLatticeConfigChange,
-    templates,
-    templatesError,
+    templates: runtimeCtx.templates,
+    templatesError: runtimeCtx.templatesError,
     presets,
     presetsError,
-    existingMinions,
-    minionsError,
-    loadingTemplates,
+    existingMinions: runtimeCtx.remoteMinions,
+    minionsError: runtimeCtx.remoteMinionError,
+    loadingTemplates: runtimeCtx.templatesLoading,
     loadingPresets,
-    loadingMinions,
-    refreshLatticeInfo,
+    loadingMinions: runtimeCtx.remoteMinionsFetching,
+    refreshLatticeInfo: runtimeCtx.refresh,
   };
 }
