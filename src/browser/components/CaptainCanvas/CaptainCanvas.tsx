@@ -49,6 +49,10 @@ interface CaptainCanvasProps {
   isRunning?: boolean;
   /** Current tick count. */
   tickCount?: number;
+  /** Callback to enable the captain. */
+  onEnable?: () => void;
+  /** Callback to disable the captain. */
+  onDisable?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +236,22 @@ export function CaptainCanvas(props: CaptainCanvasProps) {
             </span>
             <span style={{ color: "#475569" }}>|</span>
             <span>{nodes.length} nodes</span>
+            <span style={{ color: "#475569" }}>|</span>
+            <button
+              onClick={() => props.isRunning ? props.onDisable?.() : props.onEnable?.()}
+              style={{
+                background: props.isRunning ? "#7f1d1d" : "#14532d",
+                border: `1px solid ${props.isRunning ? "#ef4444" : "#22c55e"}`,
+                borderRadius: 6,
+                padding: "2px 10px",
+                color: props.isRunning ? "#fca5a5" : "#86efac",
+                fontSize: 11,
+                cursor: "pointer",
+                fontWeight: 600,
+              }}
+            >
+              {props.isRunning ? "Stop" : "Start Captain"}
+            </button>
           </div>
         </Panel>
       </ReactFlow>

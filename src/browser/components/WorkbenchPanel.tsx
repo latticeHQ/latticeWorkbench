@@ -253,6 +253,81 @@ const DragAwarePanelResizeHandle: React.FC<{
   return <PanelResizeHandle className={className} />;
 };
 
+/** Wrapper that connects CaptainCanvas to oRPC for real-time captain control. */
+function CaptainCanvasWrapper() {
+  const [isRunning, setIsRunning] = React.useState(false);
+  const [tickCount, setTickCount] = React.useState(0);
+  const [error, setError] = React.useState<string | null>(null);
+
+  // Poll captain state every 5 seconds when running
+  React.useEffect(() => {
+    if (!isRunning) return;
+    const interval = setInterval(async () => {
+      try {
+        const client = window.__ORPC_CLIENT__;
+        if (!client) return;
+        const state = await client.captain.get();
+        setIsRunning(state.isRunning);
+        setTickCount(state.tickCount);
+      } catch {
+        // Captain may not be initialized yet
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [isRunning]);
+
+  const handleEnable = React.useCallback(async () => {
+    try {
+      setError(null);
+      const client = window.__ORPC_CLIENT__;
+      if (!client) { setError("No API client"); return; }
+      await client.captain.enable();
+      setIsRunning(true);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+    }
+  }, []);
+
+  const handleDisable = React.useCallback(async () => {
+    try {
+      setError(null);
+      const client = window.__ORPC_CLIENT__;
+      if (!client) return;
+      await client.captain.disable();
+      setIsRunning(false);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  return (
+    <div style={{ height: "100%", position: "relative" }}>
+      {error && (
+        <div style={{
+          position: "absolute", top: 8, left: "50%", transform: "translateX(-50%)",
+          background: "#7f1d1d", border: "1px solid #ef4444", borderRadius: 8,
+          padding: "6px 16px", color: "#fca5a5", fontSize: 12, zIndex: 20,
+        }}>
+          {error}
+        </div>
+      )}
+      <CaptainCanvas
+        identity={{
+          name: "Atlas",
+          traits: ["curious", "direct", "strategic", "empathetic"],
+          values: ["truth", "efficiency", "quality", "autonomy"],
+          communicationStyle: "concise but warm",
+        }}
+        isRunning={isRunning}
+        tickCount={tickCount}
+        onEnable={handleEnable}
+        onDisable={handleDisable}
+      />
+    </div>
+  );
+}
+
 function hasMountedReviewPanel(node: WorkbenchPanelLayoutNode): boolean {
   if (node.type === "tabset") {
     return node.activeTab === "review";
@@ -733,16 +808,7 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
 
         {props.node.activeTab === "captain" && (
           <div role="tabpanel" className="h-full">
-            <CaptainCanvas
-              identity={{
-                name: "Atlas",
-                traits: ["curious", "direct", "strategic", "empathetic"],
-                values: ["truth", "efficiency", "quality", "autonomy"],
-                communicationStyle: "concise but warm",
-              }}
-              isRunning={false}
-              tickCount={0}
-            />
+            <CaptainCanvasWrapper />
           </div>
         )}
       </div>

@@ -2398,12 +2398,27 @@ export const router = (authToken?: string) => {
         .output(schemas.captain.get.output)
         .handler(async ({ context }) => {
           if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
-          const identity = await context.captainService.getIdentity();
-          return {
-            identity,
-            isRunning: context.captainService.isRunning(),
-            tickCount: context.captainService.getTickCount(),
-          };
+          try {
+            const identity = await context.captainService.getIdentity();
+            return {
+              identity,
+              isRunning: context.captainService.isRunning(),
+              tickCount: context.captainService.getTickCount(),
+            };
+          } catch {
+            // Not initialized yet — return defaults
+            return {
+              identity: {
+                name: "Atlas",
+                personality: { traits: [], communication_style: "", values: [], opinions: {} },
+                preferences: { default_model: "claude-sonnet-4-6", thinking_depth: "deep" as const, proactivity_level: "medium" as const, delegation_threshold: "" },
+                formed_at: new Date().toISOString(),
+                last_updated: new Date().toISOString(),
+              },
+              isRunning: false,
+              tickCount: 0,
+            };
+          }
         }),
       updateIdentity: t
         .input(schemas.captain.updateIdentity.input)
@@ -2417,6 +2432,33 @@ export const router = (authToken?: string) => {
         .output(schemas.captain.enable.output)
         .handler(async ({ context }) => {
           if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+
+          // Initialize with the first available project path
+          const minions = await context.minionService.list();
+          const firstMinion = minions[0];
+          if (!firstMinion) {
+            throw new ORPCError("PRECONDITION_FAILED", { message: "Create a minion first — the Captain needs a project to think about" });
+          }
+
+          // Initialize captain with the project directory
+          await context.captainService.initialize(firstMinion.projectPath);
+
+          // Create a dedicated captain minion for the cognitive loop
+          const captainMinionId = `captain-${Date.now()}`;
+          context.minionService.getOrCreateSession(captainMinionId);
+
+          // Wire the cognitive loop to send messages through the real AgentSession
+          context.captainService.wireSendFunction(async (message: string) => {
+            const result = await context.minionService.sendMessage(
+              captainMinionId,
+              message,
+              { agentId: "captain", model: "claude-sonnet-4-6" },
+              { synthetic: true },
+            );
+            // Return null on error, the cognitive loop handles it
+            return result.success ? "Cognitive tick processed" : null;
+          });
+
           context.captainService.enable();
           return { success: true };
         }),
