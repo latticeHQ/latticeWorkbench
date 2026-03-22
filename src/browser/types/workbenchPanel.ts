@@ -14,6 +14,7 @@ export const WORKBENCH_PANEL_TABS = [
   "reflections",
   "research",
   "simulation",
+  "captain",
 ] as const;
 
 /**

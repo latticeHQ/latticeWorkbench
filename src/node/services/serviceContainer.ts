@@ -76,6 +76,7 @@ import { BrowserService } from "@/node/services/browserService";
 import { OpenBBService } from "@/node/services/openbbService";
 import { SimulationService } from "@/node/services/simulation";
 import { DEFAULT_SIMULATION_SETTINGS } from "@/node/services/simulation/types";
+import { CaptainService } from "@/node/services/captain/captainService";
 import type { ORPCContext } from "@/node/orpc/context";
 
 const LATTICE_HELP_CHAT_WELCOME_MESSAGE_ID = "lattice-chat-welcome";
@@ -149,6 +150,7 @@ export class ServiceContainer {
   public readonly browserService: BrowserService;
   public readonly openbbService: OpenBBService;
   public readonly simulationService: SimulationService;
+  public readonly captainService: CaptainService;
   public readonly sshPromptService = new SshPromptService();
   private readonly ptyService: PTYService;
   public readonly idleCompactionService: IdleCompactionService;
@@ -294,6 +296,9 @@ export class ServiceContainer {
       simSettings.accuracyTrackingEnabled = simConfig.accuracyTrackingEnabled;
     }
     this.simulationService = new SimulationService(simSettings);
+
+    // Captain — autonomous AI mind
+    this.captainService = new CaptainService();
     // Bridge AIService → SimulationService LLM provider
     const aiServiceRef = this.aiService;
     const inferenceServiceRef = this.inferenceService;
@@ -520,6 +525,15 @@ export class ServiceContainer {
       await this.simulationService.initialize();
     } catch (error) {
       log.warn("[ServiceContainer] Failed to initialize simulation service", { error });
+    }
+
+    // Captain — initialize with project directory (startup-safe)
+    try {
+      const projectDir = this.config.srcDir || this.config.rootDir;
+      await this.captainService.initialize(projectDir);
+      log.info("[ServiceContainer] Captain service initialized");
+    } catch (error) {
+      log.warn("[ServiceContainer] Failed to initialize captain service", { error });
     }
 
     // OpenBB — user-triggered via Research tab (no auto-start).
@@ -779,6 +793,7 @@ export class ServiceContainer {
       browserService: this.browserService,
       openbbService: this.openbbService,
       simulationService: this.simulationService,
+      captainService: this.captainService,
     };
   }
 

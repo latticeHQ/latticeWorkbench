@@ -33,6 +33,7 @@ export {
   ReflectionsTabLabel,
   ResearchTabLabel,
   SimulationTabLabel,
+  CaptainTabLabel,
   OutputTabLabel,
   FileTabLabel,
   ReviewTabLabel,

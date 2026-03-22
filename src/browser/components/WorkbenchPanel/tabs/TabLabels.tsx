@@ -8,7 +8,7 @@
  */
 
 import React from "react";
-import { Activity, Brain, CircleDot, Clock, Columns3, Cpu, Database, ExternalLink, FolderTree, Globe, MonitorSmartphone, Network, RefreshCw, Terminal as TerminalIcon, TrendingUp, Users, X, Zap } from "lucide-react";
+import { Activity, Brain, CircleDot, Clock, Columns3, Cpu, Crown, Database, ExternalLink, FolderTree, Globe, MonitorSmartphone, Network, RefreshCw, Terminal as TerminalIcon, TrendingUp, Users, X, Zap } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../../ui/tooltip";
 import { FileIcon } from "../../FileIcon";
 import { formatTabDuration, type ReviewStats } from "./registry";
@@ -289,6 +289,14 @@ export const SimulationTabLabel: React.FC = () => (
   <span className="inline-flex items-center gap-1">
     <Users className="h-3 w-3 shrink-0" />
     Simulation
+  </span>
+);
+
+/** Captain tab label — shows crown icon + "Captain" text. */
+export const CaptainTabLabel: React.FC = () => (
+  <span className="inline-flex items-center gap-1">
+    <Crown className="h-3 w-3 shrink-0" />
+    Captain
   </span>
 );
 

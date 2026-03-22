@@ -90,6 +90,7 @@ import {
   ReflectionsTabLabel,
   ResearchTabLabel,
   SimulationTabLabel,
+  CaptainTabLabel,
   OutputTabLabel,
   FileTabLabel,
   ReviewTabLabel,
@@ -108,6 +109,7 @@ import { SyncTab } from "./WorkbenchPanel/SyncTab";
 import { ReflectionsTab } from "./WorkbenchPanel/ReflectionsTab";
 import { ResearchTab } from "./WorkbenchPanel/Research/ResearchTab";
 import { SimulationTab } from "./WorkbenchPanel/Simulation/SimulationTab";
+import { CaptainCanvas } from "./CaptainCanvas/CaptainCanvas";
 import { useMinionSidebarState } from "@/browser/stores/MinionStore";
 import {
   DndContext,
@@ -441,6 +443,8 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
       label = <ResearchTabLabel />;
     } else if (tab === "simulation") {
       label = <SimulationTabLabel />;
+    } else if (tab === "captain") {
+      label = <CaptainTabLabel />;
     } else if (isTerminal) {
       const terminalIndex = terminalTabs.indexOf(tab);
       label = (
@@ -724,6 +728,21 @@ const WorkbenchPanelTabsetNode: React.FC<WorkbenchPanelTabsetNodeProps> = (props
         {props.node.activeTab === "simulation" && (
           <div role="tabpanel" className="h-full">
             <SimulationTab minionId={props.minionId} />
+          </div>
+        )}
+
+        {props.node.activeTab === "captain" && (
+          <div role="tabpanel" className="h-full">
+            <CaptainCanvas
+              identity={{
+                name: "Atlas",
+                traits: ["curious", "direct", "strategic", "empathetic"],
+                values: ["truth", "efficiency", "quality", "autonomy"],
+                communicationStyle: "concise but warm",
+              }}
+              isRunning={false}
+              tickCount={0}
+            />
           </div>
         )}
       </div>
