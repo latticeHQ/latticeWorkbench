@@ -299,6 +299,26 @@ export class ServiceContainer {
 
     // Captain — autonomous AI mind
     this.captainService = new CaptainService();
+
+    // Bridge AIService → CaptainService LLM provider (same pattern as SimulationService)
+    this.captainService.setLLMProvider({
+      async chat(opts) {
+        const modelString = `${opts.provider}:${opts.model}`;
+        const modelResult = await aiServiceRef.createModel(modelString);
+        if (!modelResult.success) {
+          throw new Error(`Failed to create model ${modelString}: ${modelResult.error.type}`);
+        }
+        const { generateText } = await import("ai");
+        const result = await generateText({
+          model: modelResult.data,
+          system: opts.systemPrompt,
+          prompt: opts.userPrompt,
+          temperature: opts.temperature,
+        });
+        return result.text;
+      },
+    });
+
     // Bridge AIService → SimulationService LLM provider
     const aiServiceRef = this.aiService;
     const inferenceServiceRef = this.inferenceService;

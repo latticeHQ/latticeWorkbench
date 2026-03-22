@@ -41,17 +41,38 @@ export interface CaptainServiceEvents {
 }
 
 // ---------------------------------------------------------------------------
+// LLM Provider (injected by ServiceContainer, same pattern as SimulationService)
+// ---------------------------------------------------------------------------
+
+export interface CaptainLLMProvider {
+  /** Call the LLM with a system prompt and user prompt, return text response. */
+  chat(opts: {
+    provider: string;
+    model: string;
+    systemPrompt: string;
+    userPrompt: string;
+    temperature?: number;
+  }): Promise<string>;
+}
+
+// ---------------------------------------------------------------------------
 // Captain Service
 // ---------------------------------------------------------------------------
 
 export class CaptainService extends EventEmitter {
   private loop: CaptainCognitiveLoop | null = null;
   private projectDir: string | null = null;
+  private llmProvider: CaptainLLMProvider | null = null;
   private messageLog: Array<{ role: string; content: string; timestamp: number }> = [];
 
   // Accumulated canvas state for new subscribers
   private canvasNodes: CaptainCanvasNode[] = [];
   private canvasEdges: CaptainCanvasEdge[] = [];
+
+  /** Set the LLM provider (called by ServiceContainer during wiring). */
+  setLLMProvider(provider: CaptainLLMProvider): void {
+    this.llmProvider = provider;
+  }
 
   // ---------------------------------------------------------------------------
   // Lifecycle
@@ -130,9 +151,79 @@ export class CaptainService extends EventEmitter {
     this.loop.setSendFunction(fn);
   }
 
-  /** Start the cognitive loop. */
+  /**
+   * Auto-wire LLM provider as the send function.
+   * Uses the same AIService.createModel + generateText pattern as SimulationService.
+   * This bypasses AgentSession for simplicity — the Captain calls the LLM directly.
+   */
+  private autoWireLLM(): void {
+    if (!this.loop || !this.llmProvider) return;
+
+    const provider = this.llmProvider;
+    this.loop.setSendFunction(async (cognitivePrompt: string) => {
+      try {
+        const identity = await this.getIdentity();
+        const systemPrompt = [
+          `You are ${identity.name}, an autonomous AI captain.`,
+          `Traits: ${identity.personality.traits.join(", ")}`,
+          `Values: ${identity.personality.values.join(", ")}`,
+          `Style: ${identity.personality.communication_style}`,
+          "",
+          "You think independently. Each message is one cognitive cycle.",
+          "Analyze the events, reflect, decide what to do, and act.",
+          'If you want to message the user, prefix with "USER: ".',
+          'If you want to store a memory, prefix with "MEMORY: ".',
+          "Otherwise, just think and plan.",
+        ].join("\n");
+
+        const response = await provider.chat({
+          provider: "anthropic",
+          model: identity.preferences.default_model ?? "claude-sonnet-4-6",
+          systemPrompt,
+          userPrompt: cognitivePrompt,
+          temperature: 0.7,
+        });
+
+        // Parse response for user messages and memories
+        this.processLLMResponse(response);
+
+        return response;
+      } catch (error) {
+        log.error("[Captain] LLM call failed:", error);
+        return null;
+      }
+    });
+  }
+
+  /** Parse LLM response for user messages (USER:) and memories (MEMORY:). */
+  private processLLMResponse(response: string): void {
+    const lines = response.split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith("USER:")) {
+        const message = trimmed.slice(5).trim();
+        if (message) {
+          this.messageLog.push({ role: "captain", content: message, timestamp: Date.now() });
+          this.emit("message", message);
+          log.info(`[Captain] → User: ${message.slice(0, 80)}...`);
+        }
+      } else if (trimmed.startsWith("MEMORY:")) {
+        const content = trimmed.slice(7).trim();
+        if (content && this.loop) {
+          void this.loop.memory.store("episodic", content, 0.7, { source: "self_reflection" });
+          log.info(`[Captain] Stored memory: ${content.slice(0, 60)}...`);
+        }
+      }
+    }
+  }
+
+  /** Start the cognitive loop. Auto-wires LLM if available. */
   enable(): void {
     if (!this.loop) throw new Error("Captain not initialized");
+    // Auto-wire LLM provider if no send function was manually set
+    if (this.llmProvider) {
+      this.autoWireLLM();
+    }
     this.loop.start();
   }
 

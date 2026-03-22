@@ -2433,32 +2433,17 @@ export const router = (authToken?: string) => {
         .handler(async ({ context }) => {
           if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
 
-          // Initialize with the first available project path
-          const minions = await context.minionService.list();
-          const firstMinion = minions[0];
-          if (!firstMinion) {
-            throw new ORPCError("PRECONDITION_FAILED", { message: "Create a minion first — the Captain needs a project to think about" });
+          // Initialize with the first available project path if not already initialized
+          if (!context.captainService.isRunning()) {
+            const minions = await context.minionService.list();
+            const firstMinion = minions[0];
+            if (!firstMinion) {
+              throw new ORPCError("PRECONDITION_FAILED", { message: "Create a minion first — the Captain needs a project to think about" });
+            }
+            await context.captainService.initialize(firstMinion.projectPath);
           }
 
-          // Initialize captain with the project directory
-          await context.captainService.initialize(firstMinion.projectPath);
-
-          // Create a dedicated captain minion for the cognitive loop
-          const captainMinionId = `captain-${Date.now()}`;
-          context.minionService.getOrCreateSession(captainMinionId);
-
-          // Wire the cognitive loop to send messages through the real AgentSession
-          context.captainService.wireSendFunction(async (message: string) => {
-            const result = await context.minionService.sendMessage(
-              captainMinionId,
-              message,
-              { agentId: "captain", model: "claude-sonnet-4-6" },
-              { synthetic: true },
-            );
-            // Return null on error, the cognitive loop handles it
-            return result.success ? "Cognitive tick processed" : null;
-          });
-
+          // Enable — CaptainService auto-wires LLM via the provider set in ServiceContainer
           context.captainService.enable();
           return { success: true };
         }),
