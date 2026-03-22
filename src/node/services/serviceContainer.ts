@@ -527,14 +527,11 @@ export class ServiceContainer {
       log.warn("[ServiceContainer] Failed to initialize simulation service", { error });
     }
 
-    // Captain — initialize with project directory (startup-safe)
-    try {
-      const projectDir = this.config.srcDir || this.config.rootDir;
-      await this.captainService.initialize(projectDir);
-      log.info("[ServiceContainer] Captain service initialized");
-    } catch (error) {
-      log.warn("[ServiceContainer] Failed to initialize captain service", { error });
-    }
+    // Captain — deferred initialization. The CaptainService is created but not
+    // initialized until a project directory is available. The oRPC handlers
+    // return PRECONDITION_FAILED if called before initialization.
+    // To initialize: captainService.initialize(projectDir) when a project is opened.
+    log.info("[ServiceContainer] Captain service created (deferred initialization)");
 
     // OpenBB — user-triggered via Research tab (no auto-start).
 

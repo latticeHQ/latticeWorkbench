@@ -60,7 +60,7 @@ export function getDefaultWorkbenchPanelLayoutState(activeTab: TabType): Workben
   // Default: two-stage split — terminal on top, info tabs on bottom.
   // The bare "terminal" placeholder is promoted to a real "terminal:<sessionId>"
   // by WorkbenchPanel's promoteBareTerminalPlaceholders effect on mount.
-  const bottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "browser", "kanban", "issues", "inference", "schedules", "sync", "reflections", "research", "simulation"];
+  const bottomTabs: TabType[] = ["stats", "costs", "explorer", "review", "browser", "kanban", "issues", "inference", "schedules", "sync", "reflections", "research", "simulation", "captain"];
 
   return {
     version: 1,
@@ -150,6 +150,9 @@ export function parseWorkbenchPanelLayoutState(
     }
     if (!layoutContainsTab(raw.root, "simulation")) {
       injectTabIntoLayout(raw.root, "simulation");
+    }
+    if (!layoutContainsTab(raw.root, "captain")) {
+      injectTabIntoLayout(raw.root, "captain");
     }
 
     // Migrate: remove inference sub-tabs from top-level layout
