@@ -826,6 +826,9 @@ export const secrets = {
   },
 };
 
+// Re-export Captain schemas from dedicated file
+export { captain } from "./captain";
+
 // Re-export Lattice schemas from dedicated file
 export {
   lattice,

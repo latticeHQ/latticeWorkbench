@@ -2389,6 +2389,108 @@ export const router = (authToken?: string) => {
           };
         }),
     },
+    // -----------------------------------------------------------------------
+    // Captain — Autonomous AI Mind
+    // -----------------------------------------------------------------------
+    captain: {
+      get: t
+        .input(schemas.captain.get.input)
+        .output(schemas.captain.get.output)
+        .handler(async ({ context }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          const identity = await context.captainService.getIdentity();
+          return {
+            identity,
+            isRunning: context.captainService.isRunning(),
+            tickCount: context.captainService.getTickCount(),
+          };
+        }),
+      updateIdentity: t
+        .input(schemas.captain.updateIdentity.input)
+        .output(schemas.captain.updateIdentity.output)
+        .handler(async ({ context, input }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          return context.captainService.updateIdentity(input);
+        }),
+      enable: t
+        .input(schemas.captain.enable.input)
+        .output(schemas.captain.enable.output)
+        .handler(async ({ context }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          context.captainService.enable();
+          return { success: true };
+        }),
+      disable: t
+        .input(schemas.captain.disable.input)
+        .output(schemas.captain.disable.output)
+        .handler(async ({ context }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          context.captainService.disable();
+          return { success: true };
+        }),
+      submitGoal: t
+        .input(schemas.captain.submitGoal.input)
+        .output(schemas.captain.submitGoal.output)
+        .handler(async ({ context, input }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          const goalId = await context.captainService.submitGoal(
+            input.description,
+            input.priority,
+          );
+          return { goalId };
+        }),
+      listGoals: t
+        .input(schemas.captain.listGoals.input)
+        .output(schemas.captain.listGoals.output)
+        .handler(async ({ context }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          return context.captainService.listGoals();
+        }),
+      cancelGoal: t
+        .input(schemas.captain.cancelGoal.input)
+        .output(schemas.captain.cancelGoal.output)
+        .handler(async ({ context, input }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          await context.captainService.cancelGoal(input.goalId);
+          return { success: true };
+        }),
+      sendMessage: t
+        .input(schemas.captain.sendMessage.input)
+        .output(schemas.captain.sendMessage.output)
+        .handler(async ({ context, input }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          context.captainService.sendMessage(input.content);
+          return { success: true };
+        }),
+      getMessages: t
+        .input(schemas.captain.getMessages.input)
+        .output(schemas.captain.getMessages.output)
+        .handler(async ({ context }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          return context.captainService.getMessages();
+        }),
+      getMemories: t
+        .input(schemas.captain.getMemories.input)
+        .output(schemas.captain.getMemories.output)
+        .handler(async ({ context, input }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          return context.captainService.getMemories(input?.type);
+        }),
+      getWorkers: t
+        .input(schemas.captain.getWorkers.input)
+        .output(schemas.captain.getWorkers.output)
+        .handler(async ({ context }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          return context.captainService.getActiveWorkers();
+        }),
+      getCanvasState: t
+        .input(schemas.captain.getCanvasState.input)
+        .output(schemas.captain.getCanvasState.output)
+        .handler(async ({ context }) => {
+          if (!context.captainService) throw new ORPCError("PRECONDITION_FAILED", { message: "Captain not initialized" });
+          return context.captainService.getCanvasState();
+        }),
+    },
     lattice: {
       getInfo: t
         .input(schemas.lattice.getInfo.input)

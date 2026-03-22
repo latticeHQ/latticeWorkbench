@@ -321,6 +321,7 @@ export {
   window,
   minion,
   openbb,
+  captain,
   simulation,
   SimulationStatusSchema,
   SimulationScenarioSchema,

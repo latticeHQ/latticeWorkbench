@@ -43,6 +43,7 @@ import type { InboxService } from "@/node/services/inboxService";
 import type { BrowserService } from "@/node/services/browserService";
 import type { OpenBBService } from "@/node/services/openbbService";
 import type { SimulationService } from "@/node/services/simulation";
+import type { CaptainService } from "@/node/services/captain/captainService";
 
 export interface ORPCContext {
   config: Config;
@@ -89,5 +90,6 @@ export interface ORPCContext {
   browserService: BrowserService;
   openbbService: OpenBBService;
   simulationService: SimulationService;
+  captainService?: CaptainService;
   headers?: IncomingHttpHeaders;
 }
