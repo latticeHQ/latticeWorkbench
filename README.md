@@ -2,12 +2,12 @@
 
 # Lattice Workbench
 
-### The Reference Engineering Stack for Lattice Runtime
+### Multi-model AI agent workspace — governed by Lattice Runtime
 
 [![Latest Release](https://img.shields.io/github/v/release/latticeHQ/latticeWorkbench?style=flat-square&label=latest)](https://github.com/latticeHQ/latticeWorkbench/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](./LICENSE)
 
-**Run a team of AI specialists on your hardware — governed by [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime).**
+**316K lines. 170+ MCP tools. 27 agents. Built solo in 5 weeks. Governed by [Lattice Runtime](https://github.com/latticeHQ/latticeRuntime).**
 
 [Download](https://github.com/latticeHQ/latticeWorkbench/releases/latest) · [Preamble](./PREAMBLE.md) · [Discussions](https://github.com/latticeHQ/latticeRuntime/discussions)
 
@@ -21,15 +21,13 @@
 
 ## Why Workbench Exists
 
-[Lattice Runtime](https://github.com/latticeHQ/latticeRuntime) is the open-source coordination layer for institutional AI — identity, authorization, audit, and budget for every agent in the organization. But a coordination layer alone is not useful. Departments need applications built on top of it.
+[Lattice Runtime](https://github.com/latticeHQ/latticeRuntime) is the crash-proof governed runtime for AI agents — durable execution, cryptographic audit, budget enforcement, zero-trust mesh. But a runtime alone is not useful. You need a way to create, manage, and observe agents running on it.
 
-**Department Stacks** are vertical applications that inherit Runtime's governance and add domain-specific agent workflows. Workbench is the **first stack** — purpose-built for software engineering teams.
+Workbench is that interface. It connects to Runtime over gRPC and gives you:
 
-This repo serves two purposes:
+1. **A production workspace for AI agents.** Each agent (minion) gets its own git worktree, conversation history, and tool access — organized into pipeline stages.
 
-1. **A production tool for engineering teams.** Workbench gives every developer a governed team of AI agents — each with its own git worktree, conversation history, and tool access — organized into pipeline stages that mirror how software actually ships.
-
-2. **A reference implementation for stack developers.** If you're building a stack for a different domain — clinical, legal, finance, support — study this codebase. It demonstrates how stacks connect to Runtime, inherit governance, and add domain-specific agent behavior. See the [Stack SDK guide](https://github.com/latticeHQ/latticeRuntime/blob/develop/docs/stacks/README.md).
+2. **Visible governance.** When connected to Runtime, you see agent lifecycle events, audit trails, and budget consumption in real-time. Kill an agent from the dashboard, watch it resurrect, read the cryptographic proof.
 
 > Read the **[Preamble](./PREAMBLE.md)** for the founding vision and philosophy.
 
@@ -204,7 +202,7 @@ Every stack inherits the same coordination primitives from Runtime — identity,
 | [**Operator**](https://github.com/latticeHQ/latticeOperator) | Self-hosted deployment management for Lattice infrastructure | [latticeOperator](https://github.com/latticeHQ/latticeOperator) |
 | [**Public**](https://github.com/latticeHQ/lattice) | Website + binary releases | [lattice](https://github.com/latticeHQ/lattice) |
 | [**Registry**](https://github.com/latticeHQ/latticeRegistry) | Community ecosystem — Terraform modules, templates, stacks | [latticeRegistry](https://github.com/latticeHQ/latticeRegistry) |
-| [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Coordination layer — identity, authorization, audit, budget | [latticeRuntime](https://github.com/latticeHQ/latticeRuntime) |
+| [**Runtime**](https://github.com/latticeHQ/latticeRuntime) | Crash-proof runtime — identity, auth, audit, budget, mesh | [latticeRuntime](https://github.com/latticeHQ/latticeRuntime) |
 | [**SDK**](https://github.com/latticeHQ/latticeSDK) | Go SDK for building Department Stacks | [latticeSDK](https://github.com/latticeHQ/latticeSDK) |
 | [**Terraform Provider**](https://github.com/latticeHQ/terraform-provider-lattice) | Infrastructure as code for Lattice deployments | [terraform-provider-lattice](https://github.com/latticeHQ/terraform-provider-lattice) |
 | [**Toolbox**](https://github.com/latticeHQ/latticeToolbox) | macOS app manager for Lattice products | [latticeToolbox](https://github.com/latticeHQ/latticeToolbox) |
@@ -224,6 +222,6 @@ Lattice Workbench is licensed under [MIT](./LICENSE).
 
 <div align="center">
 
-**[latticeruntime.com](https://latticeruntime.com)** — The open-source coordination layer for institutional AI.
+**[latticeruntime.com](https://latticeruntime.com)** — Crash-proof governed runtime for AI agents.
 
 </div>
